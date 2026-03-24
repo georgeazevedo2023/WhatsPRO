@@ -1,0 +1,1 @@
+ALTER TABLE public.kanban_fields ADD COLUMN show_on_card boolean NOT NULL DEFAULT false;

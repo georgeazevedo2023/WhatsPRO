@@ -1,0 +1,1 @@
+ALTER TABLE public.conversations ADD COLUMN status_ia text DEFAULT NULL;

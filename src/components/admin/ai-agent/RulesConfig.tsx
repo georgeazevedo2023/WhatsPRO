@@ -1,0 +1,112 @@
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { ShieldAlert, Clock, Frown, Timer } from 'lucide-react';
+
+interface RulesConfigProps {
+  config: Record<string, any>;
+  onChange: (updates: Record<string, any>) => void;
+}
+
+export function RulesConfig({ config, onChange }: RulesConfigProps) {
+  return (
+    <div className="space-y-6">
+      {/* Gatilhos de transbordo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-primary" />
+            Gatilhos de Transbordo (por texto)
+          </CardTitle>
+          <CardDescription>Palavras-chave que acionam transferência imediata para atendente humano</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={(config.handoff_triggers || []).join('\n')}
+            onChange={(e) => onChange({ handoff_triggers: e.target.value.split('\n').map((s: string) => s.trim()).filter(Boolean) })}
+            placeholder={"atendente\nhumano\ngerente\nfalar com pessoa\nreclamação"}
+            className="min-h-[100px] resize-none font-mono text-xs"
+          />
+          <p className="text-[11px] text-muted-foreground">Uma palavra/frase por linha. Se o lead usar qualquer uma, a IA transfere imediatamente.</p>
+        </CardContent>
+      </Card>
+
+      {/* Limites automáticos */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" />
+            Limites Automáticos
+          </CardTitle>
+          <CardDescription>Forçam transbordo mesmo sem gatilho de texto. Defina 0 para desativar.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Máx. minutos de conversa com IA</Label>
+              <Input
+                type="number" min={0} max={120}
+                value={config.handoff_max_conversation_minutes || 15}
+                onChange={(e) => onChange({ handoff_max_conversation_minutes: parseInt(e.target.value) || 0 })}
+              />
+              <p className="text-[11px] text-muted-foreground">Recomendado: 15-30 min. 0 = sem limite.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Cooldown após handoff (minutos)</Label>
+              <Input
+                type="number" min={5} max={1440}
+                value={config.handoff_cooldown_minutes || 30}
+                onChange={(e) => onChange({ handoff_cooldown_minutes: parseInt(e.target.value) || 30 })}
+              />
+              <p className="text-[11px] text-muted-foreground">IA fica "dormindo" por este período. Max: 1440 (24h).</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Sentimento negativo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Frown className="w-4 h-4 text-warning" />
+            Detecção de Sentimento Negativo
+          </CardTitle>
+          <CardDescription>Transfere automaticamente quando detectar frustração, irritação ou insatisfação</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm">Ativar detecção automática</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">Palavras como "absurdo", "demora", "péssimo" acionam transbordo</p>
+            </div>
+            <Switch
+              checked={config.handoff_negative_sentiment ?? true}
+              onCheckedChange={(v) => onChange({ handoff_negative_sentiment: v })}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Horário comercial */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Timer className="w-4 h-4 text-primary" />
+            Fora do Horário Comercial
+          </CardTitle>
+          <CardDescription>Mensagem enviada quando lead entra em contato fora do expediente</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            value={config.out_of_hours_message || ''}
+            onChange={(e) => onChange({ out_of_hours_message: e.target.value })}
+            placeholder="Estamos fora do horário de atendimento. Retornaremos em breve!"
+            className="min-h-[60px] resize-none"
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

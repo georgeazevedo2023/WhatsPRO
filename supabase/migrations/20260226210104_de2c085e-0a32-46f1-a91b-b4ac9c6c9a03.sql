@@ -1,0 +1,1 @@
+ALTER TABLE public.inbox_users ADD CONSTRAINT inbox_users_user_id_inbox_id_key UNIQUE (user_id, inbox_id);

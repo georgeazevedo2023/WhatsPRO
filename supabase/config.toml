@@ -1,0 +1,67 @@
+project_id = "euljumeflwtljegknawy"
+
+[functions.uazapi-proxy]
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.admin-create-user]
+verify_jwt = false
+
+[functions.admin-delete-user]
+verify_jwt = false
+
+[functions.activate-ia]
+verify_jwt = false
+
+[functions.analyze-summaries]
+verify_jwt = false
+
+[functions.auto-summarize]
+verify_jwt = false
+
+[functions.cleanup-old-media]
+verify_jwt = false
+
+[functions.database-backup]
+verify_jwt = false
+
+[functions.fire-outgoing-webhook]
+verify_jwt = false
+
+[functions.process-scheduled-messages]
+verify_jwt = false
+
+[functions.send-shift-report]
+verify_jwt = false
+
+[functions.summarize-conversation]
+verify_jwt = false
+
+[functions.sync-conversations]
+verify_jwt = false
+
+[functions.transcribe-audio]
+verify_jwt = false
+
+[functions.admin-update-user]
+verify_jwt = false
+
+[functions.group-reasons]
+verify_jwt = false
+
+[functions.ai-agent]
+verify_jwt = false
+
+[functions.ai-agent-debounce]
+verify_jwt = false
+
+[functions.ai-agent-playground]
+verify_jwt = false
+
+[functions.scrape-product]
+verify_jwt = false
+
+[functions.go]
+verify_jwt = false

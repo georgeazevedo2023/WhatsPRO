@@ -1,0 +1,1 @@
+ALTER TABLE public.conversation_messages ADD COLUMN transcription text DEFAULT NULL;

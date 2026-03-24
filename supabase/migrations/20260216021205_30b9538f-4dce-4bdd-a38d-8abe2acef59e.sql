@@ -1,0 +1,1 @@
+ALTER TABLE public.inboxes ADD COLUMN webhook_outgoing_url text;

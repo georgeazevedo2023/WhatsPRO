@@ -1,0 +1,1 @@
+ALTER TABLE instances ADD COLUMN disabled boolean NOT NULL DEFAULT false;
