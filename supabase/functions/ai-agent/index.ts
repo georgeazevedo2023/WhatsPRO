@@ -11,113 +11,119 @@ const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
-const COPY_PROMPT = (title: string, price: string, desc: string, numCards: number) =>
-  `Gere ${numCards} textos curtos e persuasivos para cards de carrossel WhatsApp de um produto.\n` +
-  `Produto: ${title} | ${price}\nDescrição: ${desc.substring(0, 200)}\n\n` +
-  `Responda APENAS um JSON array de ${numCards} strings. Exemplo: ["texto1","texto2",...]\n` +
-  `- Card 1: Nome curto do produto + preço (2 linhas)\n` +
-  `- Card 2: Copy de vendas — benefício principal\n` +
-  `- Card 3: Detalhes técnicos ou especificações\n` +
-  `- Card 4: Diferencial de qualidade\n` +
-  `- Card 5: Urgência + call-to-action\n\n` +
-  `Regras: máx 80 chars por texto, sem emojis, português BR, persuasivo. NÃO repita o nome completo do produto nos cards 2-5.`
+/** Remove redundant brand/name from last segment of product title */
+function cleanProductTitle(title: string): string {
+  const parts = title.split(' - ')
+  if (parts.length <= 2) return title
+  const lastPart = parts[parts.length - 1].trim()
+  const rest = parts.slice(0, -1).join(' - ')
+  const lastWords = lastPart.split(/\s+/)
+  // Check for 3-consecutive-word overlap between last segment and earlier text
+  for (let i = 0; i <= lastWords.length - 3; i++) {
+    const subseq = lastWords.slice(i, i + 3).join(' ')
+    if (rest.toLowerCase().includes(subseq.toLowerCase())) {
+      const restLower = rest.toLowerCase()
+      const uniqueWords = lastWords.filter(w => w.length > 2 && !restLower.includes(w.toLowerCase()))
+      return uniqueWords.length > 0 ? `${rest} - ${uniqueWords.join(' ')}` : rest
+    }
+  }
+  return title
+}
 
-function parseCopyResponse(text: string, numCards: number): string[] | null {
+// LLM prompt only generates cards 2-N (card 1 is code-generated)
+const COPY_PROMPT = (title: string, price: string, desc: string, count: number) =>
+  `Gere ${count} textos curtos e persuasivos para cards de carrossel WhatsApp.\n` +
+  `Produto: ${title} | ${price}\nDescrição: ${desc.substring(0, 200)}\n\n` +
+  `Responda APENAS um JSON array de ${count} strings. Exemplo: ["texto1","texto2",...]\n` +
+  `- Texto 1: Copy de vendas — benefício principal\n` +
+  `- Texto 2: Detalhes técnicos ou especificações\n` +
+  `- Texto 3: Diferencial de qualidade\n` +
+  `- Texto 4: Urgência + call-to-action\n\n` +
+  `Regras: máx 80 chars por texto, sem emojis, português BR, persuasivo. NÃO mencione o nome completo do produto.`
+
+function parseCopyResponse(text: string, count: number): string[] | null {
   const match = text.match(/\[[\s\S]*?\]/)
   if (!match) return null
   try {
     const arr = JSON.parse(match[0])
-    if (!Array.isArray(arr) || arr.length < numCards) return null
-    return arr.slice(0, numCards).map((c: any) => String(c).substring(0, 120))
+    if (!Array.isArray(arr) || arr.length < count) return null
+    return arr.slice(0, count).map((c: any) => String(c).substring(0, 120))
   } catch { return null }
 }
 
-/** Generate sales copy for carousel cards: Groq (fast) → Gemini → Mistral → static */
+/** Generate sales copy for carousel cards: Card 1 = code, Cards 2-5 = Groq → Gemini → Mistral → static */
 async function generateCarouselCopies(product: any, numCards: number): Promise<string[]> {
   const title = product.title || 'Produto'
   const price = product.price ? `R$ ${product.price.toFixed(2)}` : 'Sob consulta'
   const desc = product.description || ''
-  const prompt = COPY_PROMPT(title, price, desc, numCards)
 
-  // Static fallback — never repeats product title on cards 2-5
-  const shortName = title.split(' - ')[0] || title
-  const fallback = [
-    `${shortName}\n${price}`,
+  // Card 1 is ALWAYS code-generated (deterministic, clean title + price)
+  const card1 = `${cleanProductTitle(title)}\n${price}`
+
+  if (numCards <= 1) return [card1]
+
+  const copyCount = numCards - 1 // How many cards the LLM needs to generate
+  const prompt = COPY_PROMPT(title, price, desc, copyCount)
+
+  // Static fallback for cards 2-5
+  const fallbackCopies = [
     `Qualidade garantida!\nO melhor para sua obra`,
     `Alto desempenho e durabilidade\nResultado profissional`,
     `Marca de confiança!\nEscolha dos especialistas`,
     `Aproveite agora!\nUnidades limitadas`,
-  ].slice(0, numCards)
+  ].slice(0, copyCount)
 
-  // 1. Try Groq (Llama 3.3 — fastest, ~300ms)
-  if (GROQ_API_KEY) {
-    try {
-      const res = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.8, max_tokens: 300,
-        }),
-      }, 3000)
-      if (res.ok) {
-        const data = await res.json()
-        const text = data.choices?.[0]?.message?.content || ''
-        const copies = parseCopyResponse(text, numCards)
-        if (copies) { console.log('[ai-agent] Carousel copies: Groq OK'); return copies }
-      }
-      console.warn('[ai-agent] Groq copy failed:', res.status)
-    } catch (e) { console.warn('[ai-agent] Groq copy error:', e) }
-  }
+  // Try LLM chain for cards 2-N: Groq → Gemini → Mistral → static
+  const providers: Array<{ name: string, call: () => Promise<string | null> }> = []
 
-  // 2. Try Gemini (fallback)
-  if (GEMINI_API_KEY) {
-    try {
-      const res = await fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.8, maxOutputTokens: 300 },
-          }),
-        }, 3000)
-      if (res.ok) {
-        const data = await res.json()
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-        const copies = parseCopyResponse(text, numCards)
-        if (copies) { console.log('[ai-agent] Carousel copies: Gemini OK'); return copies }
-      }
-      console.warn('[ai-agent] Gemini copy failed:', res.status)
-    } catch (e) { console.warn('[ai-agent] Gemini copy error:', e) }
-  }
+  if (GROQ_API_KEY) providers.push({ name: 'Groq', call: async () => {
+    const res = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.8, max_tokens: 300 }),
+    }, 3000)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.choices?.[0]?.message?.content || null
+  }})
 
-  // 3. Try Mistral (fallback)
-  if (MISTRAL_API_KEY) {
+  if (GEMINI_API_KEY) providers.push({ name: 'Gemini', call: async () => {
+    const res = await fetchWithTimeout(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.8, maxOutputTokens: 300 } }) }, 3000)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null
+  }})
+
+  if (MISTRAL_API_KEY) providers.push({ name: 'Mistral', call: async () => {
+    const res = await fetchWithTimeout('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${MISTRAL_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'mistral-small-latest', messages: [{ role: 'user', content: prompt }], temperature: 0.8, max_tokens: 300 }),
+    }, 3000)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.choices?.[0]?.message?.content || null
+  }})
+
+  for (const provider of providers) {
     try {
-      const res = await fetchWithTimeout('https://api.mistral.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${MISTRAL_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'mistral-small-latest',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.8, max_tokens: 300,
-        }),
-      }, 3000)
-      if (res.ok) {
-        const data = await res.json()
-        const text = data.choices?.[0]?.message?.content || ''
-        const copies = parseCopyResponse(text, numCards)
-        if (copies) { console.log('[ai-agent] Carousel copies: Mistral OK'); return copies }
+      const text = await provider.call()
+      if (text) {
+        const copies = parseCopyResponse(text, copyCount)
+        if (copies) {
+          console.log(`[ai-agent] Carousel copies: ${provider.name} OK`)
+          return [card1, ...copies]
+        }
       }
-      console.warn('[ai-agent] Mistral copy failed:', res.status)
-    } catch (e) { console.warn('[ai-agent] Mistral copy error:', e) }
+      console.warn(`[ai-agent] ${provider.name} copy: bad response`)
+    } catch (e) { console.warn(`[ai-agent] ${provider.name} copy error:`, e) }
   }
 
   console.warn('[ai-agent] Carousel copies: all LLMs failed, using static')
-  return fallback
+  return [card1, ...fallbackCopies]
 }
 
 /**
@@ -1307,10 +1313,33 @@ ${subAgentInstruction}`
       .select('id, created_at')
       .single()
 
-    // 18. Update conversation
+    // 17.5 Detect handoff — explicit tool call OR implicit (Gemini talked about transferring without calling tool)
+    const toolNames = toolCallsLog.map((t: any) => t.name)
+    const hadExplicitHandoff = toolNames.includes('handoff_to_human')
+    const handoffPhrases = ['encaminhar para', 'consultor de vendas', 'atendente humano', 'transferir para', 'falar com um vendedor']
+    const textLooksLikeHandoff = handoffPhrases.some(p => responseText.toLowerCase().includes(p))
+    const shouldDisableIa = hadExplicitHandoff || textLooksLikeHandoff
+
+    // If Gemini implied handoff but didn't call the tool → force disable IA
+    if (textLooksLikeHandoff && !hadExplicitHandoff) {
+      console.log('[ai-agent] Implicit handoff detected in response text — forcing IA off')
+      await supabase.from('conversations').update({ status_ia: 'desligada' }).eq('id', conversation_id)
+      // Add ia:desativada tag
+      const curTags: string[] = conversation.tags || []
+      const tagMap = new Map(curTags.map((t: string) => [t.split(':')[0], t]))
+      tagMap.set('ia', 'ia:desativada')
+      await supabase.from('conversations').update({ tags: Array.from(tagMap.values()) }).eq('id', conversation_id)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        metadata: { response_text: responseText.substring(0, 300) },
+      })
+    }
+
+    // 18. Update conversation (DON'T reset status_ia to 'ligada' if handoff happened)
+    const newStatusIa = shouldDisableIa ? 'desligada' : 'ligada'
     await supabase
       .from('conversations')
-      .update({ last_message_at: new Date().toISOString(), last_message: responseText.substring(0, 200), status_ia: 'ligada' })
+      .update({ last_message_at: new Date().toISOString(), last_message: responseText.substring(0, 200), status_ia: newStatusIa })
       .eq('id', conversation_id)
 
     // 19. Broadcast to helpdesk realtime
@@ -1319,7 +1348,7 @@ ${subAgentInstruction}`
       message_id: savedMsg?.id, direction: 'outgoing',
       content: responseText, media_type: sentMediaType,
       created_at: savedMsg?.created_at || new Date().toISOString(),
-      status_ia: 'ligada',
+      status_ia: newStatusIa,
     }
 
     await Promise.all(
@@ -1357,14 +1386,12 @@ ${subAgentInstruction}`
 
     // 21. Update lead_profile: interaction count + conversation summary (ALWAYS)
     try {
-      const toolNames = toolCallsLog.map((t: any) => t.name)
       const products = toolCallsLog
         .filter((t: any) => t.name === 'search_products' || t.name === 'send_carousel')
         .flatMap((t: any) => {
           if (t.name === 'send_carousel') return t.args?.product_ids || []
           return t.args?.query ? [t.args.query] : []
         })
-      const hadHandoff = toolNames.includes('handoff_to_human')
       const currentTags = conversation.tags || []
 
       const summaryEntry = {
@@ -1372,7 +1399,7 @@ ${subAgentInstruction}`
         summary: `${incomingText.substring(0, 100)} → ${responseText.substring(0, 100)}`,
         products: [...new Set(products)].slice(0, 5),
         sentiment: currentTags.find((t: string) => t.startsWith('sentimento:'))?.split(':')[1] || null,
-        outcome: hadHandoff ? 'handoff' : 'respondido',
+        outcome: shouldDisableIa ? 'handoff' : 'respondido',
         tools_used: [...new Set(toolNames)],
       }
 
