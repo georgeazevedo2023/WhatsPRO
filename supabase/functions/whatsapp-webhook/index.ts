@@ -447,37 +447,9 @@ Deno.serve(async (req) => {
           console.log('Generated document name:', content, 'from mimetype:', mime)
         }
 
-        // Upload non-audio media to Storage for public URL access
-        if (mediaType !== 'audio' && mediaUrl) {
-          try {
-            console.log('Uploading media to Storage bucket...')
-            const mediaResponse = await fetchWithTimeout(mediaUrl, undefined, 30000)
-            if (mediaResponse.ok) {
-              const fileBuffer = await mediaResponse.arrayBuffer()
-              const ext = mimeExtMap[mime] || mime.split('/').pop() || 'bin'
-              const storagePath = `webhook/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`
-              const contentType = mime || 'application/octet-stream'
-
-              const { error: uploadError } = await supabase.storage
-                .from('helpdesk-media')
-                .upload(storagePath, fileBuffer, { contentType, upsert: false })
-
-              if (!uploadError) {
-                const { data: publicUrlData } = supabase.storage
-                  .from('helpdesk-media')
-                  .getPublicUrl(storagePath)
-                mediaUrl = publicUrlData.publicUrl
-                console.log('Media uploaded to Storage, public URL:', mediaUrl.substring(0, 80))
-              } else {
-                console.error('Storage upload error:', uploadError.message)
-              }
-            } else {
-              console.error('Failed to download media from UAZAPI:', mediaResponse.status)
-            }
-          } catch (uploadErr) {
-            console.error('Error uploading media to Storage:', uploadErr)
-          }
-        }
+        // Use UAZAPI persistent URL directly (no re-upload to Storage)
+        // The /message/download URL is persistent and accessible
+        console.log('Using UAZAPI persistent URL directly (no re-upload):', mediaUrl?.substring(0, 80))
       } else {
         console.log('Failed to get persistent link, keeping original:', mediaUrl?.substring(0, 80))
       }
@@ -850,7 +822,8 @@ Deno.serve(async (req) => {
     }
 
     // Trigger AI Agent for incoming messages (if enabled for this instance)
-    if (direction === 'incoming' && !fromMe) {
+    // Skip audio messages — transcribe-audio will trigger the agent after transcription
+    if (direction === 'incoming' && !fromMe && mediaType !== 'audio') {
       // Check if instance has an active AI agent AND conversation is not in handoff cooldown
       const shouldTriggerAgent = conversation.status_ia !== 'desligada'
 

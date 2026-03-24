@@ -31,6 +31,7 @@ export interface MediaFile {
   direction: string;
   created_at: string;
   content: string | null;
+  transcription?: string | null;
 }
 
 export interface ExtractionField {

@@ -142,7 +142,7 @@ const LeadDetail = () => {
         if (convIds.length > 0) {
           supabase
             .from('conversation_messages')
-            .select('id, media_url, media_type, direction, created_at, content')
+            .select('id, media_url, media_type, direction, created_at, content, transcription')
             .in('conversation_id', convIds.slice(0, 100))
             .not('media_url', 'is', null)
             .neq('media_type', 'text')

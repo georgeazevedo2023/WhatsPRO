@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Paperclip, Image, FileText, Music, Video, Download, Inbox } from 'lucide-react';
+import { Paperclip, Image, FileText, Music, Video, Download, Inbox, ChevronDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { MediaFile } from './types';
 
 interface LeadFilesSectionProps {
@@ -109,23 +110,7 @@ function FileList({ files }: { files: MediaFile[] }) {
       )}
 
       {/* Audios */}
-      {audios.length > 0 && (
-        <div>
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-2">
-            <Music className="w-3.5 h-3.5" />Audios ({audios.length})
-          </p>
-          <div className="space-y-1.5">
-            {audios.slice(0, 10).map(f => (
-              <div key={f.id} className="flex items-center gap-3 p-3 rounded-lg border">
-                <Music className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-                <span className="text-sm text-muted-foreground flex-1">
-                  {new Date(f.created_at).toLocaleDateString('pt-BR')} {new Date(f.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {audios.length > 0 && <AudioList audios={audios} />}
 
       {/* Videos */}
       {videos.length > 0 && (
@@ -143,6 +128,52 @@ function FileList({ files }: { files: MediaFile[] }) {
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function AudioList({ audios }: { audios: MediaFile[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const INITIAL_COUNT = 3;
+  const visible = showAll ? audios : audios.slice(0, INITIAL_COUNT);
+  const hasMore = audios.length > INITIAL_COUNT;
+
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-2">
+        <Music className="w-3.5 h-3.5" />Audios ({audios.length})
+      </p>
+      <div className="space-y-2">
+        {visible.map(f => (
+          <div key={f.id} className="p-3 rounded-lg border space-y-2">
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${f.direction === 'incoming' ? 'bg-blue-500/10 text-blue-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                {f.direction === 'incoming' ? 'Lead' : 'Agente'}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {new Date(f.created_at).toLocaleDateString('pt-BR')} {new Date(f.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+            <audio controls preload="none" className="w-full h-8" style={{ minHeight: 32 }}>
+              <source src={f.media_url} />
+            </audio>
+            {f.transcription && (
+              <p className="text-xs text-muted-foreground italic">"{f.transcription}"</p>
+            )}
+          </div>
+        ))}
+      </div>
+      {hasMore && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full mt-2 text-xs gap-1"
+          onClick={() => setShowAll(!showAll)}
+        >
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showAll ? 'rotate-180' : ''}`} />
+          {showAll ? 'Mostrar menos' : `Ver mais ${audios.length - INITIAL_COUNT} audios`}
+        </Button>
       )}
     </div>
   );

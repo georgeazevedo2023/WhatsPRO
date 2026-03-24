@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
-import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
+import { webhookCorsHeaders as corsHeaders } from './_shared/cors.ts'
+import { fetchWithTimeout, fetchFireAndForget } from './_shared/fetchWithTimeout.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -126,6 +126,16 @@ Deno.serve(async (req) => {
     }
 
     const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
+
+    // 4.5 Send "typing..." indicator (refresh — debounce sent it once but processing takes time)
+    const sendPresence = (type: 'composing' | 'recording') => {
+      fetchFireAndForget(`${uazapiUrl}/chat/presence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'token': instance.token },
+        body: JSON.stringify({ id: contact.jid, presence: type }),
+      })
+    }
+    sendPresence('composing')
 
     // 5. Combine queued messages
     const incomingMessages = (queuedMessages || [])
@@ -377,18 +387,26 @@ Fluxo de Qualificação do Lead:
    - Se mencionar valor → update_lead_profile(average_ticket, reason)
 3. BUSCAR: Quando souber o suficiente, use search_products para encontrar opções
 4. APRESENTAR: Se encontrar 2+ produtos com imagem, use send_carousel. Se for 1, use send_media
-5. TRANSBORDO OBRIGATÓRIO — faça handoff_to_human IMEDIATAMENTE quando:
-   a) search_products NÃO encontrou o produto E o lead perguntou preço/valor → Responda: "Só um instante que vou te encaminhar para nosso consultor de vendas." e faça handoff
-   b) Lead pedir para falar com vendedor/atendente
-   c) Lead demonstrar interesse em comprar ("quero esse", "quanto custa", "me passa o preço")
-   d) Lead já tiver sido qualificado (produto + nome coletados)
-   → SEMPRE nesta ordem: set_tags → update_lead_profile → assign_label → handoff_to_human
+5. APRESENTAR PRODUTO — Quando lead perguntar sobre um produto ESPECÍFICO:
+   a) SEMPRE use search_products PRIMEIRO para buscar no catálogo
+   b) Se encontrou produto com fotos:
+      - SEMPRE use send_carousel para enviar as fotos (funciona com 1 ou mais produtos)
+      - O send_carousel automaticamente mostra múltiplas fotos quando há 1 produto com várias fotos
+      - Depois pergunte: "É esse que você procura?"
+      - NUNCA apenas descreva o produto em texto se ele tem foto — SEMPRE envie o carrossel
+   c) Se encontrou produto sem foto: descreva em texto e pergunte se é o que procura
+   d) Se NÃO encontrou no catálogo: responda "Só um instante que vou te encaminhar para nosso consultor de vendas." e faça handoff_to_human
 
-REGRA DE TRANSBORDO POR PRODUTO NÃO ENCONTRADO:
-- Se search_products retornar 0 resultados e o lead perguntar preço/disponibilidade:
-  1. Responda EXATAMENTE: "Só um instante que vou te encaminhar para nosso consultor de vendas."
-  2. Use handoff_to_human com motivo detalhado (produto buscado + dados do lead)
-  3. NÃO tente sugerir alternativas, NÃO pergunte mais nada — faça o transbordo direto
+6. TRANSBORDO OBRIGATÓRIO — faça handoff_to_human quando:
+   a) Lead confirmar interesse no produto apresentado ("quero esse", "é esse mesmo", "quanto custa", "sim")
+   b) Lead pedir para falar com vendedor/atendente/humano
+   c) search_products retornar 0 resultados para um pedido específico
+   → SEMPRE nesta ordem: set_tags → update_lead_profile → handoff_to_human
+   → No motivo do handoff SEMPRE inclua: nome do lead, telefone, produto de interesse, motivo
+
+REGRA CRÍTICA: NUNCA faça handoff sem antes tentar search_products quando o lead menciona um produto.
+REGRA CRÍTICA: NUNCA diga "não encontrei" sem ter chamado search_products primeiro.
+REGRA CRÍTICA: Quando search_products retorna produto com fotos, você DEVE usar send_carousel para mostrar ao lead.
 
 REGRA CRÍTICA DE TAGS: SEMPRE use set_tags A CADA mensagem do lead para atualizar motivo e interesse.
 - Quando o lead disser "quero comprar X" → set_tags motivo:compra, interesse:X
@@ -508,26 +526,107 @@ ${subAgentInstruction}`
     async function executeTool(name: string, args: Record<string, any>): Promise<string> {
       switch (name) {
         case 'search_products': {
-          let query = supabase
+          const baseQuery = () => supabase
             .from('ai_agent_products')
             .select('title, category, subcategory, description, price, images, in_stock')
             .eq('agent_id', agent_id)
             .eq('enabled', true)
 
-          if (args.category) query = query.ilike('category', `%${args.category}%`)
-          if (args.subcategory) query = query.ilike('subcategory', `%${args.subcategory}%`)
+          let query = baseQuery()
           if (args.min_price) query = query.gte('price', args.min_price)
           if (args.max_price) query = query.lte('price', args.max_price)
-          if (args.query) {
-            query = query.or(`title.ilike.%${args.query}%,description.ilike.%${args.query}%,category.ilike.%${args.query}%`)
+
+          // Build search: try exact phrase first, then word-by-word fallback
+          const searchText = args.query || ''
+          const categoryText = args.category || ''
+
+          if (searchText) {
+            query = query.or(`title.ilike.%${searchText}%,description.ilike.%${searchText}%,category.ilike.%${searchText}%,subcategory.ilike.%${searchText}%`)
+          }
+          if (categoryText) query = query.or(`category.ilike.%${categoryText}%,subcategory.ilike.%${categoryText}%`)
+
+          let { data: products } = await query.limit(10)
+
+          // Fallback: if no results and query has multiple words, search each word
+          if ((!products || products.length === 0) && searchText && searchText.includes(' ')) {
+            const words = searchText.split(/\s+/).filter((w: string) => w.length > 2)
+            if (words.length > 1) {
+              let fallback = baseQuery()
+              if (args.min_price) fallback = fallback.gte('price', args.min_price)
+              if (args.max_price) fallback = fallback.lte('price', args.max_price)
+              // Match ALL words in title or description (AND logic)
+              for (const word of words.slice(0, 5)) {
+                fallback = fallback.or(`title.ilike.%${word}%,description.ilike.%${word}%`)
+              }
+              const { data: fallbackProducts } = await fallback.limit(10)
+              products = fallbackProducts
+              if (products?.length) console.log(`[ai-agent] search_products fallback found ${products.length} results with words: ${words.join(', ')}`)
+            }
           }
 
-          const { data: products } = await query.limit(10)
           if (!products || products.length === 0) return 'Nenhum produto encontrado com esses critérios.'
 
-          return products.map((p, i) =>
-            `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (SEM ESTOQUE)' : ''}${p.images?.[0] ? ' [tem imagem]' : ' [sem imagem]'}`
+          // Auto-send carousel when products have images
+          const withImages = products.filter((p: any) => p.images?.[0])
+          if (withImages.length > 0) {
+            let carousel: any[]
+
+            if (withImages.length === 1 && withImages[0].images?.length > 1) {
+              // Single product with multiple photos → multi-photo carousel
+              const p = withImages[0]
+              const photos = (p.images as string[]).slice(0, 5)
+              carousel = photos.map((img: string, idx: number) => ({
+                text: idx === 0
+                  ? `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
+                  : `${p.title}\nFoto ${idx + 1} de ${photos.length}`,
+                image: img,
+                buttons: [{ id: `${p.title}_${idx}`, text: idx === photos.length - 1 ? 'Quero este!' : 'Ver mais', type: 'REPLY' }],
+              }))
+              console.log(`[ai-agent] Auto-carousel: ${p.title} with ${photos.length} photos`)
+            } else {
+              // Multiple products → 1 card per product
+              carousel = withImages.slice(0, 10).map((p: any) => ({
+                text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
+                image: p.images[0],
+                buttons: [{ id: p.title, text: 'Quero este!', type: 'REPLY' }],
+              }))
+            }
+
+            // Send carousel with retry strategy (UAZAPI is finicky with field names)
+            const carouselPayloads = [
+              { phone: contact.jid, message: 'Confira:', carousel },
+              { number: contact.jid, text: 'Confira:', carousel },
+              { chatId: contact.jid, message: 'Confira:', carousel },
+            ]
+            let carouselSent = false
+            for (const payload of carouselPayloads) {
+              try {
+                const res = await fetchWithTimeout(`${uazapiUrl}/send/carousel`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'token': instance.token },
+                  body: JSON.stringify(payload),
+                })
+                const resBody = await res.text()
+                if (res.ok && !resBody.includes('missing required')) {
+                  carouselSent = true
+                  console.log(`[ai-agent] Auto-carousel sent: ${withImages.length} product(s), variant: ${Object.keys(payload)[0]}`)
+                  break
+                }
+                console.warn(`[ai-agent] Carousel variant ${Object.keys(payload)[0]} failed:`, res.status, resBody.substring(0, 100))
+              } catch (err) {
+                console.error('[ai-agent] Carousel attempt failed:', err)
+              }
+            }
+            if (!carouselSent) console.error('[ai-agent] All carousel variants failed')
+          }
+
+          const resultText = products.map((p: any, i: number) =>
+            `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (SEM ESTOQUE)' : ''}`
           ).join('\n')
+
+          return withImages.length > 0
+            ? `${resultText}\n\nCarrossel com fotos JÁ FOI ENVIADO ao lead automaticamente. NÃO envie send_carousel novamente. Apenas pergunte se é o que procura.`
+            : resultText
         }
 
         case 'send_carousel': {
@@ -547,25 +646,50 @@ ${subAgentInstruction}`
           const withImages = products.filter((p: any) => p.images?.[0])
           if (withImages.length === 0) return 'Nenhum produto com imagem. Descreva por texto.'
 
-          const carousel = withImages.slice(0, 10).map((p: any) => ({
-            text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
-            image: p.images[0],
-            buttons: [{ id: p.title, text: 'Quero este!', type: 'REPLY' }],
-          }))
+          let carousel: any[]
 
-          const sendRes = await fetchWithTimeout(`${uazapiUrl}/send/carousel`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'token': instance.token },
-            body: JSON.stringify({ number: contact.jid, message: args.message || 'Confira nossas opções:', carousel }),
-          })
-
-          if (!sendRes.ok) {
-            const err = await sendRes.json().catch(() => ({}))
-            console.error('[ai-agent] Carousel error:', sendRes.status, JSON.stringify(err).substring(0, 200))
-            return `Erro ao enviar carrossel (${sendRes.status}). Descreva os produtos por texto.`
+          // Single product with multiple photos → multi-photo carousel
+          if (withImages.length === 1 && withImages[0].images?.length > 1) {
+            const p = withImages[0]
+            const photos = (p.images as string[]).slice(0, 5) // Max 5 photos
+            carousel = photos.map((img: string, idx: number) => ({
+              text: idx === 0
+                ? `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
+                : `${p.title}\nFoto ${idx + 1} de ${photos.length}`,
+              image: img,
+              buttons: [{ id: `${p.title}_${idx}`, text: idx === photos.length - 1 ? 'Quero este!' : 'Ver mais', type: 'REPLY' }],
+            }))
+            console.log(`[ai-agent] Multi-photo carousel: ${p.title} with ${photos.length} photos`)
+          } else {
+            // Multiple products → 1 card per product
+            carousel = withImages.slice(0, 10).map((p: any) => ({
+              text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
+              image: p.images[0],
+              buttons: [{ id: p.title, text: 'Quero este!', type: 'REPLY' }],
+            }))
           }
 
-          return `Carrossel enviado! ${withImages.length} produto(s): ${withImages.map((p: any) => p.title).join(', ')}`
+          // Retry strategy for carousel (UAZAPI field names vary)
+          const msg = args.message || 'Confira nossas opções:'
+          const variants = [
+            { phone: contact.jid, message: msg, carousel },
+            { number: contact.jid, text: msg, carousel },
+            { chatId: contact.jid, message: msg, carousel },
+          ]
+          let sent = false
+          for (const payload of variants) {
+            const res = await fetchWithTimeout(`${uazapiUrl}/send/carousel`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'token': instance.token },
+              body: JSON.stringify(payload),
+            })
+            const body = await res.text()
+            if (res.ok && !body.includes('missing required')) { sent = true; break }
+          }
+          if (!sent) return 'Erro ao enviar carrossel. Descreva os produtos por texto.'
+
+          const photoCount = withImages.length === 1 ? `${(withImages[0].images as string[]).slice(0, 5).length} fotos` : `${withImages.length} produto(s)`
+          return `Carrossel enviado com ${photoCount} ao lead! NÃO repita os nomes dos produtos no texto — apenas pergunte se é isso que procura.`
         }
 
         case 'send_media': {
@@ -581,7 +705,7 @@ ${subAgentInstruction}`
           })
 
           if (!sendRes.ok) return `Erro ao enviar mídia (${sendRes.status}). Descreva por texto.`
-          return `Mídia enviada! Tipo: ${type}${caption ? `, legenda: "${caption.substring(0, 50)}"` : ''}`
+          return `Mídia enviada com legenda ao lead! NÃO repita a mesma informação no texto — apenas faça a próxima pergunta (ex: "É esse que você procura?").`
         }
 
         case 'assign_label': {
@@ -806,6 +930,7 @@ ${subAgentInstruction}`
 
     while (attempts < maxAttempts) {
       attempts++
+      if (attempts > 1) sendPresence('composing') // Refresh typing indicator between tool rounds
 
       const geminiResponse = await fetchWithTimeout(geminiUrl, {
         method: 'POST',
@@ -876,10 +1001,15 @@ ${subAgentInstruction}`
     const shouldSendAudio = (agent.voice_enabled || (incomingHasAudio && voiceReplyToAudio)) &&
       responseText.length <= maxTtsLength
 
+    console.log(`[ai-agent] TTS check: voice_enabled=${agent.voice_enabled}, incomingHasAudio=${incomingHasAudio}, voiceReplyToAudio=${voiceReplyToAudio}, responseLen=${responseText.length}, maxTts=${maxTtsLength}, shouldSendAudio=${shouldSendAudio}`)
+    let ttsDebugError = ''
+
     if (shouldSendAudio) {
-      // Generate TTS audio via Gemini
+      // Switch to "recording..." indicator before TTS
+      sendPresence('recording')
       try {
-        const ttsUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`
+        console.log('[ai-agent] Generating TTS audio via gemini-2.5-flash-preview-tts...')
+        const ttsUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${GEMINI_API_KEY}`
         const ttsRes = await fetchWithTimeout(ttsUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -896,16 +1026,50 @@ ${subAgentInstruction}`
           const ttsData = await ttsRes.json()
           const audioPart = ttsData?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)
           if (audioPart?.inlineData?.data) {
+            // Convert PCM to WAV (Gemini TTS returns raw PCM 24kHz 16-bit mono)
+            const pcmBytes = Uint8Array.from(atob(audioPart.inlineData.data), c => c.charCodeAt(0))
+            const wavHeader = new ArrayBuffer(44)
+            const view = new DataView(wavHeader)
+            const sampleRate = 24000, channels = 1, bitsPerSample = 16
+            const byteRate = sampleRate * channels * (bitsPerSample / 8)
+            const blockAlign = channels * (bitsPerSample / 8)
+            // RIFF header
+            view.setUint32(0, 0x52494646, false) // "RIFF"
+            view.setUint32(4, 36 + pcmBytes.length, true)
+            view.setUint32(8, 0x57415645, false) // "WAVE"
+            // fmt chunk
+            view.setUint32(12, 0x666D7420, false) // "fmt "
+            view.setUint32(16, 16, true)
+            view.setUint16(20, 1, true) // PCM
+            view.setUint16(22, channels, true)
+            view.setUint32(24, sampleRate, true)
+            view.setUint32(28, byteRate, true)
+            view.setUint16(32, blockAlign, true)
+            view.setUint16(34, bitsPerSample, true)
+            // data chunk
+            view.setUint32(36, 0x64617461, false) // "data"
+            view.setUint32(40, pcmBytes.length, true)
+            // Combine header + PCM data
+            const wavBytes = new Uint8Array(44 + pcmBytes.length)
+            wavBytes.set(new Uint8Array(wavHeader), 0)
+            wavBytes.set(pcmBytes, 44)
+            // Base64 encode WAV (chunked to avoid stack overflow)
+            let wavBinary = ''
+            for (let i = 0; i < wavBytes.length; i += 8192) {
+              wavBinary += String.fromCharCode(...wavBytes.subarray(i, Math.min(i + 8192, wavBytes.length)))
+            }
+            const wavBase64 = btoa(wavBinary)
             // Send as PTT via UAZAPI
             await fetchWithTimeout(`${uazapiUrl}/send/media`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'token': instance.token },
-              body: JSON.stringify({ number: contact.jid, type: 'ptt', file: audioPart.inlineData.data }),
+              body: JSON.stringify({ number: contact.jid, type: 'ptt', file: wavBase64 }),
             })
             sentMediaType = 'audio'
-            console.log(`[ai-agent] TTS audio sent (${responseText.length} chars)`)
+            console.log(`[ai-agent] TTS audio sent (${responseText.length} chars, WAV ${wavBytes.length} bytes)`)
           } else {
-            // Fallback to text
+            ttsDebugError = 'no_audio_data_in_response'
+            console.warn('[ai-agent] TTS response has no audio data, fallback to text')
             await fetchWithTimeout(`${uazapiUrl}/send/text`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'token': instance.token },
@@ -914,14 +1078,17 @@ ${subAgentInstruction}`
           }
         } else {
           // TTS failed, send as text
-          console.error('[ai-agent] TTS failed:', ttsRes.status)
+          const ttsErrBody = await ttsRes.text().catch(() => '')
+          ttsDebugError = `http_${ttsRes.status}: ${ttsErrBody.substring(0, 300)}`
+          console.error('[ai-agent] TTS failed:', ttsRes.status, ttsErrBody.substring(0, 200))
           await fetchWithTimeout(`${uazapiUrl}/send/text`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'token': instance.token },
             body: JSON.stringify({ number: contact.jid, text: responseText }),
           })
         }
-      } catch (ttsErr) {
+      } catch (ttsErr: any) {
+        ttsDebugError = `exception: ${ttsErr?.message || String(ttsErr)}`
         console.error('[ai-agent] TTS error:', ttsErr)
         await fetchWithTimeout(`${uazapiUrl}/send/text`, {
           method: 'POST',
@@ -985,6 +1152,14 @@ ${subAgentInstruction}`
         incoming_text: incomingText.substring(0, 500),
         response_text: responseText.substring(0, 500),
         message_count: (queuedMessages || []).length,
+        sent_media_type: sentMediaType,
+        tts_attempted: shouldSendAudio,
+        tts_error: ttsDebugError || null,
+        incoming_has_audio: incomingHasAudio,
+        voice_reply_to_audio: voiceReplyToAudio,
+        voice_enabled: agent.voice_enabled,
+        response_length: responseText.length,
+        max_tts_length: maxTtsLength,
       },
     })
 
