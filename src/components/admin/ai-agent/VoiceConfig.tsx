@@ -35,20 +35,31 @@ export function VoiceConfig({ config, onChange }: VoiceConfigProps) {
             />
           </div>
 
-          {config.voice_enabled && (
-            <div className="space-y-1.5">
-              <Label className="text-xs">Tamanho máximo para áudio (caracteres)</Label>
-              <Input
-                type="number" min={50} max={500}
-                value={config.voice_max_text_length || 150}
-                onChange={(e) => onChange({ voice_max_text_length: parseInt(e.target.value) || 150 })}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Respostas com até {config.voice_max_text_length || 150} caracteres são enviadas como áudio.
-                Acima disso, envia como texto. Recomendado: 150.
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm">Responder áudio com áudio</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Quando o lead enviar áudio, o agente responde em áudio (mesmo sem TTS global ativado)
               </p>
             </div>
-          )}
+            <Switch
+              checked={config.voice_reply_to_audio !== false}
+              onCheckedChange={(v) => onChange({ voice_reply_to_audio: v })}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Tamanho máximo para áudio (caracteres)</Label>
+            <Input
+              type="number" min={50} max={500}
+              value={config.voice_max_text_length || 150}
+              onChange={(e) => onChange({ voice_max_text_length: parseInt(e.target.value) || 150 })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Respostas com até {config.voice_max_text_length || 150} caracteres são enviadas como áudio.
+              Acima disso, envia como texto. Recomendado: 150.
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>

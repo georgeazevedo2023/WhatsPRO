@@ -128,11 +128,13 @@ Deno.serve(async (req) => {
     const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
 
     // 5. Combine queued messages
-    const incomingText = (queuedMessages || [])
+    const incomingMessages = (queuedMessages || [])
       .filter((m: any) => m.direction === 'incoming' || !m.direction)
+    const incomingText = incomingMessages
       .map((m: any) => m.content || '')
       .filter(Boolean)
       .join('\n')
+    const incomingHasAudio = incomingMessages.some((m: any) => m.media_type === 'audio')
 
     if (!incomingText.trim()) {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'no_text' }), {
@@ -868,8 +870,11 @@ ${subAgentInstruction}`
 
     // 16. Send response via UAZAPI (TTS audio or text)
     let sentMediaType = 'text'
-    const shouldSendAudio = agent.voice_enabled &&
-      responseText.length <= (agent.voice_max_text_length || 150)
+    const maxTtsLength = agent.voice_max_text_length || 150
+    // Send audio if: (1) voice globally enabled, OR (2) lead sent audio and voice_reply_to_audio is on
+    const voiceReplyToAudio = agent.voice_reply_to_audio !== false // default true
+    const shouldSendAudio = (agent.voice_enabled || (incomingHasAudio && voiceReplyToAudio)) &&
+      responseText.length <= maxTtsLength
 
     if (shouldSendAudio) {
       // Generate TTS audio via Gemini

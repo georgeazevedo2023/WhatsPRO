@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
-import { verifyAuth, unauthorizedResponse } from '../_shared/auth.ts'
+import { verifyAuth, verifyCronOrService, unauthorizedResponse } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { checkRateLimit, rateLimitHeaders } from '../_shared/rateLimit.ts'
 
@@ -10,17 +10,20 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders })
   }
 
-  // Require authenticated user
-  const auth = await verifyAuth(req)
+  // Accept authenticated user OR internal service call (service_role key from webhook)
+  const isService = verifyCronOrService(req)
+  const auth = isService ? { userId: 'service' } : await verifyAuth(req)
   if (!auth) return unauthorizedResponse(corsHeaders)
 
-  // Rate limit: max 20 transcriptions per user per minute
-  const rl = await checkRateLimit(auth.userId, 'transcribe-audio', 20, 60)
-  if (rl.limited) {
-    return new Response(JSON.stringify({ error: 'Rate limit exceeded. Try again later.' }), {
-      status: 429,
-      headers: { ...corsHeaders, ...rateLimitHeaders(rl), 'Content-Type': 'application/json' },
-    })
+  // Rate limit: max 20 transcriptions per user per minute (skip for service calls)
+  if (!isService) {
+    const rl = await checkRateLimit(auth.userId, 'transcribe-audio', 20, 60)
+    if (rl.limited) {
+      return new Response(JSON.stringify({ error: 'Rate limit exceeded. Try again later.' }), {
+        status: 429,
+        headers: { ...corsHeaders, ...rateLimitHeaders(rl), 'Content-Type': 'application/json' },
+      })
+    }
   }
 
   try {
@@ -108,10 +111,11 @@ Deno.serve(async (req) => {
 
     console.log('Transcription saved for message:', messageId)
 
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+    const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY')!
+
     // Broadcast transcription update via Realtime REST API
     if (conversationId) {
-      const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-      const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY')!
       fetchWithTimeout(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
         method: 'POST',
         headers: {
@@ -128,6 +132,64 @@ Deno.serve(async (req) => {
         }),
       }, 10000).then(r => console.log('Transcription broadcast status:', r.status))
         .catch(err => console.error('Transcription broadcast failed:', err))
+    }
+
+    // Trigger AI Agent for transcribed audio (the webhook skipped it because content was empty)
+    if (conversationId && transcription && isService) {
+      try {
+        // Load conversation to get instance_id and check AI status
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('inbox_id, status_ia, contact_id')
+          .eq('id', conversationId)
+          .single()
+
+        if (conv && conv.status_ia !== 'desligada') {
+          const { data: inbox } = await supabase
+            .from('inboxes')
+            .select('instance_id')
+            .eq('id', conv.inbox_id)
+            .single()
+
+          if (inbox) {
+            const { data: aiAgent } = await supabase
+              .from('ai_agents')
+              .select('id, enabled')
+              .eq('instance_id', inbox.instance_id)
+              .eq('enabled', true)
+              .maybeSingle()
+
+            if (aiAgent) {
+              const { data: contact } = await supabase
+                .from('contacts')
+                .select('jid')
+                .eq('id', conv.contact_id)
+                .single()
+
+              console.log('Triggering AI agent for transcribed audio, conversation:', conversationId)
+              fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${ANON_KEY}`,
+                },
+                body: JSON.stringify({
+                  conversation_id: conversationId,
+                  instance_id: inbox.instance_id,
+                  contact_jid: contact?.jid || '',
+                  message: {
+                    content: transcription,
+                    direction: 'incoming',
+                    media_type: 'audio',
+                  },
+                }),
+              }).catch(err => console.error('AI agent trigger after transcription failed:', err))
+            }
+          }
+        }
+      } catch (err) {
+        console.error('AI agent trigger after transcription error:', err)
+      }
     }
 
     return new Response(JSON.stringify({ ok: true, transcription }), {

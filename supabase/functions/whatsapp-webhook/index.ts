@@ -834,10 +834,11 @@ Deno.serve(async (req) => {
     // Trigger async transcription for incoming audio messages
     if (mediaType === 'audio' && mediaUrl && insertedMsg && direction === 'incoming') {
       console.log('Triggering audio transcription for message:', insertedMsg.id)
+      const SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
       fetch(`${SUPABASE_URL}/functions/v1/transcribe-audio`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${ANON_KEY}`,
+          'Authorization': `Bearer ${SVC_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
