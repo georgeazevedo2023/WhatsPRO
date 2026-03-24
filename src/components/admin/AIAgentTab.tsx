@@ -92,10 +92,30 @@ export default function AIAgentTab() {
     'handoff_negative_sentiment', 'blocked_topics', 'max_discount_percent', 'blocked_phrases',
     'voice_enabled', 'voice_max_text_length', 'voice_reply_to_audio', 'context_short_messages', 'context_long_enabled',
     'business_hours', 'out_of_hours_message', 'extraction_fields', 'blocked_numbers',
+    'extraction_address_enabled', 'handoff_message',
   ];
 
   const handleSave = async () => {
     if (!selectedAgentId) return;
+
+    // Validate critical fields
+    if (!config.system_prompt?.trim()) {
+      toast.error('System Prompt é obrigatório');
+      return;
+    }
+    if (!config.greeting_message?.trim()) {
+      toast.error('Mensagem de Saudação é obrigatória');
+      return;
+    }
+    if (config.temperature != null && (config.temperature < 0 || config.temperature > 2)) {
+      toast.error('Temperatura deve estar entre 0 e 2');
+      return;
+    }
+    if (config.max_tokens != null && (config.max_tokens < 50 || config.max_tokens > 8192)) {
+      toast.error('Max Tokens deve estar entre 50 e 8192');
+      return;
+    }
+
     setSaving(true);
     try {
       const updateData: Record<string, any> = {};

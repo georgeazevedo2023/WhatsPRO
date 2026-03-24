@@ -89,7 +89,7 @@ async function generateCarouselCopies(product: any, numCards: number): Promise<s
 
   if (GEMINI_API_KEY) providers.push({ name: 'Gemini', call: async () => {
     const res = await fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.8, maxOutputTokens: 300 } }) }, 3000)
     if (!res.ok) return null
@@ -433,9 +433,9 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       }]
 
       const geminiModel = agent.model || 'gemini-2.5-flash'
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
+      const shadowUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
 
-      const shadowRes = await fetchWithTimeout(geminiUrl, {
+      const shadowRes = await fetchWithTimeout(shadowUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1114,7 +1114,8 @@ ${subAgentInstruction}`
 
     // 15. Call Gemini API with function calling loop
     const geminiModel = agent.model || 'gemini-2.5-flash'
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
+    const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
+    const geminiUrl = `${GEMINI_BASE}/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
 
     console.log(`[ai-agent] Calling Gemini ${geminiModel} for conversation ${conversation_id}`)
 
@@ -1147,6 +1148,12 @@ ${subAgentInstruction}`
       if (!geminiResponse.ok) {
         const errText = await geminiResponse.text()
         console.error('[ai-agent] Gemini error:', geminiResponse.status, errText.substring(0, 300))
+        // Retry once on transient failures (429, 500, 503)
+        if (attempts === 1 && [429, 500, 503].includes(geminiResponse.status)) {
+          console.log('[ai-agent] Retrying Gemini after transient error...')
+          await new Promise(r => setTimeout(r, 1500))
+          continue
+        }
         await supabase.from('ai_agent_logs').insert({
           agent_id, conversation_id, event: 'error', model: geminiModel,
           error: `Gemini ${geminiResponse.status}: ${errText.substring(0, 200)}`,
@@ -1184,8 +1191,11 @@ ${subAgentInstruction}`
     }
 
     if (!responseText.trim()) {
-      return new Response(JSON.stringify({ error: 'Empty response' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      console.warn('[ai-agent] Empty Gemini response — using fallback message')
+      responseText = 'Desculpe, não consegui processar sua mensagem. Pode repetir?'
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'empty_response', model: geminiModel,
+        latency_ms: Date.now() - startTime,
       })
     }
 
@@ -1454,7 +1464,7 @@ ${subAgentInstruction}`
       })
     } catch (_) {}
 
-    return new Response(JSON.stringify({ error: errMsg, stack: errStack }), {
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
