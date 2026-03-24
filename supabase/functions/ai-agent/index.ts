@@ -1,13 +1,124 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { webhookCorsHeaders as corsHeaders } from './_shared/cors.ts'
-import { fetchWithTimeout, fetchFireAndForget } from './_shared/fetchWithTimeout.ts'
+import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || ''
+const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY') || ''
+const MISTRAL_API_KEY = Deno.env.get('MISTRAL_API_KEY') || ''
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+
+const COPY_PROMPT = (title: string, price: string, desc: string, numCards: number) =>
+  `Gere ${numCards} textos curtos e persuasivos para cards de carrossel WhatsApp de um produto.\n` +
+  `Produto: ${title} | ${price}\nDescrição: ${desc.substring(0, 200)}\n\n` +
+  `Responda APENAS um JSON array de ${numCards} strings. Exemplo: ["texto1","texto2",...]\n` +
+  `- Card 1: Nome curto do produto + preço (2 linhas)\n` +
+  `- Card 2: Copy de vendas — benefício principal\n` +
+  `- Card 3: Detalhes técnicos ou especificações\n` +
+  `- Card 4: Diferencial de qualidade\n` +
+  `- Card 5: Urgência + call-to-action\n\n` +
+  `Regras: máx 80 chars por texto, sem emojis, português BR, persuasivo. NÃO repita o nome completo do produto nos cards 2-5.`
+
+function parseCopyResponse(text: string, numCards: number): string[] | null {
+  const match = text.match(/\[[\s\S]*?\]/)
+  if (!match) return null
+  try {
+    const arr = JSON.parse(match[0])
+    if (!Array.isArray(arr) || arr.length < numCards) return null
+    return arr.slice(0, numCards).map((c: any) => String(c).substring(0, 120))
+  } catch { return null }
+}
+
+/** Generate sales copy for carousel cards: Groq (fast) → Gemini → Mistral → static */
+async function generateCarouselCopies(product: any, numCards: number): Promise<string[]> {
+  const title = product.title || 'Produto'
+  const price = product.price ? `R$ ${product.price.toFixed(2)}` : 'Sob consulta'
+  const desc = product.description || ''
+  const prompt = COPY_PROMPT(title, price, desc, numCards)
+
+  // Static fallback — never repeats product title on cards 2-5
+  const shortName = title.split(' - ')[0] || title
+  const fallback = [
+    `${shortName}\n${price}`,
+    `Qualidade garantida!\nO melhor para sua obra`,
+    `Alto desempenho e durabilidade\nResultado profissional`,
+    `Marca de confiança!\nEscolha dos especialistas`,
+    `Aproveite agora!\nUnidades limitadas`,
+  ].slice(0, numCards)
+
+  // 1. Try Groq (Llama 3.3 — fastest, ~300ms)
+  if (GROQ_API_KEY) {
+    try {
+      const res = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.8, max_tokens: 300,
+        }),
+      }, 3000)
+      if (res.ok) {
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content || ''
+        const copies = parseCopyResponse(text, numCards)
+        if (copies) { console.log('[ai-agent] Carousel copies: Groq OK'); return copies }
+      }
+      console.warn('[ai-agent] Groq copy failed:', res.status)
+    } catch (e) { console.warn('[ai-agent] Groq copy error:', e) }
+  }
+
+  // 2. Try Gemini (fallback)
+  if (GEMINI_API_KEY) {
+    try {
+      const res = await fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.8, maxOutputTokens: 300 },
+          }),
+        }, 3000)
+      if (res.ok) {
+        const data = await res.json()
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        const copies = parseCopyResponse(text, numCards)
+        if (copies) { console.log('[ai-agent] Carousel copies: Gemini OK'); return copies }
+      }
+      console.warn('[ai-agent] Gemini copy failed:', res.status)
+    } catch (e) { console.warn('[ai-agent] Gemini copy error:', e) }
+  }
+
+  // 3. Try Mistral (fallback)
+  if (MISTRAL_API_KEY) {
+    try {
+      const res = await fetchWithTimeout('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${MISTRAL_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'mistral-small-latest',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.8, max_tokens: 300,
+        }),
+      }, 3000)
+      if (res.ok) {
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content || ''
+        const copies = parseCopyResponse(text, numCards)
+        if (copies) { console.log('[ai-agent] Carousel copies: Mistral OK'); return copies }
+      }
+      console.warn('[ai-agent] Mistral copy failed:', res.status)
+    } catch (e) { console.warn('[ai-agent] Mistral copy error:', e) }
+  }
+
+  console.warn('[ai-agent] Carousel copies: all LLMs failed, using static')
+  return fallback
+}
 
 /**
  * AI Agent - Main Brain (v2 — Sprint 3)
@@ -628,17 +739,16 @@ ${subAgentInstruction}`
             let carousel: any[]
 
             if (withImages.length === 1 && withImages[0].images?.length > 1) {
-              // Single product with multiple photos → multi-photo carousel
+              // Single product with multiple photos → multi-photo carousel with AI sales copy
               const p = withImages[0]
               const photos = (p.images as string[]).slice(0, 5)
+              const copies = await generateCarouselCopies(p, photos.length)
               carousel = photos.map((img: string, idx: number) => ({
-                text: idx === 0
-                  ? `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
-                  : `${p.title}\nFoto ${idx + 1} de ${photos.length}`,
+                text: copies[idx] || `${p.title}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
                 image: img,
                 buttons: [{ id: `${p.title}_${idx}`, text: idx === photos.length - 1 ? 'Quero este!' : 'Ver mais', type: 'REPLY' }],
               }))
-              console.log(`[ai-agent] Auto-carousel: ${p.title} with ${photos.length} photos`)
+              console.log(`[ai-agent] Auto-carousel: ${p.title} with ${photos.length} photos (AI copy)`)
             } else {
               // Multiple products → 1 card per product
               carousel = withImages.slice(0, 10).map((p: any) => ({
@@ -716,18 +826,17 @@ ${subAgentInstruction}`
 
           let carousel: any[]
 
-          // Single product with multiple photos → multi-photo carousel
+          // Single product with multiple photos → multi-photo carousel with AI sales copy
           if (withImages.length === 1 && withImages[0].images?.length > 1) {
             const p = withImages[0]
             const photos = (p.images as string[]).slice(0, 5) // Max 5 photos
+            const copies = await generateCarouselCopies(p, photos.length)
             carousel = photos.map((img: string, idx: number) => ({
-              text: idx === 0
-                ? `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
-                : `${p.title}\nFoto ${idx + 1} de ${photos.length}`,
+              text: copies[idx] || `${p.title}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
               image: img,
               buttons: [{ id: `${p.title}_${idx}`, text: idx === photos.length - 1 ? 'Quero este!' : 'Ver mais', type: 'REPLY' }],
             }))
-            console.log(`[ai-agent] Multi-photo carousel: ${p.title} with ${photos.length} photos`)
+            console.log(`[ai-agent] Multi-photo carousel: ${p.title} with ${photos.length} photos (AI copy)`)
           } else {
             // Multiple products → 1 card per product
             carousel = withImages.slice(0, 10).map((p: any) => ({

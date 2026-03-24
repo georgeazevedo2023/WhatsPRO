@@ -39,8 +39,9 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - Global cross-inbox search (Ctrl+K) with command palette
 - UTM Campaign tracking: links, QR codes, metrics, AI contextual
 - TTS: AI Agent responds with audio (Gemini 2.5 Flash Preview TTS)
-- Auto-carousel: multi-photo product carousel (up to 5 photos)
+- Auto-carousel: multi-photo product carousel (up to 5 photos) with AI sales copy per card
 - Handoff triggers: auto-transfer to human when keywords detected
+- LLM Fallback Chain: Groq (Llama 3.3) → Gemini 2.5 Flash → Mistral Small → static templates
 
 ## Deployment
 - **Production**: crm.wsmart.com.br (Docker Swarm + Traefik + SSL)
@@ -75,6 +76,7 @@ npx supabase functions deploy <name>  # Deploy edge function
 - UAZAPI responses have inconsistent field names (PascalCase/camelCase) - always handle both
 - Instance tokens are resolved server-side, never exposed to frontend
 - Media URLs from UAZAPI: /message/download returns persistent URLs, stored directly (no re-upload to Storage)
+- Carousel AI copy: generateCarouselCopies() uses Groq→Gemini→Mistral chain with 3s timeout per provider
 - Timestamps may be in seconds or milliseconds - auto-detect with > 9999999999 check
 - AI Agent tools execute during Gemini function calling loop (instance token loaded early)
 - Lead profiles link to contacts via contact_id (1:1), kanban_cards link via contact_id FK

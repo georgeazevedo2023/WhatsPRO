@@ -91,10 +91,15 @@ const ROADMAP_ITEMS: RoadmapItem[] = [
   { id: 'R11', feature: 'Quick reply templates no chat', description: 'Atalhos "/" com variáveis dinâmicas', priority: 'alta', module: 'M2' },
   { id: 'R12', feature: 'Busca global cross-inbox', description: 'Pesquisa unificada por nome, número, conteúdo', priority: 'alta', module: 'M2' },
   { id: 'R13', feature: 'Ações em massa no helpdesk', description: 'Seleção múltipla para atribuir, status, labels em lote', priority: 'alta', module: 'M2' },
-  { id: 'R37', feature: 'Gerador de links UTM com métricas', description: 'Links rastreáveis por instância para tracking de origem', priority: 'media', module: 'M11' },
+  { id: 'R37', feature: 'Gerador de links UTM com métricas', description: 'Links rastreáveis com QR code, métricas e AI contextual', priority: 'media', module: 'M11', done: true },
+  { id: 'R38', feature: 'Carousel com copy IA por card', description: 'Cada card do carrossel tem texto de vendas gerado por IA (Groq/Gemini/Mistral)', priority: 'alta', module: 'M10', done: true },
+  { id: 'R39', feature: 'LLM Fallback Chain', description: 'Groq → Gemini → Mistral → templates estáticos para resiliência', priority: 'alta', module: 'M10', done: true },
+  { id: 'R40', feature: 'Deploy Docker Swarm + Traefik', description: 'CI/CD GitHub Actions → ghcr.io → Portainer em crm.wsmart.com.br', priority: 'alta', module: 'Infra', done: true },
 ];
 
 const CHANGELOG: ChangelogEntry[] = [
+  { version: 'v3.1.0', date: '2026-03-24', title: 'Carousel AI Copy + LLM Fallback + UTM + Deploy',
+    changes: ['Carousel: copy de vendas IA por card (Groq ~300ms)', 'LLM chain: Groq → Gemini → Mistral → static', 'TTS fix: Gemini Preview TTS + PCM→WAV', 'Auto-carousel em search_products', 'Handoff triggers automáticos', 'UTM Campaigns: CRUD + QR + métricas + AI contextual', 'Deploy: Docker Swarm + Traefik + SSL em crm.wsmart.com.br', 'Tag classification melhorada (compra vs dúvida)'] },
   { version: 'v3.0.0', date: '2026-03-23', title: 'Auditoria Completa + Importação Rápida',
     changes: ['Importação Rápida: URL → scrape → auto-fill catálogo (scrape-product edge function)', '30 correções de segurança, DB, código, UX e performance', 'Rate limiting em endpoints caros', 'Fetch timeouts (55+ calls)', '10 indexes + 7 FKs + constraints no banco', 'Breadcrumbs, skeletons, forgot password, touch targets', 'KanbanBoard refatorado (-35% linhas)', '22 edge functions (+ scrape-product)'] },
   { version: 'v2.8.0', date: '2026-03-22', title: 'Integração Lead ↔ CRM Kanban',

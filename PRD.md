@@ -33,6 +33,46 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v3.1.0 (2026-03-24) — Carousel AI Sales Copy + LLM Fallback Chain + Melhorias Agente
+
+**Carousel com Copy de Vendas IA:**
+- Cada card do carrossel agora tem texto único gerado por IA (não mais "Foto X de Y")
+- Card 1: Nome + preço | Card 2: Copy de vendas | Card 3: Specs | Card 4: Diferencial | Card 5: Urgência/CTA
+- LLM fallback chain: Groq (Llama 3.3, ~300ms) → Gemini 2.5 Flash → Mistral Small → templates estáticos
+- Prompt otimizado: máx 80 chars/card, sem emojis, persuasivo, não repete título
+- `parseCopyResponse()` compartilhado para validação JSON de todas as LLMs
+- Timeout 3s por provider (antes 5s só Gemini)
+
+**Melhorias AI Agent (v49→v50):**
+- TTS fix: modelo `gemini-2.5-flash-preview-tts` + PCM→WAV + chunked base64
+- Audio transcription flow: webhook → transcribe-audio (SERVICE_ROLE) → debounce → ai-agent
+- Product search: word-by-word fallback quando ILIKE exata não encontra
+- Auto-carousel: enviado automaticamente dentro de `search_products` (não depende de Gemini chamar tool)
+- Carousel retry: 3 variantes UAZAPI (phone/number/chatId)
+- Mensagens salvas no helpdesk: carousel, media e texto do agente em `conversation_messages`
+- Presence indicators: composing no início, recording antes de TTS
+- Handoff triggers: auto-transbordo quando texto do lead contém keywords configuradas
+- Tag classification melhorada: "Vocês tem X?" = compra (não dúvida)
+- Import paths corrigidos: `../_shared/` (antes `./_shared/` causava falha de deploy)
+
+**UTM Campaigns (completo):**
+- CRUD completo: criar, editar, listar, detalhar campanhas
+- 6 tipos: venda, suporte, promoção, evento, recall, fidelização
+- QR Code gerado automaticamente por campanha
+- Edge Function `go`: redirect instantâneo → wa.me com ref_code
+- Atribuição automática: webhook detecta `ref_` e vincula à campanha
+- Dashboard de métricas: visitas, conversões, taxa, gráfico temporal
+- AI contextual: prompt do agente recebe contexto da campanha ativa
+
+**Infra & Deploy:**
+- Dockerfile multi-stage + nginx SPA + gzip + cache
+- Docker Swarm + Traefik v2.11.2 + Let's Encrypt SSL
+- GitHub Actions CI/CD → ghcr.io → Portainer stack
+- Secrets: GROQ_API_KEY, MISTRAL_API_KEY, GEMINI_API_KEY no Supabase
+
+**Edge Functions**: 24 total (+ go, scrape-product anteriores)
+**Migrations**: + utm_campaigns, utm_visits
+
 ### v3.0.0 (2026-03-23) — Auditoria Completa + 30 Correções + Importação Rápida de Produtos
 
 **Importação Rápida de Produtos (S6 feature):**
