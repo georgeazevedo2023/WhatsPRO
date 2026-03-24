@@ -36,14 +36,25 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - Shift reports via WhatsApp
 - Intelligence/analytics dashboard
 - Quick Product Import: paste URL → scrape → auto-fill catalog form (S6)
+- Global cross-inbox search (Ctrl+K) with command palette
+- UTM Campaign tracking: links, QR codes, metrics, AI contextual
+- TTS: AI Agent responds with audio (Gemini 2.5 Flash Preview TTS)
+- Auto-carousel: multi-photo product carousel (up to 5 photos)
+- Handoff triggers: auto-transfer to human when keywords detected
 
-## Edge Functions (22 total)
+## Deployment
+- **Production**: crm.wsmart.com.br (Docker Swarm + Traefik + SSL)
+- **CI/CD**: GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
+- **Portainer**: Stack "whatspro" on Hetzner CX42 (65.108.51.109)
+
+## Edge Functions (24 total)
 Located in `supabase/functions/`. Each uses Deno runtime.
 - JWT verification is disabled in config.toml (functions handle auth manually via `_shared/auth.ts`)
 - Shared CORS config in `supabase/functions/_shared/cors.ts`
 - Shared utilities: `fetchWithTimeout.ts` (30s timeout), `rateLimit.ts` (per-user throttle), `response.ts` (standard format)
 - AI Agent: `ai-agent` (brain), `ai-agent-debounce` (10s grouping), `ai-agent-playground` (testing)
 - Product Import: `scrape-product` (URL → title, price, description, images, category via JSON-LD/NEXT_DATA/OG)
+- UTM Tracking: `go` (redirect endpoint for campaign links)
 
 ## Commands
 - `/prd` - Consultar PRD completo do projeto (módulos, tasks, roadmap, changelog)
@@ -63,7 +74,7 @@ npx supabase functions deploy <name>  # Deploy edge function
 ## Important Patterns
 - UAZAPI responses have inconsistent field names (PascalCase/camelCase) - always handle both
 - Instance tokens are resolved server-side, never exposed to frontend
-- Media URLs from UAZAPI are temporary - use /message/download for persistent links
+- Media URLs from UAZAPI: /message/download returns persistent URLs, stored directly (no re-upload to Storage)
 - Timestamps may be in seconds or milliseconds - auto-detect with > 9999999999 check
 - AI Agent tools execute during Gemini function calling loop (instance token loaded early)
 - Lead profiles link to contacts via contact_id (1:1), kanban_cards link via contact_id FK
