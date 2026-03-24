@@ -1,0 +1,8 @@
+node_modules
+dist
+.git
+.env
+.env.*
+.mcp.json
+.claude/settings.local.json
+supabase/.temp

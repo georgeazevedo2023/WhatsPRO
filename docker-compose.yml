@@ -1,0 +1,30 @@
+services:
+  whatspro:
+    build: .
+    container_name: whatspro-app
+    restart: unless-stopped
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: whatspro-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+    depends_on:
+      - whatspro
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  web:

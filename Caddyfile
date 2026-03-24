@@ -1,0 +1,4 @@
+crm.wsmart.com.br {
+    reverse_proxy whatspro:80
+    encode gzip
+}
