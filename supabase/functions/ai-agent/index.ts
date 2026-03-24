@@ -126,6 +126,16 @@ async function generateCarouselCopies(product: any, numCards: number): Promise<s
   return [card1, ...fallbackCopies]
 }
 
+/** Handoff detection phrases — used for implicit handoff when Gemini doesn't call the tool */
+const HANDOFF_PHRASES = ['encaminhar para', 'consultor de vendas', 'atendente humano', 'transferir para', 'falar com um vendedor', 'encaminhar você']
+
+/** Merge tags using key:value format (same key = replace) */
+function mergeTags(existing: string[], newTags: Record<string, string>): string[] {
+  const tagMap = new Map(existing.map(t => [t.split(':')[0], t]))
+  for (const [k, v] of Object.entries(newTags)) tagMap.set(k, `${k}:${v}`)
+  return Array.from(tagMap.values())
+}
+
 /**
  * AI Agent - Main Brain (v2 — Sprint 3)
  *
@@ -252,6 +262,28 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ id: contact.jid, presence: type }),
       })
     }
+
+    /** Send text message via UAZAPI with response checking */
+    const sendTextMsg = async (text: string) => {
+      const res = await fetchWithTimeout(`${uazapiUrl}/send/text`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'token': instance.token },
+        body: JSON.stringify({ number: contact.jid, text }),
+      })
+      if (!res.ok) console.error(`[ai-agent] send/text failed: ${res.status} ${(await res.text()).substring(0, 100)}`)
+      return res.ok
+    }
+
+    /** Broadcast event to helpdesk (fire-and-forget, uses SERVICE_ROLE) */
+    const broadcastEvent = (payload: Record<string, any>) => {
+      for (const topic of ['helpdesk-realtime', 'helpdesk-conversations']) {
+        fetchFireAndForget(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+          method: 'POST',
+          headers: { 'apikey': SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Authorization': `Bearer ${SERVICE_ROLE_KEY}` },
+          body: JSON.stringify({ messages: [{ topic, event: 'new-message', payload }] }),
+        })
+      }
+    }
     sendPresence('composing')
 
     // 5. Combine queued messages
@@ -287,34 +319,24 @@ Deno.serve(async (req) => {
         const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
 
         // Send handoff message
-        await fetchWithTimeout(`${uazapiUrl}/send/text`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'token': instance.token },
-          body: JSON.stringify({ number: contact.jid, text: handoffMsg }),
-        })
+        await sendTextMsg(handoffMsg)
         await supabase.from('conversation_messages').insert({
           conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
         })
 
-        // Disable AI
-        await supabase.from('conversations').update({ status_ia: 'desligada' }).eq('id', conversation_id)
+        // Disable AI + tag
+        await supabase.from('conversations').update({
+          status_ia: 'desligada',
+          tags: mergeTags(conversation.tags || [], { ia: 'desativada' }),
+        }).eq('id', conversation_id)
 
-        // Log
+        // Log + Broadcast
         await supabase.from('ai_agent_logs').insert({
           agent_id, conversation_id, event: 'handoff_trigger',
           latency_ms: Date.now() - startTime,
           metadata: { trigger: matchedTrigger, incoming_text: incomingText.substring(0, 300) },
         })
-
-        // Broadcast
-        const SUPABASE_URL_B = Deno.env.get('SUPABASE_URL')!
-        fetchFireAndForget(`${SUPABASE_URL_B}/realtime/v1/api/broadcast`, {
-          method: 'POST',
-          headers: { 'apikey': ANON_KEY, 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
-          body: JSON.stringify({ messages: [{ topic: 'helpdesk-realtime', event: 'new-message', payload: {
-            conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
-          } }] }),
-        })
+        broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
 
         return new Response(JSON.stringify({ ok: true, handoff: true, trigger: matchedTrigger }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1059,17 +1081,16 @@ ${subAgentInstruction}`
 
           // Send handoff message directly (don't rely on Gemini generating it)
           const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
-          await fetchWithTimeout(`${uazapiUrl}/send/text`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'token': instance.token },
-            body: JSON.stringify({ number: contact.jid, text: handoffMsg }),
-          })
+          await sendTextMsg(handoffMsg)
           await supabase.from('conversation_messages').insert({
             conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
           })
 
-          // Set IA to desligada
-          await supabase.from('conversations').update({ status_ia: newStatus }).eq('id', conversation_id)
+          // Set IA to desligada + tag
+          await supabase.from('conversations').update({
+            status_ia: newStatus,
+            tags: mergeTags(conversation.tags || [], { ia: 'desativada' }),
+          }).eq('id', conversation_id)
 
           // Auto-assign "Atendimento Humano" label if available
           const handoffLabel = (availableLabels || []).find((l: any) =>
@@ -1080,29 +1101,12 @@ ${subAgentInstruction}`
             await supabase.from('conversation_labels').insert({ conversation_id, label_id: handoffLabel.id })
           }
 
-          // Add ia:desativada tag
-          const existing: string[] = conversation.tags || []
-          const tagMap = new Map<string, string>()
-          for (const t of existing) tagMap.set(t.split(':')[0], t)
-          tagMap.set('ia', 'ia:desativada')
-          await supabase.from('conversations').update({ tags: Array.from(tagMap.values()) }).eq('id', conversation_id)
-
-          // Log handoff
+          // Log + broadcast
           await supabase.from('ai_agent_logs').insert({
             agent_id, conversation_id, event: 'handoff',
             metadata: { reason: args.reason, cooldown_minutes: cooldown, new_status: newStatus },
           })
-
-          // Broadcast status change
-          await Promise.all(
-            ['helpdesk-realtime', 'helpdesk-conversations'].map(topic =>
-              fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
-                method: 'POST',
-                headers: { 'apikey': ANON_KEY, 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
-                body: JSON.stringify({ messages: [{ topic, event: 'new-message', payload: { conversation_id, status_ia: newStatus } }] }),
-              }).catch((err: Error) => console.warn('[ai-agent] broadcast failed:', err.message))
-            )
-          )
+          broadcastEvent({ conversation_id, status_ia: newStatus })
 
           return `Conversa transferida para atendente humano. Motivo: ${args.reason}. IA em modo shadow (observando).`
         }
@@ -1278,38 +1282,21 @@ ${subAgentInstruction}`
           } else {
             ttsDebugError = 'no_audio_data_in_response'
             console.warn('[ai-agent] TTS response has no audio data, fallback to text')
-            await fetchWithTimeout(`${uazapiUrl}/send/text`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'token': instance.token },
-              body: JSON.stringify({ number: contact.jid, text: responseText }),
-            })
+            await sendTextMsg(responseText)
           }
         } else {
-          // TTS failed, send as text
           const ttsErrBody = await ttsRes.text().catch(() => '')
           ttsDebugError = `http_${ttsRes.status}: ${ttsErrBody.substring(0, 300)}`
           console.error('[ai-agent] TTS failed:', ttsRes.status, ttsErrBody.substring(0, 200))
-          await fetchWithTimeout(`${uazapiUrl}/send/text`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'token': instance.token },
-            body: JSON.stringify({ number: contact.jid, text: responseText }),
-          })
+          await sendTextMsg(responseText)
         }
       } catch (ttsErr: any) {
         ttsDebugError = `exception: ${ttsErr?.message || String(ttsErr)}`
         console.error('[ai-agent] TTS error:', ttsErr)
-        await fetchWithTimeout(`${uazapiUrl}/send/text`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'token': instance.token },
-          body: JSON.stringify({ number: contact.jid, text: responseText }),
-        })
+        await sendTextMsg(responseText)
       }
     } else {
-      await fetchWithTimeout(`${uazapiUrl}/send/text`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'token': instance.token },
-        body: JSON.stringify({ number: contact.jid, text: responseText }),
-      })
+      await sendTextMsg(responseText)
     }
 
     // 17. Save outgoing message to DB
@@ -1326,19 +1313,16 @@ ${subAgentInstruction}`
     // 17.5 Detect handoff — explicit tool call OR implicit (Gemini talked about transferring without calling tool)
     const toolNames = toolCallsLog.map((t: any) => t.name)
     const hadExplicitHandoff = toolNames.includes('handoff_to_human')
-    const handoffPhrases = ['encaminhar para', 'consultor de vendas', 'atendente humano', 'transferir para', 'falar com um vendedor']
-    const textLooksLikeHandoff = handoffPhrases.some(p => responseText.toLowerCase().includes(p))
+    const textLooksLikeHandoff = HANDOFF_PHRASES.some(p => responseText.toLowerCase().includes(p))
     const shouldDisableIa = hadExplicitHandoff || textLooksLikeHandoff
 
     // If Gemini implied handoff but didn't call the tool → force disable IA
     if (textLooksLikeHandoff && !hadExplicitHandoff) {
       console.log('[ai-agent] Implicit handoff detected in response text — forcing IA off')
-      await supabase.from('conversations').update({ status_ia: 'desligada' }).eq('id', conversation_id)
-      // Add ia:desativada tag
-      const curTags: string[] = conversation.tags || []
-      const tagMap = new Map(curTags.map((t: string) => [t.split(':')[0], t]))
-      tagMap.set('ia', 'ia:desativada')
-      await supabase.from('conversations').update({ tags: Array.from(tagMap.values()) }).eq('id', conversation_id)
+      await supabase.from('conversations').update({
+        status_ia: 'desligada',
+        tags: mergeTags(conversation.tags || [], { ia: 'desativada' }),
+      }).eq('id', conversation_id)
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'implicit_handoff',
         metadata: { response_text: responseText.substring(0, 300) },
@@ -1361,15 +1345,7 @@ ${subAgentInstruction}`
       status_ia: newStatusIa,
     }
 
-    await Promise.all(
-      ['helpdesk-realtime', 'helpdesk-conversations'].map(topic =>
-        fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
-          method: 'POST',
-          headers: { 'apikey': ANON_KEY, 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
-          body: JSON.stringify({ messages: [{ topic, event: 'new-message', payload: broadcastPayload }] }),
-        }).catch((err: Error) => console.warn('[ai-agent] broadcast failed:', err.message))
-      )
-    )
+    broadcastEvent(broadcastPayload)
 
     // 20. Log interaction
     await supabase.from('ai_agent_logs').insert({
@@ -1413,16 +1389,10 @@ ${subAgentInstruction}`
         tools_used: [...new Set(toolNames)],
       }
 
-      // Load current profile, append summary, update in one operation
-      const { data: curProfile } = await supabase
-        .from('lead_profiles')
-        .select('conversation_summaries, total_interactions')
-        .eq('contact_id', contact.id)
-        .maybeSingle()
-
-      const existingSummaries: any[] = curProfile?.conversation_summaries || []
+      // Reuse leadProfile from step 8 (avoid duplicate DB query)
+      const existingSummaries: any[] = leadProfile?.conversation_summaries || []
       const updatedSummaries = [...existingSummaries, summaryEntry].slice(-10)
-      const newCount = (curProfile?.total_interactions || 0) + 1
+      const newCount = (leadProfile?.total_interactions || 0) + 1
 
       const profileUpdate: Record<string, any> = {
         contact_id: contact.id,
@@ -1430,7 +1400,7 @@ ${subAgentInstruction}`
         total_interactions: newCount,
         last_contact_at: new Date().toISOString(),
       }
-      if (!curProfile) profileUpdate.full_name = contact.name || null
+      if (!leadProfile) profileUpdate.full_name = contact.name || null
 
       await supabase.from('lead_profiles').upsert(profileUpdate, { onConflict: 'contact_id' })
 

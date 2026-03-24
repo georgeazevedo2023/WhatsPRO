@@ -43,7 +43,7 @@ export function VoiceConfig({ config, onChange }: VoiceConfigProps) {
               </p>
             </div>
             <Switch
-              checked={config.voice_reply_to_audio !== false}
+              checked={config.voice_reply_to_audio ?? true}
               onCheckedChange={(v) => onChange({ voice_reply_to_audio: v })}
             />
           </div>
