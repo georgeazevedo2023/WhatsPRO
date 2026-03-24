@@ -152,6 +152,59 @@ Deno.serve(async (req) => {
       })
     }
 
+    // 5.5 Check handoff_triggers — force handoff if lead text matches any trigger
+    // Only trigger after agent has replied at least once (skip on first interaction)
+    const triggers: string[] = agent.handoff_triggers || []
+    const { count: outgoingCount } = await supabase
+      .from('conversation_messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('conversation_id', conversation_id)
+      .eq('direction', 'outgoing')
+    const hasInteracted = (outgoingCount || 0) >= 1
+
+    if (triggers.length > 0 && hasInteracted) {
+      const textLower = incomingText.toLowerCase()
+      const matchedTrigger = triggers.find((t: string) => textLower.includes(t.toLowerCase()))
+      if (matchedTrigger) {
+        console.log(`[ai-agent] Handoff trigger matched: "${matchedTrigger}" in text: "${incomingText.substring(0, 80)}"`)
+        const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+
+        // Send handoff message
+        await fetchWithTimeout(`${uazapiUrl}/send/text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'token': instance.token },
+          body: JSON.stringify({ number: contact.jid, text: handoffMsg }),
+        })
+        await supabase.from('conversation_messages').insert({
+          conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+        })
+
+        // Disable AI
+        await supabase.from('conversations').update({ status_ia: 'desligada' }).eq('id', conversation_id)
+
+        // Log
+        await supabase.from('ai_agent_logs').insert({
+          agent_id, conversation_id, event: 'handoff_trigger',
+          latency_ms: Date.now() - startTime,
+          metadata: { trigger: matchedTrigger, incoming_text: incomingText.substring(0, 300) },
+        })
+
+        // Broadcast
+        const SUPABASE_URL_B = Deno.env.get('SUPABASE_URL')!
+        fetchFireAndForget(`${SUPABASE_URL_B}/realtime/v1/api/broadcast`, {
+          method: 'POST',
+          headers: { 'apikey': ANON_KEY, 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
+          body: JSON.stringify({ messages: [{ topic: 'helpdesk-realtime', event: 'new-message', payload: {
+            conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+          } }] }),
+        })
+
+        return new Response(JSON.stringify({ ok: true, handoff: true, trigger: matchedTrigger }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
     // 6. Load labels (current + available)
     const { data: currentLabels } = await supabase
       .from('conversation_labels')
@@ -617,16 +670,28 @@ ${subAgentInstruction}`
                 console.error('[ai-agent] Carousel attempt failed:', err)
               }
             }
-            if (!carouselSent) console.error('[ai-agent] All carousel variants failed')
+            if (!carouselSent) {
+              console.error('[ai-agent] All carousel variants failed')
+            } else {
+              // Save carousel to conversation_messages so it appears in helpdesk
+              await supabase.from('conversation_messages').insert({
+                conversation_id, direction: 'outgoing',
+                content: 'Confira:',
+                media_type: 'carousel',
+                media_url: JSON.stringify({ message: 'Confira:', cards: carousel }),
+                external_id: `ai_carousel_${Date.now()}`,
+              })
+            }
           }
 
           const resultText = products.map((p: any, i: number) =>
             `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (SEM ESTOQUE)' : ''}`
           ).join('\n')
 
-          return withImages.length > 0
-            ? `${resultText}\n\nCarrossel com fotos JÁ FOI ENVIADO ao lead automaticamente. NÃO envie send_carousel novamente. Apenas pergunte se é o que procura.`
-            : resultText
+          if (withImages.length > 0) {
+            return `Produtos encontrados e carrossel com fotos JÁ FOI ENVIADO ao lead.\nNÃO repita nomes de produtos, preços ou descrições no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "É esse que você procura?" ou "Algum desses te interessa?"`
+          }
+          return resultText
         }
 
         case 'send_carousel': {
@@ -688,6 +753,13 @@ ${subAgentInstruction}`
           }
           if (!sent) return 'Erro ao enviar carrossel. Descreva os produtos por texto.'
 
+          // Save carousel to helpdesk
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'outgoing', content: msg,
+            media_type: 'carousel', media_url: JSON.stringify({ message: msg, cards: carousel }),
+            external_id: `ai_carousel_${Date.now()}`,
+          })
+
           const photoCount = withImages.length === 1 ? `${(withImages[0].images as string[]).slice(0, 5).length} fotos` : `${withImages.length} produto(s)`
           return `Carrossel enviado com ${photoCount} ao lead! NÃO repita os nomes dos produtos no texto — apenas pergunte se é isso que procura.`
         }
@@ -705,6 +777,14 @@ ${subAgentInstruction}`
           })
 
           if (!sendRes.ok) return `Erro ao enviar mídia (${sendRes.status}). Descreva por texto.`
+
+          // Save media to helpdesk
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'outgoing', content: caption || '',
+            media_type: type, media_url,
+            external_id: `ai_media_${Date.now()}`,
+          })
+
           return `Mídia enviada com legenda ao lead! NÃO repita a mesma informação no texto — apenas faça a próxima pergunta (ex: "É esse que você procura?").`
         }
 
