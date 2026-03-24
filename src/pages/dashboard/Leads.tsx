@@ -12,8 +12,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ContactAvatar } from '@/components/helpdesk/ContactAvatar';
 import { PageHeader } from '@/components/ui/page-header';
 import StatsCard from '@/components/dashboard/StatsCard';
-import { Contact2, Search, Loader2, ShieldBan, UserPlus, Target, CheckCircle2, X, ChevronDown, ChevronUp, Clock, Sun } from 'lucide-react';
+import { Contact2, Search, Loader2, ShieldBan, ShieldCheck, UserPlus, Target, CheckCircle2, X, ChevronDown, ChevronUp, Clock, Sun, Bot } from 'lucide-react';
+import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { handleError } from '@/lib/errorUtils';
+import { toast } from 'sonner';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
 import type { LeadData } from '@/components/leads/types';
 
@@ -150,6 +152,30 @@ const Leads = () => {
   }, [selectedInstanceId]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
+
+  // Toggle IA block for a lead on the current instance
+  const toggleIaBlock = useCallback(async (lead: LeadData, e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't navigate to lead detail
+    if (!selectedInstanceId) return;
+    const current = lead.ia_blocked_instances || [];
+    const isBlocked = current.includes(selectedInstanceId);
+    const updated = isBlocked
+      ? current.filter(id => id !== selectedInstanceId)
+      : [...current, selectedInstanceId];
+    try {
+      const { error } = await supabase
+        .from('contacts')
+        .update({ ia_blocked_instances: updated })
+        .eq('id', lead.contact_id);
+      if (error) throw error;
+      setLeads(prev => prev.map(l =>
+        l.contact_id === lead.contact_id ? { ...l, ia_blocked_instances: updated } : l
+      ));
+      toast.success(isBlocked ? `IA ativada para ${lead.display_name}` : `IA desligada para ${lead.display_name}`);
+    } catch (err) {
+      handleError(err, 'Erro ao alterar IA', 'Leads');
+    }
+  }, [selectedInstanceId]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -582,7 +608,7 @@ const Leads = () => {
                 <TableHead className="hidden lg:table-cell text-sm">Etiqueta</TableHead>
                 <TableHead className="hidden lg:table-cell text-sm">Estagio</TableHead>
                 <TableHead className="hidden xl:table-cell text-sm">Resumo</TableHead>
-                <TableHead className="w-10"></TableHead>
+                <TableHead className="w-10 text-center text-sm">IA</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -641,10 +667,32 @@ const Leads = () => {
                   <TableCell className="hidden xl:table-cell text-sm text-muted-foreground truncate max-w-[160px]">
                     {lead.last_summary_reason || '—'}
                   </TableCell>
-                  <TableCell>
-                    {lead.ia_blocked_instances.length > 0 && (
-                      <ShieldBan className="w-4 h-4 text-orange-500" title={`IA bloqueada em ${lead.ia_blocked_instances.length} instancia(s)`} />
-                    )}
+                  <TableCell className="text-center">
+                    <TooltipProvider delayDuration={200}>
+                      <UiTooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={(e) => toggleIaBlock(lead, e)}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              selectedInstanceId && lead.ia_blocked_instances.includes(selectedInstanceId)
+                                ? 'bg-orange-500/15 text-orange-500 hover:bg-orange-500/25'
+                                : 'bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25'
+                            }`}
+                          >
+                            {selectedInstanceId && lead.ia_blocked_instances.includes(selectedInstanceId)
+                              ? <ShieldBan className="w-4 h-4" />
+                              : <Bot className="w-4 h-4" />
+                            }
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {selectedInstanceId && lead.ia_blocked_instances.includes(selectedInstanceId)
+                            ? 'IA desligada — clique para ativar'
+                            : 'IA ativa — clique para desligar'
+                          }
+                        </TooltipContent>
+                      </UiTooltip>
+                    </TooltipProvider>
                   </TableCell>
                 </TableRow>
               ))}
