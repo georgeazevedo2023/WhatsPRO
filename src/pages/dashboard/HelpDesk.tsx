@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useHelpdeskInboxes } from '@/hooks/useHelpdeskInboxes';
