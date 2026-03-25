@@ -567,24 +567,33 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       console.log('[ai-agent] Greeting mode — cleared old messages from history')
     }
 
-    // If first interaction, send greeting and STOP — wait for lead to respond with their name
-    // Race condition guard: check if another call already sent the greeting in the last 30s
+    // If first interaction, send greeting and STOP — wait for lead to respond
+    // Strategy: SAVE to DB first (acts as lock), then check for duplicates, then send via UAZAPI
     if (shouldGreet) {
-      const thirtySecsAgo = new Date(Date.now() - 30000).toISOString()
-      const { count: recentGreetings } = await supabase
+      // Step 1: Save greeting to DB immediately (before TTS which takes seconds)
+      // This acts as a "lock" — concurrent calls will see this record
+      const greetingId = `ai_greeting_${conversation_id}_${Math.floor(Date.now() / 60000)}` // 1 per minute
+      const { data: saved } = await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: agent.greeting_message, media_type: 'text',
+        external_id: greetingId,
+      }).select('id').single()
+
+      // Step 2: Check if another call already saved a greeting (count outgoing messages)
+      const { count: outgoingCount } = await supabase
         .from('conversation_messages')
         .select('*', { count: 'exact', head: true })
         .eq('conversation_id', conversation_id)
         .eq('direction', 'outgoing')
-        .gte('created_at', thirtySecsAgo)
-      if ((recentGreetings || 0) > 0) {
-        console.log('[ai-agent] Greeting already sent by another call — skipping')
-        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_already_sent' }), {
+      if ((outgoingCount || 0) > 1) {
+        // Duplicate — another call beat us. Delete our record and skip.
+        if (saved?.id) await supabase.from('conversation_messages').delete().eq('id', saved.id)
+        console.log('[ai-agent] Greeting duplicate detected — skipping')
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_duplicate' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
-    }
-    if (shouldGreet) {
+
+      // Step 3: We're the only one — send via UAZAPI (TTS or text)
       const maxTts = agent.voice_max_text_length || 150
       const voiceReply = agent.voice_reply_to_audio ?? true
       const greetWithAudio = (agent.voice_enabled || (incomingHasAudio && voiceReply)) && agent.greeting_message.length <= maxTts
@@ -597,12 +606,11 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       } else {
         await sendTextMsg(agent.greeting_message)
       }
-      console.log(`[ai-agent] First interaction — greeting sent as ${greetMediaType}, stopping to wait for name`)
-      await supabase.from('conversation_messages').insert({
-        conversation_id, direction: 'outgoing', content: agent.greeting_message, media_type: greetMediaType,
-        external_id: `ai_greeting_${Date.now()}`,
-      })
-      // Update conversation
+
+      // Step 4: Update DB record with correct media_type + update conversation
+      if (greetMediaType === 'audio' && saved?.id) {
+        await supabase.from('conversation_messages').update({ media_type: 'audio' }).eq('id', saved.id)
+      }
       await supabase.from('conversations').update({
         last_message_at: new Date().toISOString(),
         last_message: agent.greeting_message.substring(0, 200),
@@ -610,11 +618,11 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       }).eq('id', conversation_id)
       broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.greeting_message, media_type: greetMediaType })
 
-      // Log and RETURN — don't call Gemini, wait for lead's next message
+      console.log(`[ai-agent] First interaction — greeting sent as ${greetMediaType}`)
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'greeting_sent',
         latency_ms: Date.now() - startTime,
-        metadata: { media_type: greetMediaType, greeting: agent.greeting_message },
+        metadata: { media_type: greetMediaType },
       })
       return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
