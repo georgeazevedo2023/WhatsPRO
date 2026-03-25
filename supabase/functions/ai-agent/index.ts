@@ -578,13 +578,15 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
         external_id: greetingId,
       }).select('id').single()
 
-      // Step 2: Check if another call already saved a greeting (count outgoing messages)
-      const { count: outgoingCount } = await supabase
+      // Step 2: Check if another call already saved a greeting (count RECENT outgoing only)
+      const recentCutoff = new Date(Date.now() - 30000).toISOString()
+      const { count: recentOutgoing } = await supabase
         .from('conversation_messages')
         .select('*', { count: 'exact', head: true })
         .eq('conversation_id', conversation_id)
         .eq('direction', 'outgoing')
-      if ((outgoingCount || 0) > 1) {
+        .gte('created_at', recentCutoff)
+      if ((recentOutgoing || 0) > 1) {
         // Duplicate — another call beat us. Delete our record and skip.
         if (saved?.id) await supabase.from('conversation_messages').delete().eq('id', saved.id)
         console.log('[ai-agent] Greeting duplicate detected — skipping')
