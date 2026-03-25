@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { verifyCronOrService } from '../_shared/auth.ts'
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -290,9 +291,16 @@ serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { mode, config_id, test_mode } = body;
+    const { config_id, test_mode } = body;
 
-    // Manual trigger (from UI) — requires auth
+    // Cron path (no config_id) — requires cron/service auth
+    if (!config_id && !verifyCronOrService(req)) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Manual trigger (from UI) — requires user auth
     if (config_id) {
       const authHeader = req.headers.get("Authorization");
       if (!authHeader?.startsWith("Bearer ")) {

@@ -144,7 +144,7 @@ const Instances = () => {
 
     const interval = setInterval(updateInstancesStatus, 30000);
     return () => clearInterval(interval);
-  }, [instances.length > 0]);
+  }, []); // Run once on mount, cleanup on unmount
 
   const fetchInstances = async () => {
     try {

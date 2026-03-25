@@ -33,6 +33,35 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v3.3.0 (2026-03-25) — Sprint 8+9 + Auditoria Completa Sistema
+
+**Sprint 8 — Follow-up Automático:**
+- Cadência configurável por agente (ex: 3, 7, 14 dias)
+- Edge function `process-follow-ups` com cron 1h
+- Template variables: {nome}, {produto}, {dias_sem_contato}, {loja}
+- Reativa IA ao enviar follow-up (status_ia → ligada)
+- Webhook marca follow-up como 'replied' quando lead responde
+- Admin tab "Follow-up" com regras editáveis + preview timeline
+
+**Sprint 9 — Import CSV + Web Scraping em Lote:**
+- Import CSV/Excel com auto-detect de colunas + parse preço BR
+- Web scraping em lote com job queue + polling de progresso
+- Dedup automático por título/SKU
+- Edge function `scrape-products-batch` com fila
+- Tabela `scrape_jobs` para tracking
+
+**Auditoria Completa Sistema v3 (24 functions, 33 tabelas, 44 rotas):**
+- Auth adicionado no send-shift-report (cron path)
+- CHECK constraints no utm_campaigns (status, type)
+- FKs adicionadas: shift_report_configs, instance_connection_logs
+- Memory leak fixado no Instances.tsx (setInterval)
+- Typing delay UAZAPI em send/text e send/media
+- Nome duplicado fix (regex GeorgeGeorge → George)
+- Prompt: nunca dizer "não encontrei", nunca pedir permissão para transferir
+- Contexto condicional: lead novo vs retornante
+
+**Edge Functions:** 25 total (+ process-follow-ups, scrape-products-batch)
+
 ### v3.2.0 (2026-03-25) — Auditoria AI Agent v2 + SDR Qualification + Shadow Mode
 
 **Auditoria Completa AI Agent (2 sprints):**

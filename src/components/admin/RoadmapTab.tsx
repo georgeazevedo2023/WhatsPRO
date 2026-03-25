@@ -101,9 +101,15 @@ const ROADMAP_ITEMS: RoadmapItem[] = [
   { id: 'R44', feature: 'Debounce Atômico', description: 'UPDATE WHERE processed=false elimina race condition de duplicatas', priority: 'alta', module: 'M10', done: true },
   { id: 'R45', feature: 'TTS Voice Configurável', description: '6 vozes Gemini (Kore, Aoede, Charon, Fenrir, Puck, Leda) no admin', priority: 'media', module: 'M10', done: true },
   { id: 'R46', feature: 'Quick IA Toggle nos Leads', description: 'Botão verde/laranja por lead na tabela para ligar/desligar IA', priority: 'media', module: 'M11', done: true },
+  { id: 'R47', feature: 'Follow-up Automático (S8)', description: 'Cadência configurável (3/7/14 dias), reativa IA, templates com variáveis', priority: 'alta', module: 'M10', done: true },
+  { id: 'R48', feature: 'Import CSV/Excel de Produtos (S9)', description: 'Upload planilha, auto-detect colunas, parse preço BR, dedup', priority: 'alta', module: 'M10', done: true },
+  { id: 'R49', feature: 'Web Scraping em Lote (S9)', description: 'Job queue com polling, extrai produtos de sites automaticamente', priority: 'alta', module: 'M10', done: true },
+  { id: 'R50', feature: 'Auditoria Completa v3', description: '24 functions, 33 tabelas, 44 rotas — 5 fixes aplicados', priority: 'alta', module: 'Infra', done: true },
 ];
 
 const CHANGELOG: ChangelogEntry[] = [
+  { version: 'v3.3.0', date: '2026-03-25', title: 'Sprint 8+9 + Auditoria Completa Sistema',
+    changes: ['Follow-up automático com cadência configurável', 'Import CSV/Excel de produtos com auto-detect', 'Web scraping em lote com job queue', 'Auditoria v3: 24 functions, 33 tabelas, 44 rotas', 'Auth no send-shift-report, CHECK utm, FKs, memory leak fix', 'Typing delay UAZAPI, nome duplicado fix, prompt handoff'] },
   { version: 'v3.2.0', date: '2026-03-25', title: 'Auditoria AI Agent + SDR + Shadow Mode + Debounce Atômico',
     changes: ['Auditoria v1+v2: 8 CRITICAL + 23 HIGH → todos corrigidos', 'SDR qualification: genérico qualifica, específico busca', 'Shadow mode após handoff (IA escuta sem responder)', 'Greeting direto + TTS + save-first lock dedup', 'Handoff: 1 msg + break (sem duplicatas)', 'Debounce atômico (UPDATE WHERE elimina race)', '6 vozes TTS configuráveis', 'Quick IA toggle nos leads', 'UI: handoff_message + business_hours + voice_name'] },
   { version: 'v3.1.0', date: '2026-03-24', title: 'Carousel AI Copy + LLM Fallback + UTM + Deploy',
