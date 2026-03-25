@@ -159,30 +159,34 @@ Lead: [Recebe áudio] "Temos 2 HB20 2024 brancos! Sedan e Hatch."
 
 ---
 
-## Auditoria v2.9.0 — Findings do AI Agent
+## Auditoria v1 + v2 — Status (v3.2.0)
 
-### Segurança
-| Issue | Severidade | Localização | Status |
-|-------|-----------|-------------|--------|
-| ai-agent aceita service role key na validação de token | Média | ai-agent/index.ts:25-33 | 📋 R43 |
-| Shadow mode não verifica ia_blocked_instances | Média | ai-agent/index.ts:210-260 | 📋 Pendente |
-| Sem rate limiting em tool calls (executeTool) | Média | ai-agent/index.ts | 📋 R41 |
-| Function calling loop sem backoff entre attempts | Baixa | ai-agent-playground:167-208 | 📋 Pendente |
+### Corrigidos ✅
+| Issue | Severidade | Fix |
+|-------|-----------|-----|
+| status_ia sobrescrito após handoff | CRITICAL | shadow mode + não reseta |
+| Gemini empty response retorna 500 | CRITICAL | fallback message + retry 429/500/503 |
+| Stack trace exposto em respostas | CRITICAL | "Internal server error" genérico |
+| API key Gemini em logs | CRITICAL | variáveis sanitizadas |
+| Race condition debounce (check-then-act) | CRITICAL | UPDATE atômico WHERE processed=false |
+| send/text sem verificação de resposta (6 locais) | HIGH | sendTextMsg() helper |
+| Broadcast bloqueava resposta (Promise.all) | HIGH | broadcastEvent() fire-and-forget |
+| ANON_KEY em broadcasts server-to-server | HIGH | SERVICE_ROLE_KEY |
+| Lead profile carregado 2x | HIGH | cache reutilizado |
+| Tag merge duplicado em 3 locais | HIGH | mergeTags() helper |
+| extraction_address_enabled não salvava | HIGH | adicionado ao ALLOWED_FIELDS |
+| handleSave sem validação | HIGH | prompts obrigatórios, limites temp/tokens |
+| voice_reply_to_audio lógica invertida | HIGH | ?? true (nullish coalescing) |
+| Implicit handoff detectado após envio | HIGH | movido para antes do send |
+| Prompt contraditório genérico vs search | HIGH | regras separadas claras |
+| ANON_KEY dead code | LOW | removida |
 
-### Estabilidade
-| Issue | Severidade | Localização | Status |
-|-------|-----------|-------------|--------|
-| Race condition no ai-agent-debounce (check-then-act) | Média | ai-agent-debounce/index.ts:60-98 | 📋 R50 |
-| Fire-and-forget presence sem logging de erro | Baixa | ai-agent-debounce/index.ts:110-115 | 📋 Pendente |
-| Sem timeout nos fetch() para UAZAPI/Gemini | Média | Todas edge functions | 📋 R42 |
-
-### Recomendações
-1. **R43**: Remover service role key da validação — aceitar apenas anon key + validar acesso via RLS
-2. **R50**: Usar `upsert` com `onConflict: 'conversation_id'` no debounce em vez de check-then-act
-3. **R42**: Adicionar timeout 30s em todos os fetch() (Gemini, UAZAPI, presence)
-4. Adicionar check de `ia_blocked_instances` no shadow mode
-5. Logar erros de presence update em vez de `.catch(() => {})`
-6. Implementar exponential backoff no function calling loop
+### Pendentes (backlog)
+| Issue | Severidade | Nota |
+|-------|-----------|------|
+| Playground sem verificação de organização | MEDIUM | super_admin pode ver agentes de outros orgs |
+| Rate limiting em tool calls | MEDIUM | sem limite de chamadas por request |
+| Carousel failure silenciosa | MEDIUM | Gemini told "enviado" even if failed |
 
 ---
 
@@ -205,7 +209,31 @@ Lead: [Recebe áudio] "Temos 2 HB20 2024 brancos! Sedan e Hatch."
 
 ---
 
-## Roadmap Futuro (pós Sprint 6)
+## Sprint 7 — Auditorias + SDR + Shadow + Debounce ✅ (v3.2.0)
+
+**Objetivo:** Corrigir todos os issues das auditorias v1+v2, implementar fluxo SDR e shadow mode.
+
+| Task | Status | Descrição |
+|------|--------|-----------|
+| S7.1 | ✅ | Gemini retry (429/500/503) + empty response fallback |
+| S7.2 | ✅ | Security: stack trace removido, API key sanitizada, ANON_KEY dead code |
+| S7.3 | ✅ | Helpers DRY: sendTextMsg(), sendTts(), broadcastEvent(), mergeTags() |
+| S7.4 | ✅ | Broadcasts fire-and-forget com SERVICE_ROLE_KEY |
+| S7.5 | ✅ | SDR qualification: genérico qualifica, específico busca |
+| S7.6 | ✅ | Shadow mode pós-handoff (IA escuta sem responder) |
+| S7.7 | ✅ | Greeting direto + TTS + save-first lock dedup |
+| S7.8 | ✅ | Handoff: 1 msg + break loop (sem duplicatas) |
+| S7.9 | ✅ | Debounce atômico (UPDATE WHERE processed=false) |
+| S7.10 | ✅ | TTS 6 vozes configuráveis + UI admin |
+| S7.11 | ✅ | Groq Whisper retry (429/500/503, 1s backoff) |
+| S7.12 | ✅ | UI: handoff_message, business_hours, voice_name, extraction_address_enabled |
+| S7.13 | ✅ | Quick IA toggle na tabela de Leads |
+| S7.14 | ✅ | Clear context reativa IA (status_ia=ligada + unblock) |
+| S7.15 | ✅ | Implicit handoff detection movido para antes do envio |
+
+---
+
+## Roadmap Futuro (pós Sprint 7)
 
 | Feature | Sprint | Descrição |
 |---------|--------|-----------|
@@ -226,10 +254,10 @@ id, instance_id (UNIQUE FK), enabled, name, greeting_message,
 personality, system_prompt, sub_agents (JSONB),
 model, temperature, max_tokens, debounce_seconds,
 handoff_triggers[], handoff_cooldown_minutes, handoff_max_conversation_minutes,
-handoff_negative_sentiment, blocked_topics[], max_discount_percent,
-blocked_phrases[], voice_enabled, voice_max_text_length,
-context_short_messages, context_long_enabled,
-business_hours (JSONB), out_of_hours_message,
+handoff_negative_sentiment, handoff_message, blocked_topics[], max_discount_percent,
+blocked_phrases[], voice_enabled, voice_max_text_length, voice_reply_to_audio, voice_name,
+context_short_messages, context_long_enabled, extraction_fields (JSONB), extraction_address_enabled,
+business_hours (JSONB), out_of_hours_message, blocked_numbers[],
 created_at, updated_at
 ```
 

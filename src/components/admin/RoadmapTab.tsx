@@ -95,9 +95,17 @@ const ROADMAP_ITEMS: RoadmapItem[] = [
   { id: 'R38', feature: 'Carousel com copy IA por card', description: 'Cada card do carrossel tem texto de vendas gerado por IA (Groq/Gemini/Mistral)', priority: 'alta', module: 'M10', done: true },
   { id: 'R39', feature: 'LLM Fallback Chain', description: 'Groq → Gemini → Mistral → templates estáticos para resiliência', priority: 'alta', module: 'M10', done: true },
   { id: 'R40', feature: 'Deploy Docker Swarm + Traefik', description: 'CI/CD GitHub Actions → ghcr.io → Portainer em crm.wsmart.com.br', priority: 'alta', module: 'Infra', done: true },
+  { id: 'R41', feature: 'Auditoria AI Agent (2 sprints)', description: 'Gemini retry, security hardening, helpers DRY, broadcast fire-and-forget', priority: 'alta', module: 'M10', done: true },
+  { id: 'R42', feature: 'SDR Qualification Flow', description: 'Qualificação antes de buscar (genérico vs específico), handoff após 5 msgs', priority: 'alta', module: 'M10', done: true },
+  { id: 'R43', feature: 'Shadow Mode pós-Handoff', description: 'IA escuta em shadow após transbordo, extrai tags/context para follow-up', priority: 'alta', module: 'M10', done: true },
+  { id: 'R44', feature: 'Debounce Atômico', description: 'UPDATE WHERE processed=false elimina race condition de duplicatas', priority: 'alta', module: 'M10', done: true },
+  { id: 'R45', feature: 'TTS Voice Configurável', description: '6 vozes Gemini (Kore, Aoede, Charon, Fenrir, Puck, Leda) no admin', priority: 'media', module: 'M10', done: true },
+  { id: 'R46', feature: 'Quick IA Toggle nos Leads', description: 'Botão verde/laranja por lead na tabela para ligar/desligar IA', priority: 'media', module: 'M11', done: true },
 ];
 
 const CHANGELOG: ChangelogEntry[] = [
+  { version: 'v3.2.0', date: '2026-03-25', title: 'Auditoria AI Agent + SDR + Shadow Mode + Debounce Atômico',
+    changes: ['Auditoria v1+v2: 8 CRITICAL + 23 HIGH → todos corrigidos', 'SDR qualification: genérico qualifica, específico busca', 'Shadow mode após handoff (IA escuta sem responder)', 'Greeting direto + TTS + save-first lock dedup', 'Handoff: 1 msg + break (sem duplicatas)', 'Debounce atômico (UPDATE WHERE elimina race)', '6 vozes TTS configuráveis', 'Quick IA toggle nos leads', 'UI: handoff_message + business_hours + voice_name'] },
   { version: 'v3.1.0', date: '2026-03-24', title: 'Carousel AI Copy + LLM Fallback + UTM + Deploy',
     changes: ['Carousel: copy de vendas IA por card (Groq ~300ms)', 'LLM chain: Groq → Gemini → Mistral → static', 'TTS fix: Gemini Preview TTS + PCM→WAV', 'Auto-carousel em search_products', 'Handoff triggers automáticos', 'UTM Campaigns: CRUD + QR + métricas + AI contextual', 'Deploy: Docker Swarm + Traefik + SSL em crm.wsmart.com.br', 'Tag classification melhorada (compra vs dúvida)'] },
   { version: 'v3.0.0', date: '2026-03-23', title: 'Auditoria Completa + Importação Rápida',

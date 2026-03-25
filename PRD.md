@@ -33,6 +33,57 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v3.2.0 (2026-03-25) — Auditoria AI Agent v2 + SDR Qualification + Shadow Mode
+
+**Auditoria Completa AI Agent (2 sprints):**
+- Sprint Crítico: Gemini retry (429/500/503), empty response fallback, stack trace removido, API key sanitizada
+- Sprint High: `sendTextMsg()` helper (verifica respostas UAZAPI), `broadcastEvent()` fire-and-forget, `mergeTags()` DRY
+- Broadcasts usam SERVICE_ROLE_KEY (era ANON_KEY), lead profile cache (eliminada query duplicada)
+- `extraction_address_enabled` + `handoff_message` adicionados ao ALLOWED_FIELDS (não salvavam antes)
+- Validação no handleSave: prompts obrigatórios, temperatura 0-2, max_tokens 50-8192
+
+**SDR Qualification Flow:**
+- Termos genéricos ("verniz", "tinta") → qualifica primeiro (ambiente, marca, cor, tamanho)
+- Termos específicos ("Verniz Sol Chuva Iquine") → search_products imediatamente
+- Após 5 mensagens sem afunilar → handoff automático
+- Prompt sem contradições: regras claras separadas para genérico vs específico
+- Tool description atualizada: search_products menciona auto-carousel
+
+**Shadow Mode pós-Handoff:**
+- Após transbordo, status_ia='shadow' (era 'desligada')
+- IA continua escutando: extrai tags, etiquetas, contexto para follow-up
+- 'desligada' reservado para bloqueio manual (botão IA off)
+- Implicit handoff detectado ANTES do envio de texto (era depois)
+
+**Greeting Improvements:**
+- Saudação enviada diretamente + STOP (não chama Gemini na 1ª interação)
+- TTS na saudação quando voice ativo + lead envia áudio
+- Save-first lock: previne saudação duplicada em chamadas concorrentes
+- Fresh DB check (2min) em vez de cache para decidir shouldGreet
+
+**Quick IA Toggle na tabela de Leads:**
+- Botão verde/laranja por lead para ligar/desligar IA
+- Toggle por instância selecionada com tooltip
+
+**Limpar Contexto reativa IA:**
+- status_ia='ligada' + ia_blocked_instances=[] ao limpar
+
+**Debounce Atômico:**
+- UPDATE WHERE processed=false AND process_after<=now() (elimina race condition)
+- Apenas 1 timer callback processa (outros skipam)
+
+**TTS Voice Configurável:**
+- 6 vozes Gemini: Kore (padrão), Aoede, Charon, Fenrir, Puck, Leda
+- Select no admin VoiceConfig
+
+**Groq Whisper Retry:**
+- Retry 1x em erros 429/500/503 com 1s backoff
+
+**UI Admin Completa:**
+- Campo `handoff_message` (mensagem de transbordo editável)
+- Campo `business_hours` com time pickers (abertura/fechamento)
+- `voice_name` selector no VoiceConfig
+
 ### v3.1.0 (2026-03-24) — Carousel AI Sales Copy + LLM Fallback Chain + Melhorias Agente
 
 **Carousel com Copy de Vendas IA:**

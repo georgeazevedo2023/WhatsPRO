@@ -7,7 +7,7 @@ WhatsPRO is a multi-tenant WhatsApp helpdesk, CRM, AI Agent, and Leads platform 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui
 - **Backend**: Supabase (PostgreSQL, Auth, Storage, Realtime, Edge Functions)
 - **WhatsApp API**: UAZAPI (proxied through Edge Functions)
-- **AI**: Gemini 2.5 Flash (AI Agent M10), Groq API (Whisper transcription, Llama summarization)
+- **AI**: Gemini 2.5 Flash (AI Agent M10), Gemini 2.5 Flash Preview TTS (voice), Groq API (Whisper transcription, Llama summarization/carousel copy), Mistral Small (carousel fallback)
 - **Data Fetching**: TanStack React Query 5
 
 ## Architecture
@@ -28,8 +28,8 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - Helpdesk with real-time chat, labels, assignments, departments
 - Broadcast messaging (text, media, carousel) to groups and leads
 - Lead database management with CSV import
-- AI Agent (M10): 8 tools, shadow mode, TTS, sub-agents, qualification flow
-- Leads module (M11): lead cards, timeline, conversation modal, block IA, clear context
+- AI Agent (M10): 8 tools, shadow mode, TTS (6 voices), sub-agents, SDR qualification flow
+- Leads module (M11): lead cards, timeline, conversation modal, block IA, clear context, quick IA toggle
 - Kanban CRM boards with custom fields + lead integration (contact_id FK)
 - AI-powered conversation summaries and audio transcription
 - Scheduled/recurring messages + message templates
@@ -53,7 +53,7 @@ Located in `supabase/functions/`. Each uses Deno runtime.
 - JWT verification is disabled in config.toml (functions handle auth manually via `_shared/auth.ts`)
 - Shared CORS config in `supabase/functions/_shared/cors.ts`
 - Shared utilities: `fetchWithTimeout.ts` (30s timeout), `rateLimit.ts` (per-user throttle), `response.ts` (standard format)
-- AI Agent: `ai-agent` (brain), `ai-agent-debounce` (10s grouping), `ai-agent-playground` (testing)
+- AI Agent: `ai-agent` (brain, SDR+handoff+shadow), `ai-agent-debounce` (10s atomic grouping), `ai-agent-playground` (testing)
 - Product Import: `scrape-product` (URL → title, price, description, images, category via JSON-LD/NEXT_DATA/OG)
 - UTM Tracking: `go` (redirect endpoint for campaign links)
 
@@ -81,4 +81,11 @@ npx supabase functions deploy <name>  # Deploy edge function
 - AI Agent tools execute during Gemini function calling loop (instance token loaded early)
 - Lead profiles link to contacts via contact_id (1:1), kanban_cards link via contact_id FK
 - Tags on conversations use TEXT[] array with "key:value" format
-- Shadow mode: status_ia='shadow' — AI extracts data without responding
+- Shadow mode: status_ia='shadow' — AI extracts data without responding (auto after handoff)
+- Greeting: sent directly before Gemini, save-first lock prevents duplicates, TTS when voice active
+- SDR flow: generic terms → qualify first, specific → search immediately
+- Handoff: tool sends 1 message + breaks loop (no duplicate text), implicit detection before send
+- Debounce: atomic UPDATE WHERE processed=false (eliminates race condition)
+- AI Agent helpers: sendTextMsg(), sendTts(), broadcastEvent(), mergeTags(), cleanProductTitle()
+- LLM carousel copies: Groq→Gemini→Mistral chain, Card 1 code-generated (title+price), Cards 2-5 AI
+- Clear context: resets status_ia='ligada' + clears ia_blocked_instances
