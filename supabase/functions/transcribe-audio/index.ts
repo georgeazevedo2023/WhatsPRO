@@ -69,25 +69,32 @@ Deno.serve(async (req) => {
     formData.append('response_format', 'verbose_json')
     formData.append('prompt', 'Conversa o áudio em texto de forma clara e precisa.')
 
-    const groqResponse = await fetchWithTimeout('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-      },
-      body: formData,
-    }, 60000) // 60s for audio transcription (can be slow for large files)
+    // Retry Groq Whisper up to 2 times on transient failures
+    let transcription = ''
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const groqResponse = await fetchWithTimeout('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
+        body: formData,
+      }, 60000)
 
-    if (!groqResponse.ok) {
+      if (groqResponse.ok) {
+        const result = await groqResponse.json()
+        transcription = result.text || ''
+        break
+      }
+
       const errText = await groqResponse.text()
-      console.error('Groq API error:', groqResponse.status, errText)
-      return new Response(JSON.stringify({ error: 'Groq transcription failed', details: errText }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
+      console.error(`Groq API error (attempt ${attempt}):`, groqResponse.status, errText)
 
-    const result = await groqResponse.json()
-    const transcription = result.text || ''
+      if (attempt === 2 || ![429, 500, 503].includes(groqResponse.status)) {
+        return new Response(JSON.stringify({ error: 'Groq transcription failed', details: errText }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+      // Wait 1s before retry
+      await new Promise(r => setTimeout(r, 1000))
+    }
     console.log('Transcription result:', transcription.substring(0, 100))
 
     // Update message in database

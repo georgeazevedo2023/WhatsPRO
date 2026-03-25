@@ -138,55 +138,44 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Schedule the ai-agent call after debounce expires
-    // We use setTimeout-like approach: call ai-agent with a delay check
-    // The ai-agent will verify process_after before processing
+    // Schedule ai-agent call after debounce expires.
+    // ATOMIC processing: UPDATE ... WHERE processed=false AND process_after <= now()
+    // Only ONE timer callback will succeed — others get 0 rows and skip.
+    const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
     setTimeout(async () => {
       try {
-        // Re-check if this queue item is still pending and timer hasn't been reset
-        const { data: queueItem } = await supabase
+        // Atomic claim: mark as processed ONLY IF timer hasn't been reset and not yet processed
+        // This single UPDATE eliminates the SELECT-then-UPDATE race condition
+        const { data: claimed } = await supabase
           .from('ai_debounce_queue')
-          .select('id, messages, process_after, processed')
+          .update({ processed: true })
           .eq('conversation_id', conversation_id)
           .eq('processed', false)
+          .lte('process_after', new Date().toISOString())
+          .select('id, messages')
           .maybeSingle()
 
-        if (!queueItem) return
-
-        // Check if process_after was reset (new messages came in)
-        const shouldProcess = new Date(queueItem.process_after).getTime() <= Date.now()
-        if (!shouldProcess) {
-          console.log(`[debounce] Timer was reset for ${conversation_id}, skipping`)
+        if (!claimed) {
+          console.log(`[debounce] Timer fired but queue already processed or reset for ${conversation_id}`)
           return
         }
 
-        // Mark as processed
-        await supabase
-          .from('ai_debounce_queue')
-          .update({ processed: true })
-          .eq('id', queueItem.id)
+        // We won the race — call ai-agent with all queued messages
+        const msgCount = (claimed.messages as any[])?.length || 0
+        console.log(`[debounce] Debounce expired, calling ai-agent for ${conversation_id} with ${msgCount} messages`)
 
-        // Call ai-agent
-        console.log(`[debounce] Debounce expired, calling ai-agent for ${conversation_id} with ${(queueItem.messages as any[]).length} messages`)
-
-        const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
         const agentResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/ai-agent`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${ANON_KEY}`,
-          },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
           body: JSON.stringify({
-            conversation_id,
-            instance_id,
-            messages: queueItem.messages,
+            conversation_id, instance_id,
+            messages: claimed.messages,
             agent_id: agent.id,
           }),
         })
 
         const result = await agentResp.json()
         console.log(`[debounce] ai-agent response:`, agentResp.status, JSON.stringify(result).substring(0, 200))
-
       } catch (err) {
         console.error('[debounce] Error calling ai-agent:', err)
       }

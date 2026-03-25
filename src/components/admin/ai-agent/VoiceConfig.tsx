@@ -1,8 +1,18 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Mic } from 'lucide-react';
+
+const VOICE_OPTIONS = [
+  { value: 'Kore', label: 'Kore — Feminina (BR)' },
+  { value: 'Aoede', label: 'Aoede — Feminina' },
+  { value: 'Charon', label: 'Charon — Masculina' },
+  { value: 'Fenrir', label: 'Fenrir — Masculina' },
+  { value: 'Puck', label: 'Puck — Masculina' },
+  { value: 'Leda', label: 'Leda — Feminina' },
+];
 
 interface VoiceConfigProps {
   config: Record<string, any>;
@@ -46,6 +56,21 @@ export function VoiceConfig({ config, onChange }: VoiceConfigProps) {
               checked={config.voice_reply_to_audio ?? true}
               onCheckedChange={(v) => onChange({ voice_reply_to_audio: v })}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Voz do Agente</Label>
+            <Select value={config.voice_name || 'Kore'} onValueChange={(v) => onChange({ voice_name: v })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {VOICE_OPTIONS.map(v => (
+                  <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">Voz utilizada pelo Gemini TTS para gerar áudio.</p>
           </div>
 
           <div className="space-y-1.5">

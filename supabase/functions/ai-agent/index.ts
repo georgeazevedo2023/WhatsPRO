@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ role: 'user', parts: [{ text: `Leia o seguinte texto em português brasileiro com tom natural e amigável: "${text}"` }] }],
-            generationConfig: { response_modalities: ['AUDIO'], speech_config: { voice_config: { prebuilt_voice_config: { voice_name: 'Kore' } } } },
+            generationConfig: { response_modalities: ['AUDIO'], speech_config: { voice_config: { prebuilt_voice_config: { voice_name: agent.voice_name || 'Kore' } } } },
           }),
         })
         if (!ttsRes.ok) { console.warn('[ai-agent] TTS failed:', ttsRes.status); return false }
@@ -1367,7 +1367,7 @@ ${subAgentInstruction}`
             contents: [{ role: 'user', parts: [{ text: `Leia o seguinte texto em português brasileiro com tom natural e amigável: "${responseText}"` }] }],
             generationConfig: {
               response_modalities: ['AUDIO'],
-              speech_config: { voice_config: { prebuilt_voice_config: { voice_name: 'Kore' } } },
+              speech_config: { voice_config: { prebuilt_voice_config: { voice_name: agent.voice_name || 'Kore' } } },
             },
           }),
         })
