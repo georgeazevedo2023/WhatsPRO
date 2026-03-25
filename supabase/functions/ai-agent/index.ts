@@ -1303,6 +1303,10 @@ ${subAgentInstruction}`
       }
 
       responseText = parts.find((p: any) => p.text)?.text || ''
+
+      // Fix doubled names in response (e.g., "GeorgeGeorge" → "George")
+      responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
+
       break
     }
 
