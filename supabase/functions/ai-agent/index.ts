@@ -568,6 +568,22 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     }
 
     // If first interaction, send greeting and STOP — wait for lead to respond with their name
+    // Race condition guard: check if another call already sent the greeting in the last 30s
+    if (shouldGreet) {
+      const thirtySecsAgo = new Date(Date.now() - 30000).toISOString()
+      const { count: recentGreetings } = await supabase
+        .from('conversation_messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('conversation_id', conversation_id)
+        .eq('direction', 'outgoing')
+        .gte('created_at', thirtySecsAgo)
+      if ((recentGreetings || 0) > 0) {
+        console.log('[ai-agent] Greeting already sent by another call — skipping')
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_already_sent' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
     if (shouldGreet) {
       const maxTts = agent.voice_max_text_length || 150
       const voiceReply = agent.voice_reply_to_audio ?? true
