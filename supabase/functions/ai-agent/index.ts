@@ -262,12 +262,15 @@ Deno.serve(async (req) => {
       })
     }
 
-    /** Send text message via UAZAPI with response checking */
+    /** Calculate typing delay: ~40ms per char, min 1s, max 5s */
+    const typingDelay = (text: string) => Math.min(5000, Math.max(1000, text.length * 40))
+
+    /** Send text message via UAZAPI with typing delay */
     const sendTextMsg = async (text: string) => {
       const res = await fetchWithTimeout(`${uazapiUrl}/send/text`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'token': instance.token },
-        body: JSON.stringify({ number: contact.jid, text }),
+        body: JSON.stringify({ number: contact.jid, text, delay: typingDelay(text) }),
       })
       if (!res.ok) console.error(`[ai-agent] send/text failed: ${res.status} ${(await res.text()).substring(0, 100)}`)
       return res.ok

@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
           const sendRes = await fetchWithTimeout(`${UAZAPI_URL}/send/text`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'token': instance.token },
-            body: JSON.stringify({ number: contact.jid, text: message }),
+            body: JSON.stringify({ number: contact.jid, text: message, delay: Math.min(5000, Math.max(1000, message.length * 40)) }),
           })
 
           const sendOk = sendRes.ok
