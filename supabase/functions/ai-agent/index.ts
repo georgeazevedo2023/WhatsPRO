@@ -274,6 +274,43 @@ Deno.serve(async (req) => {
       return res.ok
     }
 
+    /** Send text as TTS audio via Gemini, returns true if audio sent, false if fallback to text */
+    const sendTts = async (text: string): Promise<boolean> => {
+      try {
+        const ttsUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${GEMINI_API_KEY}`
+        const ttsRes = await fetchWithTimeout(ttsUrl, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: `Leia o seguinte texto em português brasileiro com tom natural e amigável: "${text}"` }] }],
+            generationConfig: { response_modalities: ['AUDIO'], speech_config: { voice_config: { prebuilt_voice_config: { voice_name: 'Kore' } } } },
+          }),
+        })
+        if (!ttsRes.ok) { console.warn('[ai-agent] TTS failed:', ttsRes.status); return false }
+        const ttsData = await ttsRes.json()
+        const audioPart = ttsData?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)
+        if (!audioPart?.inlineData?.data) return false
+        const pcmBytes = Uint8Array.from(atob(audioPart.inlineData.data), c => c.charCodeAt(0))
+        const wavHeader = new ArrayBuffer(44)
+        const view = new DataView(wavHeader)
+        const sr = 24000, ch = 1, bps = 16
+        view.setUint32(0, 0x52494646, false); view.setUint32(4, 36 + pcmBytes.length, true); view.setUint32(8, 0x57415645, false)
+        view.setUint32(12, 0x666D7420, false); view.setUint32(16, 16, true); view.setUint16(20, 1, true)
+        view.setUint16(22, ch, true); view.setUint32(24, sr, true); view.setUint32(28, sr * ch * (bps / 8), true)
+        view.setUint16(32, ch * (bps / 8), true); view.setUint16(34, bps, true)
+        view.setUint32(36, 0x64617461, false); view.setUint32(40, pcmBytes.length, true)
+        const wavBytes = new Uint8Array(44 + pcmBytes.length)
+        wavBytes.set(new Uint8Array(wavHeader), 0); wavBytes.set(pcmBytes, 44)
+        let wavBin = ''
+        for (let i = 0; i < wavBytes.length; i += 8192) wavBin += String.fromCharCode(...wavBytes.subarray(i, Math.min(i + 8192, wavBytes.length)))
+        await fetchWithTimeout(`${uazapiUrl}/send/media`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'token': instance.token },
+          body: JSON.stringify({ number: contact.jid, type: 'ptt', file: btoa(wavBin) }),
+        })
+        console.log(`[ai-agent] TTS sent (${text.length} chars)`)
+        return true
+      } catch (e) { console.warn('[ai-agent] TTS error:', e); return false }
+    }
+
     /** Broadcast event to helpdesk (fire-and-forget, uses SERVICE_ROLE) */
     const broadcastEvent = (payload: Record<string, any>) => {
       for (const topic of ['helpdesk-realtime', 'helpdesk-conversations']) {
@@ -532,13 +569,24 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 
     // If first interaction, send greeting immediately (don't rely on Gemini which may skip it)
     if (shouldGreet) {
-      console.log(`[ai-agent] First interaction — sending greeting directly`)
-      await sendTextMsg(agent.greeting_message)
+      const maxTts = agent.voice_max_text_length || 150
+      const voiceReply = agent.voice_reply_to_audio ?? true
+      const greetWithAudio = (agent.voice_enabled || (incomingHasAudio && voiceReply)) && agent.greeting_message.length <= maxTts
+      let greetMediaType = 'text'
+
+      if (greetWithAudio) {
+        sendPresence('recording')
+        const sent = await sendTts(agent.greeting_message)
+        if (sent) { greetMediaType = 'audio' } else { await sendTextMsg(agent.greeting_message) }
+      } else {
+        await sendTextMsg(agent.greeting_message)
+      }
+      console.log(`[ai-agent] First interaction — greeting sent as ${greetMediaType}`)
       await supabase.from('conversation_messages').insert({
-        conversation_id, direction: 'outgoing', content: agent.greeting_message, media_type: 'text',
+        conversation_id, direction: 'outgoing', content: agent.greeting_message, media_type: greetMediaType,
         external_id: `ai_greeting_${Date.now()}`,
       })
-      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.greeting_message, media_type: 'text' })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.greeting_message, media_type: greetMediaType })
     }
     const greetingInstruction = shouldGreet
       ? `\n\nACONTECEU AGORA: Você ACABOU de enviar a saudação "${agent.greeting_message}" ao lead. NÃO repita a saudação. Agora responda à mensagem do lead normalmente.`
