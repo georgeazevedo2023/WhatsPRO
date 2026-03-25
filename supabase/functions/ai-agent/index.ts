@@ -306,7 +306,7 @@ Deno.serve(async (req) => {
         for (let i = 0; i < wavBytes.length; i += 8192) wavBin += String.fromCharCode(...wavBytes.subarray(i, Math.min(i + 8192, wavBytes.length)))
         await fetchWithTimeout(`${uazapiUrl}/send/media`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'token': instance.token },
-          body: JSON.stringify({ number: contact.jid, type: 'ptt', file: btoa(wavBin) }),
+          body: JSON.stringify({ number: contact.jid, type: 'ptt', file: btoa(wavBin), delay: 2000 }),
         })
         console.log(`[ai-agent] TTS sent (${text.length} chars)`)
         return true
@@ -1019,7 +1019,7 @@ ${subAgentInstruction}`
           const sendRes = await fetchWithTimeout(`${uazapiUrl}/send/media`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'token': instance.token },
-            body: JSON.stringify({ number: contact.jid, type, file: media_url, text: caption || '' }),
+            body: JSON.stringify({ number: contact.jid, type, file: media_url, text: caption || '', delay: 2000 }),
           })
 
           if (!sendRes.ok) return `Erro ao enviar mídia (${sendRes.status}). Descreva por texto.`
@@ -1416,7 +1416,7 @@ ${subAgentInstruction}`
             await fetchWithTimeout(`${uazapiUrl}/send/media`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'token': instance.token },
-              body: JSON.stringify({ number: contact.jid, type: 'ptt', file: wavBase64 }),
+              body: JSON.stringify({ number: contact.jid, type: 'ptt', file: wavBase64, delay: 2000 }),
             })
             sentMediaType = 'audio'
             console.log(`[ai-agent] TTS audio sent (${responseText.length} chars, WAV ${wavBytes.length} bytes)`)
