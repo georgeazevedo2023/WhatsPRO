@@ -530,8 +530,18 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       console.log('[ai-agent] Greeting mode — cleared old messages from history')
     }
 
+    // If first interaction, send greeting immediately (don't rely on Gemini which may skip it)
+    if (shouldGreet) {
+      console.log(`[ai-agent] First interaction — sending greeting directly`)
+      await sendTextMsg(agent.greeting_message)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: agent.greeting_message, media_type: 'text',
+        external_id: `ai_greeting_${Date.now()}`,
+      })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.greeting_message, media_type: 'text' })
+    }
     const greetingInstruction = shouldGreet
-      ? `\n\nIMPORTANTE: Esta é a PRIMEIRA interação. Responda APENAS com esta saudação EXATA, sem adicionar NADA mais: "${agent.greeting_message}"`
+      ? `\n\nACONTECEU AGORA: Você ACABOU de enviar a saudação "${agent.greeting_message}" ao lead. NÃO repita a saudação. Agora responda à mensagem do lead normalmente.`
       : ''
 
     // 10. Build extraction fields + sub-agents instructions
@@ -1185,6 +1195,12 @@ ${subAgentInstruction}`
           toolResults.push({ functionResponse: { name, response: { result } } })
         }
 
+        // If handoff was called, STOP — don't let Gemini generate more text (prevents duplicate messages)
+        if (toolCallsLog.some(t => t.name === 'handoff_to_human')) {
+          console.log('[ai-agent] handoff_to_human called — stopping loop, no further text needed')
+          break
+        }
+
         currentContents.push({ role: 'model', parts })
         currentContents.push({ role: 'user', parts: toolResults })
         continue
@@ -1194,7 +1210,13 @@ ${subAgentInstruction}`
       break
     }
 
-    if (!responseText.trim()) {
+    // If handoff was called, skip text response entirely (handoff tool already sent its message)
+    const hadExplicitHandoffInLoop = toolCallsLog.some(t => t.name === 'handoff_to_human')
+    if (hadExplicitHandoffInLoop && !responseText.trim()) {
+      console.log('[ai-agent] Handoff completed — skipping text response')
+      // Still need to update conversation and log, so set a minimal marker
+      responseText = ''
+    } else if (!responseText.trim()) {
       console.warn('[ai-agent] Empty Gemini response — using fallback message')
       responseText = 'Desculpe, não consegui processar sua mensagem. Pode repetir?'
       await supabase.from('ai_agent_logs').insert({
@@ -1205,7 +1227,8 @@ ${subAgentInstruction}`
 
     console.log(`[ai-agent] Response (${outputTokens} tok): ${responseText.substring(0, 100)}...`)
 
-    // 16. Send response via UAZAPI (TTS audio or text)
+    // 16. Send response via UAZAPI (TTS audio or text) — SKIP if handoff already handled it
+    const skipTextSend = hadExplicitHandoffInLoop && !responseText.trim()
     let sentMediaType = 'text'
     const maxTtsLength = agent.voice_max_text_length || 150
     // Send audio if: (1) voice globally enabled, OR (2) lead sent audio and voice_reply_to_audio is on
@@ -1216,7 +1239,9 @@ ${subAgentInstruction}`
     console.log(`[ai-agent] TTS check: voice_enabled=${agent.voice_enabled}, incomingHasAudio=${incomingHasAudio}, voiceReplyToAudio=${voiceReplyToAudio}, responseLen=${responseText.length}, maxTts=${maxTtsLength}, shouldSendAudio=${shouldSendAudio}`)
     let ttsDebugError = ''
 
-    if (shouldSendAudio) {
+    if (skipTextSend) {
+      console.log('[ai-agent] Skipping text send — handoff tool already sent message')
+    } else if (shouldSendAudio) {
       // Switch to "recording..." indicator before TTS
       sendPresence('recording')
       try {
@@ -1299,16 +1324,20 @@ ${subAgentInstruction}`
       await sendTextMsg(responseText)
     }
 
-    // 17. Save outgoing message to DB
-    const { data: savedMsg } = await supabase
-      .from('conversation_messages')
-      .insert({
-        conversation_id, direction: 'outgoing',
-        content: responseText, media_type: sentMediaType,
-        external_id: `ai_agent_${Date.now()}`,
-      })
-      .select('id, created_at')
-      .single()
+    // 17. Save outgoing message to DB (skip if handoff already saved its message)
+    let savedMsg: any = null
+    if (!skipTextSend && responseText.trim()) {
+      const { data } = await supabase
+        .from('conversation_messages')
+        .insert({
+          conversation_id, direction: 'outgoing',
+          content: responseText, media_type: sentMediaType,
+          external_id: `ai_agent_${Date.now()}`,
+        })
+        .select('id, created_at')
+        .single()
+      savedMsg = data
+    }
 
     // 17.5 Detect handoff — explicit tool call OR implicit (Gemini talked about transferring without calling tool)
     const toolNames = toolCallsLog.map((t: any) => t.name)
