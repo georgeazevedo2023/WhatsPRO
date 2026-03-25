@@ -567,7 +567,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       console.log('[ai-agent] Greeting mode — cleared old messages from history')
     }
 
-    // If first interaction, send greeting immediately (don't rely on Gemini which may skip it)
+    // If first interaction, send greeting and STOP — wait for lead to respond with their name
     if (shouldGreet) {
       const maxTts = agent.voice_max_text_length || 150
       const voiceReply = agent.voice_reply_to_audio ?? true
@@ -581,16 +581,29 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       } else {
         await sendTextMsg(agent.greeting_message)
       }
-      console.log(`[ai-agent] First interaction — greeting sent as ${greetMediaType}`)
+      console.log(`[ai-agent] First interaction — greeting sent as ${greetMediaType}, stopping to wait for name`)
       await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: agent.greeting_message, media_type: greetMediaType,
         external_id: `ai_greeting_${Date.now()}`,
       })
+      // Update conversation
+      await supabase.from('conversations').update({
+        last_message_at: new Date().toISOString(),
+        last_message: agent.greeting_message.substring(0, 200),
+        status_ia: 'ligada',
+      }).eq('id', conversation_id)
       broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.greeting_message, media_type: greetMediaType })
+
+      // Log and RETURN — don't call Gemini, wait for lead's next message
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'greeting_sent',
+        latency_ms: Date.now() - startTime,
+        metadata: { media_type: greetMediaType, greeting: agent.greeting_message },
+      })
+      return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
-    const greetingInstruction = shouldGreet
-      ? `\n\nACONTECEU AGORA: Você ACABOU de enviar a saudação "${agent.greeting_message}" ao lead. NÃO repita a saudação. Agora responda à mensagem do lead normalmente.`
-      : ''
 
     // 10. Build extraction fields + sub-agents instructions
     const extractionFields = (agent.extraction_fields || []).filter((f: any) => f.enabled)
@@ -613,7 +626,6 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 Personalidade: ${agent.personality || 'Profissional, simpático e objetivo'}
 
 ${agent.system_prompt || 'Responda de forma clara, objetiva e simpática. Use emojis com moderação.'}
-${greetingInstruction}
 ${leadContext}
 ${campaignContext}
 
