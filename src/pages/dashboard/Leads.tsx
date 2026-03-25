@@ -631,11 +631,11 @@ const Leads = () => {
                   <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                     {new Date(lead.first_contact_at).toLocaleDateString('pt-BR')}
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                    {lead.last_contact_at ? new Date(lead.last_contact_at).toLocaleDateString('pt-BR') : '—'}
+                  <TableCell className="hidden sm:table-cell text-sm text-muted-foreground whitespace-nowrap">
+                    {lead.last_contact_at ? `${new Date(lead.last_contact_at).toLocaleDateString('pt-BR')} ${new Date(lead.last_contact_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : '—'}
                   </TableCell>
                   <TableCell className="hidden xl:table-cell">
-                    <div className="flex flex-wrap gap-1.5 max-w-[250px]">
+                    <div className="flex flex-wrap gap-1 max-w-[220px] overflow-hidden">
                       {lead.tags.slice(0, 4).map(t => {
                         const [key, ...rest] = t.split(':');
                         const val = rest.join(':') || key;
@@ -644,7 +644,7 @@ const Leads = () => {
                           : key === 'ia' ? 'bg-orange-500/15 text-orange-400 border-orange-500/30'
                           : 'bg-muted text-muted-foreground';
                         return (
-                          <Badge key={t} variant="outline" className={`text-[11px] px-2 py-0.5 ${color}`}>
+                          <Badge key={t} variant="outline" className={`text-[11px] px-1.5 py-0 truncate max-w-[100px] ${color}`} title={val}>
                             {val}
                           </Badge>
                         );
