@@ -821,6 +821,15 @@ Deno.serve(async (req) => {
       }).catch(err => console.error('Transcription call failed:', err))
     }
 
+    // Mark pending follow-ups as "replied" when lead sends a message
+    if (direction === 'incoming' && !fromMe && conversation?.id) {
+      supabase.from('follow_up_executions')
+        .update({ status: 'replied', replied_at: new Date().toISOString() })
+        .eq('conversation_id', conversation.id)
+        .eq('status', 'sent')
+        .then(({ error }) => { if (error) console.warn('[webhook] Follow-up replied update error:', error.message) })
+    }
+
     // Trigger AI Agent for incoming messages (if enabled for this instance)
     // Skip audio messages — transcribe-audio will trigger the agent after transcription
     if (direction === 'incoming' && !fromMe && mediaType !== 'audio') {

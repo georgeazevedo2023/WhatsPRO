@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Bot, BrainCircuit, Save, Loader2, Plus, Package, BookOpen, ShieldAlert, ShieldOff, ShieldBan, Mic, Scan, BarChart3, Users, MoreVertical, Copy, Trash2, Pencil } from 'lucide-react';
+import { Bot, BrainCircuit, Save, Loader2, Plus, Package, BookOpen, ShieldAlert, ShieldOff, ShieldBan, Mic, Scan, BarChart3, Users, MoreVertical, Copy, Trash2, Pencil, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { GeneralConfig } from './ai-agent/GeneralConfig';
@@ -24,6 +24,7 @@ import { ExtractionConfig } from './ai-agent/ExtractionConfig';
 import { MetricsConfig } from './ai-agent/MetricsConfig';
 import { SubAgentsConfig } from './ai-agent/SubAgentsConfig';
 import { BlockedNumbersConfig } from './ai-agent/BlockedNumbersConfig';
+import { FollowUpConfig } from './ai-agent/FollowUpConfig';
 import { NICHE_TEMPLATES } from '@/data/nicheTemplates';
 
 interface AIAgent {
@@ -93,6 +94,7 @@ export default function AIAgentTab() {
     'voice_enabled', 'voice_max_text_length', 'voice_reply_to_audio', 'voice_name', 'context_short_messages', 'context_long_enabled',
     'business_hours', 'out_of_hours_message', 'extraction_fields', 'blocked_numbers',
     'extraction_address_enabled', 'handoff_message',
+    'follow_up_enabled', 'follow_up_rules',
   ];
 
   const handleSave = async () => {
@@ -361,6 +363,7 @@ export default function AIAgentTab() {
                   <TabsTrigger value="voice" className="gap-1.5"><Mic className="w-3.5 h-3.5" /><span>Voz</span></TabsTrigger>
                   <TabsTrigger value="extraction" className="gap-1.5"><Scan className="w-3.5 h-3.5" /><span>Extração</span></TabsTrigger>
                   <TabsTrigger value="sub-agents" className="gap-1.5"><Users className="w-3.5 h-3.5" /><span>Sub-Agentes</span></TabsTrigger>
+                  <TabsTrigger value="follow-up" className="gap-1.5"><RefreshCw className="w-3.5 h-3.5" /><span>Follow-up</span></TabsTrigger>
                   <TabsTrigger value="metrics" className="gap-1.5"><BarChart3 className="w-3.5 h-3.5" /><span>Métricas</span></TabsTrigger>
                 </TabsList>
 
@@ -393,6 +396,9 @@ export default function AIAgentTab() {
                 </TabsContent>
                 <TabsContent value="sub-agents" className="mt-6">
                   <SubAgentsConfig config={config} onChange={handleChange} />
+                </TabsContent>
+                <TabsContent value="follow-up" className="mt-6">
+                  <FollowUpConfig config={config} onChange={handleChange} />
                 </TabsContent>
                 <TabsContent value="metrics" className="mt-6">
                   {selectedAgentId && <MetricsConfig agentId={selectedAgentId} />}
