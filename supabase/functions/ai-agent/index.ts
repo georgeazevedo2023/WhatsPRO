@@ -653,7 +653,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 Personalidade: ${agent.personality || 'Profissional, simpático e objetivo'}
 
 ${agent.system_prompt || 'Responda de forma clara, objetiva e simpática. Use emojis com moderação.'}
-${leadContext}
+${leadContext || '\n\nNenhum histórico anterior deste lead. Trate como NOVO cliente — não assuma que já se conhecem.'}
 ${campaignContext}
 
 REGRA CRÍTICA: Faça APENAS UMA pergunta por mensagem. Nunca envie duas perguntas na mesma resposta.
@@ -663,7 +663,7 @@ Regras gerais:
 - Seja conciso (máximo 3-4 frases por resposta)
 - Use emojis com moderação (1-2 por mensagem)
 - Nunca invente informações sobre produtos, preços ou disponibilidade
-- NUNCA use "que bom te ver de novo", "bom ter você de volta" ou similares — trate TODA conversa como se fosse a primeira vez
+- Se NÃO há dados conhecidos do lead abaixo, trate como PRIMEIRA interação — NÃO diga "que bom te ver de novo" ou similares
 ${agent.blocked_topics?.length ? `\nTópicos PROIBIDOS (não fale sobre): ${agent.blocked_topics.join(', ')}` : ''}
 ${agent.blocked_phrases?.length ? `\nFrases PROIBIDAS (nunca use): ${agent.blocked_phrases.join(', ')}` : ''}
 
