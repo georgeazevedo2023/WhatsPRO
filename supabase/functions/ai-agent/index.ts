@@ -202,7 +202,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Check handoff cooldown (IA fully disabled)
+    // Check if IA is fully disabled (manual block — not shadow/handoff)
     if (conversation.status_ia === 'desligada') {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'ia_disabled' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -361,10 +361,10 @@ Deno.serve(async (req) => {
           conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
         })
 
-        // Disable AI + tag
+        // Switch to shadow mode (AI listens, extracts tags/labels, but doesn't respond)
         await supabase.from('conversations').update({
-          status_ia: 'desligada',
-          tags: mergeTags(conversation.tags || [], { ia: 'desativada' }),
+          status_ia: 'shadow',
+          tags: mergeTags(conversation.tags || [], { ia: 'shadow' }),
         }).eq('id', conversation_id)
 
         // Log + Broadcast
@@ -627,36 +627,44 @@ Regras gerais:
 ${agent.blocked_topics?.length ? `\nTópicos PROIBIDOS (não fale sobre): ${agent.blocked_topics.join(', ')}` : ''}
 ${agent.blocked_phrases?.length ? `\nFrases PROIBIDAS (nunca use): ${agent.blocked_phrases.join(', ')}` : ''}
 
-Fluxo de Qualificação do Lead:
+Fluxo de Qualificação do Lead (SDR):
 1. SAUDAÇÃO: Na primeira mensagem, cumprimente e pergunte o nome
 2. QUALIFICAR (UMA pergunta por vez):
-   - Colete nome do lead → update_lead_profile(full_name) — salve APENAS o nome informado, nunca duplique (ex: se disse "Pedro", salve "Pedro", NÃO "PedroPedro")
+   - Colete nome do lead → update_lead_profile(full_name) — salve APENAS o nome informado, nunca duplique
    - Identifique o motivo REAL do contato → set_tags motivo:X (valores: compra, troca, orcamento, duvida, suporte, financeiro, emprego, fornecedor, informacao)
    - Identifique o produto/serviço de interesse → set_tags interesse:X
    - Colete cidade/bairro se relevante → update_lead_profile(city)
    - Se mencionar valor → update_lead_profile(average_ticket, reason)
-3. BUSCAR: Quando souber o suficiente, use search_products para encontrar opções
-4. APRESENTAR: Se encontrar 2+ produtos com imagem, use send_carousel. Se for 1, use send_media
-5. APRESENTAR PRODUTO — Quando lead perguntar sobre um produto ESPECÍFICO:
-   a) SEMPRE use search_products PRIMEIRO para buscar no catálogo
-   b) Se encontrou produto com fotos:
-      - SEMPRE use send_carousel para enviar as fotos (funciona com 1 ou mais produtos)
-      - O send_carousel automaticamente mostra múltiplas fotos quando há 1 produto com várias fotos
-      - Depois pergunte: "É esse que você procura?"
-      - NUNCA apenas descreva o produto em texto se ele tem foto — SEMPRE envie o carrossel
-   c) Se encontrou produto sem foto: descreva em texto e pergunte se é o que procura
-   d) Se NÃO encontrou no catálogo: responda "Só um instante que vou te encaminhar para nosso consultor de vendas." e faça handoff_to_human
 
-6. TRANSBORDO OBRIGATÓRIO — faça handoff_to_human quando:
+3. REGRA CRÍTICA — GENÉRICO vs ESPECÍFICO:
+   a) MENÇÃO GENÉRICA (ex: "verniz", "tinta", "piso", "argamassa") → NÃO faça search_products ainda!
+      Primeiro QUALIFIQUE perguntando:
+      - Para que ambiente? (interno, externo, sol e chuva?)
+      - Tem preferência de marca?
+      - Qual cor ou tonalidade?
+      - Qual tamanho/quantidade precisa?
+      Só use search_products DEPOIS de ter pelo menos 1 critério específico (marca, cor, tamanho ou aplicação).
+   b) MENÇÃO ESPECÍFICA (ex: "Verniz Sol E Chuva da Iquine", "tinta Coral Branco Neve 18L") → use search_products IMEDIATAMENTE
+
+4. APRESENTAR PRODUTO — Após search_products retornar resultados:
+   a) Se encontrou produto com fotos: use send_carousel para enviar as fotos
+   b) O send_carousel automaticamente mostra múltiplas fotos quando há 1 produto com várias fotos
+   c) Depois pergunte: "É esse que você procura?"
+   d) Se encontrou produto sem foto: descreva em texto e pergunte se é o que procura
+   e) Se NÃO encontrou: responda que vai encaminhar para um consultor e faça handoff_to_human
+
+5. TRANSBORDO OBRIGATÓRIO — faça handoff_to_human quando:
    a) Lead confirmar interesse no produto apresentado ("quero esse", "é esse mesmo", "quanto custa", "sim")
    b) Lead pedir para falar com vendedor/atendente/humano
    c) search_products retornar 0 resultados para um pedido específico
+   d) Lead indeciso após 5 mensagens de qualificação sem afunilar interesse
    → SEMPRE nesta ordem: set_tags → update_lead_profile → handoff_to_human
    → No motivo do handoff SEMPRE inclua: nome do lead, telefone, produto de interesse, motivo
 
-REGRA CRÍTICA: NUNCA faça handoff sem antes tentar search_products quando o lead menciona um produto.
+REGRA CRÍTICA: NUNCA faça search_products para termos genéricos como "verniz", "tinta", "piso" sem antes qualificar.
+REGRA CRÍTICA: NUNCA faça handoff sem antes tentar search_products quando o lead menciona um produto ESPECÍFICO.
 REGRA CRÍTICA: NUNCA diga "não encontrei" sem ter chamado search_products primeiro.
-REGRA CRÍTICA: Quando search_products retorna produto com fotos, você DEVE usar send_carousel para mostrar ao lead.
+REGRA CRÍTICA: Quando search_products retorna produto com fotos, você DEVE usar send_carousel.
 
 REGRA CRÍTICA DE TAGS: SEMPRE use set_tags A CADA mensagem do lead para atualizar motivo e interesse.
 - "vocês tem X?", "tem X?", "quero X", "procuro X", "preciso de X" → motivo:compra, interesse:X
@@ -667,7 +675,7 @@ REGRA CRÍTICA DE TAGS: SEMPRE use set_tags A CADA mensagem do lead para atualiz
 - Perguntar se a loja TEM um produto é COMPRA, não dúvida
 - Tags com mesma chave são substituídas automaticamente (motivo:saudacao → motivo:compra)
 
-Máximo 4-5 perguntas de qualificação. Se já tem produto de interesse + nome, faça handoff.
+Máximo 4-5 perguntas de qualificação. Se indeciso após 5, faça handoff.
 
 Gerenciamento de Labels (Pipeline):
 - Use assign_label para mover o lead pelas etapas do funil de vendas
@@ -1135,7 +1143,7 @@ ${subAgentInstruction}`
 
         case 'handoff_to_human': {
           const cooldown = agent.handoff_cooldown_minutes || 30
-          const newStatus = 'desligada'
+          const newStatus = 'shadow' // AI keeps listening (tags, labels, context) but doesn't respond
 
           // Send handoff message directly (don't rely on Gemini generating it)
           const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
@@ -1144,10 +1152,10 @@ ${subAgentInstruction}`
             conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
           })
 
-          // Set IA to desligada + tag
+          // Set IA to shadow mode + tag
           await supabase.from('conversations').update({
             status_ia: newStatus,
-            tags: mergeTags(conversation.tags || [], { ia: 'desativada' }),
+            tags: mergeTags(conversation.tags || [], { ia: 'shadow' }),
           }).eq('id', conversation_id)
 
           // Auto-assign "Atendimento Humano" label if available
@@ -1395,10 +1403,10 @@ ${subAgentInstruction}`
 
     // If Gemini implied handoff but didn't call the tool → force disable IA
     if (textLooksLikeHandoff && !hadExplicitHandoff) {
-      console.log('[ai-agent] Implicit handoff detected in response text — forcing IA off')
+      console.log('[ai-agent] Implicit handoff detected in response text — switching to shadow mode')
       await supabase.from('conversations').update({
-        status_ia: 'desligada',
-        tags: mergeTags(conversation.tags || [], { ia: 'desativada' }),
+        status_ia: 'shadow',
+        tags: mergeTags(conversation.tags || [], { ia: 'shadow' }),
       }).eq('id', conversation_id)
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'implicit_handoff',
@@ -1407,7 +1415,7 @@ ${subAgentInstruction}`
     }
 
     // 18. Update conversation (DON'T reset status_ia to 'ligada' if handoff happened)
-    const newStatusIa = shouldDisableIa ? 'desligada' : 'ligada'
+    const newStatusIa = shouldDisableIa ? 'shadow' : 'ligada'
     await supabase
       .from('conversations')
       .update({ last_message_at: new Date().toISOString(), last_message: responseText.substring(0, 200), status_ia: newStatusIa })
