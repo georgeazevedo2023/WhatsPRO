@@ -551,15 +551,19 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 
     // ── NORMAL MODE ──────────────────────────────────────────────────────
 
-    // 9. Greeting check
-    // Agent has replied = outgoing messages exist in recent history
-    // Context cleared = lead_profile exists with empty summaries+interests+notes (set by "Limpar contexto")
-    // OR lead_profile doesn't exist at all (never created)
+    // 9. Greeting check — FRESH query to avoid race conditions with cached contextMessages
+    const { count: recentOutgoingTotal } = await supabase
+      .from('conversation_messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('conversation_id', conversation_id)
+      .eq('direction', 'outgoing')
+      .gte('created_at', new Date(Date.now() - 120000).toISOString()) // last 2 minutes
+
+    const agentHasRepliedRecently = (recentOutgoingTotal || 0) > 0
     const agentHasReplied = contextMessages.some((m: any) => m.direction === 'outgoing')
-    const contextWasCleared = leadProfile
-      ? (!leadProfile.conversation_summaries?.length && !leadProfile.interests?.length && !leadProfile.notes)
-      : false // No profile = no clear action was taken
-    const shouldGreet = (!agentHasReplied || contextWasCleared) && agent.greeting_message
+
+    // Only greet if NO outgoing messages in last 2 min (fresh DB check, not cached)
+    const shouldGreet = !agentHasRepliedRecently && agent.greeting_message
 
     // If context was cleared but old messages exist, clear them so model treats as first interaction
     if (shouldGreet && agentHasReplied) {
@@ -568,26 +572,21 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     }
 
     // If first interaction, send greeting and STOP — wait for lead to respond
-    // Strategy: SAVE to DB first (acts as lock), then check for duplicates, then send via UAZAPI
     if (shouldGreet) {
-      // Step 1: Save greeting to DB immediately (before TTS which takes seconds)
-      // This acts as a "lock" — concurrent calls will see this record
-      const greetingId = `ai_greeting_${conversation_id}_${Math.floor(Date.now() / 60000)}` // 1 per minute
+      // Save greeting to DB first (acts as lock for concurrent calls)
       const { data: saved } = await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: agent.greeting_message, media_type: 'text',
-        external_id: greetingId,
+        external_id: `ai_greeting_${Date.now()}`,
       }).select('id').single()
 
-      // Step 2: Check if another call already saved a greeting (count RECENT outgoing only)
-      const recentCutoff = new Date(Date.now() - 30000).toISOString()
-      const { count: recentOutgoing } = await supabase
+      // Double-check: if another call also just saved, count will be >1
+      const { count: justNow } = await supabase
         .from('conversation_messages')
         .select('*', { count: 'exact', head: true })
         .eq('conversation_id', conversation_id)
         .eq('direction', 'outgoing')
-        .gte('created_at', recentCutoff)
-      if ((recentOutgoing || 0) > 1) {
-        // Duplicate — another call beat us. Delete our record and skip.
+        .gte('created_at', new Date(Date.now() - 10000).toISOString()) // last 10s
+      if ((justNow || 0) > 1) {
         if (saved?.id) await supabase.from('conversation_messages').delete().eq('id', saved.id)
         console.log('[ai-agent] Greeting duplicate detected — skipping')
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_duplicate' }), {
