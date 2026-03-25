@@ -269,17 +269,23 @@ const LeadDetail = () => {
         reason: null, full_name: null, average_ticket: null,
       }, { onConflict: 'contact_id' });
 
-      // Clear conversations: tags, ai_summary, last_message preview
+      // Clear conversations: tags, ai_summary + reactivate IA (status_ia → ligada)
       const convIds = conversations.map((c: any) => c.id);
       if (convIds.length > 0) {
-        await supabase.from('conversations').update({ tags: [], ai_summary: null }).in('id', convIds);
+        await supabase.from('conversations').update({ tags: [], ai_summary: null, status_ia: 'ligada' }).in('id', convIds);
         // Delete ai_agent_logs
         await supabase.from('ai_agent_logs').delete().in('conversation_id', convIds);
       }
 
+      // Also unblock IA on this contact (clear ia_blocked_instances)
+      if (contact) {
+        await supabase.from('contacts').update({ ia_blocked_instances: [] }).eq('id', contact.id);
+        setContact({ ...contact, ia_blocked_instances: [] });
+      }
+
       // Reload all data to reflect cleared state
       setReloadKey(k => k + 1);
-      toast.success('Contexto limpo');
+      toast.success('Contexto limpo — IA reativada');
     } catch (err) {
       handleError(err, 'Erro', 'LeadDetail');
     }
