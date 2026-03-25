@@ -15,6 +15,8 @@ import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { CsvProductImport } from './CsvProductImport';
+import { BatchScrapeImport } from './BatchScrapeImport';
 
 interface Product {
   id: string; sku: string; title: string; category: string; subcategory: string;
@@ -304,6 +306,34 @@ A descrição deve ser persuasiva, destacar benefícios e ser em português do B
           <Plus className="w-4 h-4" /> Novo Produto
         </Button>
       </div>
+
+      {/* CSV Import */}
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" size="sm" className="w-full gap-2 text-xs">
+            <Download className="w-3.5 h-3.5" /> Importar Planilha (CSV/Excel)
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3 p-4 border rounded-lg">
+          <CsvProductImport
+            agentId={agentId}
+            existingProducts={products.map(p => ({ title: p.title, sku: p.sku }))}
+            onImported={fetchProducts}
+          />
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Batch Scraping */}
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" size="sm" className="w-full gap-2 text-xs">
+            <Link2 className="w-3.5 h-3.5" /> Importar de Site (Web Scraping)
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3 p-4 border rounded-lg">
+          <BatchScrapeImport agentId={agentId} onImported={fetchProducts} />
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Filters bar */}
       {products.length > 0 && (

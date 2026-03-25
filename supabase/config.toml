@@ -36,6 +36,9 @@ verify_jwt = false
 [functions.process-follow-ups]
 verify_jwt = false
 
+[functions.scrape-products-batch]
+verify_jwt = false
+
 [functions.send-shift-report]
 verify_jwt = false
 
