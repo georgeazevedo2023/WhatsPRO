@@ -3,7 +3,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ShieldAlert, Clock, Frown, Timer } from 'lucide-react';
+import { ShieldAlert, Clock, Frown, Timer, MessageSquare } from 'lucide-react';
 
 interface RulesConfigProps {
   config: Record<string, any>;
@@ -13,6 +13,26 @@ interface RulesConfigProps {
 export function RulesConfig({ config, onChange }: RulesConfigProps) {
   return (
     <div className="space-y-6">
+      {/* Mensagem de transbordo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-primary" />
+            Mensagem de Transbordo
+          </CardTitle>
+          <CardDescription>Mensagem enviada ao lead quando a IA transfere para atendente humano</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            value={config.handoff_message || ''}
+            onChange={(e) => onChange({ handoff_message: e.target.value })}
+            placeholder="Só um instante que vou te encaminhar para nosso consultor de vendas."
+            className="min-h-[60px] resize-none"
+          />
+          <p className="text-[11px] text-muted-foreground mt-2">Deixe vazio para usar a mensagem padrão.</p>
+        </CardContent>
+      </Card>
+
       {/* Gatilhos de transbordo */}
       <Card>
         <CardHeader>
@@ -94,11 +114,30 @@ export function RulesConfig({ config, onChange }: RulesConfigProps) {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Timer className="w-4 h-4 text-primary" />
-            Fora do Horário Comercial
+            Horário Comercial
           </CardTitle>
-          <CardDescription>Mensagem enviada quando lead entra em contato fora do expediente</CardDescription>
+          <CardDescription>Defina o horário de funcionamento e a mensagem fora do expediente</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Abertura</Label>
+              <Input
+                type="time"
+                value={config.business_hours?.start || '08:00'}
+                onChange={(e) => onChange({ business_hours: { ...config.business_hours, start: e.target.value } })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Fechamento</Label>
+              <Input
+                type="time"
+                value={config.business_hours?.end || '18:00'}
+                onChange={(e) => onChange({ business_hours: { ...config.business_hours, end: e.target.value } })}
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">Fora deste horário, a IA envia a mensagem abaixo em vez de atender.</p>
           <Textarea
             value={config.out_of_hours_message || ''}
             onChange={(e) => onChange({ out_of_hours_message: e.target.value })}

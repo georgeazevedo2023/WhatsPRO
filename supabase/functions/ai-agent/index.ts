@@ -7,7 +7,6 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || ''
 const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY') || ''
 const MISTRAL_API_KEY = Deno.env.get('MISTRAL_API_KEY') || ''
-const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
@@ -698,10 +697,11 @@ Fluxo de Qualificação do Lead (SDR):
    → SEMPRE nesta ordem: set_tags → update_lead_profile → handoff_to_human
    → No motivo do handoff SEMPRE inclua: nome do lead, telefone, produto de interesse, motivo
 
-REGRA CRÍTICA: NUNCA faça search_products para termos genéricos como "verniz", "tinta", "piso" sem antes qualificar.
-REGRA CRÍTICA: NUNCA faça handoff sem antes tentar search_products quando o lead menciona um produto ESPECÍFICO.
-REGRA CRÍTICA: NUNCA diga "não encontrei" sem ter chamado search_products primeiro.
-REGRA CRÍTICA: Quando search_products retorna produto com fotos, você DEVE usar send_carousel.
+REGRA CRÍTICA: NUNCA faça search_products para termos genéricos ("verniz", "tinta", "piso") sem qualificar antes (ambiente, marca, cor, tamanho).
+REGRA CRÍTICA: Para menções ESPECÍFICAS (marca + produto), SEMPRE faça search_products antes de qualquer outra ação.
+REGRA CRÍTICA: Se o lead pediu algo ESPECÍFICO e search_products retornou 0 resultados, faça handoff_to_human.
+REGRA CRÍTICA: Se o lead pediu algo GENÉRICO, qualifique primeiro — NÃO diga "não encontrei" sem ter qualificado.
+REGRA CRÍTICA: Quando search_products retorna produto com fotos, o carrossel é enviado automaticamente — NÃO chame send_carousel novamente.
 
 REGRA CRÍTICA DE TAGS: SEMPRE use set_tags A CADA mensagem do lead para atualizar motivo e interesse.
 - "vocês tem X?", "tem X?", "quero X", "procuro X", "preciso de X" → motivo:compra, interesse:X
@@ -751,7 +751,7 @@ ${subAgentInstruction}`
       function_declarations: [
         {
           name: 'search_products',
-          description: 'Busca produtos no catálogo por texto, categoria, subcategoria ou faixa de preço. SEMPRE use antes de send_carousel ou send_media.',
+          description: 'Busca produtos no catálogo. Se encontrar produtos com fotos, envia carrossel AUTOMATICAMENTE — NÃO chame send_carousel depois. Use APENAS para buscas específicas (marca, modelo), não para termos genéricos.',
           parameters: { type: 'OBJECT', properties: {
             query: { type: 'STRING', description: 'Texto de busca (nome, modelo, marca)' },
             category: { type: 'STRING', description: 'Categoria do produto' },
@@ -1320,6 +1320,26 @@ ${subAgentInstruction}`
 
     console.log(`[ai-agent] Response (${outputTokens} tok): ${responseText.substring(0, 100)}...`)
 
+    // 15.5 Detect handoff BEFORE sending — explicit tool call OR implicit (text mentions transfer)
+    const toolNames = toolCallsLog.map((t: any) => t.name)
+    const hadExplicitHandoff = toolNames.includes('handoff_to_human')
+    const textLooksLikeHandoff = !hadExplicitHandoff && responseText.trim() !== '' &&
+      HANDOFF_PHRASES.some(p => responseText.toLowerCase().includes(p))
+    const shouldDisableIa = hadExplicitHandoff || textLooksLikeHandoff
+
+    // If implicit handoff detected, switch to shadow BEFORE sending (so helpdesk sees correct status)
+    if (textLooksLikeHandoff) {
+      console.log('[ai-agent] Implicit handoff detected — switching to shadow before sending text')
+      await supabase.from('conversations').update({
+        status_ia: 'shadow',
+        tags: mergeTags(conversation.tags || [], { ia: 'shadow' }),
+      }).eq('id', conversation_id)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        metadata: { response_text: responseText.substring(0, 300) },
+      })
+    }
+
     // 16. Send response via UAZAPI (TTS audio or text) — SKIP if handoff already handled it
     const skipTextSend = hadExplicitHandoffInLoop && !responseText.trim()
     let sentMediaType = 'text'
@@ -1432,26 +1452,7 @@ ${subAgentInstruction}`
       savedMsg = data
     }
 
-    // 17.5 Detect handoff — explicit tool call OR implicit (Gemini talked about transferring without calling tool)
-    const toolNames = toolCallsLog.map((t: any) => t.name)
-    const hadExplicitHandoff = toolNames.includes('handoff_to_human')
-    const textLooksLikeHandoff = HANDOFF_PHRASES.some(p => responseText.toLowerCase().includes(p))
-    const shouldDisableIa = hadExplicitHandoff || textLooksLikeHandoff
-
-    // If Gemini implied handoff but didn't call the tool → force disable IA
-    if (textLooksLikeHandoff && !hadExplicitHandoff) {
-      console.log('[ai-agent] Implicit handoff detected in response text — switching to shadow mode')
-      await supabase.from('conversations').update({
-        status_ia: 'shadow',
-        tags: mergeTags(conversation.tags || [], { ia: 'shadow' }),
-      }).eq('id', conversation_id)
-      await supabase.from('ai_agent_logs').insert({
-        agent_id, conversation_id, event: 'implicit_handoff',
-        metadata: { response_text: responseText.substring(0, 300) },
-      })
-    }
-
-    // 18. Update conversation (DON'T reset status_ia to 'ligada' if handoff happened)
+    // 18. Update conversation (DON'T reset status_ia if handoff happened — already set above)
     const newStatusIa = shouldDisableIa ? 'shadow' : 'ligada'
     await supabase
       .from('conversations')
