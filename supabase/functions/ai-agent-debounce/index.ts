@@ -48,10 +48,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Audio messages get extra debounce time (transcription adds ~3-5s latency per audio)
-    const isAudio = message?.media_type === 'audio' || message?.media_type === 'ptt'
-    const baseSeconds = agent.debounce_seconds || 10
-    const debounceMs = (isAudio ? Math.max(baseSeconds, 15) : baseSeconds) * 1000
+    const debounceMs = (agent.debounce_seconds || 10) * 1000
     const processAfter = new Date(Date.now() + debounceMs).toISOString()
 
     // Clean any processed entries for this conversation first
