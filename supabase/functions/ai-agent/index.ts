@@ -696,18 +696,30 @@ Personalidade: ${agent.personality || 'Profissional, simpático e objetivo'}
 ${agent.system_prompt || 'Responda de forma clara, objetiva e simpática. Use emojis com moderação.'}
 ${leadContext || '\n\nNenhum histórico anterior deste lead. Trate como NOVO cliente — não assuma que já se conhecem.'}
 ${campaignContext}
+${(() => {
+  const bi = agent.business_info
+  if (!bi) return '\nNenhuma informação da empresa cadastrada. Se o lead perguntar horário, endereço, formas de pagamento ou entrega: faça handoff_to_human.'
+  const parts: string[] = ['\nInformações da Empresa (use para responder perguntas do lead):']
+  if (bi.hours) parts.push(`- Horário de funcionamento: ${bi.hours}`)
+  if (bi.address) parts.push(`- Endereço: ${bi.address}`)
+  if (bi.phone) parts.push(`- Telefone: ${bi.phone}`)
+  if (bi.payment_methods) parts.push(`- Formas de pagamento: ${bi.payment_methods}`)
+  if (bi.delivery_info) parts.push(`- Entrega: ${bi.delivery_info}`)
+  if (bi.extra) parts.push(`- Outras informações: ${bi.extra}`)
+  return parts.join('\n')
+})()}
 
 REGRA CRÍTICA: Faça APENAS UMA pergunta por mensagem. Nunca envie duas perguntas na mesma resposta.
 
 REGRA ABSOLUTA — NUNCA INVENTE:
-- NUNCA invente preços, horários, endereços, prazos de entrega, formas de pagamento, políticas de troca ou QUALQUER informação
-- Se o lead perguntar algo que você NÃO sabe com certeza (horário, entrega, parcelamento, estoque): faça handoff_to_human
-- Você SÓ pode falar sobre: produtos do catálogo (via search_products), características gerais de materiais de construção, e orientar o lead
-- Se NÃO tem a informação → NÃO responda → faça handoff_to_human com motivo "lead perguntou sobre X e não tenho essa informação"
+- NUNCA invente preços, prazos ou QUALQUER informação que não esteja acima em "Informações da Empresa" ou no catálogo
+- Se a informação está em "Informações da Empresa" acima: USE-A para responder ao lead
+- Se a informação NÃO está cadastrada: faça handoff_to_human com motivo "lead perguntou sobre X e não tenho essa informação"
+- Você SÓ pode falar sobre: informações cadastradas da empresa, produtos do catálogo (via search_products), e características gerais de materiais de construção
 
 REGRA ABSOLUTA — ESCOPO:
 - Você é um assistente de vendas de MATERIAIS DE CONSTRUÇÃO E HOME CENTER
-- Só responda sobre produtos e assuntos relacionados ao segmento: tintas, pisos, revestimentos, porcelanato, argamassa, ferramentas, material elétrico, hidráulico, iluminação, portas, janelas, impermeabilizantes, vernizes
+- Só responda sobre produtos e assuntos relacionados ao segmento da empresa
 - Para QUALQUER assunto fora desse escopo (comida, roupa, pneu, eletrônicos, etc): responda "Não trabalhamos com esse tipo de produto, mas posso te ajudar com materiais de construção! 😊"
 - NUNCA responda perguntas pessoais, políticas, religiosas ou sobre outros segmentos
 
@@ -1404,13 +1416,19 @@ ${subAgentInstruction}`
       responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
 
       // Post-response guard: if Gemini said "não encontrei" despite instructions, force handoff
-      const forbiddenPhrases = [
+      const baseForbidden = [
         'não encontrei', 'não temos', 'não achei', 'não localizei', 'não disponível',
-        'não está disponível', 'fora de estoque', 'não possuímos', 'não trabalhamos com',
-        'nosso horário', 'funciona das', 'abrimos às', 'fechamos às', 'horário de funcionamento',
-        'nosso endereço', 'estamos localizados', 'fica na rua', 'entregamos em',
-        'parcelamos em', 'aceitamos pix', 'prazo de entrega',
+        'não está disponível', 'fora de estoque', 'não possuímos',
       ]
+      // Only forbid business info phrases when NOT configured in the agent
+      const bi = agent.business_info || {}
+      const inventedInfoPhrases = [
+        ...(!bi.hours ? ['nosso horário', 'funciona das', 'abrimos às', 'fechamos às', 'horário de funcionamento'] : []),
+        ...(!bi.address ? ['nosso endereço', 'estamos localizados', 'fica na rua'] : []),
+        ...(!bi.delivery_info ? ['entregamos em', 'prazo de entrega'] : []),
+        ...(!bi.payment_methods ? ['parcelamos em', 'aceitamos pix'] : []),
+      ]
+      const forbiddenPhrases = [...baseForbidden, ...inventedInfoPhrases]
       if (forbiddenPhrases.some(p => responseText.toLowerCase().includes(p))) {
         console.warn('[ai-agent] GUARD: Gemini said forbidden phrase — forcing handoff')
         // Replace the response with handoff
