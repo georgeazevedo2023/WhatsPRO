@@ -52,7 +52,7 @@ export interface RoadmapConfig {
 }
 
 export const DEFAULT_ROADMAP_CONFIG: RoadmapConfig = {
-  version: '4.1.0',
+  version: '4.2.0',
   updatedAt: '2026-03-27',
   infra: { tables: 44, edgeFunctions: 26, storageBuckets: 3 },
   modules: [
@@ -132,6 +132,8 @@ export const DEFAULT_ROADMAP_CONFIG: RoadmapConfig = {
     { id: 'R37', feature: 'Gerador de links UTM com métricas', description: 'Links rastreáveis por instância para tracking de origem', priority: 'media', module: 'M11' },
   ],
   changelog: [
+    { version: 'v4.2.0', date: '2026-03-27', title: 'OpenAI + Sprint A+B Fixes + Auditoria',
+      changes: ['OpenAI gpt-4.1-mini como LLM primário (Gemini fallback)', 'Sprint A: 5 fixes críticos (realtime, handoff, tools, contacts)', 'Sprint B: circuit breaker, smart scroll, memo props, playground callLLM', 'Realtime: canal corrigido (helpdesk-realtime)', 'Handoff: status_ia=desligada preservado', 'Contact names atualizam com pushname'] },
     { version: 'v4.1.0', date: '2026-03-27', title: 'Playground IA v2 + Finalizar Atendimento',
       changes: ['Playground: 10 features (tool inspector, thumbs, overrides, buffer, guardrails, personas)', 'Finalizar Atendimento: drawer com 4 categorias + Kanban + tags', 'Dashboard: queries paralelas + limits', 'Fix: Kanban CRM directMemberRole + tabs overflow + MetricsConfig redesign', 'Tabelas: playground_evaluations + playground_test_suites'] },
     { version: 'v4.0.0', date: '2026-03-26', title: 'Auditoria de Escalabilidade — 10 Sprints',

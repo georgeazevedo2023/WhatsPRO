@@ -186,9 +186,22 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     prevMsgCountRef.current = incomingCount;
   }, [chatMessages]);
 
-  // Auto-scroll
+  // Smart auto-scroll: only scroll to bottom if user is already near the bottom
+  // This prevents snapping away when user is reading older messages
+  const isNearBottomRef = useRef(true);
   useEffect(() => {
-    if (loading) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      const threshold = 150; // px from bottom
+      isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    };
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (loading || !isNearBottomRef.current) return;
     const timer = setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'instant' }), 150);
     return () => clearTimeout(timer);
   }, [messages, loading]);
@@ -375,7 +388,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
                       <div className="h-px flex-1 bg-primary/40" />
                     </div>
                   )}
-                  <MessageBubble message={item.message} instanceId={conversation.inbox?.instance_id} agentNamesMap={agentNamesMap} onReply={(m) => setReplyTo(m)} />
+                  <MessageBubble message={item.message} instanceId={conversation.inbox?.instance_id} agentNamesMap={agentNamesMap} onReply={setReplyTo} />
                 </div>
               );
             })}
@@ -385,7 +398,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       </div>
 
       {/* Input */}
-      <ChatInput conversation={conversation} onMessageSent={() => { fetchMessages(); setIaAtivada(false); }} onAgentAssigned={onAgentAssigned} inboxLabels={inboxLabels} assignedLabelIds={assignedLabelIds} onLabelsChanged={onLabelsChanged} onStatusChange={(status) => onUpdateConversation(conversation.id, { status })} replyTo={replyTo} onClearReply={() => setReplyTo(null)} />
+      <ChatInput conversation={conversation} onMessageSent={useCallback(() => { fetchMessages(); setIaAtivada(false); }, [fetchMessages])} onAgentAssigned={onAgentAssigned} inboxLabels={inboxLabels} assignedLabelIds={assignedLabelIds} onLabelsChanged={onLabelsChanged} onStatusChange={useCallback((status: string) => onUpdateConversation(conversation.id, { status }), [conversation.id, onUpdateConversation])} replyTo={replyTo} onClearReply={useCallback(() => setReplyTo(null), [])} />
 
       <NotesPanel open={notesOpen} onOpenChange={setNotesOpen} notes={notes} onNoteDeleted={(noteId) => setMessages(prev => prev.filter(m => m.id !== noteId))} agentNamesMap={agentNamesMap} />
     </>

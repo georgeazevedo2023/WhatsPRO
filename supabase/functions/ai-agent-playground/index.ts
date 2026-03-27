@@ -2,10 +2,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || ''
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
@@ -35,8 +35,8 @@ Deno.serve(async (req) => {
       })
     }
 
-    if (!GEMINI_API_KEY) {
-      return new Response(JSON.stringify({ ok: false, error: 'GEMINI_API_KEY not configured' }), {
+    if (!Deno.env.get('OPENAI_API_KEY') && !Deno.env.get('GEMINI_API_KEY')) {
+      return new Response(JSON.stringify({ ok: false, error: 'No LLM API key configured' }), {
         status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -188,63 +188,62 @@ Regras de envio:
       return `Tool ${name} não disponível.`
     }
 
-    // Apply overrides from playground UI (temperature, model, max_tokens, disabled tools)
-    const geminiModel = overrides?.model || agent.model || 'gemini-2.5-flash'
+    // Apply overrides from playground UI
+    const llmModel = overrides?.model || agent.model || 'gpt-4.1-mini'
     const activeTemperature = overrides?.temperature ?? agent.temperature ?? 0.7
     const activeMaxTokens = overrides?.max_tokens ?? agent.max_tokens ?? 1024
     const disabledTools: string[] = overrides?.disabled_tools || []
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
 
-    let currentContents = [...geminiContents]
+    // Convert Gemini-style tools to LLMToolDef format
+    const toolDefs: LLMToolDef[] = tools[0].function_declarations
+      .filter((t: any) => !disabledTools.includes(t.name))
+      .map((t: any) => ({
+        name: t.name, description: t.description,
+        parameters: { type: 'object', properties: Object.fromEntries(
+          Object.entries(t.parameters?.properties || {}).map(([k, v]: [string, any]) => [k, {
+            type: v.type?.toLowerCase() || 'string', description: v.description,
+            ...(v.items ? { items: { type: v.items.type?.toLowerCase() || 'string' } } : {}),
+          }])
+        ), ...(t.parameters?.required ? { required: t.parameters.required } : {}) },
+      }))
+
+    // Convert Gemini contents to LLM messages
+    let llmMessages: LLMMessage[] = geminiContents.map((c: any) => ({
+      role: (c.role === 'model' ? 'assistant' : 'user') as 'user' | 'assistant',
+      content: c.parts?.[0]?.text || '',
+    }))
+
     let responseText = ''
     let inputTokens = 0
     let outputTokens = 0
     const toolCallsLog: any[] = []
     let attempts = 0
+    let usedModel = llmModel
 
     while (attempts < 5) {
       attempts++
-      const geminiResponse = await fetchWithTimeout(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: currentContents,
-          tools: disabledTools.length > 0
-            ? [{ function_declarations: tools[0].function_declarations.filter((t: any) => !disabledTools.includes(t.name)) }]
-            : tools,
-          generationConfig: { temperature: activeTemperature, maxOutputTokens: activeMaxTokens },
-        }),
+      const llmResult = await callLLM({
+        systemPrompt, messages: llmMessages, tools: toolDefs,
+        temperature: activeTemperature, maxTokens: activeMaxTokens, model: llmModel,
       })
 
-      if (!geminiResponse.ok) {
-        return new Response(JSON.stringify({ ok: false, error: `Gemini error (${geminiResponse.status})` }), {
-          status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
+      inputTokens += llmResult.inputTokens
+      outputTokens += llmResult.outputTokens
+      usedModel = llmResult.model
 
-      const geminiData = await geminiResponse.json()
-      inputTokens += geminiData?.usageMetadata?.promptTokenCount || 0
-      outputTokens += geminiData?.usageMetadata?.candidatesTokenCount || 0
-
-      const parts = geminiData?.candidates?.[0]?.content?.parts || []
-      const functionCalls = parts.filter((p: any) => p.functionCall)
-
-      if (functionCalls.length > 0) {
-        const toolResults: any[] = []
-        for (const fc of functionCalls) {
-          const { name, args: toolArgs } = fc.functionCall
+      if (llmResult.toolCalls.length > 0) {
+        const toolResultEntries: { name: string; result: string }[] = []
+        for (const tc of llmResult.toolCalls) {
           const toolStart = Date.now()
-          const result = await executeTool(name, toolArgs || {})
-          toolCallsLog.push({ name, args: toolArgs, result, duration_ms: Date.now() - toolStart })
-          toolResults.push({ functionResponse: { name, response: { result } } })
+          const result = await executeTool(tc.name, tc.args || {})
+          toolCallsLog.push({ name: tc.name, args: tc.args, result, duration_ms: Date.now() - toolStart })
+          toolResultEntries.push({ name: tc.name, result })
         }
-        currentContents.push({ role: 'model', parts })
-        currentContents.push({ role: 'user', parts: toolResults })
+        llmMessages = appendToolResults(llmMessages, llmResult.toolCalls, toolResultEntries)
         continue
       }
 
-      responseText = parts.find((p: any) => p.text)?.text || ''
+      responseText = llmResult.text
       break
     }
 
@@ -266,7 +265,7 @@ Regras de envio:
       latency_ms: Date.now() - startTime,
       tool_calls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
       greeting_injected: isFirstTurn || undefined,
-      model_used: geminiModel,
+      model_used: usedModel,
       system_prompt_length: systemPrompt.length,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 4.1.0 | **Última atualização**: 2026-03-27 | **Status**: Produção + Escalabilidade 10 Sprints + Playground IA v2 + Finalizar Atendimento + 26 Edge Functions + 44 Tabelas
+> **Versão**: 4.2.0 | **Última atualização**: 2026-03-27 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A+B Fixes + 26 Edge Functions + 44 Tabelas
 
 ## Visão Geral
 
@@ -32,6 +32,27 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v4.2.0 (2026-03-27) — OpenAI + Sprint A+B Fixes + Auditoria Completa
+
+**LLM Provider:**
+- OpenAI gpt-4.1-mini como LLM primário (Gemini 2.5 Flash como fallback)
+- _shared/llmProvider.ts: abstração com circuit breaker para ambos providers
+- Playground migrado para callLLM() (mesma API que produção)
+
+**Sprint A — 5 Fixes Críticos:**
+- Realtime: ChatPanel escutava canal errado (chat-{id} → helpdesk-realtime)
+- Handoff: status_ia não sobrescreve 'desligada' com 'shadow' após handoff_to_human
+- Tool IDs: appendToolResults match por index (não por nome)
+- Contact names: webhook atualiza nome quando pushname muda
+- .catch() adicionado no realtime fetch
+
+**Sprint B — Resiliência:**
+- Circuit breaker integrado no callLLM() (OpenAI + Gemini)
+- Smart scroll: só auto-scroll se user está no bottom (não snap ao ler histórico)
+- Memo props estabilizados: onReply/onMessageSent/onClearReply via useCallback
+- JSON.parse try-catch no Gemini format converter
+- Playground usa callLLM() em vez de Gemini direto
 
 ### v4.1.0 (2026-03-27) — Playground IA v2 + Finalizar Atendimento + Dashboard Fix
 

@@ -10,9 +10,14 @@
  */
 
 import { fetchWithTimeout } from './fetchWithTimeout.ts'
+import { CircuitBreaker } from './circuitBreaker.ts'
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || ''
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || ''
+
+// Circuit breakers — survive across requests in same Deno isolate
+const openaiBreaker = new CircuitBreaker('openai', { threshold: 3, resetMs: 30_000 })
+const geminiLLMBreaker = new CircuitBreaker('gemini-llm', { threshold: 3, resetMs: 30_000 })
 
 export interface LLMMessage {
   role: 'user' | 'assistant' | 'system' | 'tool'
@@ -138,9 +143,11 @@ function convertMessagesToGemini(messages: LLMMessage[]): any[] {
     if (msg.tool_calls?.length) {
       contents.push({
         role: 'model',
-        parts: msg.tool_calls.map(tc => ({
-          functionCall: { name: tc.function.name, args: JSON.parse(tc.function.arguments || '{}') },
-        })),
+        parts: msg.tool_calls.map(tc => {
+          let args = {}
+          try { args = JSON.parse(tc.function.arguments || '{}') } catch { /* invalid JSON, use empty */ }
+          return { functionCall: { name: tc.function.name, args } }
+        }),
       })
       continue
     }
@@ -200,21 +207,33 @@ async function callGemini(req: LLMRequest): Promise<LLMResponse> {
 /* ═══════════════════════════════════════════ */
 
 export async function callLLM(req: LLMRequest): Promise<LLMResponse> {
-  // Primary: OpenAI
-  if (OPENAI_API_KEY) {
+  // Primary: OpenAI (with circuit breaker)
+  if (OPENAI_API_KEY && !openaiBreaker.isOpen) {
     try {
-      return await callOpenAI(req)
+      const result = await callOpenAI(req)
+      openaiBreaker.onSuccess()
+      return result
     } catch (err) {
-      console.warn(`[llm] OpenAI failed, falling back to Gemini:`, (err as Error).message)
+      openaiBreaker.onFailure()
+      console.warn(`[llm] OpenAI failed (breaker: ${openaiBreaker.isOpen ? 'OPEN' : 'CLOSED'}), falling back to Gemini:`, (err as Error).message)
+    }
+  } else if (OPENAI_API_KEY && openaiBreaker.isOpen) {
+    console.warn('[llm] OpenAI circuit breaker OPEN — skipping to Gemini')
+  }
+
+  // Fallback: Gemini (with circuit breaker)
+  if (GEMINI_API_KEY && !geminiLLMBreaker.isOpen) {
+    try {
+      const result = await callGemini(req)
+      geminiLLMBreaker.onSuccess()
+      return result
+    } catch (err) {
+      geminiLLMBreaker.onFailure()
+      throw err // No more fallbacks
     }
   }
 
-  // Fallback: Gemini
-  if (GEMINI_API_KEY) {
-    return await callGemini(req)
-  }
-
-  throw new Error('No LLM API key configured (OPENAI_API_KEY or GEMINI_API_KEY)')
+  throw new Error('No LLM available (both circuit breakers may be OPEN)')
 }
 
 /**
