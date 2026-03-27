@@ -208,121 +208,146 @@ export function TicketResolutionDrawer({ conversation, onResolved, trigger }: Ti
   return (
     <Drawer open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
       <DrawerTrigger asChild>{trigger}</DrawerTrigger>
-      <DrawerContent className="max-h-[85vh]">
-        <div className="mx-auto w-full max-w-md px-4 pb-6">
-          <DrawerHeader className="px-0 pt-2">
-            <DrawerTitle className="text-lg">Finalizar Atendimento</DrawerTitle>
-            <DrawerDescription>Selecione o resultado e finalize a conversa</DrawerDescription>
+      <DrawerContent className="max-h-[80vh]">
+        <div className="mx-auto w-full max-w-md flex flex-col max-h-[calc(80vh-2rem)]">
+          <DrawerHeader className="px-4 pt-2 pb-2 flex-shrink-0">
+            <DrawerTitle className="text-base">Finalizar Atendimento</DrawerTitle>
+            <DrawerDescription className="text-xs">Selecione o resultado e finalize</DrawerDescription>
           </DrawerHeader>
 
-          {/* Step 1: Category chips */}
-          <div className="space-y-2 mb-4">
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Resultado do Contato</label>
-            <div className="grid grid-cols-2 gap-2">
-              {CATEGORIES.map(cat => {
-                const Icon = cat.icon;
-                const selected = category === cat.value;
-                return (
-                  <button
-                    key={cat.value}
-                    type="button"
-                    onClick={() => { setCategory(cat.value); setLostReason(null); }}
-                    className={`flex items-center gap-2 px-3 py-3 rounded-xl border text-sm font-medium transition-all min-h-[48px] ${
-                      selected
-                        ? `${cat.bgColor} ${cat.color} ring-2 ring-offset-1 ring-offset-background ring-current`
-                        : 'border-border bg-card hover:bg-muted'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    {cat.label}
-                  </button>
-                );
-              })}
-            </div>
+          {/* Scrollable content area — ensures inputs stay visible above mobile keyboard */}
+          <div className="flex-1 overflow-y-auto px-4 pb-2 space-y-3">
+
+            {/* Step 1: Category — compact after selection */}
+            {!category ? (
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Resultado</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {CATEGORIES.map(cat => {
+                    const Icon = cat.icon;
+                    return (
+                      <button
+                        key={cat.value}
+                        type="button"
+                        onClick={() => { setCategory(cat.value); setLostReason(null); }}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all min-h-[44px] border-border bg-card hover:bg-muted active:scale-95`}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        {cat.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* After selecting: show compact selected badge + change button */
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const cat = CATEGORIES.find(c => c.value === category)!;
+                  const Icon = cat.icon;
+                  return (
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium ${cat.bgColor} ${cat.color}`}>
+                      <Icon className="w-3.5 h-3.5" />
+                      {cat.label}
+                    </div>
+                  );
+                })()}
+                <button
+                  type="button"
+                  onClick={() => { setCategory(null); setLostReason(null); }}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  trocar
+                </button>
+              </div>
+            )}
+
+            {/* Step 2: Conditional fields */}
+            {category && (
+              <div className="space-y-3">
+
+                {/* VENDA: Currency input */}
+                {category === 'VENDA' && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Valor da Venda *</label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={valueDisplay}
+                        onChange={(e) => setValueDisplay(formatCurrency(e.target.value))}
+                        onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                        placeholder="R$ 0,00"
+                        className="pl-9 h-12 text-xl font-bold"
+                        autoComplete="off"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* PERDIDO: Reason chips */}
+                {category === 'PERDIDO' && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Motivo *</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {LOST_REASONS.map(r => (
+                        <button
+                          key={r.value}
+                          type="button"
+                          onClick={() => setLostReason(r.value)}
+                          className={`px-3 py-2 rounded-lg border text-sm transition-all min-h-[44px] active:scale-95 ${
+                            lostReason === r.value
+                              ? 'bg-red-500/10 border-red-500/30 text-red-400 ring-1 ring-red-500/30'
+                              : 'border-border hover:bg-muted'
+                          }`}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Notes */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Observações {category === 'SUPORTE' ? '*' : '(opcional)'}
+                  </label>
+                  <Textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                    placeholder={
+                      category === 'SUPORTE' ? 'Descreva a resolução...' :
+                      category === 'VENDA' ? 'Detalhes da venda...' :
+                      'Notas...'
+                    }
+                    rows={2}
+                    className="resize-none text-sm"
+                  />
+                </div>
+
+                {/* Tags preview */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  <Tag className="w-3 h-3 text-muted-foreground" />
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0">{TAG_MAP[category]}</Badge>
+                  {category === 'PERDIDO' && lostReason && (
+                    <Badge variant="outline" className="text-[9px] px-1.5 py-0">motivo:{lostReason.toLowerCase()}</Badge>
+                  )}
+                  {category === 'VENDA' && parseCurrency(valueDisplay) > 0 && (
+                    <Badge variant="outline" className="text-[9px] px-1.5 py-0">valor:{parseCurrency(valueDisplay)}</Badge>
+                  )}
+                  {(category === 'VENDA' || category === 'PERDIDO') && (
+                    <Badge variant="outline" className="text-[9px] px-1.5 py-0 text-primary">kanban → {KANBAN_COLUMN_MAP[category]}</Badge>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Step 2: Conditional fields */}
-          {category && (
-            <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-200">
-
-              {/* VENDA: Currency input */}
-              {category === 'VENDA' && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Valor da Venda *</label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      value={valueDisplay}
-                      onChange={(e) => setValueDisplay(formatCurrency(e.target.value))}
-                      placeholder="R$ 0,00"
-                      className="pl-9 h-11 text-lg font-semibold"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* PERDIDO: Reason chips */}
-              {category === 'PERDIDO' && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Motivo da Perda *</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {LOST_REASONS.map(r => (
-                      <button
-                        key={r.value}
-                        type="button"
-                        onClick={() => setLostReason(r.value)}
-                        className={`px-3 py-2 rounded-lg border text-sm transition-all min-h-[44px] ${
-                          lostReason === r.value
-                            ? 'bg-red-500/10 border-red-500/30 text-red-400 ring-1 ring-red-500/30'
-                            : 'border-border hover:bg-muted'
-                        }`}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Notes (required for SUPORTE, optional for others) */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Observações {category === 'SUPORTE' ? '*' : '(opcional)'}
-                </label>
-                <Textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder={
-                    category === 'SUPORTE' ? 'Descreva a resolução do atendimento...' :
-                    category === 'VENDA' ? 'Detalhes da venda, produto, etc.' :
-                    'Notas adicionais...'
-                  }
-                  rows={2}
-                  className="resize-none"
-                />
-              </div>
-
-              {/* Tags preview */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <Tag className="w-3 h-3 text-muted-foreground" />
-                <Badge variant="outline" className="text-[10px]">{TAG_MAP[category]}</Badge>
-                {category === 'PERDIDO' && lostReason && (
-                  <Badge variant="outline" className="text-[10px]">motivo:{lostReason.toLowerCase()}</Badge>
-                )}
-                {category === 'VENDA' && parseCurrency(valueDisplay) > 0 && (
-                  <Badge variant="outline" className="text-[10px]">valor:{parseCurrency(valueDisplay)}</Badge>
-                )}
-                {(category === 'VENDA' || category === 'PERDIDO') && (
-                  <Badge variant="outline" className="text-[10px] text-primary">kanban → {KANBAN_COLUMN_MAP[category]}</Badge>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Submit button (sticky) */}
-          <div className="sticky bottom-0 pt-4 mt-4 border-t bg-background">
+          {/* Submit button — fixed bottom with safe area padding */}
+          <div className="flex-shrink-0 px-4 pt-3 pb-4 border-t bg-background" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
             <Button
               onClick={handleSubmit}
               disabled={!canSubmit || submitting}
