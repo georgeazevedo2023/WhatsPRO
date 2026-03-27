@@ -1024,7 +1024,7 @@ Exemplos de objeções:
               carousel = withImages.slice(0, 10).map((p: any) => ({
                 text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
                 image: p.images[0],
-                buttons: [{ id: p.title, text: 'Quero este!', type: 'REPLY' }],
+                buttons: [{ id: p.title, text: 'Gostei', type: 'REPLY' }],
               }))
             }
 
@@ -1112,7 +1112,7 @@ Exemplos de objeções:
             carousel = withImages.slice(0, 10).map((p: any) => ({
               text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
               image: p.images[0],
-              buttons: [{ id: p.title, text: 'Quero este!', type: 'REPLY' }],
+              buttons: [{ id: p.title, text: 'Gostei', type: 'REPLY' }],
             }))
           }
 

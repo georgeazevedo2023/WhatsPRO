@@ -369,6 +369,13 @@ Deno.serve(async (req) => {
     if (!content && typeof message.content === 'string') {
       content = message.content
     }
+    // Capture button reply clicks (carousel "Gostei" / quick reply)
+    if (!content && message.selectedButtonId) {
+      content = message.selectedButtonText || message.selectedButtonId || ''
+    }
+    if (!content && message.listResponse?.id) {
+      content = message.listResponse.title || message.listResponse.id || ''
+    }
     // Agent output: content can be { text: "..." }
     if (!content && typeof message.content === 'object' && message.content?.text) {
       content = message.content.text
