@@ -345,11 +345,15 @@ Deno.serve(async (req) => {
     // 5.5 Check handoff_triggers — force handoff if lead text matches any trigger
     // Only trigger after agent has replied at least once (skip on first interaction)
     const triggers: string[] = agent.handoff_triggers || []
+    // Check if agent has interacted RECENTLY (last 24h) — not all-time
+    // This allows greeting to be re-sent after "clear context" or after long inactivity
+    const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     const { count: outgoingCount } = await supabase
       .from('conversation_messages')
       .select('*', { count: 'exact', head: true })
       .eq('conversation_id', conversation_id)
       .eq('direction', 'outgoing')
+      .gte('created_at', recentCutoff)
     const hasInteracted = (outgoingCount || 0) >= 1
 
     if (triggers.length > 0 && hasInteracted) {
