@@ -613,9 +613,23 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
         latency_ms: Date.now() - startTime,
         metadata: { media_type: greetMediaType },
       })
-      return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+
+      // If the lead's first message is JUST a greeting ("oi", "bom dia", etc.), stop here.
+      // If they asked something substantive, continue to Gemini to answer their question.
+      const greetingWords = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'eae', 'eai', 'e aí',
+        'hey', 'opa', 'fala', 'salve', 'oii', 'oie', 'hello', 'hi', 'bão', 'blz', 'tudo bem',
+        'tudo bom', 'boa', 'oi tudo bem', 'oi boa tarde', 'oi bom dia', 'oi boa noite']
+      const textNorm = incomingText.toLowerCase().replace(/[!?.,;:]/g, '').trim()
+      const isJustGreeting = greetingWords.some(g => textNorm === g || textNorm === g + ' ')
+
+      if (isJustGreeting) {
+        // Pure greeting — stop here, wait for lead to say what they need
+        return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+      // Lead asked something on first message — continue to Gemini to answer
+      console.log(`[ai-agent] First message has substance ("${incomingText.substring(0, 50)}") — continuing to Gemini`)
     }
 
     // 10. Build extraction fields + sub-agents instructions
@@ -741,15 +755,25 @@ ${subAgentInstruction}`
 
     // 12. Build conversation history for Gemini
     const geminiContents: any[] = []
-    for (const msg of contextMessages) {
-      if (msg.content) {
-        geminiContents.push({
-          role: msg.direction === 'incoming' ? 'user' : 'model',
-          parts: [{ text: msg.content }],
-        })
+
+    // If greeting was just sent in this same call, inject it as context
+    // so Gemini knows the greeting was already delivered and won't repeat it
+    if (shouldGreet && agent.greeting_message) {
+      geminiContents.push({ role: 'user', parts: [{ text: incomingText }] })
+      geminiContents.push({ role: 'model', parts: [{ text: agent.greeting_message }] })
+      // Now add the actual user message again so Gemini responds to it
+      geminiContents.push({ role: 'user', parts: [{ text: `O lead disse: "${incomingText}". Você já enviou a saudação. Agora responda à pergunta/pedido do lead SEM repetir a saudação.` }] })
+    } else {
+      for (const msg of contextMessages) {
+        if (msg.content) {
+          geminiContents.push({
+            role: msg.direction === 'incoming' ? 'user' : 'model',
+            parts: [{ text: msg.content }],
+          })
+        }
       }
+      geminiContents.push({ role: 'user', parts: [{ text: incomingText }] })
     }
-    geminiContents.push({ role: 'user', parts: [{ text: incomingText }] })
 
     // 13. Define tools for function calling (8 tools)
     const tools = [{
