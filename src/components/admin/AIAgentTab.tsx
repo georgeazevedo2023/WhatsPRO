@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Bot, BrainCircuit, Save, Loader2, Plus, Package, BookOpen, ShieldAlert, ShieldOff, ShieldBan, Mic, Scan, BarChart3, Users, MoreVertical, Copy, Trash2, Pencil, RefreshCw } from 'lucide-react';
+import { Bot, BrainCircuit, Save, Loader2, Plus, Package, BookOpen, ShieldAlert, ShieldOff, ShieldBan, Mic, Scan, BarChart3, Users, MoreVertical, Copy, Trash2, Pencil, RefreshCw, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { GeneralConfig } from './ai-agent/GeneralConfig';
@@ -26,6 +26,7 @@ import { MetricsConfig } from './ai-agent/MetricsConfig';
 import { SubAgentsConfig } from './ai-agent/SubAgentsConfig';
 import { BlockedNumbersConfig } from './ai-agent/BlockedNumbersConfig';
 import { FollowUpConfig } from './ai-agent/FollowUpConfig';
+import { BusinessInfoConfig } from './ai-agent/BusinessInfoConfig';
 import { NICHE_TEMPLATES } from '@/data/nicheTemplates';
 
 interface AIAgent {
@@ -95,7 +96,7 @@ export default function AIAgentTab() {
     'voice_enabled', 'voice_max_text_length', 'voice_reply_to_audio', 'voice_name', 'context_short_messages', 'context_long_enabled',
     'business_hours', 'out_of_hours_message', 'extraction_fields', 'blocked_numbers',
     'extraction_address_enabled', 'handoff_message',
-    'follow_up_enabled', 'follow_up_rules',
+    'follow_up_enabled', 'follow_up_rules', 'business_info',
   ];
 
   const handleSave = async () => {
@@ -360,6 +361,7 @@ export default function AIAgentTab() {
                     <div className="px-1">
                       <TabsList className="inline-flex h-auto w-max gap-1.5 bg-transparent p-0 py-1">
                         <TabsTrigger value="general" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Bot className="w-4 h-4 shrink-0" />Geral</TabsTrigger>
+                        <TabsTrigger value="business" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Building2 className="w-4 h-4 shrink-0" />Empresa</TabsTrigger>
                         <TabsTrigger value="brain" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><BrainCircuit className="w-4 h-4 shrink-0" />Cérebro</TabsTrigger>
                         <TabsTrigger value="catalog" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Package className="w-4 h-4 shrink-0" />Catálogo</TabsTrigger>
                         <TabsTrigger value="knowledge" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><BookOpen className="w-4 h-4 shrink-0" />Conhecimento</TabsTrigger>
@@ -379,6 +381,9 @@ export default function AIAgentTab() {
 
                 <TabsContent value="general" className="mt-6">
                   <GeneralConfig config={config} onChange={handleChange} instances={instances || []} />
+                </TabsContent>
+                <TabsContent value="business" className="mt-6">
+                  <BusinessInfoConfig config={config} onChange={handleChange} />
                 </TabsContent>
                 <TabsContent value="brain" className="mt-6">
                   <BrainConfig config={config} onChange={handleChange} />
