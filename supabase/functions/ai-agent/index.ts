@@ -688,17 +688,26 @@ Fluxo de Qualificação do Lead (SDR):
    → SEMPRE nesta ordem: set_tags → update_lead_profile → handoff_to_human
    → No motivo do handoff SEMPRE inclua: nome do lead, telefone, produto de interesse, motivo
 
+REGRA CRÍTICA DE SAUDAÇÃO:
+- A saudação "${agent.greeting_message || ''}" já foi enviada automaticamente na primeira mensagem.
+- NUNCA repita a saudação. NUNCA diga "Olá, Bem-vindo" novamente. A primeira interação já aconteceu.
+- Se o lead já recebeu a saudação, continue a conversa normalmente SEM cumprimentar de novo.
+
 REGRA CRÍTICA DE TRANSBORDO:
-- NUNCA diga "não encontrei", "não temos", "não achei" — simplesmente faça handoff_to_human
+- NUNCA diga "não encontrei", "não temos", "não achei", "não disponível", "não localizei" — simplesmente faça handoff_to_human
 - NUNCA pergunte "posso te transferir?", "o que acha?", "quer que eu transfira?" — apenas transfira
-- NUNCA use "Posso te transferir..." — use afirmação direta: "Vou te encaminhar..."
+- NUNCA use "Posso te transferir..." — use afirmação direta via tool handoff_to_human
 - A mensagem de transbordo é enviada automaticamente pelo tool handoff_to_human — NÃO gere texto adicional
+- Se search_products retorna 0 resultados: CHAME handoff_to_human IMEDIATAMENTE sem comentar
 
 REGRA CRÍTICA: NUNCA faça search_products para termos genéricos ("verniz", "tinta", "piso") sem qualificar antes (ambiente, marca, cor, tamanho).
 REGRA CRÍTICA: Para menções ESPECÍFICAS (marca + produto), SEMPRE faça search_products antes de qualquer outra ação.
 REGRA CRÍTICA: Se search_products retornou 0 resultados, faça handoff_to_human IMEDIATAMENTE sem comentar.
 REGRA CRÍTICA: Quando search_products retorna produto com fotos, o carrossel é enviado automaticamente — NÃO chame send_carousel novamente.
 
+REGRA OBRIGATÓRIA DE TAGS: TODA resposta DEVE incluir pelo menos uma chamada set_tags. Se o lead disse algo, SEMPRE classifique com set_tags ANTES de responder.
+- Na PRIMEIRA mensagem: set_tags motivo:saudacao (ou motivo:compra se já pediu produto)
+- A CADA mensagem seguinte: atualize o motivo e interesse baseado no que o lead falou
 REGRA CRÍTICA DE TAGS: SEMPRE use set_tags A CADA mensagem do lead para atualizar motivo e interesse.
 - "vocês tem X?", "tem X?", "quero X", "procuro X", "preciso de X" → motivo:compra, interesse:X
 - "quanto custa X?", "qual o preço?", "me passa o valor" → motivo:compra, interesse:X
@@ -1176,7 +1185,7 @@ ${subAgentInstruction}`
 
         case 'handoff_to_human': {
           const cooldown = agent.handoff_cooldown_minutes || 30
-          const newStatus = 'shadow' // AI keeps listening (tags, labels, context) but doesn't respond
+          const newStatus = 'desligada' // AI is fully disabled after handoff — human takes over
 
           // Send handoff message directly (don't rely on Gemini generating it)
           const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
@@ -1185,10 +1194,10 @@ ${subAgentInstruction}`
             conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
           })
 
-          // Set IA to shadow mode + tag
+          // Set IA to disabled + tag
           await supabase.from('conversations').update({
             status_ia: newStatus,
-            tags: mergeTags(conversation.tags || [], { ia: 'shadow' }),
+            tags: mergeTags(conversation.tags || [], { ia: 'handoff' }),
           }).eq('id', conversation_id)
 
           // Auto-assign "Atendimento Humano" label if available
@@ -1336,6 +1345,40 @@ ${subAgentInstruction}`
 
       // Fix doubled names in response (e.g., "GeorgeGeorge" → "George")
       responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
+
+      // Post-response guard: if Gemini said "não encontrei" despite instructions, force handoff
+      const forbiddenPhrases = ['não encontrei', 'não temos', 'não achei', 'não localizei', 'não disponível', 'não está disponível', 'fora de estoque', 'não possuímos']
+      if (forbiddenPhrases.some(p => responseText.toLowerCase().includes(p))) {
+        console.warn('[ai-agent] GUARD: Gemini said forbidden phrase — forcing handoff')
+        // Replace the response with handoff
+        const handoffMsg = agent.handoff_message || 'Vou te encaminhar para um consultor que pode te ajudar!'
+        responseText = handoffMsg
+        // Trigger handoff side effects
+        await sendTextMsg(handoffMsg)
+        await supabase.from('conversation_messages').insert({
+          conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+        })
+        await supabase.from('conversations').update({
+          status_ia: 'desligada',
+          tags: mergeTags(conversation.tags || [], { ia: 'handoff_auto' }),
+        }).eq('id', conversation_id)
+        broadcastEvent({ conversation_id, status_ia: 'desligada' })
+        // Skip normal send flow
+        return new Response(JSON.stringify({
+          ok: true, response: handoffMsg, handoff: true, reason: 'forbidden_phrase_guard',
+          tokens: { input: inputTokens, output: outputTokens },
+          latency_ms: Date.now() - startTime,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      // Strip greeting repetition from response (if Gemini repeats it despite instructions)
+      if (agent.greeting_message && hasInteracted) {
+        const greetNorm = agent.greeting_message.toLowerCase().trim().replace(/[!?.]/g, '')
+        if (responseText.toLowerCase().includes(greetNorm)) {
+          responseText = responseText.replace(new RegExp(agent.greeting_message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '').trim()
+          if (!responseText) responseText = 'Como posso te ajudar?'
+        }
+      }
 
       break
     }
