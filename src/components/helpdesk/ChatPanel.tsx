@@ -252,6 +252,13 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     return result;
   }, [chatMessages, conversation?.is_read]);
 
+  // These callbacks MUST be before the early return to maintain consistent hook count
+  const handleMessageSent = useCallback(() => { fetchMessages(); setIaAtivada(false); }, [fetchMessages]);
+  const handleStatusChange = useCallback((status: string) => {
+    if (conversation) onUpdateConversation(conversation.id, { status });
+  }, [conversation?.id, onUpdateConversation]);
+  const handleClearReply = useCallback(() => setReplyTo(null), []);
+
   if (!conversation) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground animate-scale-in">
@@ -418,7 +425,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       )}
 
       {/* Input */}
-      <ChatInput conversation={conversation} onMessageSent={useCallback(() => { fetchMessages(); setIaAtivada(false); }, [fetchMessages])} onAgentAssigned={onAgentAssigned} inboxLabels={inboxLabels} assignedLabelIds={assignedLabelIds} onLabelsChanged={onLabelsChanged} onStatusChange={useCallback((status: string) => onUpdateConversation(conversation.id, { status }), [conversation.id, onUpdateConversation])} replyTo={replyTo} onClearReply={useCallback(() => setReplyTo(null), [])} />
+      <ChatInput conversation={conversation} onMessageSent={handleMessageSent} onAgentAssigned={onAgentAssigned} inboxLabels={inboxLabels} assignedLabelIds={assignedLabelIds} onLabelsChanged={onLabelsChanged} onStatusChange={handleStatusChange} replyTo={replyTo} onClearReply={handleClearReply} />
 
       <NotesPanel open={notesOpen} onOpenChange={setNotesOpen} notes={notes} onNoteDeleted={(noteId) => setMessages(prev => prev.filter(m => m.id !== noteId))} agentNamesMap={agentNamesMap} />
     </>
