@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import { geminiBreaker, groqBreaker, mistralBreaker } from '../_shared/circuitBreaker.ts'
+import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -784,79 +785,77 @@ ${subAgentInstruction}`
       geminiContents.push({ role: 'user', parts: [{ text: incomingText }] })
     }
 
-    // 13. Define tools for function calling (8 tools)
-    const tools = [{
-      function_declarations: [
-        {
-          name: 'search_products',
-          description: 'Busca produtos no catálogo. Se encontrar produtos com fotos, envia carrossel AUTOMATICAMENTE — NÃO chame send_carousel depois. Use APENAS para buscas específicas (marca, modelo), não para termos genéricos.',
-          parameters: { type: 'OBJECT', properties: {
-            query: { type: 'STRING', description: 'Texto de busca (nome, modelo, marca)' },
-            category: { type: 'STRING', description: 'Categoria do produto' },
-            subcategory: { type: 'STRING', description: 'Subcategoria do produto' },
-            min_price: { type: 'NUMBER', description: 'Preço mínimo' },
-            max_price: { type: 'NUMBER', description: 'Preço máximo' },
-          }},
-        },
-        {
-          name: 'send_carousel',
-          description: 'Envia carrossel de produtos no WhatsApp com imagens e botões. Use quando tiver 2+ produtos COM imagem.',
-          parameters: { type: 'OBJECT', properties: {
-            product_ids: { type: 'ARRAY', description: 'Títulos exatos dos produtos (max 10)', items: { type: 'STRING' } },
-            message: { type: 'STRING', description: 'Texto antes do carrossel' },
-          }, required: ['product_ids'] },
-        },
-        {
-          name: 'send_media',
-          description: 'Envia imagem ou documento no WhatsApp. Use para foto de produto específico.',
-          parameters: { type: 'OBJECT', properties: {
-            media_url: { type: 'STRING', description: 'URL da imagem ou documento' },
-            media_type: { type: 'STRING', description: 'Tipo: image, video, document' },
-            caption: { type: 'STRING', description: 'Legenda da mídia' },
-          }, required: ['media_url', 'media_type'] },
-        },
-        {
-          name: 'assign_label',
-          description: 'Atribui uma etiqueta (label) à conversa para rastrear o estágio no funil de vendas. Labels disponíveis: ' + availableLabelNames.join(', '),
-          parameters: { type: 'OBJECT', properties: {
-            label_name: { type: 'STRING', description: 'Nome exato da etiqueta a atribuir' },
-          }, required: ['label_name'] },
-        },
-        {
-          name: 'set_tags',
-          description: 'Adiciona tags à conversa para rastrear interesses e informações. Tags são cumulativas. Formato: "chave:valor".',
-          parameters: { type: 'OBJECT', properties: {
-            tags: { type: 'ARRAY', description: 'Tags no formato "chave:valor" (ex: "motivo:compra", "interesse:tinta")', items: { type: 'STRING' } },
-          }, required: ['tags'] },
-        },
-        {
-          name: 'move_kanban',
-          description: 'Move o card do CRM Kanban para outra coluna. Use para atualizar estágio do lead no quadro de vendas.',
-          parameters: { type: 'OBJECT', properties: {
-            column_name: { type: 'STRING', description: 'Nome da coluna de destino' },
-          }, required: ['column_name'] },
-        },
-        {
-          name: 'update_lead_profile',
-          description: 'Atualiza perfil do lead com informações coletadas. Use para salvar nome, cidade, interesses, motivo do contato e ticket médio.',
-          parameters: { type: 'OBJECT', properties: {
-            full_name: { type: 'STRING', description: 'Nome completo do lead' },
-            city: { type: 'STRING', description: 'Cidade do lead' },
-            interests: { type: 'ARRAY', description: 'Interesses do lead', items: { type: 'STRING' } },
-            notes: { type: 'STRING', description: 'Observações adicionais' },
-            reason: { type: 'STRING', description: 'Motivo do contato (ex: compra, orçamento, dúvida, suporte, informação)' },
-            average_ticket: { type: 'NUMBER', description: 'Valor estimado do ticket/orçamento em reais' },
-          }},
-        },
-        {
-          name: 'handoff_to_human',
-          description: 'Transfere a conversa para um atendente humano. Use quando lead pedir vendedor, demonstrar interesse em comprar, ou quando detectar frustração.',
-          parameters: { type: 'OBJECT', properties: {
-            reason: { type: 'STRING', description: 'Motivo do transbordo com resumo dos dados coletados (produto, nome, cidade, interesses)' },
-          }, required: ['reason'] },
-        },
-      ],
-    }]
+    // 13. Define tools for function calling (8 tools) — OpenAI JSON Schema format
+    const toolDefs: LLMToolDef[] = [
+      {
+        name: 'search_products',
+        description: 'Busca produtos no catálogo. Se encontrar produtos com fotos, envia carrossel AUTOMATICAMENTE — NÃO chame send_carousel depois. Use APENAS para buscas específicas (marca, modelo), não para termos genéricos.',
+        parameters: { type: 'object', properties: {
+          query: { type: 'string', description: 'Texto de busca (nome, modelo, marca)' },
+          category: { type: 'string', description: 'Categoria do produto' },
+          subcategory: { type: 'string', description: 'Subcategoria do produto' },
+          min_price: { type: 'number', description: 'Preço mínimo' },
+          max_price: { type: 'number', description: 'Preço máximo' },
+        }},
+      },
+      {
+        name: 'send_carousel',
+        description: 'Envia carrossel de produtos no WhatsApp com imagens e botões. Use quando tiver 2+ produtos COM imagem.',
+        parameters: { type: 'object', properties: {
+          product_ids: { type: 'array', description: 'Títulos exatos dos produtos (max 10)', items: { type: 'string' } },
+          message: { type: 'string', description: 'Texto antes do carrossel' },
+        }, required: ['product_ids'] },
+      },
+      {
+        name: 'send_media',
+        description: 'Envia imagem ou documento no WhatsApp. Use para foto de produto específico.',
+        parameters: { type: 'object', properties: {
+          media_url: { type: 'string', description: 'URL da imagem ou documento' },
+          media_type: { type: 'string', description: 'Tipo: image, video, document' },
+          caption: { type: 'string', description: 'Legenda da mídia' },
+        }, required: ['media_url', 'media_type'] },
+      },
+      {
+        name: 'assign_label',
+        description: 'Atribui uma etiqueta (label) à conversa para rastrear o estágio no funil de vendas. Labels disponíveis: ' + availableLabelNames.join(', '),
+        parameters: { type: 'object', properties: {
+          label_name: { type: 'string', description: 'Nome exato da etiqueta a atribuir' },
+        }, required: ['label_name'] },
+      },
+      {
+        name: 'set_tags',
+        description: 'Adiciona tags à conversa para rastrear interesses e informações. Tags são cumulativas. Formato: "chave:valor".',
+        parameters: { type: 'object', properties: {
+          tags: { type: 'array', description: 'Tags no formato "chave:valor" (ex: "motivo:compra", "interesse:tinta")', items: { type: 'string' } },
+        }, required: ['tags'] },
+      },
+      {
+        name: 'move_kanban',
+        description: 'Move o card do CRM Kanban para outra coluna. Use para atualizar estágio do lead no quadro de vendas.',
+        parameters: { type: 'object', properties: {
+          column_name: { type: 'string', description: 'Nome da coluna de destino' },
+        }, required: ['column_name'] },
+      },
+      {
+        name: 'update_lead_profile',
+        description: 'Atualiza perfil do lead com informações coletadas. Use para salvar nome, cidade, interesses, motivo do contato e ticket médio.',
+        parameters: { type: 'object', properties: {
+          full_name: { type: 'string', description: 'Nome completo do lead' },
+          city: { type: 'string', description: 'Cidade do lead' },
+          interests: { type: 'array', description: 'Interesses do lead', items: { type: 'string' } },
+          notes: { type: 'string', description: 'Observações adicionais' },
+          reason: { type: 'string', description: 'Motivo do contato (ex: compra, orçamento, dúvida, suporte, informação)' },
+          average_ticket: { type: 'number', description: 'Valor estimado do ticket/orçamento em reais' },
+        }},
+      },
+      {
+        name: 'handoff_to_human',
+        description: 'Transfere a conversa para um atendente humano. Use quando lead pedir vendedor, demonstrar interesse em comprar, ou quando detectar frustração.',
+        parameters: { type: 'object', properties: {
+          reason: { type: 'string', description: 'Motivo do transbordo com resumo dos dados coletados (produto, nome, cidade, interesses)' },
+        }, required: ['reason'] },
+      },
+    ]
 
     // 14. Tool execution function
     async function executeTool(name: string, args: Record<string, any>): Promise<string> {
@@ -1257,124 +1256,100 @@ ${subAgentInstruction}`
       }
     }
 
-    // 15. Call Gemini API with function calling loop
-    const geminiModel = agent.model || 'gemini-2.5-flash'
-    const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
-    const geminiUrl = `${GEMINI_BASE}/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
+    // 15. Call LLM API with function calling loop (OpenAI primary, Gemini fallback)
+    const llmModel = agent.model || 'gpt-4.1-mini'
 
-    console.log(`[ai-agent] Calling Gemini ${geminiModel} for conversation ${conversation_id}`)
+    console.log(`[ai-agent] Calling LLM for conversation ${conversation_id}`)
 
-    let currentContents = [...geminiContents]
+    // Convert Gemini-style contents to OpenAI-style messages
+    let llmMessages: LLMMessage[] = geminiContents.map((c: any) => ({
+      role: c.role === 'model' ? 'assistant' as const : 'user' as const,
+      content: c.parts?.[0]?.text || '',
+    }))
+
     let responseText = ''
     let inputTokens = 0
     let outputTokens = 0
     const toolCallsLog: any[] = []
     let attempts = 0
-    const maxAttempts = 5 // 8 tools may need more rounds
+    const maxAttempts = 5
+    let usedModel = llmModel
 
     while (attempts < maxAttempts) {
       attempts++
-      if (attempts > 1) sendPresence('composing') // Refresh typing indicator between tool rounds
+      if (attempts > 1) sendPresence('composing')
 
-      // Circuit breaker: skip call entirely if Gemini is in failure state
-      if (geminiBreaker.isOpen) {
-        console.error('[ai-agent] Gemini circuit breaker OPEN — aborting')
-        await supabase.from('ai_agent_logs').insert({
-          agent_id, conversation_id, event: 'error', model: geminiModel,
-          error: 'Circuit breaker OPEN — Gemini temporarily unavailable',
-          latency_ms: Date.now() - startTime,
+      try {
+        const llmResult = await callLLM({
+          systemPrompt,
+          messages: llmMessages,
+          tools: toolDefs,
+          temperature: agent.temperature || 0.7,
+          maxTokens: agent.max_tokens || 1024,
+          model: llmModel,
         })
-        return new Response(JSON.stringify({ error: 'AI temporarily unavailable, please try again later' }), {
-          status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
 
-      const geminiResponse = await fetchWithTimeout(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: currentContents,
-          tools,
-          generationConfig: {
-            temperature: agent.temperature || 0.7,
-            maxOutputTokens: agent.max_tokens || 1024,
-          },
-        }),
-      })
+        inputTokens += llmResult.inputTokens
+        outputTokens += llmResult.outputTokens
+        usedModel = llmResult.model
 
-      if (!geminiResponse.ok) {
-        const errText = await geminiResponse.text()
-        console.error('[ai-agent] Gemini error:', geminiResponse.status, errText.substring(0, 300))
-        geminiBreaker.onFailure()
-        // Retry on transient failures with exponential backoff
-        if (attempts < 3 && [429, 500, 503].includes(geminiResponse.status)) {
-          const backoffMs = 1500 * Math.pow(2, attempts - 1) // 1.5s, 3s, 6s
-          console.log(`[ai-agent] Retrying Gemini after ${backoffMs}ms (attempt ${attempts})...`)
+        // Handle tool calls
+        if (llmResult.toolCalls.length > 0) {
+          const sideEffectTools = new Set(['send_carousel', 'send_media', 'handoff_to_human'])
+          const hasSideEffects = llmResult.toolCalls.some(tc => sideEffectTools.has(tc.name))
+
+          const toolResultEntries: { name: string; result: string }[] = []
+
+          if (hasSideEffects || llmResult.toolCalls.length === 1) {
+            for (const tc of llmResult.toolCalls) {
+              console.log(`[ai-agent] Tool (seq): ${tc.name}(${JSON.stringify(tc.args).substring(0, 100)})`)
+              const result = await executeTool(tc.name, tc.args || {})
+              toolCallsLog.push({ name: tc.name, args: tc.args, result: result.substring(0, 200) })
+              toolResultEntries.push({ name: tc.name, result })
+            }
+          } else {
+            console.log(`[ai-agent] Parallel tool execution: ${llmResult.toolCalls.map(tc => tc.name).join(', ')}`)
+            const results = await Promise.all(
+              llmResult.toolCalls.map(async (tc) => {
+                const result = await executeTool(tc.name, tc.args || {})
+                toolCallsLog.push({ name: tc.name, args: tc.args, result: result.substring(0, 200) })
+                return { name: tc.name, result }
+              })
+            )
+            toolResultEntries.push(...results)
+          }
+
+          if (toolCallsLog.some(t => t.name === 'handoff_to_human')) {
+            console.log('[ai-agent] handoff_to_human called — stopping loop')
+            break
+          }
+
+          // Append tool results to conversation for next LLM call
+          llmMessages = appendToolResults(llmMessages, llmResult.toolCalls, toolResultEntries)
+          continue
+        }
+
+        responseText = llmResult.text
+      } catch (err) {
+        const errMsg = (err as Error).message || 'LLM error'
+        console.error(`[ai-agent] LLM error (attempt ${attempts}):`, errMsg)
+
+        if (attempts < 3) {
+          const backoffMs = 1500 * Math.pow(2, attempts - 1)
+          console.log(`[ai-agent] Retrying after ${backoffMs}ms...`)
           await new Promise(r => setTimeout(r, backoffMs))
           continue
         }
+
         await supabase.from('ai_agent_logs').insert({
-          agent_id, conversation_id, event: 'error', model: geminiModel,
-          error: `Gemini ${geminiResponse.status}: ${errText.substring(0, 200)}`,
+          agent_id, conversation_id, event: 'error', model: usedModel,
+          error: errMsg.substring(0, 300),
           latency_ms: Date.now() - startTime,
         })
-        return new Response(JSON.stringify({ error: 'Gemini API error' }), {
+        return new Response(JSON.stringify({ error: 'LLM API error' }), {
           status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
-
-      geminiBreaker.onSuccess()
-
-      const geminiData = await geminiResponse.json()
-      inputTokens += geminiData?.usageMetadata?.promptTokenCount || 0
-      outputTokens += geminiData?.usageMetadata?.candidatesTokenCount || 0
-
-      const parts = geminiData?.candidates?.[0]?.content?.parts || []
-      const functionCalls = parts.filter((p: any) => p.functionCall)
-
-      if (functionCalls.length > 0) {
-        // Tools with side effects (send message, handoff) must run sequentially.
-        // Read-only tools (search, query) can run in parallel for lower latency.
-        const sideEffectTools = new Set(['send_carousel', 'send_media', 'handoff_to_human'])
-        const hasSideEffects = functionCalls.some((fc: any) => sideEffectTools.has(fc.functionCall.name))
-
-        let toolResults: any[]
-        if (hasSideEffects || functionCalls.length === 1) {
-          // Sequential execution (original behavior) for side-effect tools
-          toolResults = []
-          for (const fc of functionCalls) {
-            const { name, args: toolArgs } = fc.functionCall
-            console.log(`[ai-agent] Tool (seq): ${name}(${JSON.stringify(toolArgs).substring(0, 100)})`)
-            const result = await executeTool(name, toolArgs || {})
-            toolCallsLog.push({ name, args: toolArgs, result: result.substring(0, 200) })
-            toolResults.push({ functionResponse: { name, response: { result } } })
-          }
-        } else {
-          // Parallel execution for read-only tools (search_products, assign_label, set_tags, etc.)
-          console.log(`[ai-agent] Parallel tool execution: ${functionCalls.map((fc: any) => fc.functionCall.name).join(', ')}`)
-          toolResults = await Promise.all(
-            functionCalls.map(async (fc: any) => {
-              const { name, args: toolArgs } = fc.functionCall
-              const result = await executeTool(name, toolArgs || {})
-              toolCallsLog.push({ name, args: toolArgs, result: result.substring(0, 200) })
-              return { functionResponse: { name, response: { result } } }
-            })
-          )
-        }
-
-        // If handoff was called, STOP — don't let Gemini generate more text (prevents duplicate messages)
-        if (toolCallsLog.some(t => t.name === 'handoff_to_human')) {
-          console.log('[ai-agent] handoff_to_human called — stopping loop, no further text needed')
-          break
-        }
-
-        currentContents.push({ role: 'model', parts })
-        currentContents.push({ role: 'user', parts: toolResults })
-        continue
-      }
-
-      responseText = parts.find((p: any) => p.text)?.text || ''
 
       // Fix doubled names in response (e.g., "GeorgeGeorge" → "George")
       responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
@@ -1426,7 +1401,7 @@ ${subAgentInstruction}`
       console.warn('[ai-agent] Empty Gemini response — using fallback message')
       responseText = 'Desculpe, não consegui processar sua mensagem. Pode repetir?'
       await supabase.from('ai_agent_logs').insert({
-        agent_id, conversation_id, event: 'empty_response', model: geminiModel,
+        agent_id, conversation_id, event: 'empty_response', model: usedModel,
         latency_ms: Date.now() - startTime,
       })
     }
@@ -1588,7 +1563,7 @@ ${subAgentInstruction}`
       agent_id, conversation_id,
       event: 'response_sent',
       input_tokens: inputTokens, output_tokens: outputTokens,
-      model: geminiModel, latency_ms: Date.now() - startTime,
+      model: usedModel, latency_ms: Date.now() - startTime,
       sub_agent: activeSubAgents.length > 0 ? 'multi' : 'orchestrator',
       tool_calls: toolCallsLog.length > 0 ? toolCallsLog : null,
       metadata: {
