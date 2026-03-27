@@ -464,6 +464,7 @@ Deno.serve(async (req) => {
       if (leadProfile.interests?.length) parts.push(`Interesses: ${leadProfile.interests.join(', ')}`)
       if (leadProfile.average_ticket) parts.push(`Ticket médio: R$${leadProfile.average_ticket}`)
       if (leadProfile.reason) parts.push(`Motivo do contato: ${leadProfile.reason}`)
+      if (leadProfile.objections?.length) parts.push(`Objeções anteriores: ${leadProfile.objections.join(', ')}`)
       if (leadProfile.notes) parts.push(`Observações: ${leadProfile.notes}`)
       if (parts.length > 0) leadContext = `\n\nDados conhecidos do lead:\n${parts.join('\n')}`
 
@@ -528,7 +529,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       const shadowTools = [{
         function_declarations: [
           { name: 'set_tags', description: 'Adiciona tags à conversa', parameters: { type: 'OBJECT', properties: { tags: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Tags formato chave:valor' } }, required: ['tags'] } },
-          { name: 'update_lead_profile', description: 'Atualiza perfil do lead', parameters: { type: 'OBJECT', properties: { full_name: { type: 'STRING' }, city: { type: 'STRING' }, interests: { type: 'ARRAY', items: { type: 'STRING' } }, notes: { type: 'STRING' } } } },
+          { name: 'update_lead_profile', description: 'Atualiza perfil do lead', parameters: { type: 'OBJECT', properties: { full_name: { type: 'STRING' }, city: { type: 'STRING' }, interests: { type: 'ARRAY', items: { type: 'STRING' } }, notes: { type: 'STRING' }, objections: { type: 'ARRAY', items: { type: 'STRING' } } } } },
         ],
       }]
 
@@ -679,6 +680,24 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       ? `\nCampos para extrair durante a conversa (use set_tags + update_lead_profile):\n${extractionFields.map((f: any) => `- ${f.label} (chave: ${f.key})`).join('\n')}`
       : ''
 
+    // 10.5 Load FAQ/Knowledge base for answering common questions
+    const { data: knowledgeItems } = await supabase
+      .from('ai_agent_knowledge')
+      .select('type, title, content')
+      .eq('agent_id', agent_id)
+      .order('position')
+      .limit(30)
+
+    const faqItems = (knowledgeItems || []).filter((k: any) => k.type === 'faq' && k.title && k.content)
+    const docItems = (knowledgeItems || []).filter((k: any) => k.type === 'document' && k.content)
+    let knowledgeInstruction = ''
+    if (faqItems.length > 0) {
+      knowledgeInstruction += `\n\nBase de Conhecimento (FAQ) — use para responder perguntas do lead:\n${faqItems.map((f: any) => `P: ${f.title}\nR: ${f.content}`).join('\n\n')}`
+    }
+    if (docItems.length > 0) {
+      knowledgeInstruction += `\n\nDocumentos de referência:\n${docItems.map((d: any) => `[${d.title}]: ${d.content}`).join('\n\n')}`
+    }
+
     // Sub-agents: inject active sub-agent prompts as behavioral modes
     const subAgents = agent.sub_agents || {}
     const activeSubAgents = Object.entries(subAgents)
@@ -822,7 +841,22 @@ Regras dos tools de envio:
 - Use send_media quando quiser enviar UMA imagem específica
 - SEMPRE responda com texto DEPOIS de usar send_carousel ou send_media
 - Nunca use send_carousel ou send_media sem antes ter feito search_products
-${subAgentInstruction}`
+${knowledgeInstruction}
+${subAgentInstruction}
+
+DETECÇÃO DE OBJEÇÕES:
+Quando o lead expressar uma objeção, SEMPRE:
+1. Classifique com set_tags objecao:TIPO (valores: preco, concorrente, prazo, indecisao, qualidade, confianca, necessidade, outro)
+2. Salve no perfil com update_lead_profile(objections: [lista de objeções])
+3. Se houver resposta na Base de Conhecimento acima, use-a. Senão, tente contornar com empatia e benefícios.
+4. Se não conseguir contornar após 2 tentativas, faça handoff_to_human.
+
+Exemplos de objeções:
+- "tá caro", "achei caro", "muito caro" → objecao:preco
+- "achei mais barato", "na concorrência é mais barato" → objecao:concorrente
+- "vou pensar", "depois eu vejo", "vou ver com calma" → objecao:indecisao
+- "demora muito pra entregar" → objecao:prazo
+- "não sei se é bom", "será que funciona?" → objecao:qualidade`
 
     // 12. Build conversation history for Gemini
     const geminiContents: any[] = []
@@ -907,6 +941,7 @@ ${subAgentInstruction}`
           notes: { type: 'string', description: 'Observações adicionais' },
           reason: { type: 'string', description: 'Motivo do contato (ex: compra, orçamento, dúvida, suporte, informação)' },
           average_ticket: { type: 'number', description: 'Valor estimado do ticket/orçamento em reais' },
+          objections: { type: 'array', description: 'Objeções do lead (ex: preco, concorrente, prazo, indecisao, qualidade)', items: { type: 'string' } },
         }},
       },
       {
@@ -1262,6 +1297,12 @@ ${subAgentInstruction}`
           if (args.notes) updates.notes = args.notes
           if (args.reason) updates.reason = args.reason
           if (args.average_ticket) updates.average_ticket = args.average_ticket
+          if (args.objections?.length) {
+            // Merge with existing objections (no duplicates)
+            const existing: string[] = leadProfile?.objections || []
+            const merged = [...new Set([...existing, ...args.objections])]
+            updates.objections = merged
+          }
 
           const { error } = await supabase
             .from('lead_profiles')
