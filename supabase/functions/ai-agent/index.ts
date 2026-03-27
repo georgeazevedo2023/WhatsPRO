@@ -555,15 +555,23 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     // ── NORMAL MODE ──────────────────────────────────────────────────────
 
     // 9. Greeting check — only on the first outbound interaction in this conversation.
-    // Using a short recent window here causes false "first interaction" detections
-    // when the lead sends another message a few minutes later.
     const shouldGreet = !hasInteracted && !!agent.greeting_message
+
+    // Personalize greeting: if we know the lead's name, use it
+    const leadName = leadProfile?.full_name || contact?.name || null
+    const isReturningLead = !!leadProfile && !!leadName
+    let greetingText = agent.greeting_message || ''
+
+    if (isReturningLead && leadName) {
+      // Returning lead with known name — personalize greeting
+      greetingText = `Olá, ${leadName}! 😊 Que bom te ver de novo! Como posso te ajudar hoje?`
+    }
 
     // If first interaction, send greeting and STOP — wait for lead to respond
     if (shouldGreet) {
       // Save greeting to DB first (acts as lock for concurrent calls)
       const { data: saved } = await supabase.from('conversation_messages').insert({
-        conversation_id, direction: 'outgoing', content: agent.greeting_message, media_type: 'text',
+        conversation_id, direction: 'outgoing', content: greetingText, media_type: 'text',
         external_id: `ai_greeting_${Date.now()}`,
       }).select('id').single()
 
@@ -585,15 +593,15 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       // Step 3: We're the only one — send via UAZAPI (TTS or text)
       const maxTts = agent.voice_max_text_length || 150
       const voiceReply = agent.voice_reply_to_audio ?? true
-      const greetWithAudio = (agent.voice_enabled || (incomingHasAudio && voiceReply)) && agent.greeting_message.length <= maxTts
+      const greetWithAudio = (agent.voice_enabled || (incomingHasAudio && voiceReply)) && greetingText.length <= maxTts
       let greetMediaType = 'text'
 
       if (greetWithAudio) {
         sendPresence('recording')
-        const sent = await sendTts(agent.greeting_message)
-        if (sent) { greetMediaType = 'audio' } else { await sendTextMsg(agent.greeting_message) }
+        const sent = await sendTts(greetingText)
+        if (sent) { greetMediaType = 'audio' } else { await sendTextMsg(greetingText) }
       } else {
-        await sendTextMsg(agent.greeting_message)
+        await sendTextMsg(greetingText)
       }
 
       // Step 4: Update DB record with correct media_type + update conversation
@@ -602,10 +610,10 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       }
       await supabase.from('conversations').update({
         last_message_at: new Date().toISOString(),
-        last_message: agent.greeting_message.substring(0, 200),
+        last_message: greetingText.substring(0, 200),
         status_ia: 'ligada',
       }).eq('id', conversation_id)
-      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.greeting_message, media_type: greetMediaType })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: greetingText, media_type: greetMediaType })
 
       console.log(`[ai-agent] First interaction — greeting sent as ${greetMediaType}`)
       await supabase.from('ai_agent_logs').insert({
@@ -703,7 +711,8 @@ Fluxo de Qualificação do Lead (SDR):
    → No motivo do handoff SEMPRE inclua: nome do lead, telefone, produto de interesse, motivo
 
 REGRA CRÍTICA DE SAUDAÇÃO:
-- A saudação "${agent.greeting_message || ''}" já foi enviada automaticamente na primeira mensagem.
+- A saudação "${greetingText}" já foi enviada automaticamente na primeira mensagem.
+${isReturningLead ? `- Este é um lead RECORRENTE. Nome: ${leadName}. Trate-o pelo nome e faça referência ao histórico quando relevante.` : '- Este é um lead NOVO. Colete o nome na primeira oportunidade.'}
 - NUNCA repita a saudação. NUNCA diga "Olá, Bem-vindo" novamente. A primeira interação já aconteceu.
 - Se o lead já recebeu a saudação, continue a conversa normalmente SEM cumprimentar de novo.
 
@@ -758,9 +767,9 @@ ${subAgentInstruction}`
 
     // If greeting was just sent in this same call, inject it as context
     // so Gemini knows the greeting was already delivered and won't repeat it
-    if (shouldGreet && agent.greeting_message) {
+    if (shouldGreet && greetingText) {
       geminiContents.push({ role: 'user', parts: [{ text: incomingText }] })
-      geminiContents.push({ role: 'model', parts: [{ text: agent.greeting_message }] })
+      geminiContents.push({ role: 'model', parts: [{ text: greetingText }] })
       // Now add the actual user message again so Gemini responds to it
       geminiContents.push({ role: 'user', parts: [{ text: `O lead disse: "${incomingText}". Você já enviou a saudação. Agora responda à pergunta/pedido do lead SEM repetir a saudação.` }] })
     } else {
