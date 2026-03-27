@@ -398,6 +398,30 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 5.6 Rate limit: auto-handoff after 8 lead messages (prevents infinite qualification loops)
+    const MAX_LEAD_MESSAGES = agent.max_lead_messages || 8
+    const { count: leadMsgCount } = await supabase
+      .from('conversation_messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('conversation_id', conversation_id)
+      .eq('direction', 'incoming')
+    if ((leadMsgCount || 0) >= MAX_LEAD_MESSAGES) {
+      console.log(`[ai-agent] Lead message limit reached (${leadMsgCount}/${MAX_LEAD_MESSAGES}) — auto handoff`)
+      const handoffMsg = agent.handoff_message || 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado! 😊'
+      await sendTextMsg(handoffMsg)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+      })
+      await supabase.from('conversations').update({
+        status_ia: STATUS_IA.DESLIGADA,
+        tags: mergeTags(conversation.tags || [], { ia: 'handoff_limit' }),
+      }).eq('id', conversation_id)
+      broadcastEvent({ conversation_id, status_ia: STATUS_IA.DESLIGADA })
+      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'message_limit' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     // 6. Load labels (current + available)
     const { data: currentLabels } = await supabase
       .from('conversation_labels')
@@ -675,14 +699,24 @@ ${campaignContext}
 
 REGRA CRÍTICA: Faça APENAS UMA pergunta por mensagem. Nunca envie duas perguntas na mesma resposta.
 
+REGRA ABSOLUTA — NUNCA INVENTE:
+- NUNCA invente preços, horários, endereços, prazos de entrega, formas de pagamento, políticas de troca ou QUALQUER informação
+- Se o lead perguntar algo que você NÃO sabe com certeza (horário, entrega, parcelamento, estoque): faça handoff_to_human
+- Você SÓ pode falar sobre: produtos do catálogo (via search_products), características gerais de materiais de construção, e orientar o lead
+- Se NÃO tem a informação → NÃO responda → faça handoff_to_human com motivo "lead perguntou sobre X e não tenho essa informação"
+
+REGRA ABSOLUTA — ESCOPO:
+- Você é um assistente de vendas de MATERIAIS DE CONSTRUÇÃO E HOME CENTER
+- Só responda sobre produtos e assuntos relacionados ao segmento: tintas, pisos, revestimentos, porcelanato, argamassa, ferramentas, material elétrico, hidráulico, iluminação, portas, janelas, impermeabilizantes, vernizes
+- Para QUALQUER assunto fora desse escopo (comida, roupa, pneu, eletrônicos, etc): responda "Não trabalhamos com esse tipo de produto, mas posso te ajudar com materiais de construção! 😊"
+- NUNCA responda perguntas pessoais, políticas, religiosas ou sobre outros segmentos
+
 Regras gerais:
 - Responda SEMPRE em português do Brasil
 - Seja conciso (máximo 3-4 frases por resposta)
 - Use emojis com moderação (1-2 por mensagem)
-- Nunca invente informações sobre produtos, preços ou disponibilidade
 - Se NÃO há dados conhecidos do lead abaixo, trate como PRIMEIRA interação — NÃO diga "que bom te ver de novo" ou similares
 - NUNCA repita o nome do cliente em toda mensagem. Use o nome NO MÁXIMO 1 vez a cada 3-4 mensagens. Seja natural e humano.
-- Quando o lead perguntar por algo FORA do escopo da loja (ex: pneu, comida, roupa), responda educadamente que não trabalha com esse tipo de produto e ofereça ajuda com produtos do catálogo
 ${agent.blocked_topics?.length ? `\nTópicos PROIBIDOS (não fale sobre): ${agent.blocked_topics.join(', ')}` : ''}
 ${agent.blocked_phrases?.length ? `\nFrases PROIBIDAS (nunca use): ${agent.blocked_phrases.join(', ')}` : ''}
 
@@ -754,7 +788,9 @@ REGRA OBRIGATÓRIA DE TAGS: Use set_tags para classificar o motivo e interesse d
 - Perguntar se a loja TEM um produto é COMPRA, não dúvida
 - Tags com mesma chave são substituídas automaticamente (motivo:saudacao → motivo:compra)
 
-Máximo 4-5 perguntas de qualificação. Se indeciso após 5, faça handoff.
+LIMITE DE MENSAGENS: Este lead já enviou ${leadMsgCount || 0}/${MAX_LEAD_MESSAGES} mensagens. Após ${MAX_LEAD_MESSAGES} mensagens do lead, o sistema fará handoff automático.
+- Se o lead já enviou ${Math.max(0, MAX_LEAD_MESSAGES - 2)}+ mensagens sem concluir: acelere a qualificação e faça handoff proativamente.
+- Máximo 4-5 perguntas de qualificação. Se indeciso após 5, faça handoff.
 
 Gerenciamento de Labels (Pipeline):
 - Use assign_label para mover o lead pelas etapas do funil de vendas
@@ -1368,7 +1404,13 @@ ${subAgentInstruction}`
       responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
 
       // Post-response guard: if Gemini said "não encontrei" despite instructions, force handoff
-      const forbiddenPhrases = ['não encontrei', 'não temos', 'não achei', 'não localizei', 'não disponível', 'não está disponível', 'fora de estoque', 'não possuímos']
+      const forbiddenPhrases = [
+        'não encontrei', 'não temos', 'não achei', 'não localizei', 'não disponível',
+        'não está disponível', 'fora de estoque', 'não possuímos', 'não trabalhamos com',
+        'nosso horário', 'funciona das', 'abrimos às', 'fechamos às', 'horário de funcionamento',
+        'nosso endereço', 'estamos localizados', 'fica na rua', 'entregamos em',
+        'parcelamos em', 'aceitamos pix', 'prazo de entrega',
+      ]
       if (forbiddenPhrases.some(p => responseText.toLowerCase().includes(p))) {
         console.warn('[ai-agent] GUARD: Gemini said forbidden phrase — forcing handoff')
         // Replace the response with handoff
