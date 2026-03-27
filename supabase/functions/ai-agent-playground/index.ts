@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json()
-    const { agent_id, messages: chatMessages } = body
+    const { agent_id, messages: chatMessages, overrides } = body
 
     if (!agent_id) {
       return new Response(JSON.stringify({ ok: false, error: 'agent_id required' }), {
@@ -50,9 +50,9 @@ Deno.serve(async (req) => {
     }
 
     const hasAssistantMsg = (chatMessages || []).some((m: any) => m.direction === 'outgoing')
-    const greetingInstruction = !hasAssistantMsg && agent.greeting_message
-      ? `\n\nIMPORTANTE: Esta é a PRIMEIRA interação com este lead. Você DEVE começar sua resposta com EXATAMENTE esta saudação: "${agent.greeting_message}" e depois continue respondendo à mensagem do lead.`
-      : ''
+    // Greeting is injected as a model message in geminiContents, NOT as system prompt instruction.
+    // This prevents Gemini from repeating the greeting on every turn.
+    const greetingInstruction = ''
 
     const extractionFields = (agent.extraction_fields || []).filter((f: any) => f.enabled)
     const extractionInstruction = extractionFields.length > 0
@@ -94,17 +94,50 @@ Regras de envio:
 - send_media: 1 imagem/documento
 - Sempre responda com texto APÓS usar send_carousel/send_media`
 
-    const geminiContents: any[] = (chatMessages || [])
-      .filter((m: any) => m.content?.trim())
-      .map((m: any) => ({
-        role: m.direction === 'incoming' ? 'user' : 'model',
-        parts: [{ text: m.content }],
-      }))
+    const geminiContents: any[] = []
+
+    // If first interaction and greeting configured, inject greeting as model's first response
+    // so Gemini knows it already greeted and won't repeat it
+    if (!hasAssistantMsg && agent.greeting_message) {
+      // Simulate: user sent first msg, model already replied with greeting
+      geminiContents.push(
+        { role: 'user', parts: [{ text: (chatMessages || [])[0]?.content || 'oi' }] },
+        { role: 'model', parts: [{ text: agent.greeting_message }] },
+      )
+      // Add remaining messages (skip first user msg, already added above)
+      for (const m of (chatMessages || []).slice(1)) {
+        if (m.content?.trim()) {
+          geminiContents.push({
+            role: m.direction === 'incoming' ? 'user' : 'model',
+            parts: [{ text: m.content }],
+          })
+        }
+      }
+    } else {
+      // Normal flow: all messages in order
+      for (const m of (chatMessages || [])) {
+        if (m.content?.trim()) {
+          geminiContents.push({
+            role: m.direction === 'incoming' ? 'user' : 'model',
+            parts: [{ text: m.content }],
+          })
+        }
+      }
+    }
 
     if (geminiContents.length === 0) {
       return new Response(JSON.stringify({ ok: false, error: 'No messages to process' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    // Ensure the last message is from user (required by Gemini)
+    if (geminiContents[geminiContents.length - 1]?.role !== 'user') {
+      // This can happen if the greeting was injected — just use the raw last user msg
+      const lastUserMsg = (chatMessages || []).reverse().find((m: any) => m.direction === 'incoming')
+      if (lastUserMsg?.content?.trim()) {
+        geminiContents.push({ role: 'user', parts: [{ text: lastUserMsg.content }] })
+      }
     }
 
     // 8 tools — all simulated in playground
@@ -155,7 +188,11 @@ Regras de envio:
       return `Tool ${name} não disponível.`
     }
 
-    const geminiModel = agent.model || 'gemini-2.5-flash'
+    // Apply overrides from playground UI (temperature, model, max_tokens, disabled tools)
+    const geminiModel = overrides?.model || agent.model || 'gemini-2.5-flash'
+    const activeTemperature = overrides?.temperature ?? agent.temperature ?? 0.7
+    const activeMaxTokens = overrides?.max_tokens ?? agent.max_tokens ?? 1024
+    const disabledTools: string[] = overrides?.disabled_tools || []
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
 
     let currentContents = [...geminiContents]
@@ -173,8 +210,10 @@ Regras de envio:
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents: currentContents,
-          tools,
-          generationConfig: { temperature: agent.temperature || 0.7, maxOutputTokens: agent.max_tokens || 1024 },
+          tools: disabledTools.length > 0
+            ? [{ function_declarations: tools[0].function_declarations.filter((t: any) => !disabledTools.includes(t.name)) }]
+            : tools,
+          generationConfig: { temperature: activeTemperature, maxOutputTokens: activeMaxTokens },
         }),
       })
 
@@ -195,8 +234,9 @@ Regras de envio:
         const toolResults: any[] = []
         for (const fc of functionCalls) {
           const { name, args: toolArgs } = fc.functionCall
+          const toolStart = Date.now()
           const result = await executeTool(name, toolArgs || {})
-          toolCallsLog.push({ name, args: toolArgs })
+          toolCallsLog.push({ name, args: toolArgs, result, duration_ms: Date.now() - toolStart })
           toolResults.push({ functionResponse: { name, response: { result } } })
         }
         currentContents.push({ role: 'model', parts })
@@ -214,11 +254,20 @@ Regras de envio:
       })
     }
 
+    // If first interaction, prepend the greeting to the response
+    const isFirstTurn = !hasAssistantMsg && agent.greeting_message
+    const finalResponse = isFirstTurn
+      ? `${agent.greeting_message}\n\n${responseText}`
+      : responseText
+
     return new Response(JSON.stringify({
-      ok: true, response: responseText,
+      ok: true, response: finalResponse,
       tokens: { input: inputTokens, output: outputTokens },
       latency_ms: Date.now() - startTime,
       tool_calls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
+      greeting_injected: isFirstTurn || undefined,
+      model_used: geminiModel,
+      system_prompt_length: systemPrompt.length,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

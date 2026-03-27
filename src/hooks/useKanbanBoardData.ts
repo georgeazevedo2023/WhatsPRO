@@ -254,6 +254,7 @@ export function useKanbanBoardData(boardId: string | undefined) {
     board, columns, cards, fields,
     entityValuesMap, entityValueLabels,
     teamMembers, loading, canAddCard,
+    directMemberRole,
     setCards, setColumns, setFields,
     loadAll, loadCards,
   };

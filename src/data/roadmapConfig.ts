@@ -52,9 +52,9 @@ export interface RoadmapConfig {
 }
 
 export const DEFAULT_ROADMAP_CONFIG: RoadmapConfig = {
-  version: '4.0.0',
-  updatedAt: '2026-03-26',
-  infra: { tables: 42, edgeFunctions: 26, storageBuckets: 3 },
+  version: '4.1.0',
+  updatedAt: '2026-03-27',
+  infra: { tables: 44, edgeFunctions: 26, storageBuckets: 3 },
   modules: [
     { id: 'M1', name: 'WhatsApp', icon: 'MonitorSmartphone', color: 'text-emerald-500', tasks: [
       { id: 'T1.1', description: 'Instâncias (QR, status, sync, disconnect)', status: 'done' },
@@ -132,6 +132,8 @@ export const DEFAULT_ROADMAP_CONFIG: RoadmapConfig = {
     { id: 'R37', feature: 'Gerador de links UTM com métricas', description: 'Links rastreáveis por instância para tracking de origem', priority: 'media', module: 'M11' },
   ],
   changelog: [
+    { version: 'v4.1.0', date: '2026-03-27', title: 'Playground IA v2 + Finalizar Atendimento',
+      changes: ['Playground: 10 features (tool inspector, thumbs, overrides, buffer, guardrails, personas)', 'Finalizar Atendimento: drawer com 4 categorias + Kanban + tags', 'Dashboard: queries paralelas + limits', 'Fix: Kanban CRM directMemberRole + tabs overflow + MetricsConfig redesign', 'Tabelas: playground_evaluations + playground_test_suites'] },
     { version: 'v4.0.0', date: '2026-03-26', title: 'Auditoria de Escalabilidade — 10 Sprints',
       changes: ['S1: 5 indexes compostos + RLS unificado (can_view_conversation)', 'S2: Circuit breaker Gemini/Groq + tool calls paralelos + rate limit atômico', 'S3: Webhook parallel I/O (50% menos latência) + lead upsert atômico', 'S4: verify_jwt em 20 functions + audit log + WEBHOOK_SECRET obrigatório', 'S5: memo() + lazy imgs + Promise.all Leads + staleTime 1min', 'S6: Paginação mensagens (50/page) + archiving 90d + cleanup triggers', 'S7: Singleton Supabase client + materialized view inbox roles', 'S8: Structured logger JSON + health-check endpoint', 'S9: Job queue persistente (SKIP LOCKED) + process-jobs worker', '8 migrations + 4 novos arquivos + 15 modificados + 0 erros novos'] },
     { version: 'v3.0.0', date: '2026-03-23', title: 'Auditoria Completa + Importação Rápida',

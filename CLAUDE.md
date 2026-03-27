@@ -101,3 +101,7 @@ npx supabase functions deploy <name>  # Deploy edge function
 - Job queue: job_queue table with claim_jobs (FOR UPDATE SKIP LOCKED) + process-jobs worker
 - Materialized view: mv_user_inbox_roles + has_inbox_access_fast() refreshed periodically
 - Audit log: admin_audit_log table (immutable) + log_admin_action() RPC on create/delete/update user
+- Playground v2: tool inspector, thumbs up/down, overrides (model/temp/tools), buffer simulation, personas, guardrail tester
+- Playground greeting fix: greeting injected as model message in geminiContents (not system prompt instruction)
+- TicketResolutionDrawer: bottom sheet (vaul) com 4 categorias, move kanban card, aplica tags, atualiza lead_profile
+- Dashboard performance: fetchData() parallelized, fetchGroupsStats() deferred, HelpdeskMetricsCharts .limit(500)

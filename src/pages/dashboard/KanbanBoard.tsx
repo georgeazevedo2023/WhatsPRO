@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   DndContext,
   DragEndEvent,
@@ -29,11 +30,13 @@ import { useKanbanBoardData } from '@/hooks/useKanbanBoardData';
 const KanbanBoard = () => {
   const { boardId } = useParams<{ boardId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const {
     board, columns, cards, fields,
     entityValuesMap, entityValueLabels,
     teamMembers, loading, canAddCard,
+    directMemberRole,
     setCards, setColumns, setFields,
     loadAll, loadCards,
   } = useKanbanBoardData(boardId);

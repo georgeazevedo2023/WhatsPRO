@@ -119,6 +119,8 @@ const ROADMAP_ITEMS: RoadmapItem[] = [
 ];
 
 const CHANGELOG: ChangelogEntry[] = [
+  { version: 'v4.1.0', date: '2026-03-27', title: 'Playground IA v2 + Finalizar Atendimento',
+    changes: ['Playground: tool inspector, thumbs, overrides, buffer, guardrails, personas', 'Finalizar Atendimento: drawer Kanban + tags automáticas', 'Dashboard: queries paralelas', 'Fix: Kanban CRM + tabs overflow + MetricsConfig'] },
   { version: 'v4.0.0', date: '2026-03-26', title: 'Auditoria de Escalabilidade — 10 Sprints',
     changes: ['S1-S2: 5 indexes + RLS otimizado + circuit breaker + tools paralelos', 'S3-S4: Webhook 3x throughput + verify_jwt 20 fns + audit log', 'S5-S6: memo/lazy/Promise.all + paginação msgs + archiving', 'S7-S9: Singleton client + MV cache + logger + job queue SKIP LOCKED', '8 migrations + 26 edge functions + 42 tabelas + health-check'] },
   { version: 'v3.3.0', date: '2026-03-25', title: 'Sprint 8+9 + Auditoria Completa Sistema',

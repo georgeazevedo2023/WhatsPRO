@@ -90,26 +90,27 @@ const DashboardHome = () => {
 
   const fetchData = async () => {
     try {
-      const { data: instancesData, error: instancesError } = await supabase
-        .from('instances')
-        .select('*')
-        .eq('disabled', false)
-        .order('created_at', { ascending: false });
+      // Parallel: instances + user count at once (was sequential)
+      const [instancesRes, usersRes] = await Promise.all([
+        supabase.from('instances').select('*').eq('disabled', false).order('created_at', { ascending: false }),
+        isSuperAdmin
+          ? supabase.from('user_profiles').select('*', { count: 'exact', head: true })
+          : Promise.resolve({ count: 0 }),
+      ]);
 
-      if (instancesError) throw instancesError;
+      if (instancesRes.error) throw instancesRes.error;
 
+      const instancesData = instancesRes.data;
       if (instancesData && instancesData.length > 0) {
         setInstances(instancesData as Instance[]);
-        fetchGroupsStats(instancesData as Instance[]);
+        // Groups stats: lazy — don't block initial render
+        setTimeout(() => fetchGroupsStats(instancesData as Instance[]), 100);
       } else {
         setInstances([]);
       }
 
       if (isSuperAdmin) {
-        const { count } = await supabase
-          .from('user_profiles')
-          .select('*', { count: 'exact', head: true });
-        setTotalUsers(count || 0);
+        setTotalUsers((usersRes as any).count || 0);
       }
     } catch (error) {
       console.error('Error fetching data:', error);

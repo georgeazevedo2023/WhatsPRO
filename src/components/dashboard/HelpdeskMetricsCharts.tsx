@@ -84,7 +84,8 @@ const HelpdeskMetricsCharts = ({ periodDays = 30 }: { periodDays?: number }) => 
           .from('conversations')
           .select('id, inbox_id, inboxes(name), conversation_messages(created_at, direction)')
           .eq('status_ia', 'ligada')
-          .gte('created_at', sinceISO),
+          .gte('created_at', sinceISO)
+          .limit(500),
         supabase
           .from('conversations')
           .select(`
@@ -95,7 +96,8 @@ const HelpdeskMetricsCharts = ({ periodDays = 30 }: { periodDays?: number }) => 
           `)
           .neq('status', 'deleted')
           .not('assigned_to', 'is', null)
-          .gte('created_at', sinceISO),
+          .gte('created_at', sinceISO)
+          .limit(500),
       ]);
 
       // --- IA response time in seconds ---

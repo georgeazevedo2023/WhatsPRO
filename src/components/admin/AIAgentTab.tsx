@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useInstances } from '@/hooks/useInstances';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -352,20 +353,29 @@ export default function AIAgentTab() {
               </div>
 
               <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="w-full sm:w-auto overflow-x-auto no-scrollbar">
-                  <TabsTrigger value="general" className="gap-1.5"><Bot className="w-3.5 h-3.5" /><span>Geral</span></TabsTrigger>
-                  <TabsTrigger value="brain" className="gap-1.5"><BrainCircuit className="w-3.5 h-3.5" /><span>Cérebro</span></TabsTrigger>
-                  <TabsTrigger value="catalog" className="gap-1.5"><Package className="w-3.5 h-3.5" /><span>Catálogo</span></TabsTrigger>
-                  <TabsTrigger value="knowledge" className="gap-1.5"><BookOpen className="w-3.5 h-3.5" /><span>Conhecimento</span></TabsTrigger>
-                  <TabsTrigger value="rules" className="gap-1.5"><ShieldAlert className="w-3.5 h-3.5" /><span>Regras</span></TabsTrigger>
-                  <TabsTrigger value="guardrails" className="gap-1.5"><ShieldOff className="w-3.5 h-3.5" /><span>Guardrails</span></TabsTrigger>
-                  <TabsTrigger value="blocked-numbers" className="gap-1.5"><ShieldBan className="w-3.5 h-3.5" /><span>Bloqueios</span></TabsTrigger>
-                  <TabsTrigger value="voice" className="gap-1.5"><Mic className="w-3.5 h-3.5" /><span>Voz</span></TabsTrigger>
-                  <TabsTrigger value="extraction" className="gap-1.5"><Scan className="w-3.5 h-3.5" /><span>Extração</span></TabsTrigger>
-                  <TabsTrigger value="sub-agents" className="gap-1.5"><Users className="w-3.5 h-3.5" /><span>Sub-Agentes</span></TabsTrigger>
-                  <TabsTrigger value="follow-up" className="gap-1.5"><RefreshCw className="w-3.5 h-3.5" /><span>Follow-up</span></TabsTrigger>
-                  <TabsTrigger value="metrics" className="gap-1.5"><BarChart3 className="w-3.5 h-3.5" /><span>Métricas</span></TabsTrigger>
-                </TabsList>
+                <div className="relative">
+                  <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 z-10 bg-gradient-to-r from-background to-transparent" />
+                  <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 z-10 bg-gradient-to-l from-background to-transparent" />
+                  <ScrollArea className="w-full" type="scroll">
+                    <div className="px-1">
+                      <TabsList className="inline-flex h-auto w-max gap-1.5 bg-transparent p-0 py-1">
+                        <TabsTrigger value="general" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Bot className="w-4 h-4 shrink-0" />Geral</TabsTrigger>
+                        <TabsTrigger value="brain" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><BrainCircuit className="w-4 h-4 shrink-0" />Cérebro</TabsTrigger>
+                        <TabsTrigger value="catalog" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Package className="w-4 h-4 shrink-0" />Catálogo</TabsTrigger>
+                        <TabsTrigger value="knowledge" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><BookOpen className="w-4 h-4 shrink-0" />Conhecimento</TabsTrigger>
+                        <TabsTrigger value="rules" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><ShieldAlert className="w-4 h-4 shrink-0" />Regras</TabsTrigger>
+                        <TabsTrigger value="guardrails" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><ShieldOff className="w-4 h-4 shrink-0" />Guardrails</TabsTrigger>
+                        <TabsTrigger value="blocked-numbers" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><ShieldBan className="w-4 h-4 shrink-0" />Bloqueios</TabsTrigger>
+                        <TabsTrigger value="voice" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Mic className="w-4 h-4 shrink-0" />Voz</TabsTrigger>
+                        <TabsTrigger value="extraction" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Scan className="w-4 h-4 shrink-0" />Extração</TabsTrigger>
+                        <TabsTrigger value="sub-agents" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Users className="w-4 h-4 shrink-0" />Sub-Agentes</TabsTrigger>
+                        <TabsTrigger value="follow-up" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><RefreshCw className="w-4 h-4 shrink-0" />Follow-up</TabsTrigger>
+                        <TabsTrigger value="metrics" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><BarChart3 className="w-4 h-4 shrink-0" />Métricas</TabsTrigger>
+                      </TabsList>
+                    </div>
+                    <ScrollBar orientation="horizontal" className="h-1.5" />
+                  </ScrollArea>
+                </div>
 
                 <TabsContent value="general" className="mt-6">
                   <GeneralConfig config={config} onChange={handleChange} instances={instances || []} />

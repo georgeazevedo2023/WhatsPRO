@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 4.0.0 | **Última atualização**: 2026-03-26 | **Status**: Produção + Auditoria de Escalabilidade (10 Sprints) + 26 Edge Functions + 42 Tabelas
+> **Versão**: 4.1.0 | **Última atualização**: 2026-03-27 | **Status**: Produção + Escalabilidade 10 Sprints + Playground IA v2 + Finalizar Atendimento + 26 Edge Functions + 44 Tabelas
 
 ## Visão Geral
 
@@ -32,6 +32,41 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v4.1.0 (2026-03-27) — Playground IA v2 + Finalizar Atendimento + Dashboard Fix
+
+**Playground IA v2 (10 features):**
+- Tool Call Inspector expandível (args + result + duration)
+- Thumbs up/down com persistência em playground_evaluations
+- Variable Overrides (model, temperature, max_tokens, tools on/off)
+- Debounce/Buffer simulation com countdown visual
+- Guardrail tester (auto-testa blocked_topics)
+- System Prompt viewer colapsável
+- Export conversa JSON/Markdown
+- 6 Personas pré-definidas (Cliente curioso, Apressado, etc.)
+- Copiar relatório completo com análise de erros e insights
+- Fix: saudação não repete mais (greeting injetada como model msg)
+
+**Finalizar Atendimento (TicketResolutionDrawer):**
+- Bottom sheet (vaul) com 4 categorias: Venda/Perdido/Suporte/Spam
+- Currency input R$ com máscara (VENDA)
+- Motivo da perda em chips (PERDIDO)
+- Tags automáticas: resultado:X, motivo:Y, valor:Z
+- Move card Kanban para coluna correspondente (Fechado Ganho/Perdido)
+- Atualiza lead_profile com valor da venda
+- Broadcast status change
+
+**Dashboard Performance:**
+- fetchData() paralelizado com Promise.all (instances + user count)
+- fetchGroupsStats() diferido (não bloqueia render inicial)
+- .limit(500) em queries sem limit em HelpdeskMetricsCharts
+
+**Bug Fixes:**
+- Fix: directMemberRole not defined no CRM Kanban
+- Fix: user not defined no KanbanBoard (import useAuth)
+- Fix: AI Agent tabs overflow (ScrollArea horizontal + gradient fades)
+- Fix: MetricsConfig redesign completo (KPIs, tools, heatmap, tokens)
+- Tabelas: playground_evaluations, playground_test_suites (2 novas)
 
 ### v4.0.0 (2026-03-26) — Auditoria de Escalabilidade — 10 Sprints para 10K Usuários
 

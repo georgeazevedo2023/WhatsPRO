@@ -11,9 +11,10 @@ import { ContactAvatar } from './ContactAvatar';
 import { Badge } from '@/components/ui/badge';
 import { nowBRISO, formatBR } from '@/lib/dateUtils';
 import { NotesPanel } from './NotesPanel';
+import { TicketResolutionDrawer } from './TicketResolutionDrawer';
 
 import { Button } from '@/components/ui/button';
-import { MessageSquare, ArrowLeft, User, PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose, Bot, StickyNote, RefreshCw, WifiOff } from 'lucide-react';
+import { MessageSquare, ArrowLeft, User, PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose, Bot, StickyNote, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Conversation, Message, Label } from '@/types';
 
@@ -289,6 +290,19 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
               <span className="text-warning font-medium">{notes.length}</span>
             </Button>
           )}
+
+          <div className="ml-auto">
+            <TicketResolutionDrawer
+              conversation={conversation}
+              onResolved={(id, status) => onUpdateConversation(id, { status })}
+              trigger={
+                <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1 rounded-full px-2.5 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Finalizar
+                </Button>
+              }
+            />
+          </div>
         </div>
       </div>
 
