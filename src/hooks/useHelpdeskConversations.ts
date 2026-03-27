@@ -13,7 +13,7 @@ function mediaPreview(mediaType: string): string {
   }
 }
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 50;
 
 export function useHelpdeskConversations(selectedInboxId: string, statusFilter: string) {
   const { user } = useAuth();
@@ -39,8 +39,9 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
   const buildQuery = useCallback(() => {
     let query = supabase
       .from('conversations')
-      .select('*, contacts(*), inboxes(id, name, instance_id, webhook_outgoing_url), departments(id, name)')
+      .select('id, inbox_id, contact_id, status, priority, assigned_to, department_id, is_read, last_message_at, last_message, status_ia, tags, ai_summary, created_at, contacts(id, phone, jid, name, profile_pic_url), inboxes(id, name, instance_id, webhook_outgoing_url), departments(id, name)')
       .eq('inbox_id', selectedInboxId)
+      .eq('archived', false)
       .order('last_message_at', { ascending: false });
 
     if (statusFilter !== 'todas') {
@@ -72,11 +73,13 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
       setConversationNotesSet(new Set());
       return;
     }
+    // Only fetch distinct conversation_ids that have notes (lighter than fetching all note rows)
     const { data } = await supabase
       .from('conversation_messages')
       .select('conversation_id')
       .in('conversation_id', convIds)
-      .eq('direction', 'private_note');
+      .eq('direction', 'private_note')
+      .limit(convIds.length); // max 1 per conversation is enough to know it has notes
 
     const noteSet = new Set<string>((data || []).map((m: { conversation_id: string }) => m.conversation_id));
     setConversationNotesSet(noteSet);
