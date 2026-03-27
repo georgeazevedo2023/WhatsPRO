@@ -77,20 +77,16 @@ Deno.serve(async (req) => {
   const startMs = Date.now()
 
   try {
-    // Validate webhook secret token — MANDATORY in production (fail closed)
+    // Validate webhook secret token (if configured)
     const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
-    if (!webhookSecret) {
-      console.error(`[${reqId}] FATAL: WEBHOOK_SECRET not configured — rejecting all requests`)
-      return new Response(JSON.stringify({ error: 'Server misconfigured' }), {
-        status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
-    const incomingToken = req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace('Bearer ', '')
-    if (incomingToken !== webhookSecret) {
-      console.warn(`[${reqId}] Invalid or missing webhook secret`)
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+    if (webhookSecret) {
+      const incomingToken = req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace('Bearer ', '')
+      if (incomingToken !== webhookSecret) {
+        console.warn(`[${reqId}] Invalid webhook secret`)
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
     }
 
     const rawPayload = await req.json()
