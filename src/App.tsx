@@ -51,10 +51,10 @@ const LeadDetail = lazy(() => import("./pages/dashboard/LeadDetail"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes — avoid refetch on every re-mount
-      gcTime: 10 * 60 * 1000,   // 10 minutes — keep unused cache
+      staleTime: 60 * 1000,     // 1 minute default (more responsive for helpdesk)
+      gcTime: 5 * 60 * 1000,    // 5 minutes — keep unused cache
       retry: 1,
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true, // Re-fetch on tab focus (agents switch tabs)
     },
   },
 });

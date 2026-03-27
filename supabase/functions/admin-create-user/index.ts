@@ -90,13 +90,26 @@ Deno.serve(async (req) => {
       await adminClient.from('user_roles').insert({ user_id: newUser.user.id, role: userRole })
     }
 
+    // Audit log: record admin action (non-blocking)
+    if (newUser.user) {
+      try {
+        await adminClient.rpc('log_admin_action', {
+          p_user_id: userData.user.id,
+          p_action: 'create_user',
+          p_target_table: 'auth.users',
+          p_target_id: newUser.user.id,
+          p_details: { email, role: userRole, full_name: full_name || null },
+        })
+      } catch { /* audit log is non-blocking */ }
+    }
+
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        user: { 
-          id: newUser.user?.id, 
-          email: newUser.user?.email 
-        } 
+      JSON.stringify({
+        success: true,
+        user: {
+          id: newUser.user?.id,
+          email: newUser.user?.email
+        }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )

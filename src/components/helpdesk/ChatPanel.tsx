@@ -46,12 +46,17 @@ const getDateLabel = (dateStr: string) => {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: msgDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 };
 
+const MESSAGES_PAGE_SIZE = 50;
+
 export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowInfo, onToggleInfo, showingInfo, onToggleList, showingList, inboxLabels, assignedLabelIds, onLabelsChanged, agentNamesMap, onAgentAssigned }: ChatPanelProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
   const [channelStatus, setChannelStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [iaAtivada, setIaAtivada] = useState(false);
   const [ativandoIa, setAtivandoIa] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -76,6 +81,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
   const fetchIdRef = useRef(0);
 
+  // Fetch latest N messages (paginated — descending then reversed for display)
   const fetchMessages = useCallback(async () => {
     if (!conversation) return;
     const id = ++fetchIdRef.current;
@@ -86,9 +92,14 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         .from('conversation_messages')
         .select('*')
         .eq('conversation_id', conversation.id)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PAGE_SIZE);
       if (error) throw error;
-      if (id === fetchIdRef.current) setMessages((data as Message[]) || []);
+      if (id === fetchIdRef.current) {
+        const msgs = ((data as Message[]) || []).reverse();
+        setMessages(msgs);
+        setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
+      }
     } catch (err) {
       if (id === fetchIdRef.current) { setFetchError(true); handleError(err, 'Erro ao carregar mensagens', 'Fetch messages'); }
     } finally {
@@ -96,15 +107,59 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     }
   }, [conversation]);
 
+  // Load older messages (prepend to existing)
+  const loadOlderMessages = useCallback(async () => {
+    if (!conversation || loadingOlder || messages.length === 0) return;
+    setLoadingOlder(true);
+    const oldestMsg = messages[0];
+    const scrollEl = scrollContainerRef.current;
+    const prevScrollHeight = scrollEl?.scrollHeight || 0;
+    try {
+      const { data, error } = await supabase
+        .from('conversation_messages')
+        .select('*')
+        .eq('conversation_id', conversation.id)
+        .lt('created_at', oldestMsg.created_at)
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PAGE_SIZE);
+      if (error) throw error;
+      const older = ((data as Message[]) || []).reverse();
+      setMessages(prev => [...older, ...prev]);
+      setHasOlderMessages(older.length === MESSAGES_PAGE_SIZE);
+      // Preserve scroll position after prepending
+      requestAnimationFrame(() => {
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight - prevScrollHeight;
+      });
+    } catch (err) {
+      handleError(err, 'Erro ao carregar mensagens anteriores', 'Load older');
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [conversation, loadingOlder, messages]);
+
   useEffect(() => { fetchMessages(); setReplyTo(null); }, [fetchMessages]);
 
-  // Realtime
+  // Realtime — append new messages instead of full refetch
   useEffect(() => {
     if (!conversation) return;
-    const channel = supabase.channel('helpdesk-realtime')
+    const channel = supabase.channel(`chat-${conversation.id}`)
       .on('broadcast', { event: 'new-message' }, (payload) => {
         if (payload.payload?.conversation_id === conversation.id) {
-          fetchMessages();
+          // Fetch only the latest message instead of full refetch
+          supabase.from('conversation_messages')
+            .select('*')
+            .eq('conversation_id', conversation.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+            .then(({ data }) => {
+              if (data) {
+                setMessages(prev => {
+                  if (prev.some(m => m.id === data.id)) return prev;
+                  return [...prev, data as Message];
+                });
+              }
+            });
           if (payload.payload?.status_ia) {
             setIaAtivada(payload.payload.status_ia === 'ligada');
           }
@@ -114,7 +169,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         setChannelStatus(status === 'SUBSCRIBED' ? 'connected' : status === 'CLOSED' ? 'disconnected' : 'connecting');
       });
     return () => { channel.unsubscribe(); supabase.removeChannel(channel); };
-  }, [conversation?.id, fetchMessages]);
+  }, [conversation?.id]);
 
   // Sound notification
   useEffect(() => {
@@ -239,6 +294,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
       {/* ── Messages ── */}
       <div
+        ref={scrollContainerRef}
         className={`flex-1 overflow-y-auto px-3 md:px-4 py-3 relative ${isDragOver ? 'ring-2 ring-primary ring-inset bg-primary/5' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
@@ -276,6 +332,13 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
           </div>
         ) : (
           <div className="space-y-1">
+            {hasOlderMessages && (
+              <div className="flex justify-center py-2">
+                <Button variant="ghost" size="sm" className="text-xs gap-1.5 text-muted-foreground" onClick={loadOlderMessages} disabled={loadingOlder}>
+                  {loadingOlder ? <><RefreshCw className="w-3 h-3 animate-spin" />Carregando...</> : 'Carregar mensagens anteriores'}
+                </Button>
+              </div>
+            )}
             {messagesWithDividers.map((item, idx) => {
               if (item.type === 'divider') {
                 return (

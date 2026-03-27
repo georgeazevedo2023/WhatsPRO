@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 3.0.0 | **Última atualização**: 2026-03-23 | **Status**: Produção + M10 S1-S4 + S5.1-S5.4 + Importação Rápida
+> **Versão**: 4.0.0 | **Última atualização**: 2026-03-26 | **Status**: Produção + Auditoria de Escalabilidade (10 Sprints) + 26 Edge Functions + 42 Tabelas
 
 ## Visão Geral
 
@@ -32,6 +32,61 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v4.0.0 (2026-03-26) — Auditoria de Escalabilidade — 10 Sprints para 10K Usuários
+
+**Sprint 1 — Fundação DB:**
+- 5 indexes compostos (department_members, ai_debounce_queue, conv_messages, ai_agent_logs x2)
+- RLS otimizado: `can_view_conversation()` unifica 4 function calls em 1 query
+
+**Sprint 2 — Resiliência Backend:**
+- Circuit breaker para Gemini/Groq/Mistral (CLOSED→OPEN→HALF_OPEN)
+- Backoff exponencial (1.5s→3s→6s) em vez de retry fixo
+- Tool calls paralelos no AI Agent (Promise.all para read-only tools)
+- Rate limit atômico via RPC (check+insert em single transaction)
+- Debounce legacy race condition fix (upsert atômico)
+
+**Sprint 3 — Throughput Webhook:**
+- Parallel I/O: media fetch + dedup + contact lookup via Promise.all (~50% menos latência)
+- Profile pic fetch movido para background (non-blocking)
+- Lead database insert atômico (upsert ON CONFLICT + count RPC)
+- Broadcast com 3s timeout (não bloqueia se Realtime cair)
+- Structured logging com request_id
+
+**Sprint 4 — Segurança Multi-Tenant:**
+- verify_jwt habilitado em 20/23 Edge Functions
+- WEBHOOK_SECRET obrigatório (fail closed — retorna 503 se não configurado)
+- Tabela admin_audit_log (imutável) + RPC log_admin_action()
+- Audit log integrado em admin-create/delete/update-user
+
+**Sprint 5 — Performance Frontend:**
+- memo() em MessageBubble, ChatInput, ContactAvatar
+- loading="lazy" + decoding="async" em todas as imagens
+- Leads: Promise.all (3 queries paralelas) + removido .slice(0, 500)
+- React Query: staleTime 1min + refetchOnWindowFocus true
+
+**Sprint 6 — Paginação e Dados:**
+- ChatPanel: paginação (últimas 50 msgs + "Carregar anteriores" + scroll preservado)
+- Realtime: append single msg em vez de refetch total
+- rate_limit_log: cleanup trigger probabilístico (1% por INSERT)
+- conversations.archived + archive_old_conversations(90) RPC
+- prune_ai_agent_logs(90) RPC
+
+**Sprint 7 — Connection Pooling e Cache:**
+- Singleton Supabase client no webhook (era per-request)
+- Materialized view mv_user_inbox_roles + has_inbox_access_fast()
+
+**Sprint 8 — Observabilidade:**
+- Structured logger JSON (_shared/logger.ts)
+- Health check endpoint (/functions/v1/health-check → 200/503)
+
+**Sprint 9 — Escalabilidade Horizontal:**
+- Job queue persistente (job_queue table + SKIP LOCKED)
+- claim_jobs/complete_job RPCs para processamento concurrent-safe
+- process-jobs worker Edge Function (lead_auto_add, profile_pic_fetch)
+- Auto-cleanup de jobs completed/failed > 7 dias
+
+**Infra:** 8 migrations aplicadas, 42 tabelas, 26 edge functions, 4 novos arquivos, 15 modificados
 
 ### v3.3.0 (2026-03-25) — Sprint 8+9 + Auditoria Completa Sistema
 

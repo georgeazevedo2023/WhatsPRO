@@ -48,16 +48,14 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - **CI/CD**: GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
 - **Portainer**: Stack "whatspro" on Hetzner CX42 (65.108.51.109)
 
-## Edge Functions (26 total)
+## Edge Functions (24 total)
 Located in `supabase/functions/`. Each uses Deno runtime.
-- JWT verification: `verify_jwt = true` on 20 functions, `false` only on webhooks (whatsapp-webhook, fire-outgoing-webhook, go, health-check)
+- JWT verification is disabled in config.toml (functions handle auth manually via `_shared/auth.ts`)
 - Shared CORS config in `supabase/functions/_shared/cors.ts`
-- Shared utilities: `fetchWithTimeout.ts` (30s timeout), `rateLimit.ts` (atomic RPC-based), `circuitBreaker.ts` (Gemini/Groq/Mistral), `logger.ts` (JSON structured), `response.ts` (standard format)
-- AI Agent: `ai-agent` (brain, SDR+handoff+shadow, circuit breaker, parallel tools), `ai-agent-debounce` (10s atomic grouping, retry), `ai-agent-playground` (testing)
+- Shared utilities: `fetchWithTimeout.ts` (30s timeout), `rateLimit.ts` (per-user throttle), `response.ts` (standard format)
+- AI Agent: `ai-agent` (brain, SDR+handoff+shadow), `ai-agent-debounce` (10s atomic grouping), `ai-agent-playground` (testing)
 - Product Import: `scrape-product` (URL → title, price, description, images, category via JSON-LD/NEXT_DATA/OG)
 - UTM Tracking: `go` (redirect endpoint for campaign links)
-- Monitoring: `health-check` (DB + MV + env verification → 200/503)
-- Background: `process-jobs` (SKIP LOCKED job queue processor for lead_auto_add, profile_pic_fetch)
 
 ## Commands
 - `/prd` - Consultar PRD completo do projeto (módulos, tasks, roadmap, changelog)
@@ -91,13 +89,3 @@ npx supabase functions deploy <name>  # Deploy edge function
 - AI Agent helpers: sendTextMsg(), sendTts(), broadcastEvent(), mergeTags(), cleanProductTitle()
 - LLM carousel copies: Groq→Gemini→Mistral chain, Card 1 code-generated (title+price), Cards 2-5 AI
 - Clear context: resets status_ia='ligada' + clears ia_blocked_instances
-- Circuit breaker: geminiBreaker/groqBreaker/mistralBreaker (3 failures → OPEN 30s → HALF_OPEN probe)
-- Rate limit: atomic RPC check_rate_limit() with global limit support (no race condition)
-- Webhook: parallel I/O (media+dedup+contact via Promise.all), profile pic in background
-- Lead upsert: atomic ON CONFLICT + update_lead_count_from_entries RPC (no lost updates)
-- Broadcast: 3s AbortController timeout (Realtime API degradation doesn't block webhook)
-- Chat pagination: last 50 messages + "Load older" button + Realtime appends single new msg
-- Archiving: conversations.archived column + archive_old_conversations(90) RPC
-- Job queue: job_queue table with claim_jobs (FOR UPDATE SKIP LOCKED) + process-jobs worker
-- Materialized view: mv_user_inbox_roles + has_inbox_access_fast() refreshed periodically
-- Audit log: admin_audit_log table (immutable) + log_admin_action() RPC on create/delete/update user

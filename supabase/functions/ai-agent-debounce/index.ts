@@ -1,11 +1,56 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
+import {
+  buildLegacyQueueUpdate,
+  createQueuedMessage,
+  type QueuedMessage,
+} from '../_shared/aiRuntime.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+
+interface DebounceQueueRow {
+  id: string
+  messages: QueuedMessage[] | null
+  process_after: string
+  processed: boolean
+}
+
+/**
+ * Legacy fallback: uses upsert with ON CONFLICT to avoid read-then-update race condition.
+ * Note: this fallback does NOT atomically append — it replaces messages with [messageEntry].
+ * The RPC append_ai_debounce_message is the preferred path.
+ */
+async function legacyQueueMessage(
+  conversationId: string,
+  instanceId: string,
+  messageEntry: QueuedMessage,
+  processAfter: string,
+): Promise<DebounceQueueRow> {
+  // Atomic upsert: insert or update in a single operation (no read-then-write race)
+  const { data, error } = await supabase
+    .from('ai_debounce_queue')
+    .upsert({
+      conversation_id: conversationId,
+      instance_id: instanceId,
+      messages: [messageEntry],
+      first_message_at: messageEntry.timestamp,
+      process_after: processAfter,
+      processed: false,
+    }, { onConflict: 'conversation_id' })
+    .select('id, messages, process_after, processed')
+    .single()
+
+  if (error || !data) {
+    throw error || new Error('legacy_queue_upsert_failed')
+  }
+
+  console.warn('[debounce] Used legacy upsert fallback — messages may not be fully appended')
+  return data as DebounceQueueRow
+}
 
 /**
  * AI Agent Debounce Handler
@@ -51,74 +96,28 @@ Deno.serve(async (req) => {
     const debounceMs = (agent.debounce_seconds || 10) * 1000
     const processAfter = new Date(Date.now() + debounceMs).toISOString()
 
-    // Clean any processed entries for this conversation first
-    await supabase
-      .from('ai_debounce_queue')
-      .delete()
-      .eq('conversation_id', conversation_id)
-      .eq('processed', true)
+    const messageEntry = createQueuedMessage(message, new Date().toISOString())
 
-    const messageEntry = {
-      content: message?.content || message?.text || '',
-      media_type: message?.media_type || 'text',
-      media_url: message?.media_url || null,
-      direction: message?.direction || 'incoming',
-      timestamp: new Date().toISOString(),
-    }
-
-    // Atomic upsert: insert new queue entry or append message to existing one
-    // This eliminates the check-then-act race condition
-    const { data: upserted, error: upsertError } = await supabase
-      .from('ai_debounce_queue')
-      .upsert({
-        conversation_id,
-        instance_id,
-        messages: [messageEntry],
-        first_message_at: new Date().toISOString(),
-        process_after: processAfter,
-        processed: false,
-      }, {
-        onConflict: 'conversation_id',
-        ignoreDuplicates: false,
+    // Atomic append/reset in Postgres. This preserves the queued array even when
+    // multiple requests land close together, instead of replacing it with the latest message.
+    const { data: queueData, error: queueError } = await supabase
+      .rpc('append_ai_debounce_message', {
+        p_conversation_id: conversation_id,
+        p_instance_id: instance_id,
+        p_message: messageEntry,
+        p_process_after: processAfter,
+        p_first_message_at: messageEntry.timestamp,
       })
-      .select('id, messages')
       .single()
 
-    // If upsert matched an existing row, the messages array was replaced.
-    // We need to append instead — so re-fetch and append if there was a conflict.
-    if (upsertError?.code === '23505' || !upsertError) {
-      // Check if existing row has more messages (was already in queue)
-      const { data: current } = await supabase
-        .from('ai_debounce_queue')
-        .select('id, messages')
-        .eq('conversation_id', conversation_id)
-        .eq('processed', false)
-        .maybeSingle()
-
-      if (current) {
-        const existingMessages = (current.messages as any[] || [])
-        // Only append if our message isn't already there (dedup by timestamp)
-        const alreadyHas = existingMessages.some(
-          (m: any) => m.timestamp === messageEntry.timestamp && m.content === messageEntry.content
-        )
-        if (!alreadyHas) {
-          const mergedMessages = [...existingMessages, messageEntry]
-          await supabase
-            .from('ai_debounce_queue')
-            .update({ messages: mergedMessages, process_after: processAfter })
-            .eq('id', current.id)
-        } else {
-          // Just reset the timer
-          await supabase
-            .from('ai_debounce_queue')
-            .update({ process_after: processAfter })
-            .eq('id', current.id)
-        }
-        console.log(`[debounce] Appended msg to queue ${current.id}, reset timer to ${agent.debounce_seconds}s`)
-      }
-    } else {
-      console.log(`[debounce] Created queue for conversation ${conversation_id}, timer ${agent.debounce_seconds}s`)
+    let queued = queueData as DebounceQueueRow | null
+    if (queueError) {
+      console.warn('[debounce] append_ai_debounce_message unavailable, falling back to legacy queue flow:', queueError.message)
+      queued = await legacyQueueMessage(conversation_id, instance_id, messageEntry, processAfter)
     }
+
+    const queuedCount = queued?.messages?.length || 0
+    console.log(`[debounce] Queue ${queued?.id || conversation_id} now has ${queuedCount} msg(s), timer ${agent.debounce_seconds}s`)
 
     // Send "typing..." indicator via UAZAPI
     if (contact_jid) {
@@ -139,13 +138,16 @@ Deno.serve(async (req) => {
     }
 
     // Schedule ai-agent call after debounce expires.
+    // Uses a promise-based delay instead of bare setTimeout to avoid orphaned closures.
     // ATOMIC processing: UPDATE ... WHERE processed=false AND process_after <= now()
     // Only ONE timer callback will succeed — others get 0 rows and skip.
     const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
-    setTimeout(async () => {
+
+    const processAfterDelay = async () => {
+      await new Promise(r => setTimeout(r, debounceMs))
+
       try {
         // Atomic claim: mark as processed ONLY IF timer hasn't been reset and not yet processed
-        // This single UPDATE eliminates the SELECT-then-UPDATE race condition
         const { data: claimed } = await supabase
           .from('ai_debounce_queue')
           .update({ processed: true })
@@ -160,8 +162,8 @@ Deno.serve(async (req) => {
           return
         }
 
-        // We won the race — call ai-agent with all queued messages
-        const msgCount = (claimed.messages as any[])?.length || 0
+        const claimedMessages = (claimed.messages as QueuedMessage[] | null) || []
+        const msgCount = claimedMessages.length || 0
         console.log(`[debounce] Debounce expired, calling ai-agent for ${conversation_id} with ${msgCount} messages`)
 
         const agentResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/ai-agent`, {
@@ -169,17 +171,46 @@ Deno.serve(async (req) => {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
           body: JSON.stringify({
             conversation_id, instance_id,
-            messages: claimed.messages,
+            messages: claimedMessages,
             agent_id: agent.id,
           }),
         })
+
+        // Retry once on 5xx (ai-agent might be cold-starting)
+        if (agentResp.status >= 500 && agentResp.status < 600) {
+          console.warn(`[debounce] ai-agent returned ${agentResp.status}, retrying in 2s...`)
+          await new Promise(r => setTimeout(r, 2000))
+          const retryResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/ai-agent`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
+            body: JSON.stringify({
+              conversation_id, instance_id,
+              messages: claimedMessages,
+              agent_id: agent.id,
+            }),
+          })
+          const retryResult = await retryResp.json()
+          console.log(`[debounce] ai-agent retry:`, retryResp.status, JSON.stringify(retryResult).substring(0, 200))
+          return
+        }
 
         const result = await agentResp.json()
         console.log(`[debounce] ai-agent response:`, agentResp.status, JSON.stringify(result).substring(0, 200))
       } catch (err) {
         console.error('[debounce] Error calling ai-agent:', err)
+        // Mark as unprocessed so it can be retried by a cleanup job (best effort)
+        try {
+          await supabase
+            .from('ai_debounce_queue')
+            .update({ processed: false })
+            .eq('conversation_id', conversation_id)
+            .eq('processed', true)
+        } catch { /* best effort */ }
       }
-    }, debounceMs)
+    }
+
+    // Fire the delayed processing — EdgeRuntime keeps the isolate alive until this resolves
+    processAfterDelay()
 
     return new Response(JSON.stringify({ ok: true, debounce_seconds: agent.debounce_seconds }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -103,6 +103,17 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Audit log (non-blocking)
+    try {
+      await adminClient.rpc('log_admin_action', {
+        p_user_id: userData.user.id,
+        p_action: 'delete_user',
+        p_target_table: 'auth.users',
+        p_target_id: user_id,
+        p_details: {},
+      })
+    } catch { /* audit log is non-blocking */ }
+
     return new Response(
       JSON.stringify({ success: true }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

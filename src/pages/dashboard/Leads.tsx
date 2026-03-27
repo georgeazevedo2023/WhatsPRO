@@ -72,17 +72,16 @@ const Leads = () => {
       const contactIds = [...contactMap.keys()];
       if (contactIds.length === 0) { setLeads([]); setLoading(false); return; }
 
-      const { data: profiles } = await supabase
-        .from('lead_profiles')
-        .select('*')
-        .in('contact_id', contactIds);
-      const profileMap = new Map((profiles || []).map(p => [p.contact_id, p]));
-
+      // Parallel fetch: profiles, labels, and kanban cards at once (was sequential)
       const allConvIds = (conversations || []).map(c => c.id);
-      const { data: convLabels } = await supabase
-        .from('conversation_labels')
-        .select('conversation_id, labels(name)')
-        .in('conversation_id', allConvIds.slice(0, 500));
+      const [profilesRes, convLabelsRes, kanbanCardsRes] = await Promise.all([
+        supabase.from('lead_profiles').select('*').in('contact_id', contactIds),
+        supabase.from('conversation_labels').select('conversation_id, labels(name)').in('conversation_id', allConvIds),
+        supabase.from('kanban_cards').select('contact_id, board_id, kanban_columns(name, color)').in('contact_id', contactIds).not('contact_id', 'is', null),
+      ]);
+      const profileMap = new Map((profilesRes.data || []).map(p => [p.contact_id, p]));
+
+      const convLabels = convLabelsRes.data;
       const labelMap = new Map<string, Set<string>>();
       for (const cl of (convLabels || [])) {
         const conv = (conversations || []).find(c => c.id === cl.conversation_id);
@@ -92,11 +91,7 @@ const Leads = () => {
         }
       }
 
-      const { data: kanbanCards } = await supabase
-        .from('kanban_cards')
-        .select('contact_id, board_id, kanban_columns(name, color)')
-        .in('contact_id', contactIds.slice(0, 500))
-        .not('contact_id', 'is', null);
+      const kanbanCards = kanbanCardsRes.data;
       const kanbanMap = new Map<string, { stage: string; color: string; board_id: string }>();
       for (const kc of (kanbanCards || [])) {
         if (kc.contact_id && (kc as any).kanban_columns) {

@@ -1,7 +1,14 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+import { shouldTriggerAiAgentFromWebhook } from '../_shared/aiRuntime.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+
+// Module-level singleton: reuse connection pool across requests in same Deno isolate
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+)
 
 function normalizeMediaType(raw: string): string {
   if (!raw || raw === '') return 'text'
@@ -65,22 +72,25 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders })
   }
 
-  try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
+  // Generate unique request ID for tracing across logs
+  const reqId = crypto.randomUUID().substring(0, 8)
+  const startMs = Date.now()
 
-    // Validate webhook secret token (if configured)
+  try {
+    // Validate webhook secret token — MANDATORY in production (fail closed)
     const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
-    if (webhookSecret) {
-      const incomingToken = req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace('Bearer ', '')
-      if (incomingToken !== webhookSecret) {
-        console.warn('[webhook] Invalid or missing webhook secret')
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
+    if (!webhookSecret) {
+      console.error(`[${reqId}] FATAL: WEBHOOK_SECRET not configured — rejecting all requests`)
+      return new Response(JSON.stringify({ error: 'Server misconfigured' }), {
+        status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+    const incomingToken = req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace('Bearer ', '')
+    if (incomingToken !== webhookSecret) {
+      console.warn(`[${reqId}] Invalid or missing webhook secret`)
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const rawPayload = await req.json()
@@ -166,7 +176,7 @@ Deno.serve(async (req) => {
       // Find open/pending conversation
       const { data: iaConv } = await supabase
         .from('conversations')
-        .select('id')
+        .select('id, status_ia')
         .eq('inbox_id', resolvedInboxId)
         .eq('contact_id', iaContact.id)
         .in('status', ['aberta', 'pendente'])
@@ -186,7 +196,7 @@ Deno.serve(async (req) => {
         resolvedInboxIdForMessage = resolvedInboxId
       } else {
         // Conversation found - update status_ia
-        await supabase.from('conversations').update({ status_ia: statusIaPayload } as any).eq('id', iaConv.id)
+        await supabase.from('conversations').update({ status_ia: statusIaPayload }).eq('id', iaConv.id)
         console.log('status_ia updated to', statusIaPayload, 'for conversation', iaConv.id)
 
         // Broadcast via REST API
@@ -422,102 +432,85 @@ Deno.serve(async (req) => {
       'video/3gpp': '3gp',
     }
 
-    if (mediaType !== 'text' && mediaType !== 'contact' && externalId && instance.token) {
-      console.log('Requesting persistent media link from UAZAPI...')
-      const persistentResult = await getMediaLink(externalId, instance.token, mediaType === 'audio')
-      if (persistentResult) {
-        mediaUrl = persistentResult.url
-        console.log('Got persistent media URL:', mediaUrl.substring(0, 80))
-        const mime = persistentResult.mimetype || ''
+    // ── Parallel: media link + deduplication + contact lookup ──────────
+    // These 3 operations are independent — run them concurrently to reduce latency.
+    const needsMedia = mediaType !== 'text' && mediaType !== 'contact' && externalId && instance.token
+    const contactJid = fromMe ? chatId : (message.sender_pn || message.sender || chatId)
 
-        // Reclassify media type based on actual mimetype (UAZAPI may send videos as documentMessage)
-        if (mime.startsWith('video/') && mediaType !== 'video') {
-          console.log('Reclassifying media from', mediaType, 'to video based on mimetype:', mime)
-          mediaType = 'video'
-        }
-        if (mime.startsWith('image/') && mediaType !== 'image') {
-          console.log('Reclassifying media from', mediaType, 'to image based on mimetype:', mime)
-          mediaType = 'image'
-        }
+    const [mediaResult, dupResult, contactResult] = await Promise.all([
+      // 1. Media link resolution (500ms+ UAZAPI call → now parallel)
+      needsMedia
+        ? getMediaLink(externalId, instance.token, mediaType === 'audio')
+        : Promise.resolve(null),
+      // 2. Deduplication check
+      externalId
+        ? supabase.from('conversation_messages').select('id')
+            .or(`external_id.eq.${externalId},external_id.eq.${owner}:${externalId}`)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      // 3. Contact lookup
+      supabase.from('contacts').select('id, profile_pic_url').eq('jid', contactJid).maybeSingle(),
+    ])
 
-        // Generate friendly name for documents without caption/fileName
-        if (mediaType === 'document' && !mime.startsWith('video/') && !content) {
-          const ext = mimeExtMap[mime] || mime.split('/').pop() || 'pdf'
-          content = `Documento.${ext}`
-          console.log('Generated document name:', content, 'from mimetype:', mime)
-        }
-
-        // Use UAZAPI persistent URL directly (no re-upload to Storage)
-        // The /message/download URL is persistent and accessible
-        console.log('Using UAZAPI persistent URL directly (no re-upload):', mediaUrl?.substring(0, 80))
-      } else {
-        console.log('Failed to get persistent link, keeping original:', mediaUrl?.substring(0, 80))
+    // Process media result
+    if (mediaResult) {
+      mediaUrl = mediaResult.url
+      const mime = mediaResult.mimetype || ''
+      if (mime.startsWith('video/') && mediaType !== 'video') mediaType = 'video'
+      if (mime.startsWith('image/') && mediaType !== 'image') mediaType = 'image'
+      if (mediaType === 'document' && !mime.startsWith('video/') && !content) {
+        const ext = mimeExtMap[mime] || mime.split('/').pop() || 'pdf'
+        content = `Documento.${ext}`
       }
+      console.log('Media resolved:', mediaType, mediaUrl?.substring(0, 80))
     }
 
     console.log(`Processing: direction=${direction}, mediaType=${mediaType}, externalId=${externalId}, chatId=${chatId}, mediaUrl=${mediaUrl ? 'YES' : 'NO'}`)
 
-    // Deduplication: check if external_id already exists
-    if (externalId) {
-      const { data: existingMsg } = await supabase
-        .from('conversation_messages')
-        .select('id')
-        .or(`external_id.eq.${externalId},external_id.eq.${owner}:${externalId}`)
-        .maybeSingle()
-
-      if (existingMsg) {
-        console.log('Duplicate message skipped:', externalId)
-        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
+    // Deduplication: skip if message already exists
+    if (dupResult.data) {
+      console.log('Duplicate message skipped:', externalId)
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     // Extract contact info
-    const contactJid = fromMe ? chatId : (message.sender_pn || message.sender || chatId)
     const contactPhone = extractPhone(contactJid)
     const contactName = fromMe
       ? (chat?.wa_contactName || chat?.name || contactPhone)
       : (chat?.wa_contactName || chat?.name || message.senderName || contactPhone)
     const contactProfilePic = chat?.imagePreview || chat?.image || message.profilePicUrl || message.profilePic || null
 
-    // Resolve profile picture: prefer payload data, then fetch from UAZAPI API
+    // Resolve profile picture: prefer payload data, then fetch from UAZAPI in background
     let resolvedProfilePic = contactProfilePic ? String(contactProfilePic) : null
+    let { data: contact } = contactResult
 
-    // Upsert contact — preserve existing name to avoid overwriting manual edits
-    let { data: contact } = await supabase
-      .from('contacts')
-      .select('id, profile_pic_url')
-      .eq('jid', contactJid)
-      .maybeSingle()
-
-    // If no profile pic from payload AND contact has none, try UAZAPI /contact/getProfilePic
+    // Profile pic fetch: moved to non-blocking background (doesn't delay message processing)
     if (!resolvedProfilePic && (!contact || !contact.profile_pic_url) && instance?.token && contactJid) {
-      try {
-        const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
-        const picResp = await fetchWithTimeout(`${uazapiUrl}/contact/getProfilePic`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'token': instance.token },
-          body: JSON.stringify({ id: contactJid }),
-        })
+      // Fire-and-forget: fetch profile pic and update contact later
+      const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
+      fetchWithTimeout(`${uazapiUrl}/contact/getProfilePic`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'token': instance.token },
+        body: JSON.stringify({ id: contactJid }),
+      }, 5000).then(async (picResp) => {
         if (picResp.ok) {
           const picData = await picResp.json()
           const picUrl = picData.profilePicUrl || picData.imgUrl || picData.url || picData.eurl || null
           if (picUrl && typeof picUrl === 'string' && picUrl.startsWith('http')) {
-            resolvedProfilePic = picUrl
-            console.log('Got profile pic from UAZAPI for', contactJid, ':', picUrl.substring(0, 60))
+            await supabase.from('contacts').update({ profile_pic_url: picUrl }).eq('jid', contactJid)
+            console.log('Profile pic updated async for', contactJid)
           }
         }
-      } catch (err) {
-        console.log('Profile pic fetch failed (non-critical):', err)
-      }
+      }).catch(() => {}) // Non-critical
     }
 
     if (!contact) {
       const { data: newContact } = await supabase
         .from('contacts')
         .insert({ jid: contactJid, phone: contactPhone, name: contactName, profile_pic_url: resolvedProfilePic })
-        .select('id')
+        .select('id, profile_pic_url')
         .single()
       contact = newContact
     } else if (resolvedProfilePic && !contact.profile_pic_url) {
@@ -539,14 +532,14 @@ Deno.serve(async (req) => {
       : new Date().toISOString()
 
     // Find or create conversation (use pre-resolved if available from status_ia)
-    let conversation: { id: string } | null = resolvedConversationId
-      ? { id: resolvedConversationId }
+    let conversation: { id: string; status_ia?: string | null } | null = resolvedConversationId
+      ? { id: resolvedConversationId, status_ia: statusIaPayload ?? null }
       : null
 
     if (!conversation) {
       const { data: foundConv } = await supabase
         .from('conversations')
-        .select('id')
+        .select('id, status_ia')
         .eq('inbox_id', inbox.id)
         .eq('contact_id', contact.id)
         .in('status', ['aberta', 'pendente'])
@@ -566,7 +559,7 @@ Deno.serve(async (req) => {
           is_read: false,
           last_message_at: msgTimestamp,
         })
-        .select('id')
+        .select('id, status_ia')
         .single()
       conversation = newConv
     }
@@ -622,19 +615,18 @@ Deno.serve(async (req) => {
       .update(updateData)
       .eq('id', conversation.id)
 
-    // Auto-add contact to instance lead database (fire-and-forget)
+    // Auto-add contact to instance lead database (fire-and-forget, atomic upsert)
     if (direction === 'incoming' && contactPhone && contactJid) {
       (async () => {
         try {
-          // Find or create lead database for this instance
+          // Find lead database for this instance (indexed by instance_id UNIQUE)
           let { data: leadDb } = await supabase
             .from('lead_databases')
-            .select('id, leads_count')
+            .select('id')
             .eq('instance_id', instance.id)
             .maybeSingle()
 
           if (!leadDb) {
-            // Get instance owner to set as database owner
             const { data: instanceData } = await supabase
               .from('instances')
               .select('user_id, name')
@@ -644,54 +636,47 @@ Deno.serve(async (req) => {
             if (instanceData) {
               const { data: newDb } = await supabase
                 .from('lead_databases')
-                .insert({
+                .upsert({
                   name: `Helpdesk - ${instanceData.name}`,
                   user_id: instanceData.user_id,
                   instance_id: instance.id,
                   leads_count: 0,
-                })
-                .select('id, leads_count')
+                }, { onConflict: 'instance_id' })
+                .select('id')
                 .single()
               leadDb = newDb
             }
           }
 
           if (leadDb) {
-            // Check if contact already exists in this database
-            const { data: existing } = await supabase
+            // Atomic upsert: insert or update name — eliminates check-then-insert race
+            const { error: upsertErr } = await supabase
               .from('lead_database_entries')
-              .select('id, name')
-              .eq('database_id', leadDb.id)
-              .eq('phone', contactPhone)
-              .maybeSingle()
+              .upsert({
+                database_id: leadDb.id,
+                phone: contactPhone,
+                jid: contactJid,
+                name: contactName || null,
+                source: 'helpdesk',
+                is_verified: true,
+                verification_status: 'valid',
+              }, {
+                onConflict: 'database_id,phone',
+                ignoreDuplicates: false,
+              })
 
-            if (!existing) {
-              // Insert new lead entry
-              await supabase
-                .from('lead_database_entries')
-                .insert({
-                  database_id: leadDb.id,
-                  phone: contactPhone,
-                  jid: contactJid,
-                  name: contactName || null,
-                  source: 'helpdesk',
-                  is_verified: true,
-                  verification_status: 'valid',
-                })
-
-              // Increment leads_count
-              await supabase
-                .from('lead_databases')
-                .update({ leads_count: (leadDb.leads_count || 0) + 1 })
-                .eq('id', leadDb.id)
-
-              console.log('Auto-added contact to lead database:', contactPhone, leadDb.id)
-            } else if (!existing.name && contactName && contactName !== contactPhone) {
-              // Update name if it was missing (pushname arrived later)
-              await supabase
-                .from('lead_database_entries')
-                .update({ name: contactName })
-                .eq('id', existing.id)
+            if (!upsertErr) {
+              // Atomic count via RPC — no lost updates
+              const { error: rpcErr } = await supabase.rpc('update_lead_count_from_entries', { p_database_id: leadDb.id })
+              if (rpcErr) {
+                // Fallback: count entries directly
+                const { count } = await supabase.from('lead_database_entries')
+                  .select('*', { count: 'exact', head: true })
+                  .eq('database_id', leadDb.id)
+                if (count !== null) {
+                  await supabase.from('lead_databases').update({ leads_count: count }).eq('id', leadDb.id)
+                }
+              }
             }
           }
         } catch (err) {
@@ -706,8 +691,9 @@ Deno.serve(async (req) => {
       console.log('status_ia detected:', statusIa, '— persisting to conversation', conversation.id)
       await supabase
         .from('conversations')
-        .update({ status_ia: statusIa } as any)
+        .update({ status_ia: statusIa })
         .eq('id', conversation.id)
+      conversation.status_ia = statusIa
     }
 
     // ── UTM Campaign Attribution ──────────────────────────────────────
@@ -784,24 +770,35 @@ Deno.serve(async (req) => {
     if (statusIa) {
       broadcastPayload.status_ia = statusIa
     }
+    // Broadcast via Realtime REST — with timeout and error resilience
+    // If Realtime API is slow/down, don't block the webhook response
     const topics = ['helpdesk-realtime', 'helpdesk-conversations']
-    const broadcastResults = await Promise.all(
-      topics.map(topic =>
-        fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+    const broadcastWithTimeout = async (topic: string) => {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 3000) // 3s timeout
+      try {
+        const resp = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
           method: 'POST',
           headers: {
             'apikey': ANON_KEY,
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${ANON_KEY}`,
           },
+          signal: ctrl.signal,
           body: JSON.stringify({
             messages: [{ topic, event: 'new-message', payload: broadcastPayload }],
           }),
         })
-      )
-    )
+        return resp.status
+      } catch {
+        return 0 // timeout or network error
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    const broadcastStatuses = await Promise.all(topics.map(broadcastWithTimeout))
 
-    console.log('Message processed + REST broadcast status:', broadcastResults.map(r => r.status).join(','), conversation.id, direction, mediaType)
+    console.log(`[${reqId}] Message processed (${Date.now() - startMs}ms) broadcast:${broadcastStatuses.join(',')}`, conversation.id, direction, mediaType)
 
     // Trigger async transcription for incoming audio messages
     if (mediaType === 'audio' && mediaUrl && insertedMsg && direction === 'incoming') {
@@ -827,45 +824,45 @@ Deno.serve(async (req) => {
         .update({ status: 'replied', replied_at: new Date().toISOString() })
         .eq('conversation_id', conversation.id)
         .eq('status', 'sent')
-        .then(() => {}).catch(() => {})
+        .then(() => {})
     }
 
     // Trigger AI Agent for incoming messages (if enabled for this instance)
     // Skip audio messages — transcribe-audio will trigger the agent after transcription
-    if (direction === 'incoming' && !fromMe && mediaType !== 'audio') {
-      // Check if instance has an active AI agent AND conversation is not in handoff cooldown
-      const shouldTriggerAgent = conversation.status_ia !== 'desligada'
+    if (shouldTriggerAiAgentFromWebhook({
+      direction,
+      fromMe,
+      mediaType,
+      statusIa: conversation.status_ia,
+    })) {
+      // Check if instance has ai_agent enabled
+      const { data: aiAgent } = await supabase
+        .from('ai_agents')
+        .select('id, enabled')
+        .eq('instance_id', instance.id)
+        .eq('enabled', true)
+        .maybeSingle()
 
-      if (shouldTriggerAgent) {
-        // Check if instance has ai_agent enabled
-        const { data: aiAgent } = await supabase
-          .from('ai_agents')
-          .select('id, enabled')
-          .eq('instance_id', instance.id)
-          .eq('enabled', true)
-          .maybeSingle()
-
-        if (aiAgent) {
-          console.log('AI Agent active, triggering debounce for conversation:', conversation.id)
-          fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${ANON_KEY}`,
+      if (aiAgent) {
+        console.log('AI Agent active, triggering debounce for conversation:', conversation.id)
+        fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            conversation_id: conversation.id,
+            instance_id: instance.id,
+            contact_jid: contactJid,
+            message: {
+              content,
+              media_type: mediaType,
+              media_url: mediaUrl || null,
+              direction: 'incoming',
             },
-            body: JSON.stringify({
-              conversation_id: conversation.id,
-              instance_id: instance.id,
-              contact_jid: contactJid,
-              message: {
-                content,
-                media_type: mediaType,
-                media_url: mediaUrl || null,
-                direction: 'incoming',
-              },
-            }),
-          }).catch(err => console.error('AI Agent debounce call failed:', err))
-        }
+          }),
+        }).catch(err => console.error('AI Agent debounce call failed:', err))
       }
     }
 
@@ -873,8 +870,8 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (error) {
-    console.error('Webhook error:', error)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    console.error(`[${reqId}] Webhook error (${Date.now() - startMs}ms):`, error)
+    return new Response(JSON.stringify({ error: 'Internal server error', request_id: reqId }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { User } from 'lucide-react';
 
 interface ContactAvatarProps {
@@ -8,7 +8,7 @@ interface ContactAvatarProps {
   className?: string;
 }
 
-export function ContactAvatar({ src, name, size = 32, className = '' }: ContactAvatarProps) {
+export const ContactAvatar = memo(function ContactAvatar({ src, name, size = 32, className = '' }: ContactAvatarProps) {
   const [imgError, setImgError] = useState(false);
   const initials = (name || '?').charAt(0).toUpperCase();
   const px = `${size}px`;
@@ -18,6 +18,8 @@ export function ContactAvatar({ src, name, size = 32, className = '' }: ContactA
       <img
         src={src}
         alt=""
+        loading="lazy"
+        decoding="async"
         className={`rounded-full object-cover shrink-0 ${className}`}
         style={{ width: px, height: px }}
         onError={() => setImgError(true)}
@@ -39,4 +41,4 @@ export function ContactAvatar({ src, name, size = 32, className = '' }: ContactA
       )}
     </div>
   );
-}
+});

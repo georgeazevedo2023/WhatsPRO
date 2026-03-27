@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatBR } from '@/lib/dateUtils';
 import { ImageIcon, ExternalLink, FileText, Download, Loader2, LayoutGrid, Link, Phone, MessageSquare, User, ChevronRight, UserPlus, Copy, Reply } from 'lucide-react';
@@ -16,7 +16,7 @@ interface MessageBubbleProps {
   onReply?: (message: Message) => void;
 }
 
-export const MessageBubble = ({ message, instanceId, agentNamesMap, onReply }: MessageBubbleProps) => {
+export const MessageBubble = memo(function MessageBubble({ message, instanceId, agentNamesMap, onReply }: MessageBubbleProps) {
   const isOutgoing = message.direction === 'outgoing';
   const isNote = message.direction === 'private_note';
   const [imgError, setImgError] = useState(false);
@@ -197,6 +197,8 @@ export const MessageBubble = ({ message, instanceId, agentNamesMap, onReply }: M
               <img
                 src={mediaUrl}
                 alt="Figurinha"
+                loading="lazy"
+                decoding="async"
                 className="max-w-[180px] max-h-[180px] object-contain"
                 onError={() => setImgError(true)}
               />
@@ -216,6 +218,8 @@ export const MessageBubble = ({ message, instanceId, agentNamesMap, onReply }: M
                 <img
                   src={mediaUrl}
                   alt="Imagem"
+                  loading="lazy"
+                  decoding="async"
                   className="rounded-lg max-w-full cursor-pointer hover:opacity-90 transition-opacity"
                   onError={() => setImgError(true)}
                 />
@@ -405,4 +409,4 @@ export const MessageBubble = ({ message, instanceId, agentNamesMap, onReply }: M
       </div>
     </div>
   );
-};
+});

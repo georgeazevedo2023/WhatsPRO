@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
+import { geminiBreaker, groqBreaker, mistralBreaker } from '../_shared/circuitBreaker.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -553,25 +554,10 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 
     // ── NORMAL MODE ──────────────────────────────────────────────────────
 
-    // 9. Greeting check — FRESH query to avoid race conditions with cached contextMessages
-    const { count: recentOutgoingTotal } = await supabase
-      .from('conversation_messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('conversation_id', conversation_id)
-      .eq('direction', 'outgoing')
-      .gte('created_at', new Date(Date.now() - 120000).toISOString()) // last 2 minutes
-
-    const agentHasRepliedRecently = (recentOutgoingTotal || 0) > 0
-    const agentHasReplied = contextMessages.some((m: any) => m.direction === 'outgoing')
-
-    // Only greet if NO outgoing messages in last 2 min (fresh DB check, not cached)
-    const shouldGreet = !agentHasRepliedRecently && agent.greeting_message
-
-    // If context was cleared but old messages exist, clear them so model treats as first interaction
-    if (shouldGreet && agentHasReplied) {
-      contextMessages.length = 0
-      console.log('[ai-agent] Greeting mode — cleared old messages from history')
-    }
+    // 9. Greeting check — only on the first outbound interaction in this conversation.
+    // Using a short recent window here causes false "first interaction" detections
+    // when the lead sends another message a few minutes later.
+    const shouldGreet = !hasInteracted && !!agent.greeting_message
 
     // If first interaction, send greeting and STOP — wait for lead to respond
     if (shouldGreet) {
@@ -1248,6 +1234,19 @@ ${subAgentInstruction}`
       attempts++
       if (attempts > 1) sendPresence('composing') // Refresh typing indicator between tool rounds
 
+      // Circuit breaker: skip call entirely if Gemini is in failure state
+      if (geminiBreaker.isOpen) {
+        console.error('[ai-agent] Gemini circuit breaker OPEN — aborting')
+        await supabase.from('ai_agent_logs').insert({
+          agent_id, conversation_id, event: 'error', model: geminiModel,
+          error: 'Circuit breaker OPEN — Gemini temporarily unavailable',
+          latency_ms: Date.now() - startTime,
+        })
+        return new Response(JSON.stringify({ error: 'AI temporarily unavailable, please try again later' }), {
+          status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
       const geminiResponse = await fetchWithTimeout(geminiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1265,10 +1264,12 @@ ${subAgentInstruction}`
       if (!geminiResponse.ok) {
         const errText = await geminiResponse.text()
         console.error('[ai-agent] Gemini error:', geminiResponse.status, errText.substring(0, 300))
-        // Retry once on transient failures (429, 500, 503)
-        if (attempts === 1 && [429, 500, 503].includes(geminiResponse.status)) {
-          console.log('[ai-agent] Retrying Gemini after transient error...')
-          await new Promise(r => setTimeout(r, 1500))
+        geminiBreaker.onFailure()
+        // Retry on transient failures with exponential backoff
+        if (attempts < 3 && [429, 500, 503].includes(geminiResponse.status)) {
+          const backoffMs = 1500 * Math.pow(2, attempts - 1) // 1.5s, 3s, 6s
+          console.log(`[ai-agent] Retrying Gemini after ${backoffMs}ms (attempt ${attempts})...`)
+          await new Promise(r => setTimeout(r, backoffMs))
           continue
         }
         await supabase.from('ai_agent_logs').insert({
@@ -1281,6 +1282,8 @@ ${subAgentInstruction}`
         })
       }
 
+      geminiBreaker.onSuccess()
+
       const geminiData = await geminiResponse.json()
       inputTokens += geminiData?.usageMetadata?.promptTokenCount || 0
       outputTokens += geminiData?.usageMetadata?.candidatesTokenCount || 0
@@ -1289,13 +1292,33 @@ ${subAgentInstruction}`
       const functionCalls = parts.filter((p: any) => p.functionCall)
 
       if (functionCalls.length > 0) {
-        const toolResults: any[] = []
-        for (const fc of functionCalls) {
-          const { name, args: toolArgs } = fc.functionCall
-          console.log(`[ai-agent] Tool: ${name}(${JSON.stringify(toolArgs).substring(0, 100)})`)
-          const result = await executeTool(name, toolArgs || {})
-          toolCallsLog.push({ name, args: toolArgs, result: result.substring(0, 200) })
-          toolResults.push({ functionResponse: { name, response: { result } } })
+        // Tools with side effects (send message, handoff) must run sequentially.
+        // Read-only tools (search, query) can run in parallel for lower latency.
+        const sideEffectTools = new Set(['send_carousel', 'send_media', 'handoff_to_human'])
+        const hasSideEffects = functionCalls.some((fc: any) => sideEffectTools.has(fc.functionCall.name))
+
+        let toolResults: any[]
+        if (hasSideEffects || functionCalls.length === 1) {
+          // Sequential execution (original behavior) for side-effect tools
+          toolResults = []
+          for (const fc of functionCalls) {
+            const { name, args: toolArgs } = fc.functionCall
+            console.log(`[ai-agent] Tool (seq): ${name}(${JSON.stringify(toolArgs).substring(0, 100)})`)
+            const result = await executeTool(name, toolArgs || {})
+            toolCallsLog.push({ name, args: toolArgs, result: result.substring(0, 200) })
+            toolResults.push({ functionResponse: { name, response: { result } } })
+          }
+        } else {
+          // Parallel execution for read-only tools (search_products, assign_label, set_tags, etc.)
+          console.log(`[ai-agent] Parallel tool execution: ${functionCalls.map((fc: any) => fc.functionCall.name).join(', ')}`)
+          toolResults = await Promise.all(
+            functionCalls.map(async (fc: any) => {
+              const { name, args: toolArgs } = fc.functionCall
+              const result = await executeTool(name, toolArgs || {})
+              toolCallsLog.push({ name, args: toolArgs, result: result.substring(0, 200) })
+              return { functionResponse: { name, response: { result } } }
+            })
+          )
         }
 
         // If handoff was called, STOP — don't let Gemini generate more text (prevents duplicate messages)

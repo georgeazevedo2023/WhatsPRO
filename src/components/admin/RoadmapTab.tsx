@@ -76,13 +76,24 @@ const _LEGACY_MODULES: Module[] = [
     { id: 'L2', description: 'Cartão do lead (6 seções, edição inline, timeline)', status: 'done' },
     { id: 'L3', description: 'Block IA, clear context, conversation modal', status: 'done' },
   ]},
+  { id: 'M12', name: 'Escalabilidade', icon: BrainCircuit, color: 'text-red-500', tasks: [
+    { id: 'SC1', description: 'Indexes compostos + RLS otimizado (can_view_conversation)', status: 'done' },
+    { id: 'SC2', description: 'Circuit breaker + backoff exponencial + tools paralelos', status: 'done' },
+    { id: 'SC3', description: 'Webhook parallel I/O + lead upsert atômico', status: 'done' },
+    { id: 'SC4', description: 'verify_jwt + WEBHOOK_SECRET obrigatório + audit log', status: 'done' },
+    { id: 'SC5', description: 'memo() + lazy imgs + Promise.all + staleTime tuning', status: 'done' },
+    { id: 'SC6', description: 'Paginação mensagens + archiving + cleanup triggers', status: 'done' },
+    { id: 'SC7', description: 'Singleton client + materialized view inbox roles', status: 'done' },
+    { id: 'SC8', description: 'Structured logger + health check endpoint', status: 'done' },
+    { id: 'SC9', description: 'Job queue persistente (SKIP LOCKED) + processor', status: 'done' },
+  ]},
 ];
 
 const ROADMAP_ITEMS: RoadmapItem[] = [
   { id: 'R1', feature: 'Chatbot/autoresponder configurável', description: 'Fluxos condicionais por inbox com menu de opções e horário de funcionamento', priority: 'alta', module: 'M2' },
   { id: 'R2', feature: 'Métricas por agente (tempo resposta, CSAT)', description: 'Dashboard individual de performance com ranking e filtros', priority: 'alta', module: 'M6' },
-  { id: 'R3', feature: 'Webhook signature validation (HMAC)', description: 'Validação criptográfica dos webhooks com HMAC-SHA256', priority: 'alta', module: 'Infra' },
-  { id: 'R4', feature: 'Rate limiting nas edge functions', description: 'Implementado v2.9.0: transcribe (20/min), summarize (10/min), analyze (5/min)', priority: 'alta', module: 'Infra', done: true },
+  { id: 'R3', feature: 'Webhook signature validation (HMAC)', description: 'WEBHOOK_SECRET obrigatório (fail closed) implementado v4.0', priority: 'alta', module: 'Infra', done: true },
+  { id: 'R4', feature: 'Rate limiting atômico via RPC', description: 'check_rate_limit() transactional + global limit, sem race condition', priority: 'alta', module: 'Infra', done: true },
   { id: 'R5', feature: 'Deploy automatizado (Vercel/Netlify)', description: 'CI/CD com preview deploys, rollback e notificação', priority: 'media', module: 'Infra' },
   { id: 'R6', feature: 'Notificações push/desktop', description: 'Web Push API para novas mensagens e menções', priority: 'media', module: 'M2' },
   { id: 'R7', feature: 'Integração CRM externo (HubSpot, Pipedrive)', description: 'Sync bidirecional de contatos e deals', priority: 'media', module: 'M4' },
@@ -108,6 +119,8 @@ const ROADMAP_ITEMS: RoadmapItem[] = [
 ];
 
 const CHANGELOG: ChangelogEntry[] = [
+  { version: 'v4.0.0', date: '2026-03-26', title: 'Auditoria de Escalabilidade — 10 Sprints',
+    changes: ['S1-S2: 5 indexes + RLS otimizado + circuit breaker + tools paralelos', 'S3-S4: Webhook 3x throughput + verify_jwt 20 fns + audit log', 'S5-S6: memo/lazy/Promise.all + paginação msgs + archiving', 'S7-S9: Singleton client + MV cache + logger + job queue SKIP LOCKED', '8 migrations + 26 edge functions + 42 tabelas + health-check'] },
   { version: 'v3.3.0', date: '2026-03-25', title: 'Sprint 8+9 + Auditoria Completa Sistema',
     changes: ['Follow-up automático com cadência configurável', 'Import CSV/Excel de produtos com auto-detect', 'Web scraping em lote com job queue', 'Auditoria v3: 24 functions, 33 tabelas, 44 rotas', 'Auth no send-shift-report, CHECK utm, FKs, memory leak fix', 'Typing delay UAZAPI, nome duplicado fix, prompt handoff'] },
   { version: 'v3.2.0', date: '2026-03-25', title: 'Auditoria AI Agent + SDR + Shadow Mode + Debounce Atômico',

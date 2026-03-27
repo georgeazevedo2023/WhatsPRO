@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Send, StickyNote, Mic, X, Paperclip, Loader2, Plus, ImageIcon, Smile, Tags, CircleDot, Check, Reply } from 'lucide-react';
 import { EmojiPickerContent } from '@/components/ui/emoji-picker';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -28,7 +28,7 @@ interface ChatInputProps {
   onClearReply?: () => void;
 }
 
-export const ChatInput = ({ conversation, onMessageSent, onAgentAssigned, inboxLabels = [], assignedLabelIds = [], onLabelsChanged, onStatusChange, replyTo, onClearReply }: ChatInputProps) => {
+export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, onAgentAssigned, inboxLabels = [], assignedLabelIds = [], onLabelsChanged, onStatusChange, replyTo, onClearReply }: ChatInputProps) {
   const { user } = useAuth();
   const { isRecording, recordingTime, startRecording, stopRecording, cancelRecording, formatTime } = useAudioRecorder();
   const { sendingFile, fileInputRef, imageInputRef, handleSendFile } = useSendFile();
@@ -551,4 +551,4 @@ export const ChatInput = ({ conversation, onMessageSent, onAgentAssigned, inboxL
       )}
     </div>
   );
-};
+});
