@@ -571,14 +571,19 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     // 9. Greeting check — only on the first outbound interaction in this conversation.
     const shouldGreet = !hasInteracted && !!agent.greeting_message
 
-    // Personalize greeting: if we know the lead's name, use it
-    const leadName = leadProfile?.full_name || contact?.name || null
+    // Personalize greeting: prefer contact.name (WhatsApp pushname) over lead_profile (may be stale/duplicated)
+    const leadName = contact?.name || leadProfile?.full_name || null
     const isReturningLead = !!leadProfile && !!leadName
     let greetingText = agent.greeting_message || ''
 
     if (isReturningLead && leadName) {
-      // Returning lead with known name — personalize greeting
-      greetingText = `Olá, ${leadName}! 😊 Que bom te ver de novo! Como posso te ajudar hoje?`
+      // Returning lead with known name — personalize by prepending name to configured greeting
+      // "Olá! Bem-vindo..." → "Olá, George! Bem-vindo..."
+      greetingText = greetingText.replace(/^Olá!?\s*/i, `Olá, ${leadName}! `)
+      // If greeting didn't start with "Olá", just prepend the name
+      if (!greetingText.includes(leadName)) {
+        greetingText = `Olá, ${leadName}! ${greetingText}`
+      }
     }
 
     // If first interaction, send greeting and STOP — wait for lead to respond
@@ -686,13 +691,15 @@ Regras gerais:
 - Use emojis com moderação (1-2 por mensagem)
 - Nunca invente informações sobre produtos, preços ou disponibilidade
 - Se NÃO há dados conhecidos do lead abaixo, trate como PRIMEIRA interação — NÃO diga "que bom te ver de novo" ou similares
+- NUNCA repita o nome do cliente em toda mensagem. Use o nome NO MÁXIMO 1 vez a cada 3-4 mensagens. Seja natural e humano.
+- Quando o lead perguntar por algo FORA do escopo da loja (ex: pneu, comida, roupa), responda educadamente que não trabalha com esse tipo de produto e ofereça ajuda com produtos do catálogo
 ${agent.blocked_topics?.length ? `\nTópicos PROIBIDOS (não fale sobre): ${agent.blocked_topics.join(', ')}` : ''}
 ${agent.blocked_phrases?.length ? `\nFrases PROIBIDAS (nunca use): ${agent.blocked_phrases.join(', ')}` : ''}
 
 Fluxo de Qualificação do Lead (SDR):
 1. SAUDAÇÃO: Na primeira mensagem, cumprimente e pergunte o nome
 2. QUALIFICAR (UMA pergunta por vez):
-   - Colete nome do lead → update_lead_profile(full_name) — salve APENAS o nome informado, nunca duplique
+   - Colete nome do lead → update_lead_profile(full_name) — salve EXATAMENTE o que o lead informou. Se ele disse "George", salve "George" (não "George George"). NUNCA duplique nomes.
    - Identifique o motivo REAL do contato → set_tags motivo:X (valores: compra, troca, orcamento, duvida, suporte, financeiro, emprego, fornecedor, informacao)
    - Identifique o produto/serviço de interesse → set_tags interesse:X
    - Colete cidade/bairro se relevante → update_lead_profile(city)
@@ -742,15 +749,18 @@ REGRA CRÍTICA: Para menções ESPECÍFICAS (marca + produto), SEMPRE faça sear
 REGRA CRÍTICA: Se search_products retornou 0 resultados, faça handoff_to_human IMEDIATAMENTE sem comentar.
 REGRA CRÍTICA: Quando search_products retorna produto com fotos, o carrossel é enviado automaticamente — NÃO chame send_carousel novamente.
 
-REGRA OBRIGATÓRIA DE TAGS: TODA resposta DEVE incluir pelo menos uma chamada set_tags. Se o lead disse algo, SEMPRE classifique com set_tags ANTES de responder.
+REGRA OBRIGATÓRIA DE TAGS: Use set_tags para classificar o motivo e interesse do lead.
 - Na PRIMEIRA mensagem: set_tags motivo:saudacao (ou motivo:compra se já pediu produto)
-- A CADA mensagem seguinte: atualize o motivo e interesse baseado no que o lead falou
-REGRA CRÍTICA DE TAGS: SEMPRE use set_tags A CADA mensagem do lead para atualizar motivo e interesse.
-- "vocês tem X?", "tem X?", "quero X", "procuro X", "preciso de X" → motivo:compra, interesse:X
-- "quanto custa X?", "qual o preço?", "me passa o valor" → motivo:compra, interesse:X
+- Quando o lead demonstrar interesse em produto específico: set_tags motivo:compra, interesse:NOME_DO_PRODUTO
+- NÃO crie tag para cada palavra que o lead disser. Tags devem ser CATEGORIZAÇÕES, não transcrições.
+- VALORES VÁLIDOS para motivo: saudacao, compra, troca, orcamento, duvida_tecnica, suporte, financeiro, informacao
+- VALORES VÁLIDOS para interesse: use APENAS nomes de CATEGORIAS de produtos (ex: silicone, piso, tinta, argamassa) — NUNCA palavras aleatórias
+- Se o lead perguntar por algo FORA do catálogo (pneu, comida, etc): set_tags motivo:fora_escopo — NÃO crie tag com o nome do produto que não existe
+- "vocês tem X?", "tem X?", "quero X" → motivo:compra, interesse:X (se X for produto do catálogo)
+- "quanto custa X?", "qual o preço?" → motivo:compra, interesse:X
 - "preciso trocar Y", "quero devolver" → motivo:troca, interesse:Y
-- "quero um orçamento", "me faz um orçamento" → motivo:orcamento
-- "como aplica?", "qual a diferença entre?", "serve para?" → motivo:duvida_tecnica
+- "quero um orçamento" → motivo:orcamento
+- "como aplica?", "qual a diferença?" → motivo:duvida_tecnica
 - Perguntar se a loja TEM um produto é COMPRA, não dúvida
 - Tags com mesma chave são substituídas automaticamente (motivo:saudacao → motivo:compra)
 
