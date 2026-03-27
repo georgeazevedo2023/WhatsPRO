@@ -7,9 +7,29 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { BookOpen, Plus, Pencil, Trash2, HelpCircle, FileText, Loader2, Upload, ExternalLink } from 'lucide-react';
+import { BookOpen, Plus, Pencil, Trash2, HelpCircle, FileText, Loader2, Upload, ExternalLink, Lightbulb, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
+
+const FAQ_TEMPLATES = [
+  { title: 'Qual o horário de funcionamento?', content: 'Funcionamos de segunda a sexta das 8h às 18h, e sábados das 8h às 12h.' },
+  { title: 'Qual o endereço da loja?', content: 'Estamos na Rua Exemplo 123, Centro. Próximo ao ponto de referência.' },
+  { title: 'Vocês fazem entrega?', content: 'Sim! Fazemos entrega na cidade e região metropolitana. Consulte prazos e valores com nosso consultor.' },
+  { title: 'Quais formas de pagamento?', content: 'Aceitamos PIX, cartão de crédito/débito (até 12x), boleto e dinheiro.' },
+  { title: 'Tem estacionamento?', content: 'Sim, temos estacionamento gratuito para clientes.' },
+  { title: 'Vocês fazem orçamento?', content: 'Sim! Envie a lista de materiais ou descreva sua obra que fazemos um orçamento sem compromisso.' },
+  { title: 'Qual o prazo de entrega?', content: 'O prazo varia de 1 a 3 dias úteis para a região metropolitana. Para outras regiões, consulte nosso consultor.' },
+  { title: 'Vocês aceitam troca?', content: 'Sim, aceitamos trocas em até 7 dias após a compra, com produto na embalagem original e nota fiscal.' },
+];
+
+const OBJECTION_TEMPLATES = [
+  { title: 'Está caro / Muito caro / Tá caro', content: 'Entendo sua preocupação com o valor! Temos condições especiais de pagamento, parcelamento em até 12x, e nossos produtos são de qualidade garantida. Posso verificar se há alguma promoção vigente para você?' },
+  { title: 'Achei mais barato na concorrência', content: 'Obrigado por compartilhar! Além do preço, oferecemos garantia, assistência técnica e entrega rápida. Posso pedir para nosso consultor avaliar uma condição especial para você?' },
+  { title: 'Vou pensar / Depois eu vejo', content: 'Claro, sem pressa! Fico à disposição quando decidir. Posso te enviar um orçamento por aqui mesmo para você analisar com calma?' },
+  { title: 'Não sei se é bom / Será que funciona?', content: 'Esse produto é de uma marca reconhecida no mercado e temos ótimos feedbacks dos nossos clientes. Posso te passar mais detalhes técnicos ou conectar com nosso consultor especialista?' },
+  { title: 'Demora muito para entregar', content: 'Entendo que o prazo é importante! Temos opção de retirada na loja para produtos em estoque. Para entrega, o prazo padrão é de 1-3 dias úteis.' },
+  { title: 'Não preciso agora / Só estou pesquisando', content: 'Sem problemas! Fico à disposição quando precisar. Posso salvar seu contato para te avisar quando tivermos promoções nos produtos que te interessam?' },
+];
 
 interface KnowledgeItem {
   id: string; type: string; title: string; content: string; media_url: string | null; metadata: Record<string, any> | null; position: number; created_at: string;
@@ -44,6 +64,7 @@ export function KnowledgeConfig({ agentId }: KnowledgeConfigProps) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState('');
+  const [showTemplates, setShowTemplates] = useState<'faq' | 'objection' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchItems = async () => {
@@ -60,6 +81,29 @@ export function KnowledgeConfig({ agentId }: KnowledgeConfigProps) {
     setForm({ type, title: '', content: '', media_url: '' });
     setUploadedFileName('');
     setDialogOpen(true);
+  };
+  const useTemplate = (template: { title: string; content: string }) => {
+    setEditing(null);
+    setForm({ type: 'faq', title: template.title, content: template.content, media_url: '' });
+    setUploadedFileName('');
+    setShowTemplates(null);
+    setDialogOpen(true);
+  };
+  const addAllTemplates = async (templates: { title: string; content: string }[]) => {
+    const existingTitles = new Set(items.map(i => i.title.toLowerCase()));
+    const newTemplates = templates.filter(t => !existingTitles.has(t.title.toLowerCase()));
+    if (newTemplates.length === 0) { toast.info('Todos os templates já estão cadastrados'); return; }
+    setSaving(true);
+    try {
+      const rows = newTemplates.map((t, i) => ({
+        agent_id: agentId, type: 'faq', title: t.title, content: t.content, position: items.length + i,
+      }));
+      await supabase.from('ai_agent_knowledge' as any).insert(rows);
+      toast.success(`${newTemplates.length} template${newTemplates.length > 1 ? 's' : ''} adicionado${newTemplates.length > 1 ? 's' : ''}`);
+      setShowTemplates(null);
+      fetchItems();
+    } catch (err) { handleError(err, 'Erro ao adicionar templates'); }
+    finally { setSaving(false); }
   };
   const openEdit = (item: KnowledgeItem) => {
     setEditing(item);
@@ -137,15 +181,63 @@ export function KnowledgeConfig({ agentId }: KnowledgeConfigProps) {
             Perguntas Frequentes
             <Badge variant="outline" className="text-[10px]">{faqs.length}</Badge>
           </h3>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openNew('faq')}>
-            <Plus className="w-3.5 h-3.5" /> Nova FAQ
-          </Button>
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowTemplates(showTemplates === 'faq' ? null : 'faq')}>
+              <Lightbulb className="w-3.5 h-3.5" /> Sugestões
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowTemplates(showTemplates === 'objection' ? null : 'objection')}>
+              <ShieldAlert className="w-3.5 h-3.5" /> Objeções
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openNew('faq')}>
+              <Plus className="w-3.5 h-3.5" /> Nova FAQ
+            </Button>
+          </div>
         </div>
-        {faqs.length === 0 ? (
+
+        {/* Template suggestions */}
+        {showTemplates && (
+          <Card className="bg-primary/5 border-primary/20 mb-3">
+            <CardContent className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-primary">
+                  {showTemplates === 'faq' ? '💡 Templates de Perguntas Frequentes' : '🛡️ Templates de Objeções e Respostas'}
+                </p>
+                <Button size="sm" variant="ghost" className="h-6 text-[10px] gap-1 text-primary" disabled={saving}
+                  onClick={() => addAllTemplates(showTemplates === 'faq' ? FAQ_TEMPLATES : OBJECTION_TEMPLATES)}>
+                  {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                  Adicionar todos
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {(showTemplates === 'faq' ? FAQ_TEMPLATES : OBJECTION_TEMPLATES).map((t, i) => {
+                  const exists = items.some(item => item.title.toLowerCase() === t.title.toLowerCase());
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => !exists && useTemplate(t)}
+                      disabled={exists}
+                      className={`text-left px-2.5 py-2 rounded-lg border text-xs transition-all ${
+                        exists
+                          ? 'opacity-40 cursor-not-allowed bg-muted/30 border-border/30'
+                          : 'hover:bg-primary/10 border-border/50 hover:border-primary/30'
+                      }`}
+                    >
+                      <p className="font-medium truncate">{t.title}</p>
+                      <p className="text-muted-foreground line-clamp-1 mt-0.5">{t.content}</p>
+                      {exists && <Badge variant="outline" className="text-[9px] mt-1">Já cadastrado</Badge>}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {faqs.length === 0 && !showTemplates ? (
           <div className="text-center py-8 text-muted-foreground">
             <HelpCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
             <p className="text-sm">Nenhuma FAQ cadastrada</p>
-            <p className="text-xs mt-1">Cadastre perguntas frequentes para o agente responder</p>
+            <p className="text-xs mt-1">Use as <strong>Sugestões</strong> ou <strong>Objeções</strong> acima para começar rapidamente</p>
           </div>
         ) : (
           <div className="space-y-2">
