@@ -571,20 +571,10 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     // 9. Greeting check — only on the first outbound interaction in this conversation.
     const shouldGreet = !hasInteracted && !!agent.greeting_message
 
-    // Personalize greeting: prefer contact.name (WhatsApp pushname) over lead_profile (may be stale/duplicated)
     const leadName = contact?.name || leadProfile?.full_name || null
     const isReturningLead = !!leadProfile && !!leadName
-    let greetingText = agent.greeting_message || ''
-
-    if (isReturningLead && leadName) {
-      // Returning lead with known name — personalize by prepending name to configured greeting
-      // "Olá! Bem-vindo..." → "Olá, George! Bem-vindo..."
-      greetingText = greetingText.replace(/^Olá!?\s*/i, `Olá, ${leadName}! `)
-      // If greeting didn't start with "Olá", just prepend the name
-      if (!greetingText.includes(leadName)) {
-        greetingText = `Olá, ${leadName}! ${greetingText}`
-      }
-    }
+    // Greeting is sent EXACTLY as configured — no personalization (it may ask for the name)
+    const greetingText = agent.greeting_message || ''
 
     // If first interaction, send greeting and STOP — wait for lead to respond
     if (shouldGreet) {
