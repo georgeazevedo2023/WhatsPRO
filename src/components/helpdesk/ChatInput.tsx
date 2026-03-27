@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { Send, StickyNote, Mic, X, Paperclip, Loader2, Plus, ImageIcon, Smile, Tags, CircleDot, Check, Reply } from 'lucide-react';
 import { EmojiPickerContent } from '@/components/ui/emoji-picker';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { STATUS_OPTIONS } from '@/lib/constants';
+import { STATUS_IA } from '@/constants/statusIa';
 import { nowBRISO } from '@/lib/dateUtils';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { useSendFile } from '@/hooks/useSendFile';
@@ -81,7 +82,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
             agent_name: profile?.full_name || user.email,
             agent_id: user.id,
             pausar_agente: 'sim',
-            status_ia: 'desligada',
+            status_ia: STATUS_IA.DESLIGADA,
             message_type: messageData.message_type,
             message: messageData.content,
             media_url: messageData.media_url,
@@ -124,9 +125,55 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
     }, 300);
     return () => clearTimeout(timer);
   }, [text, draftKey]);
+
+  // Typing indicator: broadcast when text changes (throttled 3s)
+  const lastTypingRef = useRef(0);
+  useEffect(() => {
+    if (!text.trim() || !user) return;
+    const now = Date.now();
+    if (now - lastTypingRef.current < 3000) return;
+    lastTypingRef.current = now;
+    import('@/lib/helpdeskBroadcast').then(({ broadcastTyping }) =>
+      broadcastTyping(conversation.id, user.id, user.user_metadata?.full_name || 'Agente')
+    );
+  }, [text, conversation.id, user]);
   const [showLabels, setShowLabels] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [togglingLabel, setTogglingLabel] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateFilter, setTemplateFilter] = useState('');
+  const [selectedTemplateIdx, setSelectedTemplateIdx] = useState(0);
+
+  // Load templates once
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('message_templates').select('id, name, content').eq('user_id', user.id).eq('message_type', 'text').order('name').then(({ data }) => {
+      if (data) setTemplates(data.filter(t => t.content));
+    });
+  }, [user]);
+
+  // Show template dropdown when text starts with "/"
+  useEffect(() => {
+    if (text.startsWith('/') && templates.length > 0) {
+      const filter = text.slice(1).toLowerCase();
+      setTemplateFilter(filter);
+      setShowTemplates(true);
+      setSelectedTemplateIdx(0);
+    } else {
+      setShowTemplates(false);
+    }
+  }, [text, templates.length]);
+
+  const filteredTemplates = templates.filter(t =>
+    t.name.toLowerCase().includes(templateFilter) || t.content?.toLowerCase().includes(templateFilter)
+  ).slice(0, 8);
+
+  const selectTemplate = (template: { name: string; content: string }) => {
+    setText(template.content);
+    setShowTemplates(false);
+    setIsDraft(false);
+  };
 
   const statusOptions = STATUS_OPTIONS;
 
@@ -199,7 +246,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
 
       await supabase
         .from('conversations')
-        .update({ last_message_at: new Date().toISOString(), last_message: '🎵 Áudio', status_ia: 'desligada' })
+        .update({ last_message_at: new Date().toISOString(), last_message: '🎵 Áudio', status_ia: STATUS_IA.DESLIGADA })
         .eq('id', conversation.id);
 
       await supabase.channel('helpdesk-realtime').send({
@@ -213,7 +260,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
           content: null,
           media_url: audioPublicUrl,
           created_at: insertedMsg.created_at,
-          status_ia: 'desligada',
+          status_ia: STATUS_IA.DESLIGADA,
         },
       });
       await supabase.channel('helpdesk-conversations').send({
@@ -302,7 +349,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
 
         await supabase
           .from('conversations')
-          .update({ last_message_at: new Date().toISOString(), last_message: finalContent, status_ia: 'desligada' })
+          .update({ last_message_at: new Date().toISOString(), last_message: finalContent, status_ia: STATUS_IA.DESLIGADA })
           .eq('id', conversation.id);
 
         const { broadcastNewMessage } = await import('@/lib/helpdeskBroadcast');
@@ -314,7 +361,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
           content: finalContent,
           media_type: 'text',
           created_at: insertedMsg.created_at,
-          status_ia: 'desligada',
+          status_ia: STATUS_IA.DESLIGADA,
         });
       }
 
@@ -334,6 +381,17 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Template navigation
+    if (showTemplates) {
+      if (filteredTemplates.length > 0) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedTemplateIdx(i => Math.min(i + 1, filteredTemplates.length - 1)); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedTemplateIdx(i => Math.max(i - 1, 0)); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); selectTemplate(filteredTemplates[selectedTemplateIdx]); return; }
+      }
+      if (e.key === 'Escape') { e.preventDefault(); setShowTemplates(false); setText(''); return; }
+      // Block Enter when template mode active but no matches (prevents sending "/xyz")
+      if (e.key === 'Enter') { e.preventDefault(); setShowTemplates(false); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -530,6 +588,26 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
           <div className="flex-1 relative">
             {isDraft && (
               <span className="absolute -top-4 left-1 text-[10px] text-muted-foreground italic">Rascunho restaurado</span>
+            )}
+            {/* Quick reply templates dropdown */}
+            {showTemplates && filteredTemplates.length > 0 && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-popover border border-border rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+                <div className="px-2 py-1 text-[10px] text-muted-foreground border-b border-border/50">
+                  Respostas rápidas — ↑↓ navegar · Enter selecionar · Esc fechar
+                </div>
+                {filteredTemplates.map((t, idx) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${idx === selectedTemplateIdx ? 'bg-accent' : ''}`}
+                    onClick={() => selectTemplate(t)}
+                    onMouseEnter={() => setSelectedTemplateIdx(idx)}
+                  >
+                    <span className="font-medium text-primary">/{t.name}</span>
+                    <span className="ml-2 text-muted-foreground truncate">{t.content?.substring(0, 60)}</span>
+                  </button>
+                ))}
+              </div>
             )}
             <Textarea
               value={text}

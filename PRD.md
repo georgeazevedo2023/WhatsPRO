@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 4.2.0 | **Última atualização**: 2026-03-27 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A+B Fixes + 26 Edge Functions + 44 Tabelas
+> **Versão**: 4.6.0 | **Última atualização**: 2026-03-27 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 26 Edge Functions + 44 Tabelas
 
 ## Visão Geral
 
@@ -32,6 +32,89 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v4.6.0 (2026-03-27) — Sprint E Completo: Agent Performance + Bulk Actions
+
+**E5: Agent Performance Dashboard**
+- AgentPerformanceCard: ranking por conversas, taxa de resolução, tempo médio, msgs enviadas
+- Adicionado ao DashboardHome com LazySection
+- Métricas: weighted resolution rate, per-agent response time, ranked agent list
+- Resolução de nomes via useUserProfiles hook
+
+**E6: Ações em Massa no Helpdesk**
+- Seleção múltipla de conversas via checkboxes
+- Bulk action bar: Marcar lidas, Resolver, Arquivar
+- Toggle select all com verificação de IDs (não apenas count)
+- Selection cleared automaticamente ao trocar inbox ou status filter
+- Guard contra double-click (bulkProcessing state)
+- ConversationRow mostra checkbox em bulk mode, click alterna seleção
+
+**Bug fixes pós-auditoria:**
+- Selection cleared on inbox change (previne cross-inbox corruption)
+- Selection cleared on status filter change
+- toggleSelectAll: verifica IDs reais, não apenas count
+- Weighted resolution rate (não mais média simples)
+- Double-click guard no handleBulkAction
+
+### v4.5.0 (2026-03-27) — Sprint E: New Features
+
+**E2: Typing Indicator**
+- Broadcast "agent-typing" event via Realtime (fire-and-forget, throttle 3s)
+- ChatPanel ouve e exibe "X está digitando..." com auto-clear 4s
+- Self-typing exclusion: agente não vê seu próprio indicador
+- Reset automático ao trocar de conversa
+
+**E3: Quick Reply Templates (/)**
+- Digitar "/" no ChatInput mostra dropdown de templates filtráveis
+- Navegação: ↑↓ + Enter/Tab para selecionar, Esc para fechar
+- Carrega message_templates (tipo text) do usuário logado
+- Bloqueia envio de "/xyz" quando dropdown ativo sem matches
+
+**Bug fixes pós-auditoria:**
+- Self-typing exclusion (getSessionUserId check no listener)
+- typingAgent reset ao trocar conversa (previne indicador stale)
+- Enter com template sem match não envia mensagem literal
+
+### v4.4.0 (2026-03-27) — Sprint D: UX Polish
+
+**D1: Timezone-aware date dividers**
+- ChatPanel getDateLabel() usa toZonedTime(BRAZIL_TZ) para comparações de data
+- "Hoje"/"Ontem" calculados no timezone correto (América/São_Paulo)
+- Datas formatadas via formatBR() com locale pt-BR
+
+**D3: loadMore debounce**
+- useRef cooldown de 500ms previne double-click no "Carregar mais"
+- Complementa o guard de loadingMore state (que é assíncrono)
+
+**Bug fix: Labels/Notes overwrite on loadMore**
+- fetchConversationLabels e fetchConversationNotes agora fazem merge (spread) em vez de replace
+- Corrige perda de labels/notas de conversas anteriores ao carregar próxima página
+
+**D2/D4: Já implementados** (drafts via localStorage, broadcast error toasts já completos)
+
+### v4.3.0 (2026-03-27) — Sprint C: Data Integrity
+
+**C1: Phone Validation**
+- Webhook valida `contactPhone.length >= 10` antes de upsert em lead_database_entries
+- Previne inserção de telefones vazios ou inválidos no banco de leads
+
+**C2: Instance Validation**
+- ai-agent valida `agent.instance_id === instance_id` antes de processar
+- Previne invocação cross-instance (agente de instância A processando mensagem de instância B)
+
+**C3: Optimistic Update Rollback**
+- handleUpdateConversation salva versão anterior por conversa (não array inteiro)
+- Em caso de erro no DB, faz rollback targeted + exibe toast de erro
+- Race-safe: não sobrescreve alterações feitas em outras conversas
+
+**C4: Sale Value Validation**
+- MAX_SALE_VALUE = R$ 999.999,99 enforced em formatCurrency + parseCurrency
+- Double-check com Number.isFinite + > 0 no handleSubmit antes de DB write
+
+**C5: Constants Extraction (status_ia)**
+- Criado `_shared/constants.ts` (Edge Functions) e `src/constants/statusIa.ts` (frontend)
+- STATUS_IA.LIGADA / DESLIGADA / SHADOW substituem todas as magic strings
+- 14 arquivos atualizados: ai-agent, activate-ia, transcribe-audio, process-follow-ups, aiRuntime, ChatPanel, ChatInput, useSendFile, HelpdeskMetricsCharts, LeadDetail
 
 ### v4.2.0 (2026-03-27) — OpenAI + Sprint A+B Fixes + Auditoria Completa
 

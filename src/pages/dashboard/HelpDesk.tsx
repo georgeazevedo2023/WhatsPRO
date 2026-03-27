@@ -36,6 +36,24 @@ const HelpDesk = () => {
   const [syncing, setSyncing] = useState(false);
   const [manageLabelsOpen, setManageLabelsOpen] = useState(false);
 
+  // Bulk selection (state only — handlers defined after statusFilter/setConversations)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+  const toggleSelectAll = useCallback((ids: string[]) => {
+    setSelectedIds(prev => {
+      const allSelected = ids.length > 0 && ids.every(id => prev.has(id));
+      return allSelected ? new Set() : new Set(ids);
+    });
+  }, []);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
   // Inbox state
   const {
     inboxes, selectedInboxId, setSelectedInboxId,
@@ -94,6 +112,41 @@ const HelpDesk = () => {
     userId: user?.id,
   });
 
+  // Bulk action handler (needs statusFilter + setConversations from above)
+  const handleBulkAction = useCallback(async (action: 'read' | 'resolve' | 'archive' | 'assign', value?: string) => {
+    if (selectedIds.size === 0 || bulkProcessing) return;
+    setBulkProcessing(true);
+    const ids = Array.from(selectedIds);
+    try {
+      let updates: Record<string, unknown> = {};
+      if (action === 'read') updates = { is_read: true };
+      else if (action === 'resolve') updates = { status: 'resolvida' };
+      else if (action === 'archive') updates = { archived: true };
+      else if (action === 'assign' && value) updates = { assigned_to: value };
+
+      const { error } = await supabase.from('conversations').update(updates).in('id', ids);
+      if (error) throw error;
+
+      setConversations(prev => {
+        if (action === 'resolve' && statusFilter !== 'todas' && statusFilter !== 'resolvida') {
+          return prev.filter(c => !selectedIds.has(c.id));
+        }
+        if (action === 'archive') {
+          return prev.filter(c => !selectedIds.has(c.id));
+        }
+        return prev.map(c => selectedIds.has(c.id) ? { ...c, ...updates } as typeof c : c);
+      });
+
+      clearSelection();
+      toast({ title: `${ids.length} conversa${ids.length > 1 ? 's' : ''} atualizada${ids.length > 1 ? 's' : ''}` });
+    } catch (err) {
+      console.error('Bulk action error:', err);
+      toast({ title: 'Erro na ação em massa', variant: 'destructive' });
+    } finally {
+      setBulkProcessing(false);
+    }
+  }, [selectedIds, statusFilter, bulkProcessing, setConversations, clearSelection]);
+
   // Handlers
   const handleSync = async () => {
     if (!selectedInboxId || syncing) return;
@@ -135,22 +188,40 @@ const HelpDesk = () => {
   }, [isMobile, setSelectedConversation, setConversations]);
 
   const handleUpdateConversation = useCallback(async (id: string, updates: Partial<Omit<Conversation, 'ai_summary'>>) => {
-    const { error } = await supabase.from('conversations').update(updates).eq('id', id);
-    if (error) {
-      console.error('[HelpDesk] Error updating conversation:', error);
-      return;
-    }
+    // Capture the previous version of THIS conversation for targeted rollback
+    const prevVersion = conversations.find(c => c.id === id);
+    const wasSelected = selectedConversation?.id === id;
+    const prevSelectedSnapshot = wasSelected ? { ...selectedConversation } : null;
 
-    // Update local state immediately
+    // Apply optimistic update immediately
     setConversations(prev => {
-      // If status changed and filter is active, remove from list
       if (updates.status && statusFilter !== 'todas' && updates.status !== statusFilter) {
         return prev.filter(c => c.id !== id);
       }
       return prev.map(c => c.id === id ? { ...c, ...updates } : c);
     });
-    if (selectedConversation?.id === id) {
+    if (wasSelected) {
       setSelectedConversation(prev => prev ? { ...prev, ...updates } : null);
+    }
+
+    // Persist to DB
+    const { error } = await supabase.from('conversations').update(updates).eq('id', id);
+    if (error) {
+      console.error('[HelpDesk] Error updating conversation:', error);
+      // Targeted rollback — restore only this conversation, preserving other changes
+      if (prevVersion) {
+        setConversations(prev => {
+          const exists = prev.some(c => c.id === id);
+          return exists
+            ? prev.map(c => c.id === id ? prevVersion : c)
+            : [...prev, prevVersion]; // Re-add if it was filtered out
+        });
+      }
+      if (wasSelected && prevSelectedSnapshot) {
+        setSelectedConversation(prevSelectedSnapshot as Conversation | null);
+      }
+      toast({ title: 'Erro ao atualizar conversa', description: error.message, variant: 'destructive' });
+      return;
     }
 
     // Broadcast status change for other tabs/agents
@@ -159,7 +230,7 @@ const HelpDesk = () => {
         broadcastStatusChanged(id, updates.status as string)
       );
     }
-  }, [statusFilter, selectedConversation?.id, setConversations, setSelectedConversation]);
+  }, [statusFilter, selectedConversation, conversations, setConversations, setSelectedConversation]);
 
   const handleLabelsChanged = useCallback(() => {
     fetchLabels();
@@ -179,6 +250,7 @@ const HelpDesk = () => {
   const handleInboxChange = useCallback((val: string) => {
     setSelectedConversation(null);
     setLabelFilter(null);
+    clearSelection();
     if (val.includes('|')) {
       const [inboxId, deptId] = val.split('|');
       setSelectedInboxId(inboxId);
@@ -188,7 +260,7 @@ const HelpDesk = () => {
       setDepartmentFilter(null);
     }
     if (isMobile) setMobileView('list');
-  }, [isMobile, setSelectedConversation, setLabelFilter, setSelectedInboxId, setDepartmentFilter]);
+  }, [isMobile, setSelectedConversation, setLabelFilter, setSelectedInboxId, setDepartmentFilter, clearSelection]);
 
   const inboxSelectValue = departmentFilter
     ? `${selectedInboxId}|${departmentFilter}`
@@ -248,7 +320,7 @@ const HelpDesk = () => {
             return (
               <button
                 key={tab.value}
-                onClick={() => setStatusFilter(tab.value)}
+                onClick={() => { setStatusFilter(tab.value); clearSelection(); }}
                 aria-pressed={active}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200 whitespace-nowrap',
@@ -307,10 +379,16 @@ const HelpDesk = () => {
     sortBy,
     onSortChange: setSortBy,
     messageSearchCount,
+    selectedIds,
+    onToggleSelect: toggleSelect,
+    onToggleSelectAll: toggleSelectAll,
+    onClearSelection: clearSelection,
+    onBulkAction: handleBulkAction,
   }), [sortedConversations, selectedId, searchQuery, loading, inboxLabels,
     conversationLabelsMap, labelFilter, selectedInboxId, agentNamesMap,
     conversationNotesSet, assignmentFilter, priorityFilter, inboxDepartments,
     departmentFilter, hasMoreConversations, loadingMore, sortBy, messageSearchCount,
+    selectedIds, toggleSelect, toggleSelectAll, clearSelection, handleBulkAction,
     handleSelectConversation, handleLabelsChanged, loadMoreConversations, fetchConversationLabels]);
 
   const labelsDialog = selectedInboxId && (

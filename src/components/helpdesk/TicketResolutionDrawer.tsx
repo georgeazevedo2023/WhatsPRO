@@ -54,16 +54,22 @@ const TAG_MAP: Record<Category, string> = {
 /*  Currency mask                              */
 /* ═══════════════════════════════════════════ */
 
+const MAX_SALE_VALUE = 999_999_99; // R$ 999.999,99 in cents
+
 function formatCurrency(value: string): string {
   const digits = value.replace(/\D/g, '');
   if (!digits) return '';
-  const num = parseInt(digits, 10) / 100;
+  const cents = Math.min(parseInt(digits, 10), MAX_SALE_VALUE);
+  const num = cents / 100;
   return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 function parseCurrency(formatted: string): number {
   const digits = formatted.replace(/\D/g, '');
-  return digits ? parseInt(digits, 10) / 100 : 0;
+  if (!digits) return 0;
+  const cents = Math.min(parseInt(digits, 10), MAX_SALE_VALUE);
+  const value = cents / 100;
+  return Number.isFinite(value) ? value : 0;
 }
 
 /* ═══════════════════════════════════════════ */
@@ -115,6 +121,16 @@ export function TicketResolutionDrawer({ conversation, onResolved, trigger }: Ti
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || !category || submitting) return;
+
+    // Double-check saleValue for VENDA before proceeding
+    if (category === 'VENDA') {
+      const saleValue = parseCurrency(valueDisplay);
+      if (!Number.isFinite(saleValue) || saleValue <= 0) {
+        toast.error('Informe um valor de venda válido');
+        return;
+      }
+    }
+
     setSubmitting(true);
 
     try {

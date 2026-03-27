@@ -7,6 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, Cell } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Bot, Clock } from 'lucide-react';
 import { handleError } from '@/lib/errorUtils';
+import { STATUS_IA } from '@/constants/statusIa';
 
 interface IAResponseData {
   inbox_name: string;
@@ -83,7 +84,7 @@ const HelpdeskMetricsCharts = ({ periodDays = 30 }: { periodDays?: number }) => 
         supabase
           .from('conversations')
           .select('id, inbox_id, inboxes(name), conversation_messages(created_at, direction)')
-          .eq('status_ia', 'ligada')
+          .eq('status_ia', STATUS_IA.LIGADA)
           .gte('created_at', sinceISO)
           .limit(500),
         supabase

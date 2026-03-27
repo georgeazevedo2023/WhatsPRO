@@ -9,9 +9,11 @@ import { ChatInput } from './ChatInput';
 import { ConversationStatusSelect } from './ConversationStatusSelect';
 import { ContactAvatar } from './ContactAvatar';
 import { Badge } from '@/components/ui/badge';
-import { nowBRISO, formatBR } from '@/lib/dateUtils';
+import { nowBRISO, formatBR, BRAZIL_TZ } from '@/lib/dateUtils';
+import { toZonedTime } from 'date-fns-tz';
 import { NotesPanel } from './NotesPanel';
 import { TicketResolutionDrawer } from './TicketResolutionDrawer';
+import { STATUS_IA } from '@/constants/statusIa';
 
 import { Button } from '@/components/ui/button';
 import { MessageSquare, ArrowLeft, User, PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose, Bot, StickyNote, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
@@ -36,15 +38,15 @@ interface ChatPanelProps {
 
 // Date divider helper
 const getDateLabel = (dateStr: string) => {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-  const msgDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const zoned = toZonedTime(new Date(dateStr), BRAZIL_TZ);
+  const nowZoned = toZonedTime(new Date(), BRAZIL_TZ);
+  const today = new Date(nowZoned.getFullYear(), nowZoned.getMonth(), nowZoned.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const msgDate = new Date(zoned.getFullYear(), zoned.getMonth(), zoned.getDate());
 
   if (msgDate.getTime() === today.getTime()) return 'Hoje';
   if (msgDate.getTime() === yesterday.getTime()) return 'Ontem';
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: msgDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+  return formatBR(dateStr, zoned.getFullYear() !== nowZoned.getFullYear() ? "dd 'de' MMM yyyy" : "dd 'de' MMM");
 };
 
 const MESSAGES_PAGE_SIZE = 50;
@@ -64,6 +66,8 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const prevMsgCountRef = useRef(0);
+  const [typingAgent, setTypingAgent] = useState<string | null>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const notes = messages.filter(m => m.direction === 'private_note');
   const chatMessages = messages.filter(m => m.direction !== 'private_note');
@@ -77,7 +81,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     setAtivandoIa(false);
     if (!conversation?.id) { setIaAtivada(false); return; }
     supabase.from('conversations').select('status_ia').eq('id', conversation.id).maybeSingle()
-      .then(({ data }) => setIaAtivada(data?.status_ia === 'ligada'));
+      .then(({ data }) => setIaAtivada(data?.status_ia === STATUS_IA.LIGADA));
   }, [conversation?.id]);
 
   const fetchIdRef = useRef(0);
@@ -142,6 +146,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
   // Realtime — listen on the SAME channel the webhook broadcasts to
   useEffect(() => {
+    setTypingAgent(null); // Reset typing indicator on conversation switch
     if (!conversation) return;
     const channel = supabase.channel('helpdesk-realtime')
       .on('broadcast', { event: 'new-message' }, (payload) => {
@@ -163,14 +168,22 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
             })
             .catch(() => {}); // Non-critical — next message will trigger refresh
           if (payload.payload?.status_ia) {
-            setIaAtivada(payload.payload.status_ia === 'ligada');
+            setIaAtivada(payload.payload.status_ia === STATUS_IA.LIGADA);
           }
+        }
+      })
+      .on('broadcast', { event: 'agent-typing' }, (payload) => {
+        const currentUserId = getSessionUserId();
+        if (payload.payload?.conversation_id === conversation.id && payload.payload?.agent_id !== currentUserId) {
+          setTypingAgent(payload.payload.agent_name as string);
+          clearTimeout(typingTimerRef.current);
+          typingTimerRef.current = setTimeout(() => setTypingAgent(null), 4000);
         }
       })
       .subscribe((status) => {
         setChannelStatus(status === 'SUBSCRIBED' ? 'connected' : status === 'CLOSED' ? 'disconnected' : 'connecting');
       });
-    return () => { channel.unsubscribe(); supabase.removeChannel(channel); };
+    return () => { channel.unsubscribe(); supabase.removeChannel(channel); clearTimeout(typingTimerRef.current); };
   }, [conversation?.id]);
 
   // Sound notification
@@ -209,12 +222,12 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   const handleToggleIA = async () => {
     if (!conversation || ativandoIa) return;
     setAtivandoIa(true);
-    const newStatus = iaAtivada ? 'desligada' : 'ligada';
+    const newStatus = iaAtivada ? STATUS_IA.DESLIGADA : STATUS_IA.LIGADA;
     try {
       // Update status_ia directly in database
       await supabase.from('conversations').update({ status_ia: newStatus }).eq('id', conversation.id);
-      setIaAtivada(newStatus === 'ligada');
-      toast.success(newStatus === 'ligada' ? 'IA ativada' : 'IA desativada');
+      setIaAtivada(newStatus === STATUS_IA.LIGADA);
+      toast.success(newStatus === STATUS_IA.LIGADA ? 'IA ativada' : 'IA desativada');
     } catch (err) { handleError(err, 'Erro ao alterar IA', 'Toggle IA'); }
     finally { setAtivandoIa(false); }
   };
@@ -396,6 +409,13 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         )}
         <div ref={bottomRef} />
       </div>
+
+      {/* Typing indicator */}
+      {typingAgent && (
+        <div className="px-4 py-1 text-xs text-muted-foreground animate-pulse">
+          {typingAgent} está digitando...
+        </div>
+      )}
 
       {/* Input */}
       <ChatInput conversation={conversation} onMessageSent={useCallback(() => { fetchMessages(); setIaAtivada(false); }, [fetchMessages])} onAgentAssigned={onAgentAssigned} inboxLabels={inboxLabels} assignedLabelIds={assignedLabelIds} onLabelsChanged={onLabelsChanged} onStatusChange={useCallback((status: string) => onUpdateConversation(conversation.id, { status }), [conversation.id, onUpdateConversation])} replyTo={replyTo} onClearReply={useCallback(() => setReplyTo(null), [])} />

@@ -17,6 +17,7 @@ import { ArrowLeft, MapPin, Settings2, Eye, Trash2, Loader2, Save, Contact2, Ext
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import type { ActionEvent, MediaFile, ExtractionField } from '@/components/leads/types';
+import { STATUS_IA } from '@/constants/statusIa';
 
 const LeadDetail = () => {
   const { contactId } = useParams<{ contactId: string }>();
@@ -272,7 +273,7 @@ const LeadDetail = () => {
       // Clear conversations: tags, ai_summary + reactivate IA (status_ia → ligada)
       const convIds = conversations.map((c: any) => c.id);
       if (convIds.length > 0) {
-        await supabase.from('conversations').update({ tags: [], ai_summary: null, status_ia: 'ligada' }).in('id', convIds);
+        await supabase.from('conversations').update({ tags: [], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
         // Delete ai_agent_logs
         await supabase.from('ai_agent_logs').delete().in('conversation_id', convIds);
       }

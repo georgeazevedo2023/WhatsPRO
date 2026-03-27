@@ -60,3 +60,11 @@ export async function assignAgent(conversationId: string, agentId: string | null
   await supabase.from('conversations').update({ assigned_to: agentId }).eq('id', conversationId);
   await broadcastAssignedAgent(conversationId, agentId);
 }
+
+/** Broadcast typing indicator (fire-and-forget, single channel) */
+export function broadcastTyping(conversationId: string, agentId: string, agentName: string) {
+  supabase.channel('helpdesk-realtime').send({
+    type: 'broadcast', event: 'agent-typing',
+    payload: { conversation_id: conversationId, agent_id: agentId, agent_name: agentName },
+  }).catch(() => {});
+}

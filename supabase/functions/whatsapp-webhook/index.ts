@@ -649,7 +649,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          if (leadDb) {
+          if (leadDb && contactPhone && contactPhone.length >= 10) {
             // Atomic upsert: insert or update name — eliminates check-then-insert race
             const { error: upsertErr } = await supabase
               .from('lead_database_entries')

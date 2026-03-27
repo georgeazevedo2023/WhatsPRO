@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Server, Users, Wifi, WifiOff, MessageSquare, UsersRound, RefreshCw, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import HelpdeskMetricsCharts from '@/components/dashboard/HelpdeskMetricsCharts';
+import AgentPerformanceCard from '@/components/dashboard/AgentPerformanceCard';
 import BusinessHoursChart from '@/components/dashboard/BusinessHoursChart';
 import TopContactReasons from '@/components/dashboard/TopContactReasons';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -401,6 +402,11 @@ const DashboardHome = () => {
       {/* Helpdesk Metrics - Lazy */}
       <LazySection height="300px">
         <HelpdeskMetricsCharts periodDays={filters.period} />
+      </LazySection>
+
+      {/* Agent Performance - Lazy */}
+      <LazySection height="300px">
+        <AgentPerformanceCard periodDays={filters.period} />
       </LazySection>
 
       {/* Recent Instances - Lazy */}

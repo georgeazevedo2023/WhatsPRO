@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { STATUS_IA } from '../_shared/constants.ts'
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -80,7 +81,7 @@ Deno.serve(async (req) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status_ia: "ligada",
+          status_ia: STATUS_IA.LIGADA,
           chatid,
           phone,
           instanceId,

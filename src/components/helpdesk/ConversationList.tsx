@@ -1,8 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo, CSSProperties } from 'react';
 import { List, useListRef } from 'react-window';
-import { Search, Inbox, UserCheck, AlertCircle, Building2, SlidersHorizontal, Tag, X, ArrowUpDown, ChevronDown } from 'lucide-react';
+import { Search, Inbox, UserCheck, AlertCircle, Building2, SlidersHorizontal, Tag, X, ArrowUpDown, ChevronDown, Eye, CheckCircle2, Archive } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { ConversationItem } from './ConversationItem';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -37,6 +39,11 @@ interface ConversationListProps {
   sortBy?: 'recentes' | 'antigas' | 'prioridade' | 'nao-lidas';
   onSortChange?: (v: 'recentes' | 'antigas' | 'prioridade' | 'nao-lidas') => void;
   messageSearchCount?: number;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onToggleSelectAll?: (ids: string[]) => void;
+  onClearSelection?: () => void;
+  onBulkAction?: (action: 'read' | 'resolve' | 'archive' | 'assign', value?: string) => void;
 }
 
 const assignmentOptions: { value: 'todas' | 'minhas' | 'nao-atribuidas'; label: string }[] = [
@@ -63,6 +70,9 @@ interface ConversationRowProps {
   conversationLabelsMap: Record<string, string[]>;
   agentNamesMap: Record<string, string>;
   conversationNotesSet: Set<string>;
+  bulkMode: boolean;
+  selectedIds: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
 function ConversationRow({
@@ -75,19 +85,33 @@ function ConversationRow({
   conversationLabelsMap,
   agentNamesMap,
   conversationNotesSet,
+  bulkMode,
+  selectedIds,
+  onToggleSelect,
 }: { index: number; style: CSSProperties; ariaAttributes: Record<string, unknown> } & ConversationRowProps) {
   const c = conversations[index];
   if (!c) return null;
   return (
-    <div style={style} className="border-b border-border/30" role="listitem" aria-label={`Conversa com ${c.contact?.name || c.contact?.phone || 'Desconhecido'}`}>
-      <ConversationItem
-        conversation={c}
-        isSelected={c.id === selectedId}
-        onClick={() => onSelect(c)}
-        labels={inboxLabels.filter(l => (conversationLabelsMap[c.id] || []).includes(l.id))}
-        agentName={c.assigned_to ? agentNamesMap[c.assigned_to] || null : null}
-        hasNotes={conversationNotesSet.has(c.id)}
-      />
+    <div style={style} className="border-b border-border/30 flex items-stretch" role="listitem" aria-label={`Conversa com ${c.contact?.name || c.contact?.phone || 'Desconhecido'}`}>
+      {bulkMode && (
+        <div className="flex items-center pl-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            checked={selectedIds.has(c.id)}
+            onCheckedChange={() => onToggleSelect?.(c.id)}
+            aria-label={`Selecionar conversa com ${c.contact?.name || 'Desconhecido'}`}
+          />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <ConversationItem
+          conversation={c}
+          isSelected={c.id === selectedId}
+          onClick={() => bulkMode ? onToggleSelect?.(c.id) : onSelect(c)}
+          labels={inboxLabels.filter(l => (conversationLabelsMap[c.id] || []).includes(l.id))}
+          agentName={c.assigned_to ? agentNamesMap[c.assigned_to] || null : null}
+          hasNotes={conversationNotesSet.has(c.id)}
+        />
+      </div>
     </div>
   );
 }
@@ -120,10 +144,16 @@ export const ConversationList = ({
   sortBy = 'recentes',
   onSortChange,
   messageSearchCount = 0,
+  selectedIds = new Set(),
+  onToggleSelect,
+  onToggleSelectAll,
+  onClearSelection,
+  onBulkAction,
 }: ConversationListProps) => {
   const [manageOpen, setManageOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const listRef = useListRef();
+  const bulkMode = selectedIds.size > 0;
 
   const hasActiveFilters =
     assignmentFilter !== 'todas' ||
@@ -161,7 +191,10 @@ export const ConversationList = ({
     conversationLabelsMap,
     agentNamesMap,
     conversationNotesSet,
-  }), [conversations, selectedId, onSelect, inboxLabels, conversationLabelsMap, agentNamesMap, conversationNotesSet]);
+    bulkMode,
+    selectedIds,
+    onToggleSelect,
+  }), [conversations, selectedId, onSelect, inboxLabels, conversationLabelsMap, agentNamesMap, conversationNotesSet, bulkMode, selectedIds, onToggleSelect]);
 
   return (
     <>
@@ -370,8 +403,42 @@ export const ConversationList = ({
 
       <div className="h-px bg-border/30 mx-3" />
 
+      {/* Bulk action bar */}
+      {bulkMode && (
+        <div className="px-3 py-2 bg-primary/5 border-b border-primary/20 flex items-center gap-2 flex-wrap">
+          <Checkbox
+            checked={selectedIds.size === conversations.length && conversations.length > 0}
+            onCheckedChange={() => onToggleSelectAll?.(conversations.map(c => c.id))}
+            aria-label="Selecionar todas"
+          />
+          <span className="text-xs font-medium text-primary">{selectedIds.size} selecionada{selectedIds.size > 1 ? 's' : ''}</span>
+          <div className="flex items-center gap-1 ml-auto">
+            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => onBulkAction?.('read')}>
+              <Eye className="w-3 h-3" />Lidas
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => onBulkAction?.('resolve')}>
+              <CheckCircle2 className="w-3 h-3" />Resolver
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => onBulkAction?.('archive')}>
+              <Archive className="w-3 h-3" />Arquivar
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onClearSelection}>
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Conversation count */}
       <div className="px-3 py-1.5 flex items-center gap-2" aria-live="polite">
+        {!bulkMode && conversations.length > 0 && (
+          <Checkbox
+            checked={false}
+            onCheckedChange={() => onToggleSelect?.(conversations[0]?.id)}
+            className="mr-1 opacity-40 hover:opacity-100"
+            aria-label="Iniciar seleção"
+          />
+        )}
         <span className="text-[11px] text-muted-foreground font-medium">
           {conversations.length}{hasMore ? '+' : ''} {conversations.length === 1 ? 'conversa' : 'conversas'}
           {hasActiveFilters && ' (filtradas)'}

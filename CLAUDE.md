@@ -83,7 +83,8 @@ npx supabase functions deploy <name>  # Deploy edge function
 - AI Agent tools execute during Gemini function calling loop (instance token loaded early)
 - Lead profiles link to contacts via contact_id (1:1), kanban_cards link via contact_id FK
 - Tags on conversations use TEXT[] array with "key:value" format
-- Shadow mode: status_ia='shadow' — AI extracts data without responding (auto after handoff)
+- status_ia constants: use STATUS_IA.LIGADA/DESLIGADA/SHADOW from _shared/constants.ts (edge) or src/constants/statusIa.ts (frontend) — NEVER use magic strings
+- Shadow mode: status_ia=STATUS_IA.SHADOW — AI extracts data without responding (auto after handoff)
 - Greeting: sent directly before Gemini, save-first lock prevents duplicates, TTS when voice active
 - SDR flow: generic terms → qualify first, specific → search immediately
 - Handoff: tool sends 1 message + breaks loop (no duplicate text), implicit detection before send
@@ -94,7 +95,9 @@ npx supabase functions deploy <name>  # Deploy edge function
 - Circuit breaker: geminiBreaker/groqBreaker/mistralBreaker (3 failures → OPEN 30s → HALF_OPEN probe)
 - Rate limit: atomic RPC check_rate_limit() with global limit support (no race condition)
 - Webhook: parallel I/O (media+dedup+contact via Promise.all), profile pic in background
-- Lead upsert: atomic ON CONFLICT + update_lead_count_from_entries RPC (no lost updates)
+- Lead upsert: atomic ON CONFLICT + update_lead_count_from_entries RPC (no lost updates) + phone validation (>= 10 chars)
+- AI Agent instance validation: agent.instance_id must match request instance_id (prevents cross-instance invocation)
+- Optimistic updates: handleUpdateConversation uses targeted rollback per conversation (not full-array replace)
 - Broadcast: 3s AbortController timeout (Realtime API degradation doesn't block webhook)
 - Chat pagination: last 50 messages + "Load older" button + Realtime appends single new msg
 - Archiving: conversations.archived column + archive_old_conversations(90) RPC
@@ -105,3 +108,8 @@ npx supabase functions deploy <name>  # Deploy edge function
 - Playground greeting fix: greeting injected as model message in geminiContents (not system prompt instruction)
 - TicketResolutionDrawer: bottom sheet (vaul) com 4 categorias, move kanban card, aplica tags, atualiza lead_profile
 - Dashboard performance: fetchData() parallelized, fetchGroupsStats() deferred, HelpdeskMetricsCharts .limit(500)
+- Typing indicator: broadcastTyping() fire-and-forget via helpdesk-realtime, throttle 3s, self-exclusion, auto-clear 4s
+- Quick reply templates: "/" prefix in ChatInput triggers dropdown, loads message_templates, keyboard navigation
+- Date dividers: getDateLabel() uses toZonedTime(BRAZIL_TZ) for timezone-correct day boundaries
+- Agent Performance: AgentPerformanceCard on DashboardHome — ranked agents with resolution rate, response time, msgs
+- Bulk actions: Set<string> selectedIds + handleBulkAction (read/resolve/archive) — selection clears on inbox/status change

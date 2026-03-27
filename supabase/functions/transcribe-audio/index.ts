@@ -4,6 +4,7 @@ import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyAuth, verifyCronOrService, unauthorizedResponse } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { checkRateLimit, rateLimitHeaders } from '../_shared/rateLimit.ts'
+import { STATUS_IA } from '../_shared/constants.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -151,7 +152,7 @@ Deno.serve(async (req) => {
           .eq('id', conversationId)
           .single()
 
-        if (conv && conv.status_ia !== 'desligada') {
+        if (conv && conv.status_ia !== STATUS_IA.DESLIGADA) {
           const { data: inbox } = await supabase
             .from('inboxes')
             .select('instance_id')

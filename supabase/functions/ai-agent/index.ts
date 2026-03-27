@@ -3,6 +3,7 @@ import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import { geminiBreaker, groqBreaker, mistralBreaker } from '../_shared/circuitBreaker.ts'
 import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
+import { STATUS_IA } from '../_shared/constants.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -190,6 +191,14 @@ Deno.serve(async (req) => {
       })
     }
 
+    // 1.5 Validate agent belongs to this instance (prevent cross-instance invocation)
+    if (agent.instance_id && agent.instance_id !== instance_id) {
+      console.warn(`[ai-agent] Instance mismatch: agent.instance_id=${agent.instance_id} !== request.instance_id=${instance_id}`)
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'instance_mismatch' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     // 2. Load conversation (with tags)
     const { data: conversation } = await supabase
       .from('conversations')
@@ -204,7 +213,7 @@ Deno.serve(async (req) => {
     }
 
     // Check if IA is fully disabled (manual block — not shadow/handoff)
-    if (conversation.status_ia === 'desligada') {
+    if (conversation.status_ia === STATUS_IA.DESLIGADA) {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'ia_disabled' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -371,8 +380,8 @@ Deno.serve(async (req) => {
 
         // Switch to shadow mode (AI listens, extracts tags/labels, but doesn't respond)
         await supabase.from('conversations').update({
-          status_ia: 'shadow',
-          tags: mergeTags(conversation.tags || [], { ia: 'shadow' }),
+          status_ia: STATUS_IA.SHADOW,
+          tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
         }).eq('id', conversation_id)
 
         // Log + Broadcast
@@ -483,7 +492,7 @@ Deno.serve(async (req) => {
 
     // ── SHADOW MODE ──────────────────────────────────────────────────────
     // AI listens without responding, only extracts info via tools
-    if (conversation.status_ia === 'shadow') {
+    if (conversation.status_ia === STATUS_IA.SHADOW) {
       console.log(`[ai-agent] Shadow mode for conversation ${conversation_id}`)
 
       const shadowPrompt = `Você é um extrator de dados. Analise a mensagem do lead e extraia informações relevantes.
@@ -616,7 +625,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       await supabase.from('conversations').update({
         last_message_at: new Date().toISOString(),
         last_message: greetingText.substring(0, 200),
-        status_ia: 'ligada',
+        status_ia: STATUS_IA.LIGADA,
       }).eq('id', conversation_id)
       broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: greetingText, media_type: greetMediaType })
 
@@ -1221,7 +1230,7 @@ ${subAgentInstruction}`
 
         case 'handoff_to_human': {
           const cooldown = agent.handoff_cooldown_minutes || 30
-          const newStatus = 'desligada' // AI is fully disabled after handoff — human takes over
+          const newStatus = STATUS_IA.DESLIGADA // AI is fully disabled after handoff — human takes over
 
           // Send handoff message directly (don't rely on Gemini generating it)
           const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
@@ -1371,10 +1380,10 @@ ${subAgentInstruction}`
           conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
         })
         await supabase.from('conversations').update({
-          status_ia: 'desligada',
+          status_ia: STATUS_IA.DESLIGADA,
           tags: mergeTags(conversation.tags || [], { ia: 'handoff_auto' }),
         }).eq('id', conversation_id)
-        broadcastEvent({ conversation_id, status_ia: 'desligada' })
+        broadcastEvent({ conversation_id, status_ia: STATUS_IA.DESLIGADA })
         // Skip normal send flow
         return new Response(JSON.stringify({
           ok: true, response: handoffMsg, handoff: true, reason: 'forbidden_phrase_guard',
@@ -1423,8 +1432,8 @@ ${subAgentInstruction}`
     if (textLooksLikeHandoff) {
       console.log('[ai-agent] Implicit handoff detected — switching to shadow before sending text')
       await supabase.from('conversations').update({
-        status_ia: 'shadow',
-        tags: mergeTags(conversation.tags || [], { ia: 'shadow' }),
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
       }).eq('id', conversation_id)
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'implicit_handoff',
@@ -1546,7 +1555,7 @@ ${subAgentInstruction}`
 
     // 18. Update conversation (DON'T reset status_ia if handoff happened — already set above)
     // If handoff_to_human tool was called, it already set status_ia='desligada' — don't overwrite
-    const newStatusIa = hadExplicitHandoff ? 'desligada' : (textLooksLikeHandoff ? 'shadow' : 'ligada')
+    const newStatusIa = hadExplicitHandoff ? STATUS_IA.DESLIGADA : (textLooksLikeHandoff ? STATUS_IA.SHADOW : STATUS_IA.LIGADA)
     await supabase
       .from('conversations')
       .update({ last_message_at: new Date().toISOString(), last_message: responseText.substring(0, 200), status_ia: newStatusIa })

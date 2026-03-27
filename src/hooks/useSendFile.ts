@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { uazapiProxy } from '@/lib/uazapiClient';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
+import { STATUS_IA } from '@/constants/statusIa';
 
 interface SendFileOptions {
   conversationId: string;
@@ -105,7 +106,7 @@ export function useSendFile(): UseSendFileReturn {
           .update({
             last_message_at: new Date().toISOString(),
             last_message: mediaType === 'image' ? '📷 Foto' : '📎 Documento',
-            status_ia: 'desligada',
+            status_ia: STATUS_IA.DESLIGADA,
           })
           .eq('id', conversationId);
 
@@ -120,7 +121,7 @@ export function useSendFile(): UseSendFileReturn {
           media_type: mediaType,
           media_url: filePublicUrl,
           created_at: insertedMsg.created_at,
-          status_ia: 'desligada',
+          status_ia: STATUS_IA.DESLIGADA,
         });
 
         toast.success(isImage ? 'Imagem enviada!' : 'Documento enviado!');

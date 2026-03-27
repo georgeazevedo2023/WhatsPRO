@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Conversation } from '@/types';
@@ -65,7 +65,7 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
       if (!map[cl.conversation_id]) map[cl.conversation_id] = [];
       map[cl.conversation_id].push(cl.label_id);
     });
-    setConversationLabelsMap(map);
+    setConversationLabelsMap(prev => ({ ...prev, ...map }));
   }, []);
 
   const fetchConversationNotes = useCallback(async (convIds: string[]) => {
@@ -81,8 +81,8 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
       .eq('direction', 'private_note')
       .limit(convIds.length); // max 1 per conversation is enough to know it has notes
 
-    const noteSet = new Set<string>((data || []).map((m: { conversation_id: string }) => m.conversation_id));
-    setConversationNotesSet(noteSet);
+    const noteIds = (data || []).map((m: { conversation_id: string }) => m.conversation_id);
+    setConversationNotesSet(prev => new Set([...prev, ...noteIds]));
   }, []);
 
   const fetchConversations = useCallback(async () => {
@@ -109,8 +109,11 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
     }
   }, [user, selectedInboxId, buildQuery, mapConversations, fetchConversationLabels, fetchConversationNotes]);
 
+  const loadMoreCooldownRef = useRef(false);
   const loadMoreConversations = useCallback(async () => {
-    if (!user || !selectedInboxId || loadingMore) return;
+    if (!user || !selectedInboxId || loadingMore || loadMoreCooldownRef.current) return;
+    loadMoreCooldownRef.current = true;
+    setTimeout(() => { loadMoreCooldownRef.current = false; }, 500);
     setLoadingMore(true);
     try {
       const offset = conversations.length;
