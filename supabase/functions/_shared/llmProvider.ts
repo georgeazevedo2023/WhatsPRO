@@ -237,13 +237,13 @@ export function appendToolResults(
     })),
   }]
 
-  // Add tool results
-  for (const r of results) {
-    const tc = assistantToolCalls.find(t => t.name === r.name)
+  // Add tool results — match by index (not name) to handle duplicate tool calls
+  for (let i = 0; i < results.length; i++) {
+    const tc = assistantToolCalls[i]
     updated.push({
       role: 'tool' as const,
-      content: r.result,
-      tool_call_id: tc?.id || r.name,
+      content: results[i].result,
+      tool_call_id: tc?.id || results[i].name,
     })
   }
 

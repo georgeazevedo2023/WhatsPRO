@@ -445,7 +445,7 @@ Deno.serve(async (req) => {
             .maybeSingle()
         : Promise.resolve({ data: null }),
       // 3. Contact lookup
-      supabase.from('contacts').select('id, profile_pic_url').eq('jid', contactJid).maybeSingle(),
+      supabase.from('contacts').select('id, name, profile_pic_url').eq('jid', contactJid).maybeSingle(),
     ])
 
     // Process media result
@@ -506,12 +506,17 @@ Deno.serve(async (req) => {
       const { data: newContact } = await supabase
         .from('contacts')
         .insert({ jid: contactJid, phone: contactPhone, name: contactName, profile_pic_url: resolvedProfilePic })
-        .select('id, profile_pic_url')
+        .select('id, name, profile_pic_url')
         .single()
       contact = newContact
-    } else if (resolvedProfilePic && !contact.profile_pic_url) {
-      // Update profile pic if we now have one and the contact didn't
-      await supabase.from('contacts').update({ profile_pic_url: resolvedProfilePic }).eq('id', contact.id)
+    } else {
+      // Update contact info if changed (pushname, profile pic)
+      const updates: Record<string, string> = {}
+      if (resolvedProfilePic && !contact.profile_pic_url) updates.profile_pic_url = resolvedProfilePic
+      if (contactName && contactName !== contactPhone && contactName !== (contact as any).name) updates.name = contactName
+      if (Object.keys(updates).length > 0) {
+        await supabase.from('contacts').update(updates).eq('id', contact.id)
+      }
     }
 
     if (!contact) {

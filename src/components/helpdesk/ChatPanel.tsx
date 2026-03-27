@@ -140,13 +140,13 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
   useEffect(() => { fetchMessages(); setReplyTo(null); }, [fetchMessages]);
 
-  // Realtime — append new messages instead of full refetch
+  // Realtime — listen on the SAME channel the webhook broadcasts to
   useEffect(() => {
     if (!conversation) return;
-    const channel = supabase.channel(`chat-${conversation.id}`)
+    const channel = supabase.channel('helpdesk-realtime')
       .on('broadcast', { event: 'new-message' }, (payload) => {
         if (payload.payload?.conversation_id === conversation.id) {
-          // Fetch only the latest message instead of full refetch
+          // Fetch latest message and append (not full refetch)
           supabase.from('conversation_messages')
             .select('*')
             .eq('conversation_id', conversation.id)
@@ -160,7 +160,8 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
                   return [...prev, data as Message];
                 });
               }
-            });
+            })
+            .catch(() => {}); // Non-critical — next message will trigger refresh
           if (payload.payload?.status_ia) {
             setIaAtivada(payload.payload.status_ia === 'ligada');
           }

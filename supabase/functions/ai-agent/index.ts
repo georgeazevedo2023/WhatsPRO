@@ -1541,7 +1541,8 @@ ${subAgentInstruction}`
     }
 
     // 18. Update conversation (DON'T reset status_ia if handoff happened — already set above)
-    const newStatusIa = shouldDisableIa ? 'shadow' : 'ligada'
+    // If handoff_to_human tool was called, it already set status_ia='desligada' — don't overwrite
+    const newStatusIa = hadExplicitHandoff ? 'desligada' : (textLooksLikeHandoff ? 'shadow' : 'ligada')
     await supabase
       .from('conversations')
       .update({ last_message_at: new Date().toISOString(), last_message: responseText.substring(0, 200), status_ia: newStatusIa })
