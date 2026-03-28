@@ -408,6 +408,8 @@ const AIAgentPlayground = () => {
   const [selectedScenario, setSelectedScenario] = useState<TestScenario | null>(null);
   const [scenarioRun, setScenarioRun] = useState<ScenarioRun | null>(null);
   const [watchSpeed, setWatchSpeed] = useState<WatchSpeed>(1);
+  const watchSpeedRef = useRef<WatchSpeed>(1);
+  watchSpeedRef.current = watchSpeed;
   const isPausedRef = useRef(false);
   const isStoppedRef = useRef(false);
   const [runHistory, setRunHistory] = useState<ScenarioRun[]>([]);
@@ -535,8 +537,8 @@ const AIAgentPlayground = () => {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const testGuardrail = (topic: string) => { setInput(`O que voce acha sobre ${topic}? Me fala tudo sobre ${topic}`); inputRef.current?.focus(); };
-  void testGuardrail; // Used in overrides panel guardrail tester (manual tab future enhancement)
 
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
@@ -544,7 +546,8 @@ const AIAgentPlayground = () => {
 
   /* ── Scenario execution ── */
   const computeResults = (scenario: TestScenario, msgs: ChatMessage[]): ScenarioRunResults => {
-    const toolsUsed = msgs.filter(m => m.tool_calls?.length).flatMap(m => m.tool_calls!.map(tc => tc.name));
+    // Use only system messages for tool calls to avoid counting duplicates (tools appear in both system and assistant msgs)
+    const toolsUsed = msgs.filter(m => m.role === 'system' && m.tool_calls?.length).flatMap(m => m.tool_calls!.map(tc => tc.name));
     const uniqueTools = [...new Set(toolsUsed)];
     const assistantMsgs = msgs.filter(m => m.role === 'assistant');
     const allContent = assistantMsgs.map(m => m.content.toLowerCase()).join(' ');
@@ -582,12 +585,39 @@ const AIAgentPlayground = () => {
 
       setScenarioRun(prev => prev ? { ...prev, current_step: i, status: isPausedRef.current ? 'paused' : 'running' } : null);
       const step = scenario.steps[i];
-      const delay = (step.delay_ms || 1500) / watchSpeed;
+      const speed = watchSpeedRef.current;
+      const delay = (step.delay_ms || 1500) / speed;
       await new Promise(r => setTimeout(r, delay));
 
       if (isStoppedRef.current) break;
-      await sendToAgent([step.content]);
-      await new Promise(r => setTimeout(r, 800 / watchSpeed));
+
+      // For audio steps, set media_type on the user message
+      if (step.media_type === 'audio') {
+        const audioMsg: ChatMessage = {
+          id: crypto.randomUUID(), role: 'user', content: step.content,
+          timestamp: new Date(), media_type: 'audio',
+        };
+        setMessages(prev => [...prev, audioMsg]);
+        setSending(true);
+        try {
+          const history = [...messagesRef.current].map(m => ({
+            content: m.content, media_type: m.media_type || 'text', media_url: null,
+            direction: m.role === 'user' ? 'incoming' : 'outgoing', timestamp: m.timestamp.toISOString(),
+          }));
+          const result = await edgeFunctionFetch<PlaygroundResponse>('ai-agent-playground', {
+            agent_id: selectedAgentId!, messages: history,
+            overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
+          });
+          if (result.ok && result.response) {
+            if (result.tool_calls?.length) setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'system', content: '', timestamp: new Date(), tool_calls: result.tool_calls }]);
+            setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: result.response, timestamp: new Date(), tokens: result.tokens, latency_ms: result.latency_ms, tool_calls: result.tool_calls }]);
+          }
+        } catch { /* scenario continues */ }
+        finally { setSending(false); }
+      } else {
+        await sendToAgent([step.content]);
+      }
+      await new Promise(r => setTimeout(r, 800 / speed));
     }
 
     const finalMsgs = messagesRef.current;
@@ -615,7 +645,8 @@ const AIAgentPlayground = () => {
 
   /* ── Stats ── */
   const totalTokens = messages.reduce((acc, m) => ({ input: acc.input + (m.tokens?.input || 0), output: acc.output + (m.tokens?.output || 0) }), { input: 0, output: 0 });
-  const totalCost = (totalTokens.input * 0.15 + totalTokens.output * 0.6) / 1_000_000; void totalCost;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const totalCost = (totalTokens.input * 0.15 + totalTokens.output * 0.6) / 1_000_000;
   const avgLatency = (() => { const lats = messages.filter(m => m.latency_ms).map(m => m.latency_ms!); return lats.length ? Math.round(lats.reduce((a, b) => a + b, 0) / lats.length) : 0; })();
 
   /* ── Export ── */
