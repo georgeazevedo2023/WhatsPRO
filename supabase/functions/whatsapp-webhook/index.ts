@@ -30,6 +30,9 @@ async function getMediaLink(messageId: string, instanceToken: string, isAudio: b
       return_base64: false,
       return_link: true,
     }
+    // For audio: request both raw link AND mp3 conversion.
+    // Gemini accepts ogg/opus natively, so we prefer the raw link (faster — no conversion).
+    // mp3Link is kept as fallback for frontend playback compatibility.
     if (isAudio) {
       body.generate_mp3 = true
     }
@@ -50,13 +53,16 @@ async function getMediaLink(messageId: string, instanceToken: string, isAudio: b
     }
 
     const data = await response.json()
-    console.log('UAZAPI /message/download full response:', JSON.stringify(data))
-    // For audio with generate_mp3, prefer mp3Link
-    if (isAudio && data.mp3Link) {
-      return { url: data.mp3Link, mimetype: data.mimetype || data.mimeType }
+    console.log('UAZAPI /message/download response keys:', Object.keys(data).join(','))
+    // For audio: prefer raw link (ogg/opus — faster, no conversion wait).
+    // mp3Link is the converted version — use it only if raw link is missing.
+    const rawUrl = data.link || data.url || data.fileUrl || data.fileURL || null
+    if (isAudio) {
+      const audioUrl = rawUrl || data.mp3Link || null
+      const mimetype = data.mimetype || data.mimeType || (data.mp3Link && !rawUrl ? 'audio/mp3' : 'audio/ogg')
+      return audioUrl ? { url: audioUrl, mimetype } : null
     }
-    const url = data.link || data.url || data.fileUrl || data.fileURL || null
-    return url ? { url, mimetype: data.mimetype || data.mimeType } : null
+    return rawUrl ? { url: rawUrl, mimetype: data.mimetype || data.mimeType } : null
   } catch (err) {
     console.error('Error getting media link:', err)
     return null
@@ -456,9 +462,11 @@ Deno.serve(async (req) => {
     ])
 
     // Process media result
+    let mediaMimetype = ''
     if (mediaResult) {
       mediaUrl = mediaResult.url
-      const mime = mediaResult.mimetype || ''
+      mediaMimetype = mediaResult.mimetype || ''
+      const mime = mediaMimetype
       if (mime.startsWith('video/') && mediaType !== 'video') mediaType = 'video'
       if (mime.startsWith('image/') && mediaType !== 'image') mediaType = 'image'
       if (mediaType === 'document' && !mime.startsWith('video/') && !content) {
@@ -808,22 +816,50 @@ Deno.serve(async (req) => {
 
     console.log(`[${reqId}] Message processed (${Date.now() - startMs}ms) broadcast:${broadcastStatuses.join(',')}`, conversation.id, direction, mediaType)
 
+    // Wrapper to ensure background fetches survive response return in Edge Functions
+    const backgroundFetch = (promise: Promise<any>) => {
+      // @ts-ignore: EdgeRuntime is available in Supabase Edge Functions
+      if (typeof EdgeRuntime !== 'undefined' && typeof EdgeRuntime.waitUntil === 'function') {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(promise)
+      }
+    }
+
     // Trigger async transcription for incoming audio messages
+    // IMPORTANT: await with timeout to ensure the call actually reaches transcribe-audio
+    // (fire-and-forget was being dropped by the Edge Runtime before the fetch could complete)
     if (mediaType === 'audio' && mediaUrl && insertedMsg && direction === 'incoming') {
-      console.log('Triggering audio transcription for message:', insertedMsg.id)
+      console.log('Triggering audio transcription for message:', insertedMsg.id, 'audioUrl:', mediaUrl.substring(0, 80))
+      const INTERNAL_KEY = Deno.env.get('INTERNAL_FUNCTION_KEY')
       const SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-      fetch(`${SUPABASE_URL}/functions/v1/transcribe-audio`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${SVC_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messageId: insertedMsg.id,
-          audioUrl: mediaUrl,
-          conversationId: conversation.id,
-        }),
-      }).catch(err => console.error('Transcription call failed:', err))
+      const AUTH_KEY = INTERNAL_KEY || SVC_KEY
+      
+      console.log(`[webhook] Triggering audio transcription. Auth mode: ${INTERNAL_KEY ? 'internal' : 'service'}`)
+      
+      try {
+        const transcribeResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/transcribe-audio`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${AUTH_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messageId: insertedMsg.id,
+            audioUrl: mediaUrl,
+            mimeType: mediaMimetype || undefined,
+            conversationId: conversation.id,
+          }),
+        }, 90000) // 90s timeout — transcription can take a while
+        
+        if (!transcribeResp.ok) {
+          const errText = await transcribeResp.text()
+          console.error('Transcription call failed with status:', transcribeResp.status, 'body:', errText)
+        } else {
+          console.log('Transcription call successful status:', transcribeResp.status)
+        }
+      } catch (err) {
+        console.error('Transcription call failed:', err)
+      }
     }
 
     // Mark pending follow-ups as "replied" when lead sends a message (fire-and-forget)
@@ -853,7 +889,7 @@ Deno.serve(async (req) => {
 
       if (aiAgent) {
         console.log('AI Agent active, triggering debounce for conversation:', conversation.id)
-        fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
+        backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -870,7 +906,7 @@ Deno.serve(async (req) => {
               direction: 'incoming',
             },
           }),
-        }).catch(err => console.error('AI Agent debounce call failed:', err))
+        }).catch(err => console.error('AI Agent debounce call failed:', err)))
       }
     }
 

@@ -161,14 +161,14 @@ function convertMessagesToGemini(messages: LLMMessage[]): any[] {
 
 async function callGemini(req: LLMRequest): Promise<LLMResponse> {
   const model = 'gemini-2.5-flash'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
 
   const contents = convertMessagesToGemini(req.messages)
   const geminiTools = convertToolsToGemini(req.tools)
 
   const resp = await fetchWithTimeout(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: req.systemPrompt }] },
       contents,

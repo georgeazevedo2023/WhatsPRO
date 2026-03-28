@@ -16,6 +16,9 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 // Reuse client across requests in same isolate
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
+// Local in-memory fallback when RPC is unavailable (fail closed instead of open)
+const localFallbackCache = new Map<string, { count: number; resetAt: number }>()
+
 interface RateLimitResult {
   limited: boolean
   remaining: number
@@ -54,9 +57,15 @@ export async function checkRateLimit(
       .single()
 
     if (error) {
-      // Fail open on RPC unavailable — but log it
-      console.warn('[rateLimit] RPC error (allowing request):', error.message)
-      return { limited: false, remaining: maxRequests, resetAt }
+      // Fail closed with local fallback when RPC unavailable
+      console.warn('[rateLimit] RPC error — using local fallback:', error.message)
+      const cacheKey = `${userId}:${action}`
+      const cached = localFallbackCache.get(cacheKey) || { count: 0, resetAt: Date.now() + windowSeconds * 1000 }
+      if (Date.now() > cached.resetAt) { cached.count = 0; cached.resetAt = Date.now() + windowSeconds * 1000 }
+      cached.count++
+      localFallbackCache.set(cacheKey, cached)
+      const isLimited = cached.count > maxRequests
+      return { limited: isLimited, remaining: Math.max(0, maxRequests - cached.count), resetAt: new Date(cached.resetAt).toISOString() }
     }
 
     const row = data as { is_limited: boolean; remaining: number; used: number; global_used: number }

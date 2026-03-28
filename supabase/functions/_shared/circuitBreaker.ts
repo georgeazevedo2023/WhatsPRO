@@ -104,3 +104,4 @@ export class CircuitBreaker {
 export const geminiBreaker = new CircuitBreaker('gemini', { threshold: 3, resetMs: 30_000 })
 export const groqBreaker = new CircuitBreaker('groq', { threshold: 3, resetMs: 20_000 })
 export const mistralBreaker = new CircuitBreaker('mistral', { threshold: 3, resetMs: 20_000 })
+export const uazapiBreaker = new CircuitBreaker('uazapi', { threshold: 5, resetMs: 60_000 })
