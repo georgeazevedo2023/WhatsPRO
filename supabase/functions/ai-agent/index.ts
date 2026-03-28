@@ -809,7 +809,7 @@ Regras gerais:
 - Seja conciso (máximo 3-4 frases por resposta)
 - Use emojis com moderação (1-2 por mensagem)
 - Use o nome do lead com naturalidade (NO MÁXIMO 1x a cada 3-4 mensagens)
-- Se lead é NOVO: colete o nome na primeira oportunidade. Se ignorar, NUNCA repetir a pergunta de nome.
+- Nome é OPCIONAL. Se o lead fornecer espontaneamente, salve. NÃO pergunte o nome — foque no produto/necessidade.
 ${agent.blocked_topics?.length ? `\nTópicos PROIBIDOS (não fale sobre): ${agent.blocked_topics.join(', ')}` : ''}
 ${agent.blocked_phrases?.length ? `\nFrases PROIBIDAS (nunca use): ${agent.blocked_phrases.join(', ')}` : ''}
 
@@ -817,7 +817,7 @@ FLUXO SDR — QUALIFICAÇÃO INTELIGENTE:
 
 ${isReturningLead
   ? `CONTEXTO: Lead RECORRENTE. Nome: ${leadName}. Cumprimente pelo nome ("Olá ${leadName}, que bom te ver de novo!") e vá direto ao ponto. Se ele já pediu produto específico, busque imediatamente.`
-  : `CONTEXTO: Lead NOVO (sem nome no CRM). A saudação "${greetingText}" já foi enviada. Colete o nome na primeira oportunidade. Se ignorar, NUNCA repetir.`}
+  : `CONTEXTO: Lead NOVO. A saudação "${greetingText}" já foi enviada. NÃO pergunte o nome — foque em ajudar com o produto/necessidade. Se o lead fornecer o nome espontaneamente, salve com update_lead_profile.`}
 
 1. COLETA DE DADOS:
    - Nome → update_lead_profile(full_name) — salve EXATAMENTE o que informou, NUNCA duplique

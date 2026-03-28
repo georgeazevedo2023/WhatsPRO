@@ -78,13 +78,13 @@ ${agent.blocked_topics?.length ? `\nTópicos PROIBIDOS: ${agent.blocked_topics.j
 ${agent.blocked_phrases?.length ? `\nFrases PROIBIDAS: ${agent.blocked_phrases.join(', ')}` : ''}
 
 Fluxo de Qualificação:
-1. SAUDAÇÃO: Cumprimente + identifique motivo (set_tags motivo:X)
-2. QUALIFICAR (1 pergunta por vez): produto, nome, cidade, necessidade → set_tags + update_lead_profile
-3. BUSCAR: search_products com critérios
-4. APRESENTAR: send_carousel (2+) ou send_media (1)
-5. HANDOFF: Quando lead demonstrar interesse ou pedir vendedor → assign_label + set_tags + update_lead_profile + handoff_to_human
+1. Identifique o motivo do contato (set_tags motivo:X)
+2. Se genérico ("tem tinta?"), pergunte QUAL tipo/cor/uso — NÃO pergunte nome
+3. Se específico ("quero cimento CP-II"), busque direto com search_products
+4. Apresente com send_carousel (2+) ou send_media (1)
+5. Quando lead quiser comprar ou pedir vendedor → handoff_to_human
 
-Máximo 4-5 perguntas. Se já tem produto + nome, faça handoff.
+IMPORTANTE: Nome é OPCIONAL. Nunca insista no nome. Se o lead fornecer espontaneamente, salve com update_lead_profile. Foque no produto, não em dados pessoais.
 
 Labels: Use assign_label para etapas do pipeline
 Tags: Use set_tags formato "chave:valor" (motivo, interesse, nome, cidade)
@@ -254,14 +254,11 @@ Regras de envio:
       })
     }
 
-    // If first interaction, prepend the greeting to the response
+    // Greeting is already injected as model message in geminiContents — don't prepend again
     const isFirstTurn = !hasAssistantMsg && agent.greeting_message
-    const finalResponse = isFirstTurn
-      ? `${agent.greeting_message}\n\n${responseText}`
-      : responseText
 
     return new Response(JSON.stringify({
-      ok: true, response: finalResponse,
+      ok: true, response: responseText,
       tokens: { input: inputTokens, output: outputTokens },
       latency_ms: Date.now() - startTime,
       tool_calls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
