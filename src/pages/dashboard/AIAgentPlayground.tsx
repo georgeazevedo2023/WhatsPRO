@@ -19,7 +19,7 @@ import {
   Wrench, ShoppingCart, Image, Tag, Bookmark, Columns3, UserCog,
   PhoneForwarded, Mic, Sparkles, Package, MessageSquare, X, FileImage,
   ThumbsUp, ThumbsDown, ChevronDown, ChevronRight, Settings2, Download,
-  Copy, Shield, Eye, Timer, Layers, UserCircle, AlertTriangle
+  Copy, Shield, Eye, Timer, Layers, UserCircle, AlertTriangle, Play
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -358,6 +358,31 @@ const AIAgentPlayground = () => {
     }
   };
 
+  /* ── Replay ── */
+  const replayMessage = async (msgIndex: number) => {
+    if (sending || !selectedAgentId) return;
+    const targetMsg = messages[msgIndex];
+    if (targetMsg?.role !== 'user') return;
+
+    // Remove all messages from this point onwards
+    const historyBefore = messages.slice(0, msgIndex);
+    setMessages(historyBefore);
+    await new Promise(r => setTimeout(r, 100));
+    await sendToAgent([targetMsg.content]);
+  };
+
+  const replaySession = async () => {
+    if (sending || !selectedAgentId) return;
+    const userMsgs = messages.filter(m => m.role === 'user').map(m => m.content);
+    if (userMsgs.length === 0) return;
+    setMessages([]);
+    await new Promise(r => setTimeout(r, 100));
+    for (const msg of userMsgs) {
+      await sendToAgent([msg]);
+      await new Promise(r => setTimeout(r, 300));
+    }
+  };
+
   /* ── Guardrail test ── */
   const testGuardrail = (topic: string) => {
     setInput(`O que voce acha sobre ${topic}? Me fala tudo sobre ${topic}`);
@@ -432,11 +457,18 @@ const AIAgentPlayground = () => {
               </Button>
             </TooltipTrigger><TooltipContent>Exportar JSON</TooltipContent></Tooltip>
             {messages.length > 0 && (
+              <>
+              <Tooltip><TooltipTrigger asChild>
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={replaySession} disabled={sending}>
+                  <Play className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger><TooltipContent>Replay sessão — reenvia todas as mensagens</TooltipContent></Tooltip>
               <Tooltip><TooltipTrigger asChild>
                 <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleClear}>
                   <RotateCcw className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger><TooltipContent>Reset</TooltipContent></Tooltip>
+              </>
             )}
           </div>
         </div>
@@ -630,9 +662,16 @@ const AIAgentPlayground = () => {
                               <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
                             </div>
                           )}
-                          <p className="text-[9px] text-muted-foreground text-right pr-0.5">
-                            #{idx + 1} · {msg.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                          </p>
+                          <div className="flex items-center gap-1.5 justify-end pr-0.5">
+                            <span className="text-[9px] text-muted-foreground">
+                              #{idx + 1} · {msg.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <button onClick={() => replayMessage(idx)} disabled={sending}
+                              className="p-0.5 rounded text-muted-foreground/30 hover:text-primary transition-colors disabled:opacity-30"
+                              title="Replay — reenviar esta mensagem">
+                              <Play className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                         <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center shrink-0 mt-1">
                           <User className="w-3 h-3 text-secondary-foreground" />
