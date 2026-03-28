@@ -346,6 +346,41 @@ Deno.serve(async (req) => {
         })
       }
     }
+
+    // 4.8 Business hours check — send out-of-hours message and stop
+    if (agent.business_hours?.start && agent.business_hours?.end) {
+      const nowBR = new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })
+      const brDate = new Date(nowBR)
+      const currentMinutes = brDate.getHours() * 60 + brDate.getMinutes()
+      const [sh, sm] = agent.business_hours.start.split(':').map(Number)
+      const [eh, em] = agent.business_hours.end.split(':').map(Number)
+      const startMin = sh * 60 + sm
+      const endMin = eh * 60 + em
+
+      const isOutsideHours = startMin < endMin
+        ? (currentMinutes < startMin || currentMinutes >= endMin)
+        : (currentMinutes < startMin && currentMinutes >= endMin)
+
+      if (isOutsideHours) {
+        console.log(`[ai-agent] Outside business hours (${agent.business_hours.start}-${agent.business_hours.end}, now=${brDate.getHours()}:${String(brDate.getMinutes()).padStart(2, '0')})`)
+        if (agent.out_of_hours_message) {
+          await sendTextMsg(agent.out_of_hours_message)
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'outgoing', content: agent.out_of_hours_message,
+            media_type: 'text', external_id: `ai_oof_${Date.now()}`,
+          })
+          await supabase.from('conversations').update({
+            last_message_at: new Date().toISOString(),
+            last_message: agent.out_of_hours_message.substring(0, 200),
+          }).eq('id', conversation_id)
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.out_of_hours_message, media_type: 'text' })
+        }
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'outside_business_hours' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
     sendPresence('composing')
 
     // 5. Combine queued messages
