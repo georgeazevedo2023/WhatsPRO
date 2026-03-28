@@ -101,6 +101,8 @@ export default function AIAgentTab() {
   useEffect(() => { fetchAgents(); }, []);
 
   useEffect(() => {
+    // Cancel any pending auto-save from the previous agent to prevent cross-write
+    clearTimeout(autoSaveTimerRef.current);
     if (selectedAgentId && agents.length > 0) {
       const agent = agents.find(a => a.id === selectedAgentId);
       if (agent) setConfig({ ...agent });
