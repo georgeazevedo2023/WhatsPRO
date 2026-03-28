@@ -54,6 +54,7 @@ const ALLOWED_FIELDS = [
   'business_hours', 'out_of_hours_message', 'extraction_fields', 'blocked_numbers',
   'extraction_address_enabled', 'handoff_message',
   'follow_up_enabled', 'follow_up_rules', 'business_info',
+  'returning_greeting_message',
 ];
 
 export default function AIAgentTab() {

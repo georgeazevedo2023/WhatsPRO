@@ -420,16 +420,18 @@ Deno.serve(async (req) => {
     // 5.5 Check handoff_triggers — force handoff if lead text matches any trigger
     // Only trigger after agent has replied at least once (skip on first interaction)
     const triggers: string[] = agent.handoff_triggers || []
-    // Check if agent has interacted by looking at ai_agent_logs (deleted on "clear context")
-    // This ensures greeting re-sends after context reset, unlike conversation_messages which persist
+    // Check if agent has interacted — two scopes:
+    // 1. hasInteractedRecently (24h) — for handoff trigger skip on first msg
+    // 2. hasEverInteracted (all time) — for returning lead greeting
     const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-    const { count: logCount } = await supabase
-      .from('ai_agent_logs')
-      .select('*', { count: 'exact', head: true })
-      .eq('conversation_id', conversation_id)
-      .eq('agent_id', agent_id)
-      .gte('created_at', recentCutoff)
-    const hasInteracted = (logCount || 0) >= 1
+    const [{ count: recentLogCount }, { count: totalLogCount }] = await Promise.all([
+      supabase.from('ai_agent_logs').select('*', { count: 'exact', head: true })
+        .eq('conversation_id', conversation_id).eq('agent_id', agent_id).gte('created_at', recentCutoff),
+      supabase.from('ai_agent_logs').select('*', { count: 'exact', head: true })
+        .eq('conversation_id', conversation_id).eq('agent_id', agent_id),
+    ])
+    const hasInteracted = (recentLogCount || 0) >= 1
+    const hasEverInteracted = (totalLogCount || 0) >= 1
 
     if (triggers.length > 0 && hasInteracted) {
       const textLower = incomingText.toLowerCase()
@@ -658,22 +660,21 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     // 9. Greeting check — only on the first outbound interaction in this conversation.
     const shouldGreet = !hasInteracted && !!agent.greeting_message
 
-    // SDR Greeting Logic:
-    // - Returning lead with confirmed name AND recent interaction → skip generic greeting
-    // - New lead (no confirmed name OR context cleared) → send configured greeting (static)
+    // Returning lead: has confirmed name AND has ever interacted (any time, not just 24h)
     const leadName = leadProfile?.full_name || contact?.name || null
-    const isReturningLead = !!leadProfile?.full_name && hasInteracted
+    const isReturningLead = !!leadProfile?.full_name && hasEverInteracted && !hasInteracted
 
     let greetingText = agent.greeting_message || ''
 
+    // Returning lead gets personalized welcome-back message instead of generic greeting
     if (isReturningLead) {
-      // Returning lead: DON'T send the generic greeting — LLM will greet by name naturally
-      // Just mark as interacted and continue to LLM
-      console.log(`[ai-agent] Returning lead "${leadName}" — skipping generic greeting, going to LLM`)
+      const returningTemplate = agent.returning_greeting_message || 'Olá {nome}! Que bom te ver aqui de novo 😊 Em que posso te ajudar hoje?'
+      greetingText = returningTemplate.replace(/\{nome\}/gi, leadProfile!.full_name)
+      console.log(`[ai-agent] Returning lead "${leadName}" — sending welcome-back greeting`)
     }
 
-    // If first interaction AND lead is NEW (no name), send configured greeting and STOP
-    if (shouldGreet && !isReturningLead) {
+    // Send greeting: new lead (static greeting) OR returning lead (personalized welcome-back)
+    if ((shouldGreet && !isReturningLead) || isReturningLead) {
       // Atomic greeting deduplication via advisory lock RPC
       const { data: greetResult } = await supabase
         .rpc('try_insert_greeting', {

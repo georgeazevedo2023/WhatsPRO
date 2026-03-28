@@ -98,17 +98,52 @@ export function GeneralConfig({ config, onChange, instances }: GeneralConfigProp
         </CardContent>
       </Card>
 
+      {/* Mensagem de Acolhimento (Lead Retornando) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-emerald-500" />
+            Mensagem de Acolhimento (Lead Retornando)
+          </CardTitle>
+          <CardDescription>
+            Enviada quando um lead conhecido (que ja forneceu o nome) retorna em uma nova conversa.
+            Use <code className="text-xs bg-muted px-1 rounded">{'{nome}'}</code> para personalizar com o nome do lead.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Mensagem de Acolhimento</Label>
+            <Textarea
+              value={config.returning_greeting_message || ''}
+              onChange={(e) => onChange({ returning_greeting_message: e.target.value })}
+              placeholder="Olá {nome}! Que bom te ver aqui de novo 😊 Em que posso te ajudar hoje?"
+              className="min-h-[60px] resize-none"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Variavel disponivel: <code className="bg-muted px-1 rounded">{'{nome}'}</code> = nome do lead.
+              Deixe vazio para usar o padrao.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Preview */}
-      {config.greeting_message && (
-        <Card className="bg-primary/5 border-primary/20">
-          <CardContent className="pt-5">
-            <p className="text-xs font-semibold text-primary mb-2">Preview da saudação:</p>
+      <Card className="bg-primary/5 border-primary/20">
+        <CardContent className="pt-5 space-y-3">
+          <div>
+            <p className="text-xs font-semibold text-primary mb-2">Preview — Novo lead:</p>
             <div className="bg-card rounded-lg px-3 py-2 text-sm max-w-[70%] border border-border">
-              {config.greeting_message}
+              {config.greeting_message || 'Olá! Como posso ajudá-lo?'}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-emerald-500 mb-2">Preview — Lead retornando:</p>
+            <div className="bg-card rounded-lg px-3 py-2 text-sm max-w-[70%] border border-emerald-500/20">
+              {(config.returning_greeting_message || 'Olá {nome}! Que bom te ver aqui de novo 😊 Em que posso te ajudar hoje?').replace(/\{nome\}/gi, 'Carlos')}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
