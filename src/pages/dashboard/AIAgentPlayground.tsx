@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
+// NOTE: We use supabase.functions.invoke() instead of edgeFunctionFetch
+// because it goes through the Supabase SDK proxy and avoids CORS issues
+// when testing from localhost (ALLOWED_ORIGIN restricts direct fetch).
 import { handleError } from '@/lib/errorUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
@@ -151,24 +153,24 @@ const PERSONAS = [
   { name: 'Frustrado', msgs: ['Ninguem responde nessa loja', 'Ja mandei 3 mensagens'] },
 ];
 
-const CATEGORY_META: Record<ScenarioCategory, { label: string; icon: typeof Wrench; color: string }> = {
-  vendas:          { label: 'Vendas',            icon: ShoppingCart,    color: 'text-emerald-400 bg-emerald-500/10' },
-  suporte:         { label: 'Suporte / FAQ',     icon: MessageSquare,  color: 'text-blue-400 bg-blue-500/10' },
-  troca:           { label: 'Troca',             icon: RotateCcw,      color: 'text-orange-400 bg-orange-500/10' },
-  devolucao:       { label: 'Devolucao',         icon: Package,        color: 'text-red-400 bg-red-500/10' },
-  defeito:         { label: 'Defeito/Garantia',  icon: AlertTriangle,  color: 'text-amber-400 bg-amber-500/10' },
-  curioso:         { label: 'Curioso',           icon: Eye,            color: 'text-violet-400 bg-violet-500/10' },
-  vaga_emprego:    { label: 'Vaga de Emprego',   icon: Shield,         color: 'text-red-500 bg-red-500/10' },
-  indeciso:        { label: 'Indeciso',          icon: Timer,          color: 'text-yellow-400 bg-yellow-500/10' },
-  transbordo:      { label: 'Transbordo',        icon: PhoneForwarded, color: 'text-pink-400 bg-pink-500/10' },
-  pergunta_direta: { label: 'Pergunta Direta',   icon: Zap,            color: 'text-teal-400 bg-teal-500/10' },
-  midia_cenario_1: { label: 'Midia Cenario 1',   icon: Image,          color: 'text-indigo-400 bg-indigo-500/10' },
-  midia_cenario_2: { label: 'Midia Cenario 2',   icon: Layers,         color: 'text-indigo-400 bg-indigo-500/10' },
-  cenario_audio:   { label: 'Cenario Audio',     icon: Mic,            color: 'text-cyan-400 bg-cyan-500/10' },
-  interacao_texto:  { label: 'So Texto',         icon: MessageSquare,  color: 'text-gray-400 bg-gray-500/10' },
-  interacao_mista:  { label: 'Mista Audio+Texto', icon: Sparkles,      color: 'text-purple-400 bg-purple-500/10' },
-  interacao_audio:  { label: 'So Audio',         icon: Mic,            color: 'text-cyan-400 bg-cyan-500/10' },
-  objecao:         { label: 'Objecoes',          icon: Shield,         color: 'text-rose-400 bg-rose-500/10' },
+const CATEGORY_META: Record<ScenarioCategory, { label: string; emoji: string; icon: typeof Wrench; color: string; gradient: string }> = {
+  vendas:          { label: 'Vendas',            emoji: '\u{1F6D2}', icon: ShoppingCart,    color: 'text-emerald-400 bg-emerald-500/10', gradient: 'from-emerald-500/20 to-emerald-500/5' },
+  suporte:         { label: 'Suporte / FAQ',     emoji: '\u{1F4AC}', icon: MessageSquare,  color: 'text-blue-400 bg-blue-500/10', gradient: 'from-blue-500/20 to-blue-500/5' },
+  troca:           { label: 'Troca',             emoji: '\u{1F504}', icon: RotateCcw,      color: 'text-orange-400 bg-orange-500/10', gradient: 'from-orange-500/20 to-orange-500/5' },
+  devolucao:       { label: 'Devolucao',         emoji: '\u{1F4E6}', icon: Package,        color: 'text-red-400 bg-red-500/10', gradient: 'from-red-500/20 to-red-500/5' },
+  defeito:         { label: 'Defeito/Garantia',  emoji: '\u{26A0}\u{FE0F}', icon: AlertTriangle,  color: 'text-amber-400 bg-amber-500/10', gradient: 'from-amber-500/20 to-amber-500/5' },
+  curioso:         { label: 'Curioso',           emoji: '\u{1F440}', icon: Eye,            color: 'text-violet-400 bg-violet-500/10', gradient: 'from-violet-500/20 to-violet-500/5' },
+  vaga_emprego:    { label: 'Vaga de Emprego',   emoji: '\u{1F6AB}', icon: Shield,         color: 'text-red-500 bg-red-500/10', gradient: 'from-red-500/20 to-red-500/5' },
+  indeciso:        { label: 'Indeciso',          emoji: '\u{1F914}', icon: Timer,          color: 'text-yellow-400 bg-yellow-500/10', gradient: 'from-yellow-500/20 to-yellow-500/5' },
+  transbordo:      { label: 'Transbordo',        emoji: '\u{1F4DE}', icon: PhoneForwarded, color: 'text-pink-400 bg-pink-500/10', gradient: 'from-pink-500/20 to-pink-500/5' },
+  pergunta_direta: { label: 'Pergunta Direta',   emoji: '\u{26A1}',  icon: Zap,            color: 'text-teal-400 bg-teal-500/10', gradient: 'from-teal-500/20 to-teal-500/5' },
+  midia_cenario_1: { label: 'Carrossel + Foto',  emoji: '\u{1F5BC}\u{FE0F}', icon: Image,  color: 'text-indigo-400 bg-indigo-500/10', gradient: 'from-indigo-500/20 to-indigo-500/5' },
+  midia_cenario_2: { label: 'Carrossel Duplo',   emoji: '\u{1F3A0}', icon: Layers,         color: 'text-indigo-400 bg-indigo-500/10', gradient: 'from-indigo-500/20 to-indigo-500/5' },
+  cenario_audio:   { label: 'Cenario Audio',     emoji: '\u{1F3A4}', icon: Mic,            color: 'text-cyan-400 bg-cyan-500/10', gradient: 'from-cyan-500/20 to-cyan-500/5' },
+  interacao_texto:  { label: 'So Texto',         emoji: '\u{1F4DD}', icon: MessageSquare,  color: 'text-gray-400 bg-gray-500/10', gradient: 'from-gray-500/20 to-gray-500/5' },
+  interacao_mista:  { label: 'Mista Audio+Texto', emoji: '\u{1F500}', icon: Sparkles,      color: 'text-purple-400 bg-purple-500/10', gradient: 'from-purple-500/20 to-purple-500/5' },
+  interacao_audio:  { label: 'So Audio',         emoji: '\u{1F50A}', icon: Mic,            color: 'text-cyan-400 bg-cyan-500/10', gradient: 'from-cyan-500/20 to-cyan-500/5' },
+  objecao:         { label: 'Objecoes',          emoji: '\u{1F6E1}\u{FE0F}', icon: Shield, color: 'text-rose-400 bg-rose-500/10', gradient: 'from-rose-500/20 to-rose-500/5' },
 };
 
 const DIFFICULTY_COLORS = { easy: 'bg-emerald-500/20 text-emerald-400', medium: 'bg-amber-500/20 text-amber-400', hard: 'bg-red-500/20 text-red-400' };
@@ -458,21 +460,25 @@ const AIAgentPlayground = () => {
         direction: m.role === 'user' ? 'incoming' : 'outgoing', timestamp: m.timestamp.toISOString(),
       }));
 
-      const result = await edgeFunctionFetch<PlaygroundResponse>('ai-agent-playground', {
-        agent_id: selectedAgentId, messages: history,
-        overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
+      const { data: result, error: invokeError } = await supabase.functions.invoke('ai-agent-playground', {
+        body: {
+          agent_id: selectedAgentId, messages: history,
+          overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
+        },
       });
 
-      if (result.ok && result.response) {
+      if (invokeError) throw invokeError;
+
+      if (result?.ok && result?.response) {
         if (result.tool_calls?.length) {
           setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'system', content: '', timestamp: new Date(), tool_calls: result.tool_calls }]);
         }
         setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: result.response, timestamp: new Date(), tokens: result.tokens, latency_ms: result.latency_ms, tool_calls: result.tool_calls }]);
       } else {
-        toast.error(result.error || 'Erro ao processar resposta');
+        toast.error(result?.error || 'Erro ao processar resposta');
       }
     } catch (err: any) {
-      if (err?.status === 404) toast.error('Edge function ai-agent-playground nao implantada');
+      if (err?.message?.includes('404') || err?.status === 404) toast.error('Edge function ai-agent-playground nao implantada');
       else handleError(err, 'Erro ao chamar agente', 'Playground');
     } finally {
       setSending(false);
@@ -604,11 +610,12 @@ const AIAgentPlayground = () => {
             content: m.content, media_type: m.media_type || 'text', media_url: null,
             direction: m.role === 'user' ? 'incoming' : 'outgoing', timestamp: m.timestamp.toISOString(),
           }));
-          const result = await edgeFunctionFetch<PlaygroundResponse>('ai-agent-playground', {
-            agent_id: selectedAgentId!, messages: history,
-            overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
+          const { data: result } = await supabase.functions.invoke('ai-agent-playground', {
+            body: { agent_id: selectedAgentId!, messages: history,
+              overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
+            },
           });
-          if (result.ok && result.response) {
+          if (result?.ok && result?.response) {
             if (result.tool_calls?.length) setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'system', content: '', timestamp: new Date(), tool_calls: result.tool_calls }]);
             setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: result.response, timestamp: new Date(), tokens: result.tokens, latency_ms: result.latency_ms, tool_calls: result.tool_calls }]);
           }
@@ -722,7 +729,7 @@ const AIAgentPlayground = () => {
                 <div key={msg.id} className="flex gap-2 justify-end">
                   <div className="max-w-[75%] space-y-0.5">
                     {msg.media_type === 'audio' && (<div className="flex items-center gap-2 bg-primary rounded-2xl rounded-tr-md px-3 py-2"><Mic className="w-3.5 h-3.5 text-primary-foreground/70" /><span className="text-xs text-primary-foreground/80">Audio</span></div>)}
-                    {msg.content && msg.media_type !== 'audio' && (<div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-md px-3.5 py-2"><p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p></div>)}
+                    {msg.content && msg.media_type !== 'audio' && (<div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-md px-3.5 py-2"><p className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p></div>)}
                     <div className="flex items-center gap-1.5 justify-end pr-0.5">
                       <span className="text-[9px] text-muted-foreground">#{idx + 1} · {msg.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                       <button onClick={() => replayMessage(idx)} disabled={sending} className="p-0.5 rounded text-muted-foreground/30 hover:text-primary transition-colors disabled:opacity-30" title="Replay"><Play className="w-3 h-3" /></button>
@@ -737,7 +744,7 @@ const AIAgentPlayground = () => {
                 <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 mt-1"><Bot className="w-3 h-3 text-primary" /></div>
                 <div className="max-w-[78%] space-y-0.5">
                   <div className={`bg-muted/80 rounded-2xl rounded-tl-md px-3.5 py-2 border ${msg.rating === 'approved' ? 'border-emerald-500/30' : msg.rating === 'disapproved' ? 'border-red-500/30' : 'border-transparent'}`}>
-                    <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
+                    <p className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
                   </div>
                   <div className="flex items-center gap-1.5 pl-0.5">
                     <span className="text-[9px] text-muted-foreground">#{idx + 1} · {msg.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -789,8 +796,8 @@ const AIAgentPlayground = () => {
               <Sparkles className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-lg font-bold">Playground</h1>
-              <p className="text-[11px] text-muted-foreground">8 tools · debug · cenarios · sessao {sessionId}</p>
+              <h1 className="text-xl font-bold">Playground IA</h1>
+              <p className="text-xs text-muted-foreground">8 tools · debug · cenarios · sessao {sessionId}</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -861,13 +868,18 @@ const AIAgentPlayground = () => {
             {/* Chat */}
             <div className="flex-1 border border-border/50 rounded-2xl bg-card/50 overflow-hidden flex flex-col min-h-0">
               {messages.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground p-4">
-                  <MessageSquare className="w-10 h-10 opacity-20" />
-                  <p className="text-sm font-medium">Envie uma mensagem para testar o agente</p>
-                  <div className="flex flex-wrap gap-1.5 justify-center max-w-lg">
+                <div className="flex-1 flex flex-col items-center justify-center gap-5 text-muted-foreground p-6">
+                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/10 flex items-center justify-center">
+                    <Bot className="w-10 h-10 text-primary/40" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-base font-semibold text-foreground mb-1">Teste o agente em tempo real</p>
+                    <p className="text-sm text-muted-foreground">Envie uma mensagem ou escolha um perfil abaixo</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-center max-w-lg">
                     {PERSONAS.map(p => (
-                      <button key={p.name} onClick={() => runPersona(p)} className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-full border border-border/50 bg-background hover:bg-muted transition-colors">
-                        <UserCircle className="w-3 h-3" />{p.name}
+                      <button key={p.name} onClick={() => runPersona(p)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border border-border/50 bg-background hover:bg-primary/5 hover:border-primary/30 transition-all">
+                        <UserCircle className="w-3.5 h-3.5" />{p.name}
                       </button>
                     ))}
                   </div>
@@ -902,21 +914,25 @@ const AIAgentPlayground = () => {
                   <div className="p-2 space-y-1">
                     {filteredScenarios.map(scenario => {
                       const catMeta = CATEGORY_META[scenario.category];
-                      const CatIcon = catMeta.icon;
                       const isSelected = selectedScenario?.id === scenario.id;
                       return (
                         <button key={scenario.id} onClick={() => { setSelectedScenario(scenario); setMessages([]); setScenarioRun(null); }}
-                          className={`w-full text-left p-2.5 rounded-lg border transition-all ${isSelected ? 'border-primary/40 bg-primary/5' : 'border-transparent hover:bg-accent/50'}`}>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <CatIcon className={`w-3 h-3 ${catMeta.color.split(' ')[0]}`} />
-                            <span className="text-xs font-medium truncate flex-1">{scenario.name}</span>
-                            <Badge className={`text-[8px] px-1 py-0 ${DIFFICULTY_COLORS[scenario.difficulty]}`}>{scenario.difficulty}</Badge>
-                          </div>
-                          <p className="text-[10px] text-muted-foreground line-clamp-2">{scenario.description}</p>
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <span className="text-[9px] text-muted-foreground">{scenario.steps.length} steps</span>
-                            <span className="text-[9px] text-muted-foreground">{scenario.expected.tools_must_use.length} tools</span>
-                            {scenario.expected.should_handoff && <Badge variant="outline" className="text-[8px] px-1 py-0 border-red-500/20 text-red-400">handoff</Badge>}
+                          className={`w-full text-left p-3 rounded-xl border transition-all ${isSelected ? 'border-primary/40 bg-primary/5 shadow-md' : 'border-border/30 hover:bg-accent/50 hover:border-border/60'}`}>
+                          <div className="flex items-start gap-2.5">
+                            <span className="text-2xl leading-none mt-0.5">{catMeta.emoji}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-sm font-semibold truncate flex-1">{scenario.name}</span>
+                                <Badge className={`text-[9px] px-1.5 py-0.5 ${DIFFICULTY_COLORS[scenario.difficulty]}`}>{scenario.difficulty}</Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{scenario.description}</p>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">{scenario.steps.length} steps</span>
+                                <span className="text-[10px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">{scenario.expected.tools_must_use.length} tools</span>
+                                {scenario.expected.should_handoff && <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 border-red-500/20 text-red-400">handoff</Badge>}
+                                {scenario.expected.should_block && <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 border-amber-500/20 text-amber-400">guardrail</Badge>}
+                              </div>
+                            </div>
                           </div>
                         </button>
                       );
@@ -942,9 +958,14 @@ const AIAgentPlayground = () => {
                 )}
 
                 {!selectedScenario ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                    <Layers className="w-10 h-10 opacity-20" />
-                    <p className="text-sm">Selecione um cenario na galeria</p>
+                  <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground p-6">
+                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/10 to-violet-500/5 border border-violet-500/10 flex items-center justify-center">
+                      <Layers className="w-10 h-10 text-violet-400/40" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-base font-semibold text-foreground mb-1">Selecione um cenario</p>
+                      <p className="text-sm">Escolha um cenario na galeria para executar o teste automatizado</p>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -984,16 +1005,18 @@ const AIAgentPlayground = () => {
                     {selectedScenario ? (
                       <>
                         {/* Scenario info */}
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            {(() => { const Icon = CATEGORY_META[selectedScenario.category].icon; return <Icon className={`w-4 h-4 ${CATEGORY_META[selectedScenario.category].color.split(' ')[0]}`} />; })()}
-                            <span className="text-sm font-semibold">{selectedScenario.name}</span>
+                        <div className={`p-3 rounded-xl bg-gradient-to-br ${CATEGORY_META[selectedScenario.category].gradient} border border-border/30`}>
+                          <div className="flex items-start gap-3 mb-2">
+                            <span className="text-3xl">{CATEGORY_META[selectedScenario.category].emoji}</span>
+                            <div className="flex-1">
+                              <span className="text-sm font-bold block">{selectedScenario.name}</span>
+                              <p className="text-xs text-muted-foreground mt-0.5">{selectedScenario.description}</p>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5 mb-2">
-                            <Badge className={`text-[9px] px-1.5 ${DIFFICULTY_COLORS[selectedScenario.difficulty]}`}>{selectedScenario.difficulty}</Badge>
-                            <Badge variant="outline" className="text-[9px] px-1.5">{selectedScenario.steps.length} steps</Badge>
+                          <div className="flex items-center gap-1.5">
+                            <Badge className={`text-[10px] px-2 py-0.5 ${DIFFICULTY_COLORS[selectedScenario.difficulty]}`}>{selectedScenario.difficulty}</Badge>
+                            <Badge variant="outline" className="text-[10px] px-2 py-0.5">{selectedScenario.steps.length} steps</Badge>
                           </div>
-                          <p className="text-[11px] text-muted-foreground">{selectedScenario.description}</p>
                         </div>
 
                         {/* Steps */}
@@ -1068,8 +1091,11 @@ const AIAgentPlayground = () => {
                       </>
                     ) : (
                       <div className="text-center py-10 text-muted-foreground">
-                        <Eye className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                        <p className="text-xs">Selecione um cenario para ver detalhes</p>
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/10 flex items-center justify-center mx-auto mb-3">
+                          <Eye className="w-8 h-8 text-primary/30" />
+                        </div>
+                        <p className="text-sm font-medium text-foreground mb-1">Detalhes do cenario</p>
+                        <p className="text-xs">Selecione um cenario na galeria</p>
                       </div>
                     )}
                   </div>
@@ -1093,10 +1119,14 @@ const AIAgentPlayground = () => {
               )}
               <ScrollArea className="flex-1">
                 {runHistory.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
-                    <BarChart3 className="w-10 h-10 opacity-20" />
-                    <p className="text-sm">Nenhum teste executado ainda</p>
-                    <p className="text-xs">Execute cenarios na aba "Cenarios" para ver resultados aqui</p>
+                  <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-4">
+                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500/10 to-blue-500/5 border border-blue-500/10 flex items-center justify-center">
+                      <BarChart3 className="w-10 h-10 text-blue-400/40" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-base font-semibold text-foreground mb-1">Nenhum teste executado ainda</p>
+                      <p className="text-sm">Execute cenarios na aba "Cenarios" para ver resultados aqui</p>
+                    </div>
                   </div>
                 ) : (
                   <div className="p-3 space-y-2">
