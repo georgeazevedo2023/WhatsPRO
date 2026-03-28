@@ -687,13 +687,14 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       const textNorm = incomingText.toLowerCase().replace(/[!?.,;:]/g, '').trim()
       const isJustGreeting = greetingWords.some(g => textNorm === g || textNorm === g + ' ')
 
-      if (isJustGreeting) {
-        // Pure greeting — stop here, wait for lead to say what they need
+      if (isJustGreeting || incomingHasAudio) {
+        // Pure greeting or audio (likely a short voice note greeting) — stop here, wait for lead to say what they need
+        console.log(`[ai-agent] First interaction — greeting sent, stopping (isJustGreeting=${isJustGreeting}, isAudio=${incomingHasAudio})`)
         return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
-      // Lead asked something on first message — continue to Gemini to answer
+      // Lead asked something substantive on first message — continue to Gemini to answer
       console.log(`[ai-agent] First message has substance ("${incomingText.substring(0, 50)}") — continuing to Gemini`)
     }
 

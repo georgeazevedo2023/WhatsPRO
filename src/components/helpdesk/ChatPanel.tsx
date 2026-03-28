@@ -172,6 +172,15 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
           }
         }
       })
+      .on('broadcast', { event: 'transcription-updated' }, (payload) => {
+        if (payload.payload?.conversationId === conversation.id && payload.payload?.messageId) {
+          setMessages(prev => prev.map(m =>
+            m.id === payload.payload.messageId
+              ? { ...m, transcription: payload.payload.transcription }
+              : m
+          ));
+        }
+      })
       .on('broadcast', { event: 'agent-typing' }, (payload) => {
         const currentUserId = getSessionUserId();
         if (payload.payload?.conversation_id === conversation.id && payload.payload?.agent_id !== currentUserId) {
