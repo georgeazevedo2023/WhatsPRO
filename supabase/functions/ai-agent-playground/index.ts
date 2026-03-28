@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+// Use wildcard CORS — playground is protected by verifySuperAdmin auth
+import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'

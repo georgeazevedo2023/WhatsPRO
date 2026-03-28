@@ -2,9 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-// NOTE: We use supabase.functions.invoke() instead of edgeFunctionFetch
-// because it goes through the Supabase SDK proxy and avoids CORS issues
-// when testing from localhost (ALLOWED_ORIGIN restricts direct fetch).
+import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { handleError } from '@/lib/errorUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
@@ -460,25 +458,21 @@ const AIAgentPlayground = () => {
         direction: m.role === 'user' ? 'incoming' : 'outgoing', timestamp: m.timestamp.toISOString(),
       }));
 
-      const { data: result, error: invokeError } = await supabase.functions.invoke('ai-agent-playground', {
-        body: {
-          agent_id: selectedAgentId, messages: history,
-          overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
-        },
+      const result = await edgeFunctionFetch<PlaygroundResponse>('ai-agent-playground', {
+        agent_id: selectedAgentId, messages: history,
+        overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
       });
 
-      if (invokeError) throw invokeError;
-
-      if (result?.ok && result?.response) {
+      if (result.ok && result.response) {
         if (result.tool_calls?.length) {
           setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'system', content: '', timestamp: new Date(), tool_calls: result.tool_calls }]);
         }
         setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: result.response, timestamp: new Date(), tokens: result.tokens, latency_ms: result.latency_ms, tool_calls: result.tool_calls }]);
       } else {
-        toast.error(result?.error || 'Erro ao processar resposta');
+        toast.error(result.error || 'Erro ao processar resposta');
       }
     } catch (err: any) {
-      if (err?.message?.includes('404') || err?.status === 404) toast.error('Edge function ai-agent-playground nao implantada');
+      if (err?.status === 404) toast.error('Edge function ai-agent-playground nao implantada');
       else handleError(err, 'Erro ao chamar agente', 'Playground');
     } finally {
       setSending(false);
@@ -610,12 +604,11 @@ const AIAgentPlayground = () => {
             content: m.content, media_type: m.media_type || 'text', media_url: null,
             direction: m.role === 'user' ? 'incoming' : 'outgoing', timestamp: m.timestamp.toISOString(),
           }));
-          const { data: result } = await supabase.functions.invoke('ai-agent-playground', {
-            body: { agent_id: selectedAgentId!, messages: history,
-              overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
-            },
+          const result = await edgeFunctionFetch<PlaygroundResponse>('ai-agent-playground', {
+            agent_id: selectedAgentId!, messages: history,
+            overrides: { temperature: overrides.temperature, max_tokens: overrides.maxTokens, model: overrides.model, disabled_tools: [...overrides.disabledTools] },
           });
-          if (result?.ok && result?.response) {
+          if (result.ok && result.response) {
             if (result.tool_calls?.length) setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'system', content: '', timestamp: new Date(), tool_calls: result.tool_calls }]);
             setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: result.response, timestamp: new Date(), tokens: result.tokens, latency_ms: result.latency_ms, tool_calls: result.tool_calls }]);
           }
