@@ -70,17 +70,27 @@ export function MetricsConfig({ agentId }: MetricsConfigProps) {
       const since = new Date();
       since.setDate(since.getDate() - parseInt(period));
 
-      const { data: logs, error } = await supabase
-        .from('ai_agent_logs')
-        .select('event, input_tokens, output_tokens, latency_ms, tool_calls, created_at')
-        .eq('agent_id', agentId)
-        .gte('created_at', since.toISOString())
-        .order('created_at', { ascending: false })
-        .limit(5000);
+      // Paginated fetch: load in batches of 1000 to avoid memory spikes
+      const PAGE_SIZE = 1000;
+      let entries: any[] = [];
+      let offset = 0;
+      let hasMore = true;
 
-      if (error) throw error;
+      while (hasMore) {
+        const { data: page, error } = await supabase
+          .from('ai_agent_logs')
+          .select('event, input_tokens, output_tokens, latency_ms, tool_calls, created_at')
+          .eq('agent_id', agentId)
+          .gte('created_at', since.toISOString())
+          .order('created_at', { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1);
 
-      const entries = logs || [];
+        if (error) throw error;
+        const rows = page || [];
+        entries = entries.concat(rows);
+        hasMore = rows.length === PAGE_SIZE;
+        offset += PAGE_SIZE;
+      }
       const responses = entries.filter(l => l.event === 'response_sent');
       const handoffs = entries.filter(l => l.event === 'handoff');
       const shadows = entries.filter(l => l.event === 'shadow_extraction');

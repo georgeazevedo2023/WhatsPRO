@@ -59,6 +59,12 @@ function parseCopyResponse(text: string, count: number): string[] | null {
 }
 
 /** Generate sales copy for carousel cards: Card 1 = code, Cards 2-5 = Groq → Gemini → Mistral → static */
+// In-memory cache for carousel copies — avoids redundant LLM calls for same product
+// Persists within the same Deno isolate (shared across concurrent requests)
+const _carouselCopyCache = new Map<string, { copies: string[], expiresAt: number }>()
+const CAROUSEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const CAROUSEL_CACHE_MAX_SIZE = 200
+
 async function generateCarouselCopies(product: any, numCards: number): Promise<string[]> {
   const title = product.title || 'Produto'
   const price = product.price ? `R$ ${product.price.toFixed(2)}` : 'Sob consulta'
@@ -68,6 +74,14 @@ async function generateCarouselCopies(product: any, numCards: number): Promise<s
   const card1 = `${cleanProductTitle(title)}\n${price}`
 
   if (numCards <= 1) return [card1]
+
+  // Check cache by product id + numCards
+  const cacheKey = `${product.id || title}:${numCards}`
+  const cached = _carouselCopyCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    console.log(`[ai-agent] Carousel copies: cache HIT for ${cacheKey}`)
+    return cached.copies
+  }
 
   const copyCount = numCards - 1 // How many cards the LLM needs to generate
   const prompt = COPY_PROMPT(title, price, desc, copyCount)
@@ -104,6 +118,7 @@ async function generateCarouselCopies(product: any, numCards: number): Promise<s
     return data.candidates?.[0]?.content?.parts?.[0]?.text || null
   }})
 
+  let result: string[] | null = null
   for (const provider of providers) {
     try {
       const text = await provider.call()
@@ -111,24 +126,37 @@ async function generateCarouselCopies(product: any, numCards: number): Promise<s
         const copies = parseCopyResponse(text, copyCount)
         if (copies) {
           console.log(`[ai-agent] Carousel copies: ${provider.name} OK`)
-          return [card1, ...copies]
+          result = [card1, ...copies]
+          break
         }
       }
       console.warn(`[ai-agent] ${provider.name} copy: bad response`)
     } catch (e) { console.warn(`[ai-agent] ${provider.name} copy error:`, e) }
   }
 
-  console.warn('[ai-agent] Carousel copies: all LLMs failed, using static')
-  return [card1, ...fallbackCopies]
+  if (!result) {
+    console.warn('[ai-agent] Carousel copies: all LLMs failed, using static')
+    result = [card1, ...fallbackCopies]
+  }
+
+  // Cache result (evict oldest if cache is full)
+  if (_carouselCopyCache.size >= CAROUSEL_CACHE_MAX_SIZE) {
+    const oldestKey = _carouselCopyCache.keys().next().value
+    if (oldestKey) _carouselCopyCache.delete(oldestKey)
+  }
+  _carouselCopyCache.set(cacheKey, { copies: result, expiresAt: Date.now() + CAROUSEL_CACHE_TTL_MS })
+
+  return result
 }
 
-/** Handoff detection patterns — more specific regexes to avoid false positives (e.g., "consultor de vendas recomenda...") */
+/** Handoff detection patterns — negative lookahead to avoid false positives
+ *  e.g., "não vou encaminhar" should NOT trigger handoff */
 const HANDOFF_PATTERNS = [
-  /vou (?:te |lhe )?encaminhar/i,
-  /transferir (?:você|vc|voce|te|lhe) para/i,
+  /(?<!não\s)vou (?:te |lhe )?encaminhar/i,
+  /(?<!não\s|sem\s)transferir (?:você|vc|voce|te|lhe) para/i,
   /(?:um|nosso|uma) atendente (?:humano|vai|irá)/i,
   /falar com (?:um |nosso )?vendedor/i,
-  /encaminhar (?:você|vc|voce) (?:para|ao|à)/i,
+  /(?<!não\s|sem\s)encaminhar (?:você|vc|voce) (?:para|ao|à)/i,
 ]
 
 /** Merge tags using key:value format (same key = replace) */
@@ -178,12 +206,16 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 1. Load agent config
-    const { data: agent } = await supabase
-      .from('ai_agents')
-      .select('*')
-      .eq('id', agent_id)
-      .single()
+    // 1-2. Load agent + conversation + instance in parallel (~300ms saved)
+    const [agentResult, conversationResult, instanceResult] = await Promise.all([
+      supabase.from('ai_agents').select('*').eq('id', agent_id).single(),
+      supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at').eq('id', conversation_id).single(),
+      supabase.from('instances').select('token').eq('id', instance_id).maybeSingle(),
+    ])
+
+    const agent = agentResult.data
+    const conversation = conversationResult.data
+    const instance = instanceResult.data
 
     if (!agent || !agent.enabled) {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'agent_disabled' }), {
@@ -198,13 +230,6 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
-
-    // 2. Load conversation (with tags)
-    const { data: conversation } = await supabase
-      .from('conversations')
-      .select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at')
-      .eq('id', conversation_id)
-      .single()
 
     if (!conversation) {
       return new Response(JSON.stringify({ error: 'Conversation not found' }), {
@@ -249,13 +274,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 4. Load instance token (needed by tools)
-    const { data: instance } = await supabase
-      .from('instances')
-      .select('token')
-      .eq('id', instance_id)
-      .maybeSingle()
-
+    // 4. Instance token already loaded in parallel batch above
     if (!instance?.token) {
       return new Response(JSON.stringify({ error: 'Instance token not found' }), {
         status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -477,37 +496,28 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 6. Load labels (current + available) — parallelized
-    const [{ data: currentLabels }, { data: availableLabels }] = await Promise.all([
+    // 6-8. Load labels + history + lead profile in parallel (~200ms saved)
+    const contextLimit = agent.context_short_messages || 10
+    const [
+      { data: currentLabels },
+      { data: availableLabels },
+      { data: historyMessages },
+      { data: leadProfile },
+      { data: knowledgeItems },
+    ] = await Promise.all([
       supabase.from('conversation_labels').select('label_id, labels(name)').eq('conversation_id', conversation_id),
       supabase.from('labels').select('id, name').eq('inbox_id', conversation.inbox_id),
+      supabase.from('conversation_messages').select('direction, content, media_type, created_at').eq('conversation_id', conversation_id).neq('direction', 'private_note').gte('created_at', sessionStartDt).order('created_at', { ascending: false }).limit(contextLimit),
+      supabase.from('lead_profiles').select('*').eq('contact_id', contact.id).maybeSingle(),
+      supabase.from('ai_agent_knowledge').select('type, title, content').eq('agent_id', agent_id).order('position').limit(30),
     ])
 
     const currentLabelNames = (currentLabels || []).map((cl: any) => cl.labels?.name).filter(Boolean)
     const availableLabelNames = (availableLabels || []).map((l: any) => l.name)
-
-    // 7. Load context: last N messages
-    const contextLimit = agent.context_short_messages || 10
-    const { data: historyMessages } = await supabase
-      .from('conversation_messages')
-      .select('direction, content, media_type, created_at')
-      .eq('conversation_id', conversation_id)
-      .neq('direction', 'private_note')
-      .gte('created_at', sessionStartDt)
-      .order('created_at', { ascending: false })
-      .limit(contextLimit)
-
     const contextMessages = (historyMessages || []).reverse()
 
-    // 8. Load lead profile (ALWAYS — needed for greeting check + profile updates)
-    let leadContext = ''
-    const { data: leadProfile } = await supabase
-      .from('lead_profiles')
-      .select('*')
-      .eq('contact_id', contact.id)
-      .maybeSingle()
-
     // Build lead context for system prompt (only when long context is enabled)
+    let leadContext = ''
     if (agent.context_long_enabled && leadProfile) {
       const parts: string[] = []
       if (leadProfile.full_name) parts.push(`Nome: ${leadProfile.full_name}`)
@@ -739,14 +749,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       ? `\nCampos para extrair durante a conversa (use set_tags + update_lead_profile):\n${extractionFields.map((f: any) => `- ${f.label} (chave: ${f.key})`).join('\n')}`
       : ''
 
-    // 10.5 Load FAQ/Knowledge base for answering common questions
-    const { data: knowledgeItems } = await supabase
-      .from('ai_agent_knowledge')
-      .select('type, title, content')
-      .eq('agent_id', agent_id)
-      .order('position')
-      .limit(30)
-
+    // 10.5 Build FAQ/Knowledge context (data already loaded in parallel batch above)
     const faqItems = (knowledgeItems || []).filter((k: any) => k.type === 'faq' && k.title && k.content)
     const docItems = (knowledgeItems || []).filter((k: any) => k.type === 'document' && k.content)
     let knowledgeInstruction = ''
@@ -1228,11 +1231,13 @@ Exemplos de objeções:
           const { label_name } = args
           if (!label_name) return 'Nome da etiqueta não informado.'
 
+          // Use exact case-insensitive match to prevent partial matches
+          // (e.g., "sale" matching "sales" or "wholesale")
           const { data: label } = await supabase
             .from('labels')
             .select('id, name')
             .eq('inbox_id', conversation.inbox_id)
-            .ilike('name', label_name)
+            .ilike('name', label_name.replace(/%/g, '\\%').replace(/_/g, '\\_'))
             .maybeSingle()
 
           if (!label) return `Etiqueta "${label_name}" não encontrada. Disponíveis: ${availableLabelNames.join(', ')}`
@@ -1255,20 +1260,28 @@ Exemplos de objeções:
           const newTags: string[] = args.tags || []
           if (newTags.length === 0) return 'Nenhuma tag informada.'
 
-          const existing: string[] = conversation.tags || []
-          const tagMap = new Map<string, string>()
-          for (const t of existing) tagMap.set(t.split(':')[0], t)
-          for (const t of newTags) tagMap.set(t.split(':')[0], t)
-          const merged = Array.from(tagMap.values())
+          // Atomic merge: read + merge + write in a single SQL statement
+          // Prevents race condition when two concurrent tool calls merge tags
+          const { data: updatedConv, error } = await supabase.rpc('merge_conversation_tags', {
+            p_conversation_id: conversation_id,
+            p_new_tags: newTags,
+          })
 
-          const { error } = await supabase
-            .from('conversations')
-            .update({ tags: merged })
-            .eq('id', conversation_id)
-
-          if (error) return `Erro ao definir tags: ${error.message}`
+          if (error) {
+            // Fallback to in-memory merge if RPC not available
+            console.warn('[ai-agent] merge_conversation_tags RPC failed, using in-memory fallback:', error.message)
+            const existing: string[] = conversation.tags || []
+            const tagMap = new Map<string, string>()
+            for (const t of existing) tagMap.set(t.split(':')[0], t)
+            for (const t of newTags) tagMap.set(t.split(':')[0], t)
+            const merged = Array.from(tagMap.values())
+            await supabase.from('conversations').update({ tags: merged }).eq('id', conversation_id)
+            conversation.tags = merged
+            return `Tags atualizadas: ${merged.join(', ')}`
+          }
 
           // Update local reference for subsequent tool calls
+          const merged = updatedConv?.tags || [...(conversation.tags || []), ...newTags]
           conversation.tags = merged
           return `Tags atualizadas: ${merged.join(', ')}`
         }

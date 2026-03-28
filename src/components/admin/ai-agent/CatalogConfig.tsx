@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,20 +52,58 @@ export function CatalogConfig({ agentId }: CatalogConfigProps) {
   const [stockFilter, setStockFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'position' | 'title' | 'price' | 'created_at'>('position');
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filtered.map(p => p.id)));
+  };
+  const handleBulkAction = async (action: 'enable' | 'disable' | 'delete') => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    try {
+      if (action === 'delete') {
+        const { error } = await supabase.from('ai_agent_products').delete().in('id', ids);
+        if (error) throw error;
+        toast.success(`${ids.length} produto(s) excluído(s)`);
+      } else {
+        const { error } = await supabase.from('ai_agent_products').update({ enabled: action === 'enable' }).in('id', ids);
+        if (error) throw error;
+        toast.success(`${ids.length} produto(s) ${action === 'enable' ? 'ativado(s)' : 'desativado(s)'}`);
+      }
+      setSelectedIds(new Set());
+      fetchProducts();
+    } catch (err) {
+      console.error('[catalog] bulk action failed:', err);
+      toast.error('Erro na ação em massa');
+    }
+  };
+
   const fetchProducts = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('ai_agent_products').select('*').eq('agent_id', agentId).order('position');
-    setProducts((data || []) as Product[]);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase.from('ai_agent_products').select('*').eq('agent_id', agentId).order('position');
+      if (error) console.error('[catalog] fetch error:', error);
+      setProducts((data || []) as Product[]);
+    } catch (err) {
+      console.error('[catalog] fetch failed:', err);
+    } finally {
+      setLoading(false);
+    }
   }, [agentId]);
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
 
-  // Unique categories for filter
-  const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+  // Unique categories for filter (memoized to avoid recalculating on every render)
+  const categories = useMemo(() => [...new Set(products.map(p => p.category).filter(Boolean))], [products]);
 
-  // Filter & sort
-  const filtered = products
+  // Filter & sort (memoized — avoids re-filtering on unrelated state changes)
+  const filtered = useMemo(() => products
     .filter(p => {
       if (search && !p.title.toLowerCase().includes(search.toLowerCase()) && !(p.sku || '').toLowerCase().includes(search.toLowerCase())) return false;
       if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
@@ -81,7 +119,7 @@ export function CatalogConfig({ agentId }: CatalogConfigProps) {
         case 'created_at': return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         default: return a.position - b.position;
       }
-    });
+    }), [products, search, categoryFilter, stockFilter, sortBy]);
 
   const openNew = () => { setEditing(null); setForm(EMPTY_PRODUCT); setImportUrl(''); setImportOpen(false); setDialogOpen(true); };
   const openEdit = (p: Product) => { setEditing(p); setForm({ ...p }); setImportOpen(false); setDialogOpen(true); };
@@ -397,9 +435,26 @@ A descrição deve ser persuasiva, destacar benefícios e ser em português do B
           <p className="text-sm">Nenhum produto encontrado com estes filtros</p>
         </div>
       ) : (
+        <>
+        {/* Bulk actions bar */}
+        {filtered.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+              <input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} className="rounded border-border" />
+              {selectedIds.size > 0 ? `${selectedIds.size} selecionado(s)` : 'Selecionar todos'}
+            </label>
+            {selectedIds.size > 0 && (
+              <>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => handleBulkAction('enable')}>Ativar</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => handleBulkAction('disable')}>Desativar</Button>
+                <Button size="sm" variant="destructive" className="h-7 text-xs gap-1" onClick={() => { if (confirm(`Excluir ${selectedIds.size} produto(s)?`)) handleBulkAction('delete'); }}>Excluir</Button>
+              </>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {filtered.map(p => (
-            <Card key={p.id} className={`group overflow-hidden transition-all hover:border-primary/30 ${!p.enabled ? 'opacity-50' : ''}`}>
+            <Card key={p.id} className={`group overflow-hidden transition-all hover:border-primary/30 ${!p.enabled ? 'opacity-50' : ''} ${selectedIds.has(p.id) ? 'ring-2 ring-primary' : ''}`}>
               {/* Image */}
               <div className="relative aspect-[4/3] bg-muted overflow-hidden">
                 {p.images?.[0] ? (
@@ -409,8 +464,12 @@ A descrição deve ser persuasiva, destacar benefícios e ser em português do B
                     <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
                   </div>
                 )}
+                {/* Selection checkbox */}
+                <div className="absolute top-2 left-2 z-10" onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} className="rounded border-white/50 bg-black/30 w-4 h-4 cursor-pointer" />
+                </div>
                 {p.images?.length > 1 && (
-                  <Badge className="absolute top-2 left-2 bg-black/60 text-white text-[10px] border-0">{p.images.length} fotos</Badge>
+                  <Badge className="absolute top-2 left-8 bg-black/60 text-white text-[10px] border-0">{p.images.length} fotos</Badge>
                 )}
                 {!p.in_stock && (
                   <Badge className="absolute top-2 right-2 bg-destructive text-destructive-foreground text-[10px]">Sem estoque</Badge>
@@ -441,6 +500,7 @@ A descrição deve ser persuasiva, destacar benefícios e ser em português do B
             </Card>
           ))}
         </div>
+        </>
       )}
 
       {/* Product Dialog */}

@@ -137,6 +137,9 @@ export function RulesConfig({ config, onChange }: RulesConfigProps) {
               />
             </div>
           </div>
+          {config.business_hours?.start && config.business_hours?.end && config.business_hours.end <= config.business_hours.start && (
+            <p className="text-[11px] text-destructive font-medium">Horário de fechamento deve ser após a abertura.</p>
+          )}
           <p className="text-[11px] text-muted-foreground">Fora deste horário, a IA envia a mensagem abaixo em vez de atender.</p>
           <Textarea
             value={config.out_of_hours_message || ''}

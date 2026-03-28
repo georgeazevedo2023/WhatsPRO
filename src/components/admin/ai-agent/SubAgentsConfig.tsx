@@ -1,8 +1,9 @@
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Users, UserCheck, ShoppingCart, Headphones, Calendar, ArrowRightLeft } from 'lucide-react';
+import { Users, UserCheck, ShoppingCart, Headphones, Calendar, ArrowRightLeft, RotateCcw } from 'lucide-react';
 
 interface SubAgentDef {
   key: string;
@@ -49,6 +50,11 @@ const SUB_AGENTS: SubAgentDef[] = [
     defaultPrompt: 'Você é o agente de transbordo. Informe o lead que um atendente assumirá em breve. Colete qualquer informação pendente (nome, motivo) e use handoff_to_human com um resumo completo dos dados coletados.',
   },
 ];
+
+/** Get default prompt for a sub-agent key */
+export function getSubAgentDefault(key: string): string {
+  return SUB_AGENTS.find(s => s.key === key)?.defaultPrompt || '';
+}
 
 interface SubAgentsConfigProps {
   config: Record<string, any>;
@@ -99,14 +105,26 @@ export function SubAgentsConfig({ config, onChange }: SubAgentsConfigProps) {
               <CardDescription className="text-xs">{def.description}</CardDescription>
             </CardHeader>
             {agent.enabled && (
-              <CardContent>
-                <Label className="text-xs text-muted-foreground mb-1.5 block">Prompt do sub-agente</Label>
+              <CardContent className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Prompt do sub-agente</Label>
+                  {agent.prompt && agent.prompt !== def.defaultPrompt && (
+                    <Button
+                      variant="ghost" size="sm"
+                      className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                      onClick={() => updateAgent(def.key, { prompt: def.defaultPrompt })}
+                    >
+                      <RotateCcw className="w-3 h-3" /> Restaurar padrão
+                    </Button>
+                  )}
+                </div>
                 <Textarea
                   value={agent.prompt || def.defaultPrompt}
                   onChange={(e) => updateAgent(def.key, { prompt: e.target.value })}
                   placeholder={def.defaultPrompt}
                   className="min-h-[80px] resize-none text-xs"
                 />
+                <p className="text-[10px] text-muted-foreground">{(agent.prompt || def.defaultPrompt).length} caracteres</p>
               </CardContent>
             )}
           </Card>

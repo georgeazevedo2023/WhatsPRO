@@ -36,12 +36,15 @@ export function FollowUpConfig({ config, onChange }: FollowUpConfigProps) {
   const enabled = config.follow_up_enabled ?? false;
 
   const updateRules = (newRules: FollowUpRule[]) => {
-    onChange({ follow_up_rules: newRules.sort((a, b) => a.days - b.days) });
+    // Don't sort on every change — preserve user's ordering intent.
+    // Sort only when adding new rules to place them logically.
+    onChange({ follow_up_rules: newRules });
   };
 
   const addRule = () => {
     const lastDay = rules.length > 0 ? Math.max(...rules.map(r => r.days)) : 0;
-    updateRules([...rules, { days: lastDay + 7, message: 'Olá {nome}! Ainda posso te ajudar com algo?' }]);
+    const newRules = [...rules, { days: lastDay + 7, message: 'Olá {nome}! Ainda posso te ajudar com algo?' }];
+    onChange({ follow_up_rules: newRules.sort((a, b) => a.days - b.days) });
   };
 
   const removeRule = (index: number) => {

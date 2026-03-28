@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Scan, Plus, Trash2, User, MapPin, Settings2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface ExtractionField {
   key: string;
@@ -81,8 +82,14 @@ export function ExtractionConfig({ config, onChange }: ExtractionConfigProps) {
   const addField = () => {
     const key = newKey.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     const label = newLabel.trim();
-    if (!key || !label) return;
-    if (fields.some(f => f.key === key)) return;
+    if (!key || !label) {
+      if (!key && newKey.trim()) toast?.error?.('Chave inválida — use apenas letras, números e _');
+      return;
+    }
+    if (fields.some(f => f.key === key)) {
+      toast?.error?.(`Campo "${key}" já existe`);
+      return;
+    }
 
     updateFields([...fields, { key, label, type: 'text', enabled: true, section: 'custom' }]);
     setNewKey('');

@@ -20,9 +20,8 @@ interface DebounceQueueRow {
 }
 
 /**
- * Legacy fallback: uses upsert with ON CONFLICT to avoid read-then-update race condition.
- * Note: this fallback does NOT atomically append — it replaces messages with [messageEntry].
- * The RPC append_ai_debounce_message is the preferred path.
+ * Legacy fallback: reads existing queue, appends in memory, writes back.
+ * Uses buildLegacyQueueUpdate to properly merge messages instead of replacing.
  */
 async function legacyQueueMessage(
   conversationId: string,
@@ -30,14 +29,24 @@ async function legacyQueueMessage(
   messageEntry: QueuedMessage,
   processAfter: string,
 ): Promise<DebounceQueueRow> {
-  // Atomic upsert: insert or update in a single operation (no read-then-write race)
+  // Try to read existing queue first
+  const { data: existing } = await supabase
+    .from('ai_debounce_queue')
+    .select('messages, processed, first_message_at')
+    .eq('conversation_id', conversationId)
+    .maybeSingle()
+
+  const merged = existing
+    ? buildLegacyQueueUpdate(existing as LegacyQueueState, messageEntry)
+    : { messages: [messageEntry], firstMessageAt: messageEntry.timestamp }
+
   const { data, error } = await supabase
     .from('ai_debounce_queue')
     .upsert({
       conversation_id: conversationId,
       instance_id: instanceId,
-      messages: [messageEntry],
-      first_message_at: messageEntry.timestamp,
+      messages: merged.messages,
+      first_message_at: merged.firstMessageAt,
       process_after: processAfter,
       processed: false,
     }, { onConflict: 'conversation_id' })
@@ -48,7 +57,7 @@ async function legacyQueueMessage(
     throw error || new Error('legacy_queue_upsert_failed')
   }
 
-  console.warn('[debounce] Used legacy upsert fallback — messages may not be fully appended')
+  console.warn('[debounce] Used legacy fallback with merge — RPC preferred')
   return data as DebounceQueueRow
 }
 
@@ -209,8 +218,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fire the delayed processing — EdgeRuntime keeps the isolate alive until this resolves
-    processAfterDelay()
+    // Fire the delayed processing — use waitUntil to keep isolate alive until promise resolves
+    // Without this, the promise can be garbage-collected before the debounce timer fires
+    const delayPromise = processAfterDelay()
+    if (typeof (globalThis as any).EdgeRuntime?.waitUntil === 'function') {
+      ;(globalThis as any).EdgeRuntime.waitUntil(delayPromise)
+    }
 
     return new Response(JSON.stringify({ ok: true, debounce_seconds: agent.debounce_seconds }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -14,15 +14,13 @@ interface BlockedNumbersConfigProps {
 export function BlockedNumbersConfig({ config, onChange }: BlockedNumbersConfigProps) {
   const numbers: string[] = config.blocked_numbers || [];
   const [newNumber, setNewNumber] = useState('');
-  const [newLabel, setNewLabel] = useState('');
 
   const addNumber = () => {
     const num = newNumber.trim().replace(/\D/g, '');
-    if (!num || num.length < 8) return;
+    if (!num || num.length < 10) return; // Brazilian numbers: 10+ digits (DDD + number)
     if (numbers.includes(num)) return;
     onChange({ blocked_numbers: [...numbers, num] });
     setNewNumber('');
-    setNewLabel('');
   };
 
   const removeNumber = (num: string) => {

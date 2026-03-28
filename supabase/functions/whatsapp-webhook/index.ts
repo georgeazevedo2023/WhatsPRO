@@ -294,7 +294,7 @@ Deno.serve(async (req) => {
       // Still need instance for token (media download etc)
       const { data: inboxData } = await supabase.from('inboxes').select('id, instance_id').eq('id', payloadInboxId).maybeSingle()
       if (inboxData) {
-        const { data: inst } = await supabase.from('instances').select('id, name, token').eq('id', inboxData.instance_id).maybeSingle()
+        const { data: inst } = await supabase.from('instances').select('id, name, token, user_id').eq('id', inboxData.instance_id).maybeSingle()
         instance = inst
       }
       if (!instance) {
@@ -327,7 +327,7 @@ Deno.serve(async (req) => {
 
       const { data: foundInstance } = await supabase
         .from('instances')
-        .select('id, name, token')
+        .select('id, name, token, user_id')
         .or(orConditions)
         .maybeSingle()
 
@@ -643,18 +643,13 @@ Deno.serve(async (req) => {
             .maybeSingle()
 
           if (!leadDb) {
-            const { data: instanceData } = await supabase
-              .from('instances')
-              .select('user_id, name')
-              .eq('id', instance.id)
-              .single()
-
-            if (instanceData) {
+            // Reuse instance data already loaded (includes user_id, name) — avoids redundant query
+            if (instance?.user_id && instance?.name) {
               const { data: newDb } = await supabase
                 .from('lead_databases')
                 .upsert({
-                  name: `Helpdesk - ${instanceData.name}`,
-                  user_id: instanceData.user_id,
+                  name: `Helpdesk - ${instance.name}`,
+                  user_id: instance.user_id,
                   instance_id: instance.id,
                   leads_count: 0,
                 }, { onConflict: 'instance_id' })

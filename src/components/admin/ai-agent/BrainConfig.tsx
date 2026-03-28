@@ -80,7 +80,10 @@ Informações da empresa:
               <Input
                 type="number"
                 value={config.max_tokens || 1024}
-                onChange={(e) => onChange({ max_tokens: parseInt(e.target.value) || 1024 })}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value);
+                  if (!isNaN(v)) onChange({ max_tokens: Math.min(8192, Math.max(100, v)) });
+                }}
                 min={100}
                 max={8192}
               />
@@ -115,7 +118,10 @@ Informações da empresa:
               <Input
                 type="number"
                 value={config.debounce_seconds || 10}
-                onChange={(e) => onChange({ debounce_seconds: parseInt(e.target.value) || 10 })}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value);
+                  if (!isNaN(v)) onChange({ debounce_seconds: Math.min(30, Math.max(3, v)) });
+                }}
                 min={3}
                 max={30}
               />

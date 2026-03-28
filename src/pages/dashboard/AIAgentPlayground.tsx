@@ -441,6 +441,12 @@ const AIAgentPlayground = () => {
           </div>
         </div>
 
+        {/* ══════ Simulation Warning ══════ */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 flex-shrink-0">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          <p className="text-[10px] leading-tight">Resultados simulados — tools não executam ações reais (sem WhatsApp, sem DB). Comportamento em produção pode variar.</p>
+        </div>
+
         {/* ══════ Overrides Panel ══════ */}
         {showOverrides && (
           <Card className="flex-shrink-0 border-primary/20 bg-primary/5">

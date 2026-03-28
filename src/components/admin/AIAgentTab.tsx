@@ -114,25 +114,50 @@ export default function AIAgentTab() {
   useEffect(() => () => clearTimeout(autoSaveTimerRef.current), []);
 
   // ── Auto-save logic ─────────────────────────────────────────────────
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+
   const doSave = useCallback(async (silent = false) => {
     const agentId = selectedAgentIdRef.current;
     const cfg = configRef.current;
     if (!agentId) return;
 
+    // If already saving, mark as pending so we re-save after current completes
+    if (savingRef.current) {
+      pendingSaveRef.current = true;
+      return;
+    }
+
+    savingRef.current = true;
+    pendingSaveRef.current = false;
     setSaveStatus('saving');
     try {
       const updateData: Record<string, any> = {};
       for (const key of ALLOWED_FIELDS) {
-        if (key in cfg) updateData[key] = cfg[key];
+        if (key in cfg) updateData[key] = (cfg as any)[key];
       }
-      const { error } = await supabase.from('ai_agents').update(updateData).eq('id', agentId);
+      const { data, error } = await supabase
+        .from('ai_agents')
+        .update(updateData)
+        .eq('id', agentId)
+        .select('id')
+        .single();
       if (error) throw error;
+      if (!data) throw new Error('Nenhuma linha atualizada — verifique permissões');
       setSaveStatus('saved');
       if (!silent) toast.success('Salvo!');
       setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 3000);
     } catch (err) {
       setSaveStatus('error');
       if (!silent) handleError(err, 'Erro ao salvar', 'Save AI agent');
+      else console.error('[AI Agent] auto-save failed:', err);
+    } finally {
+      savingRef.current = false;
+      // If changes arrived while saving, flush them now
+      if (pendingSaveRef.current) {
+        pendingSaveRef.current = false;
+        doSave(true);
+      }
     }
   }, []);
 
@@ -146,7 +171,8 @@ export default function AIAgentTab() {
     // Debounced auto-save (2s)
     clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(() => doSave(true), 2000);
-    setSaveStatus('idle');
+    // Only reset to idle if not currently saving
+    setSaveStatus(prev => prev === 'saving' ? prev : 'idle');
   }, [doSave]);
 
   // Flush pending auto-save on tab change
