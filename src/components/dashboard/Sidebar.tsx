@@ -553,8 +553,6 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           '/dashboard/ai-agent',
           <>
             {renderSubItem('/dashboard/ai-agent', 'Configuracao', Bot)}
-            {renderSubItem('/dashboard/ai-agent/catalog', 'Catalogo', Package)}
-            {renderSubItem('/dashboard/ai-agent/knowledge', 'Conhecimento', BookOpen)}
             {renderSubItem('/dashboard/ai-agent/playground', 'Playground', Play)}
           </>
         )}

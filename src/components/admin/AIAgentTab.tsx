@@ -1,9 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useInstances } from '@/hooks/useInstances';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -11,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Bot, BrainCircuit, Save, Loader2, Plus, Package, BookOpen, ShieldAlert, ShieldOff, ShieldBan, Mic, Scan, BarChart3, Users, MoreVertical, Copy, Trash2, Pencil, RefreshCw, Building2 } from 'lucide-react';
+import { Bot, BrainCircuit, Save, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { GeneralConfig } from './ai-agent/GeneralConfig';
@@ -37,15 +35,35 @@ interface AIAgent {
   context_long_enabled: boolean; [key: string]: any;
 }
 
+const TABS = [
+  { id: 'setup', label: 'Setup', icon: Store },
+  { id: 'intelligence', label: 'Inteligencia', icon: BrainCircuit },
+  { id: 'catalog', label: 'Catalogo', icon: Package },
+  { id: 'knowledge', label: 'Conhecimento', icon: BookOpen },
+  { id: 'security', label: 'Seguranca', icon: Shield },
+  { id: 'channels', label: 'Canais', icon: Mic },
+  { id: 'metrics', label: 'Metricas', icon: BarChart3 },
+] as const;
+
+const ALLOWED_FIELDS = [
+  'instance_id', 'enabled', 'name', 'greeting_message', 'personality', 'system_prompt',
+  'sub_agents', 'model', 'temperature', 'max_tokens', 'debounce_seconds',
+  'handoff_triggers', 'handoff_cooldown_minutes', 'handoff_max_conversation_minutes',
+  'handoff_negative_sentiment', 'blocked_topics', 'max_discount_percent', 'blocked_phrases',
+  'voice_enabled', 'voice_max_text_length', 'voice_reply_to_audio', 'voice_name', 'context_short_messages', 'context_long_enabled',
+  'business_hours', 'out_of_hours_message', 'extraction_fields', 'blocked_numbers',
+  'extraction_address_enabled', 'handoff_message',
+  'follow_up_enabled', 'follow_up_rules', 'business_info',
+];
+
 export default function AIAgentTab() {
   const { instances } = useInstances();
   const [agents, setAgents] = useState<AIAgent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [config, setConfig] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
-  const [activeTab, setActiveTab] = useState('general');
+  const [activeTab, setActiveTab] = useState('setup');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -54,6 +72,13 @@ export default function AIAgentTab() {
   const [newAgentName, setNewAgentName] = useState('');
   const [newAgentInstanceId, setNewAgentInstanceId] = useState('');
   const [newAgentNiche, setNewAgentNiche] = useState('homecenter');
+
+  // Auto-save refs
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const configRef = useRef(config);
+  const selectedAgentIdRef = useRef(selectedAgentId);
+  configRef.current = config;
+  selectedAgentIdRef.current = selectedAgentId;
 
   const fetchAgents = useCallback(async () => {
     setLoading(true);
@@ -79,72 +104,65 @@ export default function AIAgentTab() {
     if (selectedAgentId && agents.length > 0) {
       const agent = agents.find(a => a.id === selectedAgentId);
       if (agent) setConfig({ ...agent });
-      setHasChanges(false);
+      setSaveStatus('idle');
     }
   }, [selectedAgentId, agents]);
 
-  const handleChange = (updates: Record<string, any>) => {
-    setConfig(prev => ({ ...prev, ...updates }));
-    setHasChanges(true);
-  };
+  // Cleanup auto-save timer on unmount
+  useEffect(() => () => clearTimeout(autoSaveTimerRef.current), []);
 
-  const ALLOWED_FIELDS = [
-    'instance_id', 'enabled', 'name', 'greeting_message', 'personality', 'system_prompt',
-    'sub_agents', 'model', 'temperature', 'max_tokens', 'debounce_seconds',
-    'handoff_triggers', 'handoff_cooldown_minutes', 'handoff_max_conversation_minutes',
-    'handoff_negative_sentiment', 'blocked_topics', 'max_discount_percent', 'blocked_phrases',
-    'voice_enabled', 'voice_max_text_length', 'voice_reply_to_audio', 'voice_name', 'context_short_messages', 'context_long_enabled',
-    'business_hours', 'out_of_hours_message', 'extraction_fields', 'blocked_numbers',
-    'extraction_address_enabled', 'handoff_message',
-    'follow_up_enabled', 'follow_up_rules', 'business_info',
-  ];
+  // ── Auto-save logic ─────────────────────────────────────────────────
+  const doSave = useCallback(async (silent = false) => {
+    const agentId = selectedAgentIdRef.current;
+    const cfg = configRef.current;
+    if (!agentId) return;
 
-  const handleSave = async () => {
-    if (!selectedAgentId) return;
-
-    // Validate critical fields
-    if (!config.system_prompt?.trim()) {
-      toast.error('System Prompt é obrigatório');
-      return;
-    }
-    if (!config.greeting_message?.trim()) {
-      toast.error('Mensagem de Saudação é obrigatória');
-      return;
-    }
-    if (config.temperature != null && (config.temperature < 0 || config.temperature > 2)) {
-      toast.error('Temperatura deve estar entre 0 e 2');
-      return;
-    }
-    if (config.max_tokens != null && (config.max_tokens < 50 || config.max_tokens > 8192)) {
-      toast.error('Max Tokens deve estar entre 50 e 8192');
-      return;
-    }
-
-    setSaving(true);
+    setSaveStatus('saving');
     try {
       const updateData: Record<string, any> = {};
       for (const key of ALLOWED_FIELDS) {
-        if (key in config) updateData[key] = config[key];
+        if (key in cfg) updateData[key] = cfg[key];
       }
-      const { error } = await supabase.from('ai_agents').update(updateData).eq('id', selectedAgentId);
+      const { error } = await supabase.from('ai_agents').update(updateData).eq('id', agentId);
       if (error) throw error;
-      toast.success('Agente salvo!');
-      setHasChanges(false);
-      fetchAgents();
+      setSaveStatus('saved');
+      if (!silent) toast.success('Salvo!');
+      setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 3000);
     } catch (err) {
-      handleError(err, 'Erro ao salvar agente', 'Save AI agent');
-    } finally {
-      setSaving(false);
+      setSaveStatus('error');
+      if (!silent) handleError(err, 'Erro ao salvar', 'Save AI agent');
     }
+  }, []);
+
+  const handleChange = useCallback((updates: Record<string, any>) => {
+    setConfig(prev => {
+      const next = { ...prev, ...updates };
+      configRef.current = next;
+      return next;
+    });
+
+    // Debounced auto-save (2s)
+    clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => doSave(true), 2000);
+    setSaveStatus('idle');
+  }, [doSave]);
+
+  // Flush pending auto-save on tab change
+  const handleTabChange = (tab: string) => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      doSave(true);
+    }
+    setActiveTab(tab);
   };
 
-  // Available instances (not used by other agents)
+  // ── Agent CRUD ───────────────────────────────────────────────────────
   const usedInstanceIds = agents.map(a => a.instance_id);
   const availableInstances = (instances || []).filter(i => !usedInstanceIds.includes(i.id));
 
   const openCreateDialog = () => {
     if (availableInstances.length === 0) {
-      toast.error('Todas as instâncias já têm um agente configurado');
+      toast.error('Todas as instancias ja tem um agente configurado');
       return;
     }
     setNewAgentName('');
@@ -154,7 +172,7 @@ export default function AIAgentTab() {
   };
 
   const handleCreate = async () => {
-    if (!newAgentInstanceId) { toast.error('Selecione uma instância'); return; }
+    if (!newAgentInstanceId) { toast.error('Selecione uma instancia'); return; }
     const name = newAgentName.trim() || `Agente ${instances?.find(i => i.id === newAgentInstanceId)?.name || ''}`;
     const template = NICHE_TEMPLATES.find(t => t.id === newAgentNiche && t.available);
     const nicheConfig = template && template.id !== 'custom' ? template.config : {};
@@ -163,8 +181,6 @@ export default function AIAgentTab() {
         .insert({ instance_id: newAgentInstanceId, name, ...nicheConfig })
         .select().single();
       if (error) throw error;
-
-      // Create suggested labels in the instance's inbox
       if (template?.suggested_labels?.length) {
         const { data: inbox } = await supabase.from('inboxes')
           .select('id').eq('instance_id', newAgentInstanceId).maybeSingle();
@@ -174,7 +190,6 @@ export default function AIAgentTab() {
           }
         }
       }
-
       toast.success(template && template.id !== 'custom'
         ? `Agente criado com template ${template.name}!`
         : 'Agente criado!');
@@ -188,16 +203,16 @@ export default function AIAgentTab() {
 
   const handleDuplicate = async (agent: AIAgent) => {
     if (availableInstances.length === 0) {
-      toast.error('Nenhuma instância disponível para duplicar');
+      toast.error('Nenhuma instancia disponivel para duplicar');
       return;
     }
     try {
       const { id, created_at, updated_at, instance_id, ...copyData } = agent;
       const { data, error } = await supabase.from('ai_agents')
-        .insert({ ...copyData, instance_id: availableInstances[0].id, name: `${agent.name} (Cópia)` })
+        .insert({ ...copyData, instance_id: availableInstances[0].id, name: `${agent.name} (Copia)` })
         .select().single();
       if (error) throw error;
-      toast.success('Agente duplicado! Altere a instância vinculada.');
+      toast.success('Agente duplicado!');
       setSelectedAgentId(data.id);
       fetchAgents();
     } catch (err) {
@@ -210,7 +225,7 @@ export default function AIAgentTab() {
     try {
       const { error } = await supabase.from('ai_agents').delete().eq('id', deleteTarget.id);
       if (error) throw error;
-      toast.success('Agente excluído');
+      toast.success('Agente excluido');
       setDeleteDialogOpen(false);
       setDeleteTarget(null);
       if (selectedAgentId === deleteTarget.id) {
@@ -250,18 +265,31 @@ export default function AIAgentTab() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {hasChanges && (
-            <Badge variant="outline" className="text-xs text-warning border-warning/30">Não salvo</Badge>
+          {/* Auto-save status indicator */}
+          {saveStatus === 'saving' && (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Salvando...
+            </span>
+          )}
+          {saveStatus === 'saved' && (
+            <span className="flex items-center gap-1.5 text-xs text-green-500">
+              <Check className="w-3.5 h-3.5" /> Salvo
+            </span>
+          )}
+          {saveStatus === 'error' && (
+            <span className="flex items-center gap-1.5 text-xs text-destructive cursor-pointer" onClick={() => doSave(false)}>
+              <AlertCircle className="w-3.5 h-3.5" /> Erro — clique para tentar
+            </span>
           )}
           {selectedAgentId && (
-            <Button onClick={handleSave} disabled={saving || !hasChanges} className="gap-2">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Salvar
+            <Button variant="ghost" size="sm" onClick={() => doSave(false)} className="gap-1.5 text-xs">
+              <Save className="w-3.5 h-3.5" /> Salvar
             </Button>
           )}
           <Button variant="outline" className="gap-2" onClick={openCreateDialog}>
             <Plus className="w-4 h-4" />
-            Novo Agente
+            <span className="hidden sm:inline">Novo Agente</span>
+            <span className="sm:hidden">Novo</span>
           </Button>
         </div>
       </div>
@@ -274,7 +302,7 @@ export default function AIAgentTab() {
           </div>
           <div>
             <p className="font-semibold">Nenhum agente configurado</p>
-            <p className="text-sm text-muted-foreground mt-1">Crie um agente para começar a responder automaticamente</p>
+            <p className="text-sm text-muted-foreground mt-1">Crie um agente para comecar a responder automaticamente</p>
           </div>
           <Button onClick={openCreateDialog} className="gap-2">
             <Plus className="w-4 h-4" /> Criar Primeiro Agente
@@ -307,7 +335,6 @@ export default function AIAgentTab() {
                         <p className="text-[11px] text-muted-foreground truncate">{instName}</p>
                       </div>
                     </div>
-
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={e => e.stopPropagation()}>
@@ -315,7 +342,7 @@ export default function AIAgentTab() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setSelectedAgentId(agent.id); setActiveTab('general'); }}>
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setSelectedAgentId(agent.id); setActiveTab('setup'); }}>
                           <Pencil className="w-4 h-4 mr-2" /> Editar
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDuplicate(agent); }}>
@@ -331,7 +358,6 @@ export default function AIAgentTab() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-
                   <div className="flex items-center gap-1.5 mt-2">
                     {agent.enabled ? (
                       <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px]">Ativo</Badge>
@@ -344,94 +370,110 @@ export default function AIAgentTab() {
             })}
           </div>
 
-          {/* Config tabs */}
+          {/* Config sections */}
           {selectedAgentId && (
             <>
               <div className="border-t border-border/50 pt-4">
                 <p className="text-xs text-muted-foreground mb-3">
-                  Configurando: <strong>{selectedAgent?.name}</strong> · Instância: <Badge variant="outline" className="text-[10px] ml-1">{instanceName}</Badge>
+                  Configurando: <strong>{selectedAgent?.name}</strong> · Instancia: <Badge variant="outline" className="text-[10px] ml-1">{instanceName}</Badge>
                 </p>
               </div>
 
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <div className="relative">
-                  <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 z-10 bg-gradient-to-r from-background to-transparent" />
-                  <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 z-10 bg-gradient-to-l from-background to-transparent" />
-                  <ScrollArea className="w-full" type="scroll">
-                    <div className="px-1">
-                      <TabsList className="inline-flex h-auto w-max gap-1.5 bg-transparent p-0 py-1">
-                        <TabsTrigger value="general" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Bot className="w-4 h-4 shrink-0" />Geral</TabsTrigger>
-                        <TabsTrigger value="business" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Building2 className="w-4 h-4 shrink-0" />Empresa</TabsTrigger>
-                        <TabsTrigger value="brain" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><BrainCircuit className="w-4 h-4 shrink-0" />Cérebro</TabsTrigger>
-                        <TabsTrigger value="catalog" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Package className="w-4 h-4 shrink-0" />Catálogo</TabsTrigger>
-                        <TabsTrigger value="knowledge" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><BookOpen className="w-4 h-4 shrink-0" />Conhecimento</TabsTrigger>
-                        <TabsTrigger value="rules" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><ShieldAlert className="w-4 h-4 shrink-0" />Regras</TabsTrigger>
-                        <TabsTrigger value="guardrails" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><ShieldOff className="w-4 h-4 shrink-0" />Guardrails</TabsTrigger>
-                        <TabsTrigger value="blocked-numbers" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><ShieldBan className="w-4 h-4 shrink-0" />Bloqueios</TabsTrigger>
-                        <TabsTrigger value="voice" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Mic className="w-4 h-4 shrink-0" />Voz</TabsTrigger>
-                        <TabsTrigger value="extraction" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Scan className="w-4 h-4 shrink-0" />Extração</TabsTrigger>
-                        <TabsTrigger value="sub-agents" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><Users className="w-4 h-4 shrink-0" />Sub-Agentes</TabsTrigger>
-                        <TabsTrigger value="follow-up" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><RefreshCw className="w-4 h-4 shrink-0" />Follow-up</TabsTrigger>
-                        <TabsTrigger value="metrics" className="shrink-0 gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:border-primary/20"><BarChart3 className="w-4 h-4 shrink-0" />Métricas</TabsTrigger>
-                      </TabsList>
-                    </div>
-                    <ScrollBar orientation="horizontal" className="h-1.5" />
-                  </ScrollArea>
-                </div>
+              {/* Tab navigation — 7 grouped tabs */}
+              <div className="flex flex-wrap gap-1.5">
+                {TABS.map(tab => {
+                  const Icon = tab.icon;
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => handleTabChange(tab.id)}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        isActive
+                          ? 'bg-primary/10 text-primary border border-primary/20'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="hidden sm:inline">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
-                <TabsContent value="general" className="mt-6">
-                  <GeneralConfig config={config} onChange={handleChange} instances={instances || []} />
-                </TabsContent>
-                <TabsContent value="business" className="mt-6">
-                  <BusinessInfoConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="brain" className="mt-6">
-                  <BrainConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="catalog" className="mt-6">
+              {/* Tab content */}
+              <div className="mt-2">
+                {/* SETUP: Geral + Empresa */}
+                {activeTab === 'setup' && (
+                  <div className="space-y-6">
+                    <GeneralConfig config={config} onChange={handleChange} instances={instances || []} />
+                    <BusinessInfoConfig config={config} onChange={handleChange} />
+                  </div>
+                )}
+
+                {/* INTELIGENCIA: Cerebro + Sub-agentes + Extracao */}
+                {activeTab === 'intelligence' && (
+                  <div className="space-y-6">
+                    <BrainConfig config={config} onChange={handleChange} />
+                    <SubAgentsConfig config={config} onChange={handleChange} />
+                    <ExtractionConfig config={config} onChange={handleChange} />
+                  </div>
+                )}
+
+                {/* CATALOGO */}
+                {activeTab === 'catalog' && (
                   <CatalogConfig agentId={selectedAgentId} />
-                </TabsContent>
-                <TabsContent value="knowledge" className="mt-6">
+                )}
+
+                {/* CONHECIMENTO */}
+                {activeTab === 'knowledge' && (
                   <KnowledgeConfig agentId={selectedAgentId} />
-                </TabsContent>
-                <TabsContent value="rules" className="mt-6">
-                  <RulesConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="guardrails" className="mt-6">
-                  <GuardrailsConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="blocked-numbers" className="mt-6">
-                  <BlockedNumbersConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="voice" className="mt-6">
-                  <VoiceConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="extraction" className="mt-6">
-                  <ExtractionConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="sub-agents" className="mt-6">
-                  <SubAgentsConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="follow-up" className="mt-6">
-                  <FollowUpConfig config={config} onChange={handleChange} />
-                </TabsContent>
-                <TabsContent value="metrics" className="mt-6">
-                  {selectedAgentId && <MetricsConfig agentId={selectedAgentId} />}
-                </TabsContent>
-              </Tabs>
+                )}
+
+                {/* SEGURANCA: Regras + Guardrails + Bloqueios */}
+                {activeTab === 'security' && (
+                  <div className="space-y-6">
+                    <RulesConfig config={config} onChange={handleChange} />
+                    <GuardrailsConfig config={config} onChange={handleChange} />
+                    <BlockedNumbersConfig config={config} onChange={handleChange} />
+                  </div>
+                )}
+
+                {/* CANAIS: Voz + Follow-up */}
+                {activeTab === 'channels' && (
+                  <div className="space-y-6">
+                    <VoiceConfig config={config} onChange={handleChange} />
+                    <FollowUpConfig config={config} onChange={handleChange} />
+                  </div>
+                )}
+
+                {/* METRICAS */}
+                {activeTab === 'metrics' && (
+                  <MetricsConfig agentId={selectedAgentId} />
+                )}
+              </div>
             </>
           )}
         </>
       )}
 
+      {/* Mobile sticky save indicator */}
+      {selectedAgentId && saveStatus === 'saving' && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 md:hidden bg-background/95 backdrop-blur border rounded-full px-4 py-2 shadow-lg">
+          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" /> Salvando...
+          </span>
+        </div>
+      )}
+
       {/* Create Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Novo Agente de IA</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-xs">Nome do Agente</Label>
                 <Input
@@ -456,11 +498,9 @@ export default function AIAgentTab() {
                 </Select>
               </div>
             </div>
-
-            {/* Niche selector */}
             <div className="space-y-2">
               <Label className="text-xs">Nicho do negocio</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {NICHE_TEMPLATES.map(niche => (
                   <button
                     key={niche.id}
@@ -485,7 +525,6 @@ export default function AIAgentTab() {
                 ))}
               </div>
             </div>
-
             {availableInstances.length === 0 && (
               <p className="text-xs text-destructive">Todas as instancias ja tem agente</p>
             )}
@@ -505,7 +544,7 @@ export default function AIAgentTab() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir agente "{deleteTarget?.name}"?</AlertDialogTitle>
             <AlertDialogDescription>
-              Todas as configurações, catálogo, conhecimento e logs deste agente serão perdidos. Esta ação não pode ser desfeita.
+              Todas as configuracoes, catalogo, conhecimento e logs deste agente serao perdidos. Esta acao nao pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
