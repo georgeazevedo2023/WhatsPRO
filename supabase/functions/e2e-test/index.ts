@@ -107,22 +107,18 @@ Deno.serve(async (req) => {
       const step = steps[i]
       const stepStart = Date.now()
 
+      // Count outgoing msgs BEFORE this step (to detect new ones after)
+      const { count: outgoingBefore } = await supabase.from('conversation_messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('conversation_id', conversation.id).eq('direction', 'outgoing')
+
       // 1. Save incoming message to DB (simulates webhook)
       await supabase.from('conversation_messages').insert({
         conversation_id: conversation.id, direction: 'incoming',
         content: step.content, media_type: step.media_type || 'text',
       })
 
-      // 2. Send "typing" via UAZAPI (optional, for realism)
-      try {
-        await fetchWithTimeout(`${uazapiUrl}/chat/presence`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'token': instance.token },
-          body: JSON.stringify({ id: testJid, presence: 'composing' }),
-        }, 3000)
-      } catch { /* non-critical */ }
-
-      // 3. Call ai-agent directly (bypasses debounce for test speed)
+      // 2. Call ai-agent directly and WAIT for response
       let agentResult: any = null
       try {
         const agentResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/ai-agent`, {
@@ -134,13 +130,15 @@ Deno.serve(async (req) => {
             agent_id,
             messages: [{ content: step.content, media_type: step.media_type || 'text', media_url: null, direction: 'incoming', timestamp: new Date().toISOString() }],
           }),
-        }, 30000) // 30s timeout for LLM
+        }, 45000) // 45s timeout for LLM + UAZAPI
         agentResult = await agentResp.json()
       } catch (e) {
         agentResult = { error: e instanceof Error ? e.message : 'timeout' }
       }
 
-      // 4. Read agent's response from DB (what was actually sent)
+      // 3. Wait a bit for DB writes to settle, then read agent's NEW response
+      await new Promise(r => setTimeout(r, 1000))
+
       const { data: agentMsgs } = await supabase.from('conversation_messages')
         .select('content, media_type, direction, created_at')
         .eq('conversation_id', conversation.id)
@@ -148,11 +146,15 @@ Deno.serve(async (req) => {
         .order('created_at', { ascending: false })
         .limit(3)
 
-      // 5. Read tags and logs
+      // Get only NEW outgoing messages (skip ones from before this step)
+      const newMsgs = (agentMsgs || []).slice(0, (agentMsgs?.length || 0) - (outgoingBefore || 0))
+      const agentResponse = newMsgs[0]?.content || agentResult?.greeting || agentResult?.response || null
+
+      // 4. Read tags and logs for THIS step
       const [{ data: convState }, { data: logs }] = await Promise.all([
         supabase.from('conversations').select('tags, status_ia, assigned_to').eq('id', conversation.id).single(),
         supabase.from('ai_agent_logs').select('event, tool_calls, latency_ms, input_tokens, output_tokens')
-          .eq('conversation_id', conversation.id).eq('agent_id', agent_id).order('created_at', { ascending: false }).limit(5),
+          .eq('conversation_id', conversation.id).eq('agent_id', agent_id).order('created_at', { ascending: false }).limit(3),
       ])
 
       const toolCalls = (logs || []).filter(l => l.tool_calls?.length).flatMap(l => l.tool_calls as any[])
@@ -161,7 +163,7 @@ Deno.serve(async (req) => {
         step: i + 1,
         input: step.content,
         media_type: step.media_type || 'text',
-        agent_response: agentMsgs?.[0]?.content || agentResult?.greeting || null,
+        agent_response: agentResponse,
         agent_raw: agentResult,
         tools_used: [...new Set(toolCalls.map((tc: any) => tc.name))],
         tags: convState?.tags || [],

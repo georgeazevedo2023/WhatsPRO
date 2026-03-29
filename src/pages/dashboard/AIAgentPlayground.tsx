@@ -554,14 +554,8 @@ const AIAgentPlayground = () => {
     setE2eRunning(true);
     setE2eCurrentScenario(scenario.id);
     setE2eSelectedScenario(scenario);
-    // Show live progress: add steps one by one as "sending"
-    setE2eLiveSteps(scenario.steps.map((s, i) => ({ step: i + 1, input: s.content, media_type: s.media_type || 'text', status: 'pending' as string, agent_response: null, tools_used: [], tags: [], latency_ms: 0 })));
-
-    // Mark steps as sending one by one for visual feedback
-    for (let i = 0; i < scenario.steps.length; i++) {
-      setE2eLiveSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'sending' } : s));
-      await new Promise(r => setTimeout(r, 500)); // brief visual
-    }
+    // Show live progress
+    setE2eLiveSteps(scenario.steps.map((s, i) => ({ step: i + 1, input: s.content, media_type: s.media_type || 'text', status: 'sending' as string, agent_response: null, tools_used: [], tags: [], latency_ms: 0 })));
 
     try {
       const { data, error } = await supabase.functions.invoke('e2e-test', {
