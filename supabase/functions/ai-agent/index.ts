@@ -590,36 +590,50 @@ Use update_lead_profile para salvar nome, cidade e interesses.
 NÃO gere resposta para o usuário. Apenas extraia dados.
 ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_fields.filter((f: any) => f.enabled).map((f: any) => f.label).join(', ')}` : ''}`
 
-      const shadowTools = [{
-        function_declarations: [
-          { name: 'set_tags', description: 'Adiciona tags à conversa', parameters: { type: 'OBJECT', properties: { tags: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Tags formato chave:valor' } }, required: ['tags'] } },
-          { name: 'update_lead_profile', description: 'Atualiza perfil do lead', parameters: { type: 'OBJECT', properties: { full_name: { type: 'STRING' }, city: { type: 'STRING' }, interests: { type: 'ARRAY', items: { type: 'STRING' } }, notes: { type: 'STRING' }, objections: { type: 'ARRAY', items: { type: 'STRING' } } } } },
-        ],
-      }]
+      const shadowToolDefs: LLMToolDef[] = [
+        {
+          name: 'set_tags',
+          description: 'Adiciona tags a conversa no formato chave:valor',
+          parameters: {
+            type: 'object',
+            properties: {
+              tags: { type: 'array', items: { type: 'string' }, description: 'Tags formato chave:valor' },
+            },
+            required: ['tags'],
+          },
+        },
+        {
+          name: 'update_lead_profile',
+          description: 'Atualiza perfil do lead com dados coletados',
+          parameters: {
+            type: 'object',
+            properties: {
+              full_name: { type: 'string' },
+              city: { type: 'string' },
+              interests: { type: 'array', items: { type: 'string' } },
+              notes: { type: 'string' },
+              objections: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      ]
 
-      const geminiModel = agent.model || 'gemini-2.5-flash'
-      const shadowUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`
+      try {
+        const shadowResult = await callLLM({
+          systemPrompt: shadowPrompt,
+          messages: [{ role: 'user' as const, content: incomingText }],
+          tools: shadowToolDefs,
+          temperature: 0.2,
+          maxTokens: 256,
+          model: agent.model || 'gemini-2.5-flash',
+        })
 
-      const shadowRes = await fetchWithTimeout(shadowUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: shadowPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: incomingText }] }],
-          tools: shadowTools,
-          generationConfig: { temperature: 0.2, maxOutputTokens: 256 },
-        }),
-      })
-
-      if (shadowRes.ok) {
-        const shadowData = await shadowRes.json()
-        const parts = shadowData?.candidates?.[0]?.content?.parts || []
-        for (const p of parts) {
-          if (p.functionCall) {
-            const { name, args } = p.functionCall
-            await executeShadowTool(name, args || {})
-          }
+        for (const tc of shadowResult.toolCalls) {
+          await executeShadowTool(tc.name, tc.args || {})
         }
+      } catch (shadowErr) {
+        // Circuit breaker already tracked the failure in callLLM — just log and continue
+        console.warn('[ai-agent] Shadow mode LLM failed:', (shadowErr as Error).message)
       }
 
       await supabase.from('ai_agent_logs').insert({
@@ -1433,6 +1447,7 @@ Exemplos de objeções:
     }
 
     // 15. Call LLM API with function calling loop (OpenAI primary, Gemini fallback)
+    // gpt-4.1-mini is a valid OpenAI model ID (released 2025-04-14, pinned alias: gpt-4.1-mini-2025-04-14)
     const llmModel = agent.model || 'gpt-4.1-mini'
 
     console.log(`[ai-agent] Calling LLM for conversation ${conversation_id}`)
