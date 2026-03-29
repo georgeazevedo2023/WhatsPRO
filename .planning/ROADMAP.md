@@ -27,7 +27,7 @@ Plans:
 ---
 
 ### Phase 2: Blindagem do Webhook e Dedup de Greeting
-**Status**: [ ] Em planejamento
+**Status**: [x] COMPLETA (2/2 plans concluidos)
 **Prioridade**: CRITICA
 **Escopo**: `supabase/functions/whatsapp-webhook/index.ts`, `ai-agent/index.ts`, `agentHelpers.ts`, `process-jobs/index.ts`
 **Plans:** 2/2 plans complete
@@ -46,24 +46,28 @@ Plans:
 5. Padronizar error responses entre edge functions (extrair helper `unauthorizedResponse()`)
 
 **Criterios de Aceite**:
-- [ ] Greeting nunca duplica mesmo com requests simultaneos (teste de concorrencia)
-- [ ] Audio transcription tem retry via job_queue
-- [ ] Lead message limit e atomico (sem bypass por concorrencia)
-- [ ] mergeTags() em agentHelpers, importado por todas as funcoes que usam
+- [x] Greeting nunca duplica mesmo com requests simultaneos (teste de concorrencia)
+- [x] Audio transcription tem retry via job_queue
+- [x] Lead message limit e atomico (sem bypass por concorrencia)
+- [x] mergeTags() em agentHelpers, importado por todas as funcoes que usam
 
 ---
 
 ### Phase 3: Validacao Estrita de Formularios (Frontend)
-**Status**: [ ] Pendente
+**Status**: [ ] Em planejamento
 **Prioridade**: ALTA
 **Escopo**: `src/components/admin/ai-agent/`, `src/pages/dashboard/Settings.tsx`
+**Plans:** 1 plan
 
 **Objetivo**: Impedir dados invalidos de chegarem ao banco via formularios de configuracao do agente.
 
+Plans:
+- [ ] 03-01-PLAN.md — Zod schemas in AIAgentTab + inline errors in all config panels + phone validation in Settings.tsx
+
 **Tarefas**:
 1. Criar Zod schemas para cada painel de configuracao do agente:
-   - GuardrailsConfig: max_discount_percent (0-100), blocked_phrases (non-empty)
-   - BrainConfig: temperature (0.0-2.0), max_tokens (1-8192), model (enum valido)
+   - GuardrailsConfig: max_discount_percent (0-100)
+   - BrainConfig: temperature (0.0-1.0), max_tokens (100-8192), model (enum valido)
    - RulesConfig: handoff_cooldown (5-1440), max_lead_messages (1-50)
    - VoiceConfig: voice_max_text_length (10-500)
    - ExtractionConfig: custom key (regex alphanumeric), label (non-empty)
@@ -73,7 +77,7 @@ Plans:
 
 **Criterios de Aceite**:
 - [ ] Nenhum formulario aceita valores fora do range especificado
-- [ ] Telefones validados com regex brasileiro (11-13 digitos com DDI)
+- [ ] Telefones validados com regex brasileiro (10-13 digitos com DDI)
 - [ ] Erros de validacao mostrados inline no campo
 - [ ] Auto-save nao dispara com dados invalidos
 
