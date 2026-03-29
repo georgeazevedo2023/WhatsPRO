@@ -1216,9 +1216,9 @@ const AIAgentPlayground = () => {
           </TabsContent>
 
           {/* ══════ Tab: E2E Real ══════ */}
-          <TabsContent value="e2e" className="flex-1 min-h-0 mt-2">
+          <TabsContent value="e2e" className="flex-1 min-h-0 mt-2 flex flex-col">
             {/* Config bar */}
-            <div className="flex items-center gap-3 flex-wrap mb-3 flex-shrink-0">
+            <div className="flex items-center gap-3 flex-wrap mb-2 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">Numero:</span>
                 <Input value={e2eNumber} onChange={e => setE2eNumber(e.target.value)} className="w-[170px] h-8 text-sm font-mono" placeholder="5581999999999" />
@@ -1240,7 +1240,7 @@ const AIAgentPlayground = () => {
             </div>
 
             {/* 2-column layout: scenarios (left) + live execution (right) */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-3 h-[calc(100%-3rem)]">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-3 flex-1 min-h-0">
 
               {/* Left: Scenario gallery */}
               <div className="border border-border/50 rounded-xl bg-card/50 overflow-hidden flex flex-col min-h-0">
