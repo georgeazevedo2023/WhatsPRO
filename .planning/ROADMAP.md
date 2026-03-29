@@ -7,22 +7,22 @@
 ---
 
 ### Phase 1: Blindagem do LLM Provider e Circuit Breaker
-**Status**: [ ] Em Progresso (1/2 plans concluidos)
+**Status**: [x] COMPLETA (2/2 plans concluidos)
 **Prioridade**: CRITICA
-**Escopo**: `supabase/functions/_shared/llmProvider.ts`, `circuitBreaker.ts`, `ai-agent/index.ts`
-**Plans:** 1/2 plans executed
+**Escopo**: `supabase/functions/_shared/llmProvider.ts`, `circuitBreaker.ts`, `ai-agent/index.ts`, `ai-agent-debounce/index.ts`
+**Plans:** 2/2 plans executed
 
 **Objetivo**: Garantir que TODAS as chamadas LLM passem pelo circuit breaker e que o fallback chain funcione corretamente.
 
 Plans:
 - [x] 01-01-PLAN.md — Shadow mode circuit breaker fix + model ID audit + CB unit tests (DONE 2026-03-29)
-- [ ] 01-02-PLAN.md — Tool execution isolation + token ceiling + correlation IDs
+- [x] 01-02-PLAN.md — Tool execution isolation + token ceiling + correlation IDs (DONE 2026-03-29)
 
 **Criterios de Aceite**:
 - [x] Shadow mode usa callLLM() com circuit breaker
-- [ ] Tool execution failures nao causam loop infinito
-- [ ] Logs possuem correlation ID rastreavel do debounce ao LLM
-- [x] Testes unitarios cobrem cenarios de CircuitBreaker (11 tests)
+- [x] Tool execution failures nao causam loop infinito (executeToolSafe retorna string de erro)
+- [x] Logs possuem correlation ID rastreavel do debounce ao LLM (request_id via createLogger)
+- [x] Testes unitarios cobrem cenarios de CircuitBreaker (11 tests) e executeToolSafe pattern (3 tests)
 
 ---
 

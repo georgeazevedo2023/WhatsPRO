@@ -178,30 +178,41 @@
 
 ### Ultima Sessao
 - **Fase**: Phase 1 — Blindagem do LLM Provider e Circuit Breaker
-- **Plano Concluido**: 01-01-PLAN.md (Shadow mode circuit breaker fix + model ID audit + CB unit tests)
-- **Proximo**: 01-02-PLAN.md (Tool execution isolation + token ceiling + correlation IDs)
+- **Plano Concluido**: 01-02-PLAN.md (Tool execution isolation + token ceiling + correlation IDs)
+- **Proximo**: Phase 2 (Blindagem do Webhook e Dedup de Greeting)
 - **Timestamp**: 2026-03-29
 
 ### Ultimos 5 Commits
-1. `8014885` — test(01-01): add CircuitBreaker unit tests covering all state transitions
-2. `1c04c67` — feat(01-01): refactor shadow mode to use callLLM() with circuit breaker
-3. `0f82e08` — fix: E2E waits for ai-agent response before next step
-4. `a9adcd8` — fix: whitespace root cause — TabsContent needs data-[state=active]:flex
-5. `e242add` — fix: eliminate whitespace in ALL tabs — flex-1 min-h-0 propagation
+1. `497ee3d` — feat(01-02): wire correlation ID from debounce to ai-agent, add executeToolSafe tests
+2. `f0586a9` — feat(01-02): add executeToolSafe, token ceiling, correlation ID to ai-agent
+3. `8014885` — test(01-01): add CircuitBreaker unit tests covering all state transitions
+4. `1c04c67` — feat(01-01): refactor shadow mode to use callLLM() with circuit breaker
+5. `0f82e08` — fix: E2E waits for ai-agent response before next step
 
 ### Decisoes Tomadas
 - Shadow mode usa callLLM() com model: agent.model || 'gemini-2.5-flash' — roteia Gemini-first quando o modelo e gemini-*, OpenAI-first caso contrario
 - Shadow mode errors sao apenas logados (nao re-lançados) porque extracao de shadow e nao-critica
 - gpt-4.1-mini confirmado como model ID valido da OpenAI (lancado 2025-04-14)
 - vitest.config.ts extendido para cobrir supabase/functions/_shared/ tests
+- executeToolSafe retorna string de erro em portugues — LLM pode continuar conversa sem o resultado da tool
+- Token ceiling de 8192 faz trimming (nao break) — mantém ultimas 6 mensagens
+- request_id e o mesmo UUID no retry (cenario 5xx) — rastreabilidade completa da cadeia de retry
 
 ### Divida Tecnica Resolvida
 - **DT-01** (Nome de Modelo LLM Invalido): Confirmado gpt-4.1-mini como valido, comentario adicionado
 - **DT-02** (Shadow Mode Ignora Circuit Breaker): Shadow mode agora usa callLLM() com circuit breaker
+- **P1-03** (Tool execution sem isolamento): executeToolSafe wrapper adicionado
+- **P1-04** (Token ceiling ausente): MAX_ACCUMULATED_INPUT_TOKENS=8192 adicionado com trimming
+- **P1-05** (Correlation IDs ausentes): request_id flui do debounce para o ai-agent
+
+### Phase 1 Status
+- [x] 01-01-PLAN.md — Shadow mode circuit breaker fix + model ID audit + CB unit tests (DONE 2026-03-29)
+- [x] 01-02-PLAN.md — Tool execution isolation + token ceiling + correlation IDs (DONE 2026-03-29)
+- **Phase 1 COMPLETA** — Todos os planos executados
 
 ### Contexto
-- Trabalho recente focado em E2E testing + correcoes de layout (whitespace em tabs)
+- Trabalho recente focado em blindagem do AI Agent (circuit breaker, tool isolation, token ceiling, correlation IDs)
 - Playground v2 funcional com tool inspector
-- AI Agent operando com OpenAI (GPT-4.1) + Gemini fallback
-- Infra de testes E2E estabelecida (e2e-test, e2e-scheduled, PlaygroundEdgeCases.test.ts)
-- CircuitBreaker agora tem 11 testes unitarios cobrindo todas as transicoes de estado
+- AI Agent operando com OpenAI (GPT-4.1) + Gemini fallback, totalmente protegido pelo circuit breaker
+- Infra de testes: 24 testes unitarios para shared functions (11 CircuitBreaker + 13 aiRuntime), 148 total na suite
+- executeToolSafe garante que falhas de DB/network em tools retornam string de erro ao LLM, sem retry desnecessario
