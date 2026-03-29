@@ -6,6 +6,7 @@ import {
   createQueuedMessage,
   type QueuedMessage,
 } from '../_shared/aiRuntime.ts'
+import { createLogger } from '../_shared/logger.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -81,6 +82,8 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json()
     const { conversation_id, instance_id, message, contact_jid } = body
+    const request_id = crypto.randomUUID()
+    const log = createLogger('ai-agent-debounce', request_id)
 
     if (!conversation_id || !instance_id) {
       return new Response(JSON.stringify({ error: 'conversation_id and instance_id required' }), {
@@ -167,13 +170,13 @@ Deno.serve(async (req) => {
           .maybeSingle()
 
         if (!claimed) {
-          console.log(`[debounce] Timer fired but queue already processed or reset for ${conversation_id}`)
+          log.info('Timer fired but queue already processed', { conversation_id })
           return
         }
 
         const claimedMessages = (claimed.messages as QueuedMessage[] | null) || []
         const msgCount = claimedMessages.length || 0
-        console.log(`[debounce] Debounce expired, calling ai-agent for ${conversation_id} with ${msgCount} messages`)
+        log.info('Debounce expired, calling ai-agent', { conversation_id, msg_count: msgCount })
 
         const agentResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/ai-agent`, {
           method: 'POST',
@@ -182,12 +185,13 @@ Deno.serve(async (req) => {
             conversation_id, instance_id,
             messages: claimedMessages,
             agent_id: agent.id,
+            request_id,  // NEW: correlation ID for end-to-end tracing
           }),
         })
 
         // Retry once on 5xx (ai-agent might be cold-starting)
         if (agentResp.status >= 500 && agentResp.status < 600) {
-          console.warn(`[debounce] ai-agent returned ${agentResp.status}, retrying in 2s...`)
+          log.warn('ai-agent returned error, retrying', { status: agentResp.status })
           await new Promise(r => setTimeout(r, 2000))
           const retryResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/ai-agent`, {
             method: 'POST',
@@ -196,17 +200,20 @@ Deno.serve(async (req) => {
               conversation_id, instance_id,
               messages: claimedMessages,
               agent_id: agent.id,
+              request_id,  // Same correlation ID on retry
             }),
           })
           const retryResult = await retryResp.json()
-          console.log(`[debounce] ai-agent retry:`, retryResp.status, JSON.stringify(retryResult).substring(0, 200))
+          log.info('ai-agent response', { status: retryResp.status })
+          console.log(`[debounce] ai-agent retry result:`, JSON.stringify(retryResult).substring(0, 200))
           return
         }
 
         const result = await agentResp.json()
-        console.log(`[debounce] ai-agent response:`, agentResp.status, JSON.stringify(result).substring(0, 200))
+        log.info('ai-agent response', { status: agentResp.status })
+        console.log(`[debounce] ai-agent result:`, JSON.stringify(result).substring(0, 200))
       } catch (err) {
-        console.error('[debounce] Error calling ai-agent:', err)
+        log.error('Error calling ai-agent', { error: (err as Error).message })
         // Mark as unprocessed so it can be retried by a cleanup job (best effort)
         try {
           await supabase
