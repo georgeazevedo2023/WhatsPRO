@@ -879,7 +879,7 @@ const AIAgentPlayground = () => {
           </TabsList>
 
           {/* ══════ Tab: Chat Manual ══════ */}
-          <TabsContent value="manual" className="flex-1 flex flex-col min-h-0 mt-2">
+          <TabsContent value="manual" className="flex-1 min-h-0">
             {/* Overrides */}
             {showOverrides && (
               <Card className="flex-shrink-0 border-primary/20 bg-primary/5 mb-2">
@@ -936,7 +936,7 @@ const AIAgentPlayground = () => {
           </TabsContent>
 
           {/* ══════ Tab: Cenarios ══════ */}
-          <TabsContent value="scenarios" className="flex-1 min-h-0 mt-2 flex flex-col">
+          <TabsContent value="scenarios" className="flex-1 min-h-0">
             <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_300px] gap-3 flex-1 min-h-0">
 
               {/* Left: Gallery */}
@@ -1151,7 +1151,7 @@ const AIAgentPlayground = () => {
           </TabsContent>
 
           {/* ══════ Tab: Resultados ══════ */}
-          <TabsContent value="results" className="flex-1 min-h-0 mt-2 flex flex-col">
+          <TabsContent value="results" className="flex-1 min-h-0">
             <div className="border border-border/50 rounded-xl bg-card/50 flex-1 min-h-0 flex flex-col overflow-hidden">
               {/* Summary stats */}
               {runHistory.length > 0 && (
@@ -1216,7 +1216,7 @@ const AIAgentPlayground = () => {
           </TabsContent>
 
           {/* ══════ Tab: E2E Real ══════ */}
-          <TabsContent value="e2e" className="flex-1 min-h-0 mt-2 flex flex-col">
+          <TabsContent value="e2e" className="flex-1 min-h-0">
             {/* Config bar */}
             <div className="flex items-center gap-3 flex-wrap mb-2 flex-shrink-0">
               <div className="flex items-center gap-2">
