@@ -406,8 +406,15 @@ Quando o lead expressar uma objeção, SEMPRE:
       })
     }
 
+    // On first interaction, prepend the configured greeting to the response
+    // (in production this is sent separately via UAZAPI; in playground we simulate it inline)
+    const isFirstTurn = !hasAssistantMsg && !!agent.greeting_message
+    const finalResponse = isFirstTurn
+      ? `${agent.greeting_message}\n\n${responseText}`
+      : responseText
+
     return new Response(JSON.stringify({
-      ok: true, response: responseText,
+      ok: true, response: finalResponse, greeting_sent: isFirstTurn || undefined,
       tokens: { input: inputTokens, output: outputTokens },
       latency_ms: Date.now() - startTime,
       tool_calls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
