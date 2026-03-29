@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { shouldTriggerAiAgentFromWebhook } from '../_shared/aiRuntime.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { unauthorizedResponse } from '../_shared/auth.ts'
 
 // Module-level singleton: reuse connection pool across requests in same Deno isolate
 const supabase = createClient(
@@ -83,15 +84,16 @@ Deno.serve(async (req) => {
   const startMs = Date.now()
 
   try {
-    // Validate webhook secret token (if configured)
+    // Validate webhook secret token (if configured — STRONGLY recommended for production)
     const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
+    if (!webhookSecret) {
+      console.warn(`[${reqId}] WEBHOOK_SECRET not set — webhook is unprotected. Configure it in Admin > Secrets.`)
+    }
     if (webhookSecret) {
       const incomingToken = req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace('Bearer ', '')
       if (incomingToken !== webhookSecret) {
         console.warn(`[${reqId}] Invalid webhook secret`)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return unauthorizedResponse(corsHeaders)
       }
     }
 
@@ -313,14 +315,16 @@ Deno.serve(async (req) => {
       // Find instance by name, id, or owner_jid (with AND without suffix)
       // Also check payload.owner field as fallback (UAZAPI sends owner phone number)
       const ownerField = payload.owner || message?.owner || ''
-      const ownerClean = instanceName.replace('@s.whatsapp.net', '')
+      // Sanitize instance identifiers to prevent PostgREST filter injection
+      const sanitize = (s: string) => s.replace(/[,()]/g, '')
+      const ownerClean = sanitize(instanceName.replace('@s.whatsapp.net', ''))
       const ownerWithSuffix = `${ownerClean}@s.whatsapp.net`
 
-      let orConditions = `id.eq.${instanceName},name.eq.${instanceName},owner_jid.eq.${ownerClean},owner_jid.eq.${ownerWithSuffix}`
+      let orConditions = `id.eq.${ownerClean},name.eq.${ownerClean},owner_jid.eq.${ownerClean},owner_jid.eq.${ownerWithSuffix}`
 
       // Add owner field as additional lookup (phone number of the instance)
       if (ownerField && ownerField !== instanceName) {
-        const ownerFieldClean = ownerField.replace('@s.whatsapp.net', '')
+        const ownerFieldClean = sanitize(ownerField.replace('@s.whatsapp.net', ''))
         const ownerFieldWithSuffix = `${ownerFieldClean}@s.whatsapp.net`
         orConditions += `,owner_jid.eq.${ownerFieldClean},owner_jid.eq.${ownerFieldWithSuffix}`
       }

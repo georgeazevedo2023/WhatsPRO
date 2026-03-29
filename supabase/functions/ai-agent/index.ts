@@ -6,6 +6,7 @@ import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '..
 import { STATUS_IA } from '../_shared/constants.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
+import { unauthorizedResponse } from '../_shared/auth.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -176,9 +177,7 @@ Deno.serve(async (req) => {
     const token = authHeader?.replace('Bearer ', '')
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
     if (!token || token !== anonKey) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return unauthorizedResponse(corsHeaders)
     }
 
     const body = await req.json()
@@ -681,13 +680,20 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     // Send greeting: new lead (static greeting) OR returning lead (personalized welcome-back)
     if ((shouldGreet && !isReturningLead) || isReturningLead) {
       // Atomic greeting deduplication via advisory lock RPC
-      const { data: greetResult } = await supabase
+      const { data: greetResult, error: greetError } = await supabase
         .rpc('try_insert_greeting', {
           p_conversation_id: conversation_id,
           p_content: greetingText,
           p_external_id: `ai_greeting_${Date.now()}`,
         })
         .single()
+
+      if (greetError) {
+        log.warn('try_insert_greeting RPC failed — skipping greeting to avoid duplicate', { error: greetError.message })
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_rpc_error' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
 
       if (!greetResult?.inserted) {
         console.log('[ai-agent] Greeting duplicate detected (atomic lock) — skipping')
