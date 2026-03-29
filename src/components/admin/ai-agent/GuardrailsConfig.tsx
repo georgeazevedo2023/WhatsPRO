@@ -7,9 +7,10 @@ import { ShieldOff, Ban, Percent } from 'lucide-react';
 interface GuardrailsConfigProps {
   config: Record<string, any>;
   onChange: (updates: Record<string, any>) => void;
+  fieldErrors?: Record<string, string>;
 }
 
-export function GuardrailsConfig({ config, onChange }: GuardrailsConfigProps) {
+export function GuardrailsConfig({ config, onChange, fieldErrors }: GuardrailsConfigProps) {
   return (
     <div className="space-y-6">
       <Card>
@@ -67,6 +68,7 @@ export function GuardrailsConfig({ config, onChange }: GuardrailsConfigProps) {
             />
             <span className="text-sm text-muted-foreground shrink-0">%</span>
           </div>
+          {fieldErrors?.max_discount_percent && <p className="text-destructive text-xs mt-1">{fieldErrors.max_discount_percent}</p>}
         </CardContent>
       </Card>
     </div>

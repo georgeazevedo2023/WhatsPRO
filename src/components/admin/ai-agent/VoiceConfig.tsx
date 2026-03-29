@@ -24,9 +24,10 @@ const DEFAULT_PREVIEW_TEXT = 'Olá! Sou o assistente virtual. Como posso te ajud
 interface VoiceConfigProps {
   config: Record<string, any>;
   onChange: (updates: Record<string, any>) => void;
+  fieldErrors?: Record<string, string>;
 }
 
-export function VoiceConfig({ config, onChange }: VoiceConfigProps) {
+export function VoiceConfig({ config, onChange, fieldErrors }: VoiceConfigProps) {
   const [previewText, setPreviewText] = useState(DEFAULT_PREVIEW_TEXT);
   const [generating, setGenerating] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -180,10 +181,11 @@ export function VoiceConfig({ config, onChange }: VoiceConfigProps) {
           <div className="space-y-1.5">
             <Label className="text-xs">Tamanho máximo para áudio (caracteres)</Label>
             <Input
-              type="number" min={50} max={500}
+              type="number" min={10} max={500}
               value={config.voice_max_text_length || 150}
               onChange={(e) => onChange({ voice_max_text_length: parseInt(e.target.value) || 150 })}
             />
+            {fieldErrors?.voice_max_text_length && <p className="text-destructive text-xs mt-1">{fieldErrors.voice_max_text_length}</p>}
             <p className="text-[11px] text-muted-foreground">
               Respostas com até {config.voice_max_text_length || 150} caracteres são enviadas como áudio.
               Acima disso, envia como texto. Recomendado: 150.

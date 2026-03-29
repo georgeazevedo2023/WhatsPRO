@@ -8,9 +8,10 @@ import { ShieldAlert, Clock, Frown, Timer, MessageSquare } from 'lucide-react';
 interface RulesConfigProps {
   config: Record<string, any>;
   onChange: (updates: Record<string, any>) => void;
+  fieldErrors?: Record<string, string>;
 }
 
-export function RulesConfig({ config, onChange }: RulesConfigProps) {
+export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps) {
   return (
     <div className="space-y-6">
       {/* Mensagem de transbordo */}
@@ -80,8 +81,21 @@ export function RulesConfig({ config, onChange }: RulesConfigProps) {
                 value={config.handoff_cooldown_minutes || 30}
                 onChange={(e) => onChange({ handoff_cooldown_minutes: parseInt(e.target.value) || 30 })}
               />
+              {fieldErrors?.handoff_cooldown_minutes && <p className="text-destructive text-xs mt-1">{fieldErrors.handoff_cooldown_minutes}</p>}
               <p className="text-[11px] text-muted-foreground">IA fica "dormindo" por este período. Max: 1440 (24h).</p>
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Max. mensagens do lead antes do handoff</Label>
+            <Input
+              type="number"
+              min={1}
+              max={50}
+              value={config.max_lead_messages ?? 8}
+              onChange={(e) => onChange({ max_lead_messages: parseInt(e.target.value) || 8 })}
+            />
+            {fieldErrors?.max_lead_messages && <p className="text-destructive text-xs mt-1">{fieldErrors.max_lead_messages}</p>}
+            <p className="text-xs text-muted-foreground">Após esse número de mensagens, transfere automaticamente para humano (1-50)</p>
           </div>
         </CardContent>
       </Card>
