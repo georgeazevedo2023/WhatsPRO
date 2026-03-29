@@ -402,7 +402,13 @@ const AIAgentPlayground = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* ── New state ── */
-  const [activeTab, setActiveTab] = useState<'manual' | 'scenarios' | 'results'>('manual');
+  const [activeTab, setActiveTab] = useState<'manual' | 'scenarios' | 'results' | 'e2e'>('manual');
+
+  /* ── E2E state ── */
+  const [e2eNumber, setE2eNumber] = useState('5581985749970');
+  const [e2eRunning, setE2eRunning] = useState(false);
+  const [e2eResults, setE2eResults] = useState<any[]>([]);
+  const [e2eCurrentScenario, setE2eCurrentScenario] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<ScenarioCategory | 'all'>('all');
   const [scenarioSearch, setScenarioSearch] = useState('');
   const [selectedScenario, setSelectedScenario] = useState<TestScenario | null>(null);
@@ -539,6 +545,48 @@ const AIAgentPlayground = () => {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const testGuardrail = (topic: string) => { setInput(`O que voce acha sobre ${topic}? Me fala tudo sobre ${topic}`); inputRef.current?.focus(); };
+
+  /* ── E2E test runner ── */
+  const runE2eScenario = async (scenario: TestScenario) => {
+    if (e2eRunning || !selectedAgentId || !selectedAgent?.instance_id) return;
+    setE2eRunning(true);
+    setE2eCurrentScenario(scenario.id);
+    try {
+      const { data, error } = await supabase.functions.invoke('e2e-test', {
+        body: {
+          agent_id: selectedAgentId,
+          instance_id: selectedAgent.instance_id,
+          test_number: e2eNumber,
+          steps: scenario.steps.map(s => ({ content: s.content, media_type: s.media_type || 'text' })),
+        },
+      });
+      if (error) throw error;
+
+      const toolsUsed = (data?.results || []).flatMap((r: any) => r.tools_used || []);
+      const uniqueTools = [...new Set(toolsUsed)];
+      const expected = scenario.expected;
+      const tools_missing = expected.tools_must_use.filter(t => !uniqueTools.includes(t));
+      const tools_unexpected = expected.tools_must_not_use.filter(t => uniqueTools.includes(t));
+      const handoff = uniqueTools.includes('handoff_to_human');
+      const pass = tools_missing.length === 0 && tools_unexpected.length === 0
+        && (expected.should_handoff ? handoff : true);
+
+      setE2eResults(prev => [{
+        id: crypto.randomUUID().substring(0, 8),
+        scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category,
+        timestamp: new Date(), pass, tools_used: uniqueTools, tools_missing, tools_unexpected,
+        handoff, steps: data?.results || [], total_latency_ms: data?.total_latency_ms || 0,
+        conversation_id: data?.conversation_id,
+      }, ...prev]);
+      toast.success(pass ? `E2E PASSOU: ${scenario.name}` : `E2E FALHOU: ${scenario.name}`, { duration: 5000 });
+    } catch (err: any) {
+      toast.error(`E2E erro: ${err?.message || 'falha na execucao'}`);
+      setE2eResults(prev => [{ id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass: false, error: err?.message, steps: [], total_latency_ms: 0 }, ...prev]);
+    } finally {
+      setE2eRunning(false);
+      setE2eCurrentScenario(null);
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
@@ -823,6 +871,7 @@ const AIAgentPlayground = () => {
             <TabsTrigger value="manual" className="gap-1.5 text-xs"><MessageSquare className="w-3.5 h-3.5" />Chat Manual</TabsTrigger>
             <TabsTrigger value="scenarios" className="gap-1.5 text-xs"><Layers className="w-3.5 h-3.5" />Cenarios<Badge variant="secondary" className="ml-1 text-[9px] px-1">{TEST_SCENARIOS.length}</Badge></TabsTrigger>
             <TabsTrigger value="results" className="gap-1.5 text-xs"><BarChart3 className="w-3.5 h-3.5" />Resultados{runHistory.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] px-1">{runHistory.length}</Badge>}</TabsTrigger>
+            <TabsTrigger value="e2e" className="gap-1.5 text-xs"><Zap className="w-3.5 h-3.5 text-amber-400" />E2E Real{e2eResults.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] px-1">{e2eResults.length}</Badge>}</TabsTrigger>
           </TabsList>
 
           {/* ══════ Tab: Chat Manual ══════ */}
@@ -1159,6 +1208,116 @@ const AIAgentPlayground = () => {
                   </div>
                 )}
               </ScrollArea>
+            </div>
+          </TabsContent>
+
+          {/* ══════ Tab: E2E Real ══════ */}
+          <TabsContent value="e2e" className="flex-1 min-h-0 mt-2">
+            <div className="border border-border/50 rounded-xl bg-card/50 h-full flex flex-col overflow-hidden">
+              {/* Config bar */}
+              <div className="p-4 border-b border-border/50 flex items-center gap-3 flex-wrap flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Numero WhatsApp:</span>
+                  <Input value={e2eNumber} onChange={e => setE2eNumber(e.target.value)} className="w-[180px] h-8 text-sm font-mono" placeholder="5581999999999" />
+                </div>
+                <Badge variant="outline" className="text-xs gap-1"><Bot className="w-3 h-3" />{selectedAgent?.name}</Badge>
+                <div className="flex-1" />
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500">
+                  <Zap className="w-3.5 h-3.5" />
+                  <span className="text-[11px]">Mensagens REAIS enviadas via WhatsApp + Gemini</span>
+                </div>
+              </div>
+
+              <ScrollArea className="flex-1">
+                <div className="p-4">
+                  {/* Scenarios by category */}
+                  <div className="space-y-6">
+                    {(Object.entries(CATEGORY_META) as [ScenarioCategory, typeof CATEGORY_META[ScenarioCategory]][]).map(([catKey, catMeta]) => {
+                      const catScenarios = TEST_SCENARIOS.filter(s => s.category === catKey);
+                      if (catScenarios.length === 0) return null;
+                      return (
+                        <div key={catKey}>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-xl">{catMeta.emoji}</span>
+                            <span className="text-sm font-semibold">{catMeta.label}</span>
+                            <Badge variant="outline" className="text-[9px]">{catScenarios.length} cenario(s)</Badge>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {catScenarios.map(scenario => {
+                              const isRunning = e2eCurrentScenario === scenario.id;
+                              const result = e2eResults.find(r => r.scenario_id === scenario.id);
+                              return (
+                                <Card key={scenario.id} className={`transition-all ${isRunning ? 'border-amber-500/50 animate-pulse' : result ? (result.pass ? 'border-emerald-500/30' : 'border-red-500/30') : 'border-border/30'}`}>
+                                  <CardContent className="p-3">
+                                    <div className="flex items-start justify-between gap-2 mb-2">
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium truncate">{scenario.name}</p>
+                                        <p className="text-[11px] text-muted-foreground line-clamp-1">{scenario.description}</p>
+                                      </div>
+                                      {result && (
+                                        <Badge className={`text-[9px] shrink-0 ${result.pass ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                          {result.pass ? 'PASS' : 'FAIL'}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Badge className={`text-[8px] px-1.5 ${DIFFICULTY_COLORS[scenario.difficulty]}`}>{scenario.difficulty}</Badge>
+                                      <span className="text-[10px] text-muted-foreground">{scenario.steps.length} steps</span>
+                                      {result?.total_latency_ms && <span className="text-[10px] text-muted-foreground">{(result.total_latency_ms / 1000).toFixed(1)}s</span>}
+                                      <div className="flex-1" />
+                                      <Button size="sm" variant={isRunning ? 'secondary' : 'outline'} className="h-6 text-[10px] gap-1 px-2" disabled={e2eRunning} onClick={() => runE2eScenario(scenario)}>
+                                        {isRunning ? <><Loader2 className="w-3 h-3 animate-spin" />Rodando...</> : <><Play className="w-3 h-3" />Executar</>}
+                                      </Button>
+                                    </div>
+                                    {/* Expanded results */}
+                                    {result?.steps?.length > 0 && (
+                                      <Collapsible>
+                                        <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground mt-2 hover:text-foreground">
+                                          <ChevronDown className="w-3 h-3" />Ver detalhes ({result.steps.length} steps)
+                                        </CollapsibleTrigger>
+                                        <CollapsibleContent>
+                                          <div className="mt-2 space-y-1.5">
+                                            {result.steps.map((step: any, i: number) => (
+                                              <div key={i} className="text-[11px] p-2 rounded-lg bg-muted/30 border border-border/20">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                  <Badge variant="outline" className="text-[8px]">Step {step.step}</Badge>
+                                                  <span className="text-muted-foreground">{step.latency_ms}ms</span>
+                                                  {step.tools_used?.length > 0 && <span className="text-primary">{step.tools_used.join(', ')}</span>}
+                                                </div>
+                                                <p className="text-emerald-400 truncate"><strong>Lead:</strong> {step.input}</p>
+                                                <p className="text-foreground truncate"><strong>Agente:</strong> {step.agent_response || '(sem resposta)'}</p>
+                                                {step.tags?.length > 0 && <p className="text-muted-foreground">Tags: {step.tags.join(', ')}</p>}
+                                              </div>
+                                            ))}
+                                            {result.tools_missing?.length > 0 && <p className="text-[10px] text-red-400">Tools faltando: {result.tools_missing.join(', ')}</p>}
+                                            {result.tools_unexpected?.length > 0 && <p className="text-[10px] text-amber-400">Tools inesperadas: {result.tools_unexpected.join(', ')}</p>}
+                                          </div>
+                                        </CollapsibleContent>
+                                      </Collapsible>
+                                    )}
+                                    {result?.error && <p className="text-[10px] text-red-400 mt-1">Erro: {result.error}</p>}
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </ScrollArea>
+
+              {/* E2E summary bar */}
+              {e2eResults.length > 0 && (
+                <div className="p-3 border-t border-border/50 flex items-center gap-3 flex-shrink-0">
+                  <Badge variant="secondary" className="text-xs">{e2eResults.length} runs</Badge>
+                  <Badge variant="outline" className="text-xs text-emerald-400">{e2eResults.filter(r => r.pass).length} pass</Badge>
+                  <Badge variant="outline" className="text-xs text-red-400">{e2eResults.filter(r => !r.pass).length} fail</Badge>
+                  <div className="flex-1" />
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setE2eResults([])}>Limpar</Button>
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
