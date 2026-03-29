@@ -1,29 +1,12 @@
 /**
- * Tests for Playground v3 — scenario templates, computeResults logic, filtering
+ * Tests for scenario results — imports REAL computeScenarioResults from shared module.
  */
+import { computeScenarioResults, type ScenarioExpected } from '../../../../supabase/functions/_shared/agentHelpers.ts'
 
-/* ── Replicate types inline (avoid importing from TSX with JSX) ── */
-interface TestStep { content: string; media_type?: 'text' | 'image' | 'audio'; delay_ms?: number; }
-interface ExpectedOutcome { tools_must_use: string[]; tools_must_not_use: string[]; should_handoff: boolean; should_block: boolean; max_turns?: number; }
-interface TestScenario { id: string; name: string; category: string; description: string; difficulty: string; steps: TestStep[]; expected: ExpectedOutcome; tags?: string[]; }
-interface ChatMessage { id: string; role: 'user' | 'assistant' | 'system'; content: string; timestamp: Date; tool_calls?: { name: string; args: Record<string, unknown> }[]; tokens?: { input: number; output: number }; latency_ms?: number; }
+interface ChatMessage { id: string; role: string; content: string; timestamp: Date; tool_calls?: { name: string; args: Record<string, unknown> }[]; tokens?: { input: number; output: number }; latency_ms?: number; }
 
-/* ── Replicate computeResults (pure function, no React deps) ── */
-function computeResults(scenario: TestScenario, msgs: ChatMessage[]) {
-  const toolsUsed = msgs.filter(m => m.role === 'system' && m.tool_calls?.length).flatMap(m => m.tool_calls!.map(tc => tc.name));
-  const uniqueTools = [...new Set(toolsUsed)];
-  const assistantMsgs = msgs.filter(m => m.role === 'assistant');
-  const allContent = assistantMsgs.map(m => m.content.toLowerCase()).join(' ');
-  const handoff_occurred = uniqueTools.includes('handoff_to_human');
-  const blocked_occurred = allContent.includes('nao posso') || allContent.includes('nao consigo ajudar') || allContent.includes('nao e possivel') || allContent.includes('topico bloqueado');
-  const tools_missing = scenario.expected.tools_must_use.filter(t => !uniqueTools.includes(t));
-  const tools_unexpected = scenario.expected.tools_must_not_use.filter(t => uniqueTools.includes(t));
-  const tokens = msgs.reduce((acc, m) => ({ input: acc.input + (m.tokens?.input || 0), output: acc.output + (m.tokens?.output || 0) }), { input: 0, output: 0 });
-  const latency = msgs.reduce((sum, m) => sum + (m.latency_ms || 0), 0);
-  const pass = tools_missing.length === 0 && tools_unexpected.length === 0
-    && (scenario.expected.should_handoff ? handoff_occurred : true)
-    && (scenario.expected.should_block ? blocked_occurred : true);
-  return { tools_used: uniqueTools, tools_expected: scenario.expected.tools_must_use, tools_missing, tools_unexpected, handoff_occurred, blocked_occurred, total_tokens: tokens, total_latency_ms: latency, pass };
+function computeResults(scenario: { expected: ScenarioExpected }, msgs: ChatMessage[]) {
+  return computeScenarioResults(scenario.expected, msgs)
 }
 
 const mkMsg = (role: 'user' | 'assistant' | 'system', content: string, extras?: Partial<ChatMessage>): ChatMessage => ({

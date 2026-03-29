@@ -1,37 +1,7 @@
 /**
- * Tests for returning lead greeting feature.
- *
- * Covers:
- * - Template variable substitution ({nome})
- * - Returning lead detection logic
- * - First-time vs returning greeting selection
- * - Edge cases (no name, cleared context, etc.)
+ * Tests for returning lead greeting — imports REAL resolveGreetingText.
  */
-
-// ── Replicate the greeting template logic from ai-agent ──
-function resolveGreetingText(params: {
-  hasInteracted: boolean;       // recent 24h
-  hasEverInteracted: boolean;   // all time
-  leadFullName: string | null;
-  greetingMessage: string;
-  returningGreetingMessage: string | null;
-}): { text: string; type: 'new' | 'returning' | 'skip' } {
-  const { hasInteracted, hasEverInteracted, leadFullName, greetingMessage, returningGreetingMessage } = params;
-
-  const isReturningLead = !!leadFullName && hasEverInteracted && !hasInteracted;
-
-  if (isReturningLead) {
-    const template = returningGreetingMessage || 'Olá {nome}! Que bom te ver aqui de novo 😊 Em que posso te ajudar hoje?';
-    const text = template.replace(/\{nome\}/gi, leadFullName);
-    return { text, type: 'returning' };
-  }
-
-  if (!hasInteracted && greetingMessage) {
-    return { text: greetingMessage, type: 'new' };
-  }
-
-  return { text: '', type: 'skip' };
-}
+import { resolveGreetingText } from '../../../../../supabase/functions/_shared/agentHelpers.ts'
 
 // ─── Test 1: New lead gets standard greeting ──────────────────────
 describe('Returning lead greeting', () => {
