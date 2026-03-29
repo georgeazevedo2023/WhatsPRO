@@ -824,40 +824,23 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Trigger async transcription for incoming audio messages
-    // IMPORTANT: await with timeout to ensure the call actually reaches transcribe-audio
-    // (fire-and-forget was being dropped by the Edge Runtime before the fetch could complete)
+    // Enqueue audio transcription via job_queue (D-01: primary mechanism, not fallback)
     if (mediaType === 'audio' && mediaUrl && insertedMsg && direction === 'incoming') {
-      console.log('Triggering audio transcription for message:', insertedMsg.id, 'audioUrl:', mediaUrl.substring(0, 80))
-      const INTERNAL_KEY = Deno.env.get('INTERNAL_FUNCTION_KEY')
-      const SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-      const AUTH_KEY = INTERNAL_KEY || SVC_KEY
-      
-      console.log(`[webhook] Triggering audio transcription. Auth mode: ${INTERNAL_KEY ? 'internal' : 'service'}`)
-      
-      try {
-        const transcribeResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/transcribe-audio`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${AUTH_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messageId: insertedMsg.id,
-            audioUrl: mediaUrl,
-            mimeType: mediaMimetype || undefined,
-            conversationId: conversation.id,
-          }),
-        }, 90000) // 90s timeout — transcription can take a while
-        
-        if (!transcribeResp.ok) {
-          const errText = await transcribeResp.text()
-          console.error('Transcription call failed with status:', transcribeResp.status, 'body:', errText)
-        } else {
-          console.log('Transcription call successful status:', transcribeResp.status)
-        }
-      } catch (err) {
-        console.error('Transcription call failed:', err)
+      console.log('[webhook] Enqueueing audio transcription job for message:', insertedMsg.id)
+      const { error: jobErr } = await supabase.from('job_queue').insert({
+        job_type: 'transcribe_audio',
+        payload: {
+          messageId: insertedMsg.id,
+          audioUrl: mediaUrl,
+          mimeType: mediaMimetype || null,
+          conversationId: conversation.id,
+        },
+        status: 'pending',
+        attempts: 0,
+        max_retries: 1,
+      })
+      if (jobErr) {
+        console.error('[webhook] Failed to enqueue transcription job:', jobErr.message)
       }
     }
 

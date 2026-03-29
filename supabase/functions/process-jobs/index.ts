@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyCronOrService } from '../_shared/auth.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 
 /**
  * Background job processor — claims and processes queued jobs.
@@ -27,6 +28,7 @@ interface Job {
   job_type: string
   payload: Record<string, unknown>
   attempts: number
+  max_retries?: number
 }
 
 async function processLeadAutoAdd(job: Job): Promise<void> {
@@ -78,9 +80,41 @@ async function processProfilePicFetch(job: Job): Promise<void> {
   }
 }
 
+async function processTranscribeAudio(job: Job): Promise<void> {
+  const { messageId, audioUrl, mimeType, conversationId } = job.payload as Record<string, string>
+  if (!messageId || !audioUrl) {
+    throw new Error('Missing messageId or audioUrl in transcribe_audio job payload')
+  }
+
+  const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+  const INTERNAL_KEY = Deno.env.get('INTERNAL_FUNCTION_KEY')
+  const SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  const AUTH_KEY = INTERNAL_KEY || SVC_KEY
+
+  const resp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/transcribe-audio`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${AUTH_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messageId,
+      audioUrl,
+      mimeType: mimeType || undefined,
+      conversationId,
+    }),
+  }, 90000) // 90s timeout — transcription can take a while
+
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => 'no body')
+    throw new Error(`transcribe-audio returned ${resp.status}: ${errText}`)
+  }
+}
+
 const handlers: Record<string, (job: Job) => Promise<void>> = {
   lead_auto_add: processLeadAutoAdd,
   profile_pic_fetch: processProfilePicFetch,
+  transcribe_audio: processTranscribeAudio,
 }
 
 Deno.serve(async (req) => {
@@ -118,7 +152,7 @@ Deno.serve(async (req) => {
         log.error('Job failed', { job_id: job.id, job_type: jt, error: errMsg, attempt: job.attempts })
         await supabase.rpc('complete_job', {
           p_job_id: job.id,
-          p_status: job.attempts >= 3 ? 'failed' : 'pending',
+          p_status: job.attempts >= (job.max_retries ?? 3) ? 'failed' : 'pending',
           p_error: errMsg,
         })
         totalFailed++
