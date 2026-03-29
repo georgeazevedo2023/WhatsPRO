@@ -817,7 +817,7 @@ FLUXO SDR — QUALIFICAÇÃO INTELIGENTE:
 
 ${isReturningLead
   ? `CONTEXTO: Lead RECORRENTE. Nome: ${leadName}. Cumprimente pelo nome ("Olá ${leadName}, que bom te ver de novo!") e vá direto ao ponto. Se ele já pediu produto específico, busque imediatamente.`
-  : `CONTEXTO: Lead NOVO. A saudação "${greetingText}" já foi enviada. NÃO pergunte o nome — foque em ajudar com o produto/necessidade. Se o lead fornecer o nome espontaneamente, salve com update_lead_profile.`}
+  : `CONTEXTO: Lead NOVO. A saudação "${greetingText}" já foi enviada separadamente. NÃO cumprimente de novo. NÃO diga "olá", "oi", "bem-vindo" — vá direto ao assunto. NÃO pergunte o nome — foque em ajudar com o produto/necessidade. Se o lead fornecer o nome espontaneamente, salve com update_lead_profile.`}
 
 1. COLETA DE DADOS:
    - Nome → update_lead_profile(full_name) — salve EXATAMENTE o que informou, NUNCA duplique

@@ -144,7 +144,7 @@ FLUXO SDR — QUALIFICAÇÃO INTELIGENTE:
 
 ${isReturningLead
   ? `CONTEXTO: Lead RECORRENTE. Nome: ${leadName}. Cumprimente pelo nome e vá direto ao ponto.`
-  : `CONTEXTO: Lead NOVO. A saudação "${greetingText}" já foi enviada. NÃO pergunte o nome — foque em ajudar com o produto/necessidade. Se o lead fornecer o nome espontaneamente, salve com update_lead_profile.`}
+  : `CONTEXTO: Lead NOVO. A saudação "${greetingText}" já foi enviada separadamente. NÃO cumprimente de novo. NÃO diga "olá", "oi", "bem-vindo" — vá direto ao assunto. NÃO pergunte o nome — foque em ajudar com o produto/necessidade. Se o lead fornecer o nome espontaneamente, salve com update_lead_profile.`}
 
 1. COLETA DE DADOS:
    - Nome → update_lead_profile(full_name) — salve EXATAMENTE o que informou, NUNCA duplique
@@ -210,28 +210,25 @@ Quando o lead expressar uma objeção, SEMPRE:
 3. Se houver resposta na Base de Conhecimento acima, use-a. Senão, tente contornar com empatia e benefícios.
 4. Se não conseguir contornar após 2 tentativas, faça handoff_to_human.`
 
-    // ── Build conversation history (same strategy as production) ──
+    // ── Build conversation history ──
+    // Strategy: on first turn, DON'T inject greeting into geminiContents.
+    // The greeting is prepended to the final response (simulating UAZAPI send).
+    // Gemini sees only the user's message and responds to it directly.
+    // This prevents duplicate greetings and matches production behavior
+    // (where greeting is sent via UAZAPI BEFORE Gemini runs).
     const geminiContents: any[] = []
+    const isFirstTurn = !hasAssistantMsg && !!agent.greeting_message
 
-    if (!hasAssistantMsg && agent.greeting_message) {
-      geminiContents.push(
-        { role: 'user', parts: [{ text: (chatMessages || [])[0]?.content || 'oi' }] },
-        { role: 'model', parts: [{ text: agent.greeting_message }] },
-      )
-      // Add the user's actual message so Gemini responds to it (not repeats greeting)
-      const userText = (chatMessages || [])[0]?.content || 'oi'
-      geminiContents.push({ role: 'user', parts: [{ text: `O lead disse: "${userText}". Você já enviou a saudação acima. Agora responda à mensagem do lead SEM repetir a saudação.` }] })
+    // Detect if first message is just a greeting ("oi", "bom dia", etc.)
+    const greetingWords = ['oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite', 'eae', 'eai',
+      'hey', 'opa', 'fala', 'salve', 'oii', 'oie', 'hello', 'hi', 'bão', 'blz', 'tudo bem',
+      'tudo bom', 'boa', 'oi tudo bem', 'oi boa tarde', 'oi bom dia', 'oi boa noite', 'oie']
+    const firstText = ((chatMessages || [])[0]?.content || '').toLowerCase().replace(/[!?.,;:]/g, '').trim()
+    const isJustGreeting = isFirstTurn && greetingWords.some(g => firstText === g || firstText === g + ' ')
 
-      for (const m of (chatMessages || []).slice(1)) {
-        if (m.content?.trim()) {
-          geminiContents.push({ role: m.direction === 'incoming' ? 'user' : 'model', parts: [{ text: m.content }] })
-        }
-      }
-    } else {
-      for (const m of (chatMessages || [])) {
-        if (m.content?.trim()) {
-          geminiContents.push({ role: m.direction === 'incoming' ? 'user' : 'model', parts: [{ text: m.content }] })
-        }
+    for (const m of (chatMessages || [])) {
+      if (m.content?.trim()) {
+        geminiContents.push({ role: m.direction === 'incoming' ? 'user' : 'model', parts: [{ text: m.content }] })
       }
     }
 
@@ -239,6 +236,17 @@ Quando o lead expressar uma objeção, SEMPRE:
       return new Response(JSON.stringify({ ok: false, error: 'No messages to process' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    // If first message is just a greeting ("oi"), return ONLY the configured greeting
+    // (production does the same — sends greeting and stops, waits for substantive message)
+    if (isFirstTurn && isJustGreeting) {
+      return new Response(JSON.stringify({
+        ok: true, response: agent.greeting_message,
+        greeting_sent: true, just_greeting: true,
+        tokens: { input: 0, output: 0 }, latency_ms: Date.now() - startTime,
+        system_prompt_length: systemPrompt.length,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
     if (geminiContents[geminiContents.length - 1]?.role !== 'user') {
@@ -408,13 +416,18 @@ Quando o lead expressar uma objeção, SEMPRE:
 
     // On first interaction, prepend the configured greeting to the response
     // (in production this is sent separately via UAZAPI; in playground we simulate it inline)
-    const isFirstTurn = !hasAssistantMsg && !!agent.greeting_message
-    const finalResponse = isFirstTurn
-      ? `${agent.greeting_message}\n\n${responseText}`
-      : responseText
+    // If lead only said "oi", return JUST the greeting (production stops here too)
+    let finalResponse = responseText
+    if (isFirstTurn) {
+      finalResponse = isJustGreeting
+        ? agent.greeting_message!
+        : `${agent.greeting_message}\n\n${responseText}`
+    }
 
     return new Response(JSON.stringify({
-      ok: true, response: finalResponse, greeting_sent: isFirstTurn || undefined,
+      ok: true, response: finalResponse,
+      greeting_sent: isFirstTurn || undefined,
+      just_greeting: (isFirstTurn && isJustGreeting) || undefined,
       tokens: { input: inputTokens, output: outputTokens },
       latency_ms: Date.now() - startTime,
       tool_calls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
