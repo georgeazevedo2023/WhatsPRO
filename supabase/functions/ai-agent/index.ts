@@ -463,17 +463,16 @@ Deno.serve(async (req) => {
       sessionStartDt = clearedTags[clearedTags.length - 1].replace('ia_cleared:', '')
     }
 
-    // 5.6 Rate limit: auto-handoff after 8 lead messages (prevents infinite qualification loops)
+    // 5.6 Rate limit: atomic lead message counter + auto-handoff (D-06/D-07/D-09)
     const MAX_LEAD_MESSAGES = agent.max_lead_messages || 8
-    const { count: leadMsgCount } = await supabase
-      .from('conversation_messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('conversation_id', conversation_id)
-      .eq('direction', 'incoming')
-      .gte('created_at', sessionStartDt)
-    if ((leadMsgCount || 0) >= MAX_LEAD_MESSAGES) {
-      console.log(`[ai-agent] Lead message limit reached (${leadMsgCount}/${MAX_LEAD_MESSAGES}) — auto handoff`)
-      const handoffMsg = agent.handoff_message || 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado! 😊'
+    const { data: counterRow, error: counterErr } = await supabase
+      .rpc('increment_lead_msg_count', { p_conversation_id: conversation_id })
+      .single()
+    const leadMsgCount = counterErr ? 0 : (counterRow?.lead_msg_count ?? 0)
+
+    if (leadMsgCount >= MAX_LEAD_MESSAGES) {
+      log.info('Lead message limit reached — auto handoff', { count: leadMsgCount, max: MAX_LEAD_MESSAGES })
+      const handoffMsg = agent.handoff_message || 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado!'
       await sendTextMsg(handoffMsg)
       await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',

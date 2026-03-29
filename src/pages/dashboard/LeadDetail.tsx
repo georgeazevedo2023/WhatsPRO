@@ -3,7 +3,6 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useInstances } from '@/hooks/useInstances';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +12,7 @@ import { LeadHistorySection } from '@/components/leads/LeadHistorySection';
 import { LeadTimelineSection } from '@/components/leads/LeadTimelineSection';
 import { LeadFilesSection } from '@/components/leads/LeadFilesSection';
 import { ConversationModal } from '@/components/leads/ConversationModal';
-import { ArrowLeft, MapPin, Settings2, Eye, Trash2, Loader2, Save, Contact2, ExternalLink, Activity } from 'lucide-react';
+import { ArrowLeft, MapPin, Settings2, Trash2, Loader2, Save, Contact2, ExternalLink, Activity } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import type { ActionEvent, MediaFile, ExtractionField } from '@/components/leads/types';
@@ -71,16 +70,16 @@ const LeadDetail = () => {
         setContact(contactData);
 
         // 2. Lead profile
-        const { data: profile } = await supabase
-          .from('lead_profiles')
+        const { data: profile } = await (supabase
+          .from('lead_profiles' as any)
           .select('*')
           .eq('contact_id', contactId)
-          .maybeSingle();
+          .maybeSingle() as any);
         setLeadProfile(profile);
 
         // Init editable fields
         initialLoadRef.current = true;
-        const lp = profile || {};
+        const lp = (profile || {}) as any;
         setEditOrigin(lp.origin || '');
         setEditEmail(lp.email || '');
         setEditDocument(lp.document || '');
@@ -89,24 +88,24 @@ const LeadDetail = () => {
         setEditCustom(lp.custom_fields || {});
 
         // 3. Conversations
-        const { data: convs } = await supabase
+        const { data: convs } = await (supabase
           .from('conversations')
           .select('id, status, tags, last_message, last_message_at, ai_summary, created_at')
           .eq('contact_id', contactId)
-          .order('last_message_at', { ascending: false });
+          .order('last_message_at', { ascending: false }) as any);
         setConversations(convs || []);
 
-        // Aggregate tags
-        const allTags = [...new Set((convs || []).flatMap(c => c.tags || []))];
+        // Aggregate tags (filtering internal ones)
+        const allTags = [...new Set(((convs || []) as any[]).flatMap(c => c.tags || []))].filter(t => !t.toLowerCase().includes('ia_cleared'));
         setTags(allTags);
 
         // 4. Labels
         const convIds = (convs || []).map(c => c.id);
         if (convIds.length > 0) {
-          const { data: convLabels } = await supabase
+          const { data: convLabels } = await (supabase
             .from('conversation_labels')
             .select('conversation_id, labels(name)')
-            .in('conversation_id', convIds.slice(0, 500));
+            .in('conversation_id', convIds.slice(0, 500)) as any);
           const names = new Set<string>();
           for (const cl of (convLabels || [])) {
             if ((cl as any).labels?.name) names.add((cl as any).labels.name);
@@ -131,11 +130,11 @@ const LeadDetail = () => {
 
         // 6. Extraction fields
         if (instanceId) {
-          const { data: agent } = await supabase
-            .from('ai_agents')
+          const { data: agent } = await (supabase
+            .from('ai_agents' as any)
             .select('extraction_fields')
             .eq('instance_id', instanceId)
-            .maybeSingle();
+            .maybeSingle() as any);
           setExtractionFields((agent?.extraction_fields || []).filter((f: any) => f.enabled));
         }
 
@@ -154,13 +153,13 @@ const LeadDetail = () => {
 
         // 8. Action events
         if (convIds.length > 0) {
-          supabase
-            .from('ai_agent_logs')
+          (supabase
+            .from('ai_agent_logs' as any)
             .select('event, created_at, metadata, tool_calls')
             .in('conversation_id', convIds.slice(0, 100))
             .order('created_at', { ascending: false })
-            .limit(100)
-            .then(({ data }) => {
+            .limit(100) as any)
+            .then(({ data }: any) => {
               const events: ActionEvent[] = [];
               events.push({ date: contactData.created_at, type: 'contact', description: 'Primeiro contato' });
 
@@ -219,7 +218,7 @@ const LeadDetail = () => {
     if (!contactId) return;
     setSaveStatus('saving');
     try {
-      await supabase.from('lead_profiles').upsert({
+      await (supabase.from('lead_profiles' as any) as any).upsert({
         contact_id: contactId,
         origin: editOrigin || null,
         email: editEmail || null,
@@ -253,7 +252,7 @@ const LeadDetail = () => {
       const updated = current.includes(instId)
         ? current.filter((id: string) => id !== instId)
         : [...current, instId];
-      await supabase.from('contacts').update({ ia_blocked_instances: updated }).eq('id', contact.id);
+      await (supabase.from('contacts' as any) as any).update({ ia_blocked_instances: updated } as any).eq('id', contact.id);
       setContact({ ...contact, ia_blocked_instances: updated });
       toast.success(updated.includes(instId) ? 'IA bloqueada nesta instancia' : 'IA desbloqueada');
     } catch (err) {
@@ -264,24 +263,26 @@ const LeadDetail = () => {
   const handleClearContext = async () => {
     try {
       // Clear lead_profile: summaries, interests, notes, reason, full_name (reset everything)
-      await supabase.from('lead_profiles').upsert({
+      await (supabase.from('lead_profiles' as any) as any).upsert({
         contact_id: contactId,
         conversation_summaries: [], interests: null, notes: null,
         reason: null, full_name: null, average_ticket: null,
       }, { onConflict: 'contact_id' });
 
       // Clear conversations: tags, ai_summary + reactivate IA (status_ia → ligada)
-      const convIds = conversations.map((c: any) => c.id);
+      // Add 'ia_cleared:timestamp' so the AI agent counts only newer messages
+      const convIds = (conversations as any[]).map((c: any) => c.id);
       if (convIds.length > 0) {
-        await supabase.from('conversations').update({ tags: [], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
+        const clearTag = `ia_cleared:${new Date().toISOString()}`;
+        await (supabase.from('conversations') as any).update({ tags: [clearTag], ai_summary: null, status_ia: STATUS_IA.LIGADA, lead_msg_count: 0 }).in('id', convIds);
         // Delete ai_agent_logs
-        await supabase.from('ai_agent_logs').delete().in('conversation_id', convIds);
+        await (supabase.from('ai_agent_logs' as any) as any).delete().in('conversation_id', convIds);
       }
 
       // Also unblock IA on this contact (clear ia_blocked_instances)
       if (contact) {
-        await supabase.from('contacts').update({ ia_blocked_instances: [] }).eq('id', contact.id);
-        setContact({ ...contact, ia_blocked_instances: [] });
+        await (supabase.from('contacts' as any) as any).update({ ia_blocked_instances: [] }).eq('id', contact.id);
+        setContact({ ...contact, ia_blocked_instances: [] } as any);
       }
 
       // Reload all data to reflect cleared state
