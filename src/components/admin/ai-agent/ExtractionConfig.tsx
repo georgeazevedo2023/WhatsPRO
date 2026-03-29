@@ -56,6 +56,7 @@ export function ExtractionConfig({ config, onChange }: ExtractionConfigProps) {
 
   const [newKey, setNewKey] = useState('');
   const [newLabel, setNewLabel] = useState('');
+  const [keyError, setKeyError] = useState('');
 
   const addressEnabled = config.extraction_address_enabled ?? false;
 
@@ -82,6 +83,10 @@ export function ExtractionConfig({ config, onChange }: ExtractionConfigProps) {
   const addField = () => {
     const key = newKey.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     const label = newLabel.trim();
+    if (key && !/^[a-z][a-z0-9_]*$/.test(key)) {
+      setKeyError('Chave deve começar com letra, usar apenas letras, números e _');
+      return;
+    }
     if (!key || !label) {
       if (!key && newKey.trim()) toast?.error?.('Chave inválida — use apenas letras, números e _');
       return;
@@ -94,6 +99,7 @@ export function ExtractionConfig({ config, onChange }: ExtractionConfigProps) {
     updateFields([...fields, { key, label, type: 'text', enabled: true, section: 'custom' }]);
     setNewKey('');
     setNewLabel('');
+    setKeyError('');
   };
 
   const profileFields = fields.filter(f => f.section === 'profile' || (!f.section && PROFILE_FIELDS.some(d => d.key === f.key)));
@@ -184,12 +190,13 @@ export function ExtractionConfig({ config, onChange }: ExtractionConfigProps) {
                 <div className="border-t pt-3">
                   <Label className="text-xs text-muted-foreground mb-2 block">Adicionar campo</Label>
                   <div className="flex items-center gap-2">
-                    <Input value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="Chave" className="h-7 text-sm flex-1" />
+                    <Input value={newKey} onChange={(e) => { setNewKey(e.target.value); if (keyError) setKeyError(''); }} placeholder="Chave" className="h-7 text-sm flex-1" />
                     <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Nome" className="h-7 text-sm flex-1" />
                     <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={addField} disabled={!newKey.trim() || !newLabel.trim()}>
                       <Plus className="w-3 h-3" />
                     </Button>
                   </div>
+                  {keyError && <p className="text-destructive text-xs mt-1">{keyError}</p>}
                 </div>
               </AccordionContent>
             </AccordionItem>

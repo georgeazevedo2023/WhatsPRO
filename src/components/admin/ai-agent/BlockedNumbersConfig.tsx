@@ -14,13 +14,18 @@ interface BlockedNumbersConfigProps {
 export function BlockedNumbersConfig({ config, onChange }: BlockedNumbersConfigProps) {
   const numbers: string[] = config.blocked_numbers || [];
   const [newNumber, setNewNumber] = useState('');
+  const [numberError, setNumberError] = useState('');
 
   const addNumber = () => {
     const num = newNumber.trim().replace(/\D/g, '');
-    if (!num || num.length < 10) return; // Brazilian numbers: 10+ digits (DDD + number)
+    if (!num || !/^\d{10,15}$/.test(num)) {
+      setNumberError('Número inválido — use DDI+DDD+número (10-15 dígitos)');
+      return;
+    }
     if (numbers.includes(num)) return;
     onChange({ blocked_numbers: [...numbers, num] });
     setNewNumber('');
+    setNumberError('');
   };
 
   const removeNumber = (num: string) => {
@@ -68,7 +73,7 @@ export function BlockedNumbersConfig({ config, onChange }: BlockedNumbersConfigP
             <div className="flex items-center gap-2">
               <Input
                 value={newNumber}
-                onChange={e => setNewNumber(e.target.value)}
+                onChange={e => { setNewNumber(e.target.value); if (numberError) setNumberError(''); }}
                 placeholder="5511999999999"
                 className="h-8 text-sm flex-1 font-mono"
                 onKeyDown={e => e.key === 'Enter' && addNumber()}
@@ -78,6 +83,7 @@ export function BlockedNumbersConfig({ config, onChange }: BlockedNumbersConfigP
                 Adicionar
               </Button>
             </div>
+            {numberError && <p className="text-destructive text-xs mt-1">{numberError}</p>}
             <p className="text-[10px] text-muted-foreground mt-1.5">
               Digite o número com código do país (ex: 5511999999999). A IA não responderá mensagens deste número.
             </p>
