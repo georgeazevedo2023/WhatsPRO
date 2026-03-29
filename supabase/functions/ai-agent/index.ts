@@ -4,6 +4,7 @@ import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeou
 import { geminiBreaker, groqBreaker, mistralBreaker, uazapiBreaker } from '../_shared/circuitBreaker.ts'
 import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
 import { STATUS_IA } from '../_shared/constants.ts'
+import { createLogger } from '../_shared/logger.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -192,7 +193,8 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json()
-    const { conversation_id, instance_id, messages: queuedMessages, agent_id } = body
+    const { conversation_id, instance_id, messages: queuedMessages, agent_id, request_id } = body
+    const log = createLogger('ai-agent', request_id || crypto.randomUUID().substring(0, 8))
 
     if (!conversation_id || !instance_id || !agent_id) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -1446,11 +1448,22 @@ Exemplos de objeções:
       }
     }
 
+    /** Wraps executeTool to prevent DB/network failures from triggering LLM retries */
+    async function executeToolSafe(name: string, args: Record<string, any>): Promise<string> {
+      try {
+        return await executeTool(name, args)
+      } catch (err) {
+        const errMsg = (err as Error).message || 'unknown error'
+        console.error(`[ai-agent] Tool ${name} threw exception:`, errMsg)
+        return `Erro interno ao executar ${name}. Responda ao lead sem usar este resultado.`
+      }
+    }
+
     // 15. Call LLM API with function calling loop (OpenAI primary, Gemini fallback)
     // gpt-4.1-mini is a valid OpenAI model ID (released 2025-04-14, pinned alias: gpt-4.1-mini-2025-04-14)
     const llmModel = agent.model || 'gpt-4.1-mini'
 
-    console.log(`[ai-agent] Calling LLM for conversation ${conversation_id}`)
+    log.info('Calling LLM', { conversation_id, model: llmModel })
 
     // Convert Gemini-style contents to OpenAI-style messages
     let llmMessages: LLMMessage[] = geminiContents.map((c: any) => ({
@@ -1466,6 +1479,8 @@ Exemplos de objeções:
     const maxAttempts = 5
     const MAX_TOOL_ROUNDS = 3
     let toolRounds = 0
+    const MAX_ACCUMULATED_INPUT_TOKENS = 8192 // Safety ceiling for accumulated context across tool rounds
+    let totalInputTokens = 0
     let usedModel = llmModel
 
     while (attempts < maxAttempts) {
@@ -1486,6 +1501,15 @@ Exemplos de objeções:
         outputTokens += llmResult.outputTokens
         usedModel = llmResult.model
 
+        totalInputTokens += llmResult.inputTokens
+        if (totalInputTokens > MAX_ACCUMULATED_INPUT_TOKENS && toolRounds >= 1) {
+          log.warn('Token ceiling reached — trimming context', { totalInputTokens, ceiling: MAX_ACCUMULATED_INPUT_TOKENS, toolRounds })
+          // Keep only the last 3 exchange pairs (6 messages) to stay within bounds
+          if (llmMessages.length > 6) {
+            llmMessages = llmMessages.slice(-6)
+          }
+        }
+
         // Handle tool calls
         if (llmResult.toolCalls.length > 0) {
           const sideEffectTools = new Set(['send_carousel', 'send_media', 'handoff_to_human'])
@@ -1495,16 +1519,16 @@ Exemplos de objeções:
 
           if (hasSideEffects || llmResult.toolCalls.length === 1) {
             for (const tc of llmResult.toolCalls) {
-              console.log(`[ai-agent] Tool (seq): ${tc.name}(${JSON.stringify(tc.args).substring(0, 100)})`)
-              const result = await executeTool(tc.name, tc.args || {})
+              log.info('Tool (seq)', { tool: tc.name, args_preview: JSON.stringify(tc.args).substring(0, 100) })
+              const result = await executeToolSafe(tc.name, tc.args || {})
               toolCallsLog.push({ name: tc.name, args: tc.args, result: result.substring(0, 200) })
               toolResultEntries.push({ name: tc.name, result })
             }
           } else {
-            console.log(`[ai-agent] Parallel tool execution: ${llmResult.toolCalls.map(tc => tc.name).join(', ')}`)
+            log.info('Parallel tools', { tools: llmResult.toolCalls.map(tc => tc.name) })
             const results = await Promise.all(
               llmResult.toolCalls.map(async (tc) => {
-                const result = await executeTool(tc.name, tc.args || {})
+                const result = await executeToolSafe(tc.name, tc.args || {})
                 toolCallsLog.push({ name: tc.name, args: tc.args, result: result.substring(0, 200) })
                 return { name: tc.name, result }
               })
@@ -1513,7 +1537,7 @@ Exemplos de objeções:
           }
 
           if (toolCallsLog.some(t => t.name === 'handoff_to_human')) {
-            console.log('[ai-agent] handoff_to_human called — stopping loop')
+            log.info('handoff_to_human called, stopping loop')
             break
           }
 
@@ -1523,7 +1547,7 @@ Exemplos de objeções:
 
           // Safety: after MAX_TOOL_ROUNDS, force a final text-only LLM call (no tools)
           if (toolRounds >= MAX_TOOL_ROUNDS) {
-            console.warn(`[ai-agent] Tool round limit reached (${MAX_TOOL_ROUNDS}) — forcing text-only response`)
+            log.warn('Tool round limit reached', { rounds: MAX_TOOL_ROUNDS })
             try {
               const finalResult = await callLLM({
                 systemPrompt,
@@ -1547,7 +1571,7 @@ Exemplos de objeções:
         responseText = llmResult.text
       } catch (err) {
         const errMsg = (err as Error).message || 'LLM error'
-        console.error(`[ai-agent] LLM error (attempt ${attempts}):`, errMsg)
+        log.error('LLM error', { attempt: attempts, error: errMsg })
 
         if (attempts < 3) {
           const backoffMs = 1500 * Math.pow(2, attempts - 1)
