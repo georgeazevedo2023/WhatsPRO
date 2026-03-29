@@ -5,6 +5,7 @@ import { geminiBreaker, groqBreaker, mistralBreaker, uazapiBreaker } from '../_s
 import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
 import { STATUS_IA } from '../_shared/constants.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -13,11 +14,6 @@ const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY') || ''
 const MISTRAL_API_KEY = Deno.env.get('MISTRAL_API_KEY') || ''
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
-
-/** Escape special ILIKE characters to prevent wildcard injection */
-function escapeLike(s: string): string {
-  return s.replace(/[%_\\]/g, c => '\\' + c)
-}
 
 /** Remove redundant brand/name from last segment of product title */
 function cleanProductTitle(title: string): string {
@@ -159,13 +155,6 @@ const HANDOFF_PATTERNS = [
   /falar com (?:um |nosso )?vendedor/i,
   /(?<!não\s|sem\s)encaminhar (?:você|vc|voce) (?:para|ao|à)/i,
 ]
-
-/** Merge tags using key:value format (same key = replace) */
-function mergeTags(existing: string[], newTags: Record<string, string>): string[] {
-  const tagMap = new Map(existing.map(t => [t.split(':')[0], t]))
-  for (const [k, v] of Object.entries(newTags)) tagMap.set(k, `${k}:${v}`)
-  return Array.from(tagMap.values())
-}
 
 /**
  * AI Agent - Main Brain (v2 — Sprint 3)
