@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
 import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
-import { STATUS_IA } from '../_shared/constants.ts'
+// STATUS_IA not needed — playground is stateless (no status_ia checks)
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -275,23 +275,27 @@ Quando o lead expressar uma objeção, SEMPRE:
       switch (name) {
         case 'search_products': {
           // REAL: queries actual product database
-          let query = supabase.from('ai_agent_products').select('title, category, subcategory, description, price, images, in_stock').eq('agent_id', agent_id).eq('enabled', true)
-          if (args.category) query = query.ilike('category', `%${args.category}%`)
-          if (args.subcategory) query = query.ilike('subcategory', `%${args.subcategory}%`)
-          if (args.query) {
-            const escaped = (args.query as string).replace(/%/g, '\\%').replace(/_/g, '\\_')
-            query = query.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%,category.ilike.%${escaped}%`)
-          }
-          if (args.min_price) query = query.gte('price', args.min_price)
-          if (args.max_price) query = query.lte('price', args.max_price)
-          const { data: products } = await query.order('position').limit(10)
-          if (!products?.length) return 'Nenhum produto encontrado com esses critérios.'
-          return products.map((p: any, i: number) => `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || '?'} ${!p.in_stock ? '(SEM ESTOQUE)' : ''}${p.images?.[0] ? ' [com foto]' : ' [sem foto]'}`).join('\n')
+          try {
+            let query = supabase.from('ai_agent_products').select('title, category, subcategory, description, price, images, in_stock').eq('agent_id', agent_id).eq('enabled', true)
+            if (args.category) query = query.ilike('category', `%${args.category}%`)
+            if (args.subcategory) query = query.ilike('subcategory', `%${args.subcategory}%`)
+            if (args.query) {
+              const escaped = String(args.query).replace(/%/g, '\\%').replace(/_/g, '\\_')
+              query = query.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%,category.ilike.%${escaped}%`)
+            }
+            if (args.min_price) query = query.gte('price', args.min_price)
+            if (args.max_price) query = query.lte('price', args.max_price)
+            const { data: products, error } = await query.order('position').limit(10)
+            if (error) return `Erro ao buscar produtos: ${error.message}`
+            if (!products?.length) return 'Nenhum produto encontrado com esses critérios.'
+            return products.map((p: any, i: number) => `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || '?'} ${!p.in_stock ? '(SEM ESTOQUE)' : ''}${p.images?.[0] ? ' [com foto]' : ' [sem foto]'}`).join('\n')
+          } catch (e) { return `Erro ao buscar produtos: ${e instanceof Error ? e.message : 'unknown'}` }
         }
 
         case 'send_carousel': {
           // MOCK: simulates WhatsApp carousel send (no UAZAPI)
-          const titles: string[] = args.product_ids || []
+          const rawIds = args.product_ids
+          const titles: string[] = Array.isArray(rawIds) ? rawIds : (rawIds ? [String(rawIds)] : [])
           const { data: products } = await supabase.from('ai_agent_products').select('title, price, images').eq('agent_id', agent_id).eq('enabled', true)
           const found = (products || []).filter((p: any) => titles.some(t => p.title?.toLowerCase().includes(t.toLowerCase())) && p.images?.[0])
           return found.length > 0
