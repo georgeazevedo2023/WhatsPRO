@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-29T18:56:56.564Z"
+last_updated: "2026-03-29T20:42:42.050Z"
 progress:
   total_phases: 7
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -219,14 +219,19 @@ progress:
 
 ### Ultimos 5 Commits
 
-1. `268ddf6` — feat(02-02): route audio transcription through job_queue — fix DT-04
-2. `9680bab` — feat(02-02): atomic lead msg counter — replace COUNT(*) with increment RPC
-3. `918d8bc` — docs(02-01): complete greeting-dedup-and-shared-helpers plan
-4. `8cc2a0c` — feat(02-01): greeting dedup fallback + standardize unauthorized responses
-5. `2b65a59` — feat(02-01): move mergeTags to shared agentHelpers + unit tests
+1. `eddbaa7` — feat(03-01): Settings.tsx — recipient_number inline validation
+2. `8d14190` — feat(03-01): ExtractionConfig + BlockedNumbersConfig — local inline validation
+3. `28411d4` — feat(03-01): add fieldErrors prop + inline error display to 4 config panels
+4. `70e010e` — feat(03-01): AIAgentTab — fieldErrors state, validation in handleChange, doSave guard
+5. `6d9fd5d` — feat(03-01): create Zod validation schemas for AI Agent config panels
 
 ### Decisoes Tomadas
 
+- Zod schemas usam .partial() — cada campo e validado independentemente via SCHEMA_MAP routing
+- fieldErrorsRef (nao state) usado no guard do doSave — evita stale closure em callbacks memoizados
+- max_tokens Input nao clampeia via Math.min/max — Zod valida e mostra erro inline em vez de correcao silenciosa
+- ExtractionConfig e BlockedNumbersConfig usam local state (nao fieldErrors prop) — operacoes de add de array nao passam por AIAgentTab
+- VoiceConfig min HTML attr corrigido de 50 para 10 — alinhado com schema voiceSchema.min(10)
 - Shadow mode usa callLLM() com model: agent.model || 'gemini-2.5-flash' — roteia Gemini-first quando o modelo e gemini-*, OpenAI-first caso contrario
 - Shadow mode errors sao apenas logados (nao re-lançados) porque extracao de shadow e nao-critica
 - gpt-4.1-mini confirmado como model ID valido da OpenAI (lancado 2025-04-14)
@@ -247,6 +252,7 @@ progress:
 - **DT-03** (Fallback de Greeting Dedup Ausente): greeting_rpc_error retorna reason distinto com log estruturado
 - **DT-04** (Audio Transcription Sem Retry): Webhook enfileira job_queue em vez de chamada sincrona; process-jobs executa com retry
 - **DT-07** (Race Condition no Limite de Mensagens): Substituido COUNT(*) por increment_lead_msg_count() RPC atomico
+- **DT-06** (Validacao de Formularios Incompleta): Zod schemas + inline errors + auto-save guard + phone validation Settings.tsx
 - **DT-09 parcial** (Error Handling Inconsistente): unauthorizedResponse() padronizado em ai-agent + webhook
 - **DT-13 parcial** (Codigo Duplicado): mergeTags e escapeLike centralizados em agentHelpers
 - **P1-03** (Tool execution sem isolamento): executeToolSafe wrapper adicionado
@@ -267,10 +273,15 @@ progress:
 - [x] 02-02-PLAN.md — Audio transcription via job_queue + atomic lead message counter (DONE 2026-03-29)
 - **Phase 2 COMPLETA** — Todos os planos executados
 
+### Phase 3 Status
+
+- [x] 03-01-PLAN.md — Zod validation schemas + inline errors + auto-save guard + phone validation (DONE 2026-03-29)
+- **Phase 3 COMPLETA** — Todos os planos executados
+
 ### Contexto
 
-- Trabalho recente focado em blindagem do AI Agent (circuit breaker, tool isolation, token ceiling, correlation IDs) e Webhook (dedup greeting, shared helpers, 401 padronizado)
-- Playground v2 funcional com tool inspector
+- Trabalho recente focado em validacao estrita de formularios frontend (Phase 3): DT-06 resolvido
+- 15 novos testes unitarios para schemas Zod; suite total: 173 testes passando
+- Campos numericos fora do range exibem erro inline; auto-save bloqueado enquanto erro ativo
 - AI Agent operando com OpenAI (GPT-4.1) + Gemini fallback, totalmente protegido pelo circuit breaker
-- Infra de testes: 28 testes unitarios para shared functions (11 CircuitBreaker + 13 aiRuntime + 4 agentHelpers), 158 total na suite
-- executeToolSafe garante que falhas de DB/network em tools retornam string de erro ao LLM, sem retry desnecessario
+- Ultima sessao: 2026-03-29

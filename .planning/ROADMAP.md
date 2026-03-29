@@ -57,12 +57,12 @@ Plans:
 **Status**: [ ] Em planejamento
 **Prioridade**: ALTA
 **Escopo**: `src/components/admin/ai-agent/`, `src/pages/dashboard/Settings.tsx`
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 **Objetivo**: Impedir dados invalidos de chegarem ao banco via formularios de configuracao do agente.
 
 Plans:
-- [ ] 03-01-PLAN.md — Zod schemas in AIAgentTab + inline errors in all config panels + phone validation in Settings.tsx
+- [x] 03-01-PLAN.md — Zod schemas in AIAgentTab + inline errors in all config panels + phone validation in Settings.tsx
 
 **Tarefas**:
 1. Criar Zod schemas para cada painel de configuracao do agente:
