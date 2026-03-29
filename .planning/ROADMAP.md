@@ -27,11 +27,16 @@ Plans:
 ---
 
 ### Phase 2: Blindagem do Webhook e Dedup de Greeting
-**Status**: [ ] Pendente
+**Status**: [ ] Em planejamento
 **Prioridade**: CRITICA
-**Escopo**: `supabase/functions/whatsapp-webhook/index.ts`, `ai-agent/index.ts`, `agentHelpers.ts`
+**Escopo**: `supabase/functions/whatsapp-webhook/index.ts`, `ai-agent/index.ts`, `agentHelpers.ts`, `process-jobs/index.ts`
+**Plans:** 2 plans
 
 **Objetivo**: Eliminar race conditions no webhook e garantir greeting unico por sessao.
+
+Plans:
+- [ ] 02-01-PLAN.md — Greeting dedup fallback + mergeTags migration + unauthorized response standardization
+- [ ] 02-02-PLAN.md — Atomic lead message counter + audio transcription via job_queue
 
 **Tarefas**:
 1. Adicionar fallback de dedup para greeting (quando RPC `try_insert_greeting` falhar)
@@ -82,12 +87,12 @@ Plans:
 **Objetivo**: Reduzir complexidade dos componentes maiores para facilitar manutencao e performance.
 
 **Tarefas**:
-1. AIAgentPlayground.tsx (1353 LOC) → extrair:
+1. AIAgentPlayground.tsx (1353 LOC) -> extrair:
    - PlaygroundChat (display de mensagens + input)
    - PlaygroundToolInspector (inspecao de tools usadas)
    - PlaygroundScenarioRunner (execucao de cenarios)
    - PlaygroundMetrics (metricas de performance)
-2. CatalogConfig.tsx (704 LOC) → extrair:
+2. CatalogConfig.tsx (704 LOC) -> extrair:
    - CatalogTable (listagem + filtros + sort)
    - CatalogImportPanel (CSV + batch scrape)
    - CatalogProductForm (formulario de produto)
@@ -137,7 +142,7 @@ Plans:
 **Objetivo**: Unificar patterns de data fetching e proteger UI contra crashes isolados.
 
 **Tarefas**:
-1. Migrar `useSupabaseQuery` → React Query (useQuery/useMutation) em:
+1. Migrar `useSupabaseQuery` -> React Query (useQuery/useMutation) em:
    - DashboardHome.tsx
    - Leads.tsx
    - LeadDetail.tsx
