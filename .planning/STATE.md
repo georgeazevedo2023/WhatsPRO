@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-03-29T15:07:40.621Z"
+progress:
+  total_phases: 7
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
+---
+
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
 
 ## Status Geral do Projeto
@@ -15,6 +28,7 @@
 ## O Que Ja Esta Codificado e Compilando
 
 ### Frontend (src/)
+
 - **Helpdesk completo**: chat real-time, labels, atribuicao, departamentos, notas internas
 - **AI Agent Config**: 15+ paineis (GeneralConfig, BrainConfig, CatalogConfig, KnowledgeConfig, GuardrailsConfig, VoiceConfig, RulesConfig, ExtractionConfig, FollowUpConfig, BlockedNumbersConfig, SubAgentsConfig, BusinessInfoConfig, MetricsConfig)
 - **Playground v2**: tool inspector, thumbs up/down, overrides, cenarios, personas
@@ -28,6 +42,7 @@
 - **Settings**: relatorio de turno via WhatsApp
 
 ### Backend (supabase/functions/)
+
 - **ai-agent**: 8 tools, loop LLM (OpenAI primary + Gemini fallback), circuit breaker, greeting, handoff, shadow mode, SDR flow, TTS, carousel copy chain
 - **ai-agent-debounce**: atomic append (RPC), 10s window, retry 5xx
 - **ai-agent-playground**: ambiente isolado super_admin
@@ -49,6 +64,7 @@
 ### CRITICA (Impacto em Producao)
 
 #### DT-01: Nome de Modelo LLM Invalido
+
 - **Arquivo**: `supabase/functions/_shared/llmProvider.ts:64`
 - **Problema**: Default `'gpt-4.1-mini'` — nao e um model ID valido da OpenAI
 - **Impacto**: Se agent.model nao estiver configurado, requests falham silenciosamente
@@ -56,18 +72,21 @@
 - **Nota**: O mesmo default aparece em `ai-agent/index.ts`
 
 #### DT-02: Shadow Mode Ignora Circuit Breaker
+
 - **Arquivo**: `supabase/functions/ai-agent/index.ts` (secao shadow)
 - **Problema**: Shadow mode chama Gemini API diretamente, bypassing `callLLM()` e o circuit breaker
 - **Impacto**: Se Gemini estiver DOWN, shadow mode faz requests infinitos sem protecao
 - **Fix**: Rotear shadow mode pelo `callLLM()` ou aplicar circuit breaker manualmente
 
 #### DT-03: Fallback de Greeting Dedup Ausente
+
 - **Arquivo**: `supabase/functions/ai-agent/index.ts`
 - **Problema**: Dedup depende de RPC `try_insert_greeting`; se RPC falhar, greeting duplica
 - **Impacto**: Lead recebe 2+ greetings em requests simultaneos
 - **Fix**: Adicionar fallback com advisory lock ou catch + skip
 
 #### DT-04: Audio Transcription Sem Retry
+
 - **Arquivo**: `supabase/functions/whatsapp-webhook/index.ts`
 - **Problema**: Transcribe-audio e fire-and-forget (EdgeRuntime.waitUntil); se crashar, audio perdido
 - **Impacto**: Mensagens de audio podem nunca ser transcritas
@@ -76,12 +95,14 @@
 ### ALTA PRIORIDADE
 
 #### DT-05: TypeScript strict: false
+
 - **Arquivo**: `tsconfig.app.json`
 - **Problema**: `strict: false` + `noImplicitAny: false` permite `any` implicito em todo o frontend
 - **Impacto**: Bugs de tipo passam despercebidos; refatoracoes perigosas
 - **Fix**: Habilitar `strict: true` incrementalmente (por pasta/modulo)
 
 #### DT-06: Validacao de Formularios Incompleta (Frontend)
+
 - **Locais afetados**:
   - `Settings.tsx:296` — sem validacao de formato de telefone
   - `GuardrailsConfig` — max_discount_percent aceita -1 ou 150%
@@ -92,12 +113,14 @@
 - **Fix**: Adicionar Zod schemas por formulario
 
 #### DT-07: Race Condition no Limite de Mensagens do Lead
+
 - **Arquivo**: `supabase/functions/ai-agent/index.ts`
 - **Problema**: `max_lead_messages` faz count dinamico; mensagens concorrentes podem bypassar limite
 - **Impacto**: Lead envia 10+ msgs antes do handoff automatico
 - **Fix**: Usar contador atomico na row de conversation (UPDATE ... SET count = count + 1 RETURNING)
 
 #### DT-08: Componentes Gigantes Sem Decomposicao
+
 - **Arquivos**:
   - `AIAgentPlayground.tsx` — 1353 LOC, 17 useState, 8+ useCallback
   - `Sidebar.tsx` — 812 LOC
@@ -109,6 +132,7 @@
 - **Fix**: Extrair sub-componentes logicos
 
 #### DT-09: Error Handling Inconsistente entre Edge Functions
+
 - **Problema**:
   - `auth.ts` retorna null (permissivo)
   - `llmProvider.ts` lanca excecoes (fail-loud)
@@ -118,6 +142,7 @@
 - **Fix**: Padronizar com Result<T, E> pattern ou consistent error responses
 
 #### DT-10: Carousel Copy Cache Sem Invalidacao
+
 - **Arquivo**: `supabase/functions/ai-agent/index.ts:69-150`
 - **Problema**: Cache keyed por `product.id:numCards`; se titulo/preco mudar, cache stale por 24h
 - **Impacto**: Carousel envia copy desatualizada apos editar produto
@@ -126,33 +151,40 @@
 ### MEDIA PRIORIDADE
 
 #### DT-11: N+1 Queries no ai-agent
+
 - Agent carrega labels, historico, knowledge separadamente apos Promise.all inicial
 - Poderia batchear com joins (dependendo do RLS)
 
 #### DT-12: Carousel Auto-Send Message Hardcoded
+
 - `'Confira:'` hardcoded como texto antes do carrossel
 - Deveria ser configuravel por agente
 
 #### DT-13: Codigo Duplicado entre Edge Functions
+
 - Criacao de Supabase Client repetida em 20+ funcoes
 - Carousel building duplicado entre ai-agent e search_products
 - mergeTags() so existe em ai-agent, deveria estar em agentHelpers
 
 #### DT-14: Observabilidade Limitada
+
 - Logging detalhado mas sem metricas estruturadas
 - Sem percentis de latencia, error rates por tipo, token usage trends
 - Circuit breaker state so em logs
 
 #### DT-15: Auto-Save Race Condition (AIAgentTab)
+
 - `pendingSaveRef` pode enfileirar multiplos saves mas so um executa
 - Sem deteccao de conflito (duas abas editando mesmo agente)
 
 #### DT-16: Uso Inconsistente de React Query
+
 - `Settings.tsx` usa `useQuery/useMutation` do React Query
 - `DashboardHome.tsx` usa hook customizado `useSupabaseQuery`
 - Hooks faltam retry, stale-while-revalidate, cancellation
 
 #### DT-17: Error Boundaries Insuficientes
+
 - Apenas 1 ErrorBoundary.tsx (nivel root)
 - Faltam boundaries em: secoes do dashboard, modals complexos, playground, broadcast
 
@@ -161,6 +193,7 @@
 ## Saude do Schema (Frontend vs Banco)
 
 ### Tipos Supabase (src/integrations/supabase/types.ts)
+
 - **Status**: Sincronizado com migrations (auto-gerado)
 - **47 tabelas** definidas, incluindo ai_agents (29 campos), lead_profiles (26 campos)
 - **4 enums**: app_role, inbox_role, kanban_field_type, kanban_visibility
@@ -168,6 +201,7 @@
 - **Nenhum descompasso** detectado entre types e migrations recentes
 
 ### Pontos de Atencao
+
 - Campos `Json | null` sem tipagem especifica: business_hours, extraction_fields, sub_agents, follow_up_rules
 - Campos `metadata: Json | null` muito genericos em varias tabelas
 - Frontend usa `any` em ~10 locais (LeadDetail:29, Leads:99, UsersManagement:38, etc.)
@@ -177,12 +211,14 @@
 ## Onde Paramos (Ultimo Trabalho)
 
 ### Ultima Sessao
+
 - **Fase**: Phase 1 — Blindagem do LLM Provider e Circuit Breaker
 - **Plano Concluido**: 01-02-PLAN.md (Tool execution isolation + token ceiling + correlation IDs)
 - **Proximo**: Phase 2 (Blindagem do Webhook e Dedup de Greeting)
 - **Timestamp**: 2026-03-29
 
 ### Ultimos 5 Commits
+
 1. `497ee3d` — feat(01-02): wire correlation ID from debounce to ai-agent, add executeToolSafe tests
 2. `f0586a9` — feat(01-02): add executeToolSafe, token ceiling, correlation ID to ai-agent
 3. `8014885` — test(01-01): add CircuitBreaker unit tests covering all state transitions
@@ -190,6 +226,7 @@
 5. `0f82e08` — fix: E2E waits for ai-agent response before next step
 
 ### Decisoes Tomadas
+
 - Shadow mode usa callLLM() com model: agent.model || 'gemini-2.5-flash' — roteia Gemini-first quando o modelo e gemini-*, OpenAI-first caso contrario
 - Shadow mode errors sao apenas logados (nao re-lançados) porque extracao de shadow e nao-critica
 - gpt-4.1-mini confirmado como model ID valido da OpenAI (lancado 2025-04-14)
@@ -199,6 +236,7 @@
 - request_id e o mesmo UUID no retry (cenario 5xx) — rastreabilidade completa da cadeia de retry
 
 ### Divida Tecnica Resolvida
+
 - **DT-01** (Nome de Modelo LLM Invalido): Confirmado gpt-4.1-mini como valido, comentario adicionado
 - **DT-02** (Shadow Mode Ignora Circuit Breaker): Shadow mode agora usa callLLM() com circuit breaker
 - **P1-03** (Tool execution sem isolamento): executeToolSafe wrapper adicionado
@@ -206,11 +244,13 @@
 - **P1-05** (Correlation IDs ausentes): request_id flui do debounce para o ai-agent
 
 ### Phase 1 Status
+
 - [x] 01-01-PLAN.md — Shadow mode circuit breaker fix + model ID audit + CB unit tests (DONE 2026-03-29)
 - [x] 01-02-PLAN.md — Tool execution isolation + token ceiling + correlation IDs (DONE 2026-03-29)
 - **Phase 1 COMPLETA** — Todos os planos executados
 
 ### Contexto
+
 - Trabalho recente focado em blindagem do AI Agent (circuit breaker, tool isolation, token ceiling, correlation IDs)
 - Playground v2 funcional com tool inspector
 - AI Agent operando com OpenAI (GPT-4.1) + Gemini fallback, totalmente protegido pelo circuit breaker
