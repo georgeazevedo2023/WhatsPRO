@@ -866,11 +866,11 @@ const AIAgentPlayground = () => {
         {/* ══════ Simulation Warning ══════ */}
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 flex-shrink-0">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          <p className="text-[10px] leading-tight">Resultados simulados — tools nao executam acoes reais (sem WhatsApp, sem DB). Comportamento em producao pode variar.</p>
+          <p className="text-[10px] leading-tight">Playground de testes do Agente IA — Chat Manual e Cenarios usam LLM simulado. Aba E2E Real envia mensagens reais via WhatsApp.</p>
         </div>
 
         {/* ══════ Tabs ══════ */}
-        <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0">
+        <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <TabsList className="w-full justify-start flex-shrink-0">
             <TabsTrigger value="manual" className="gap-1.5 text-xs"><MessageSquare className="w-3.5 h-3.5" />Chat Manual</TabsTrigger>
             <TabsTrigger value="scenarios" className="gap-1.5 text-xs"><Layers className="w-3.5 h-3.5" />Cenarios<Badge variant="secondary" className="ml-1 text-[9px] px-1">{TEST_SCENARIOS.length}</Badge></TabsTrigger>
@@ -936,8 +936,8 @@ const AIAgentPlayground = () => {
           </TabsContent>
 
           {/* ══════ Tab: Cenarios ══════ */}
-          <TabsContent value="scenarios" className="flex-1 min-h-0 mt-2">
-            <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_300px] gap-3 h-full">
+          <TabsContent value="scenarios" className="flex-1 min-h-0 mt-2 flex flex-col">
+            <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_300px] gap-3 flex-1 min-h-0">
 
               {/* Left: Gallery */}
               <div className="border border-border/50 rounded-xl bg-card/50 flex flex-col overflow-hidden">
@@ -1151,8 +1151,8 @@ const AIAgentPlayground = () => {
           </TabsContent>
 
           {/* ══════ Tab: Resultados ══════ */}
-          <TabsContent value="results" className="flex-1 min-h-0 mt-2">
-            <div className="border border-border/50 rounded-xl bg-card/50 h-full flex flex-col overflow-hidden">
+          <TabsContent value="results" className="flex-1 min-h-0 mt-2 flex flex-col">
+            <div className="border border-border/50 rounded-xl bg-card/50 flex-1 min-h-0 flex flex-col overflow-hidden">
               {/* Summary stats */}
               {runHistory.length > 0 && (
                 <div className="p-3 border-b border-border/50 flex items-center gap-4 flex-shrink-0">
