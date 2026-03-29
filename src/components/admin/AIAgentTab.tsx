@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { SCHEMA_MAP } from './ai-agent/validationSchemas';
 import { supabase } from '@/integrations/supabase/client';
 import { useInstances } from '@/hooks/useInstances';
 import { Button } from '@/components/ui/button';
@@ -9,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Bot, BrainCircuit, Save, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle } from 'lucide-react';
+import { Bot, BrainCircuit, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { GeneralConfig } from './ai-agent/GeneralConfig';
@@ -55,6 +56,7 @@ const ALLOWED_FIELDS = [
   'extraction_address_enabled', 'handoff_message',
   'follow_up_enabled', 'follow_up_rules', 'business_info',
   'returning_greeting_message',
+  'max_lead_messages',
 ];
 
 export default function AIAgentTab() {
@@ -65,6 +67,8 @@ export default function AIAgentTab() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('setup');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const fieldErrorsRef = useRef<Record<string, string>>({});
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -122,6 +126,7 @@ export default function AIAgentTab() {
     const agentId = selectedAgentIdRef.current;
     const cfg = configRef.current;
     if (!agentId) return;
+    if (Object.keys(fieldErrorsRef.current).length > 0) return;
 
     // If already saving, mark as pending so we re-save after current completes
     if (savingRef.current) {
@@ -162,6 +167,14 @@ export default function AIAgentTab() {
     }
   }, []);
 
+  const updateFieldErrors = useCallback((updater: (prev: Record<string, string>) => Record<string, string>) => {
+    setFieldErrors(prev => {
+      const next = updater(prev);
+      fieldErrorsRef.current = next;
+      return next;
+    });
+  }, []);
+
   const handleChange = useCallback((updates: Record<string, any>) => {
     setConfig(prev => {
       const next = { ...prev, ...updates };
@@ -169,12 +182,53 @@ export default function AIAgentTab() {
       return next;
     });
 
-    // Debounced auto-save (2s)
-    clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => doSave(true), 2000);
-    // Only reset to idle if not currently saving
-    setSaveStatus(prev => prev === 'saving' ? prev : 'idle');
-  }, [doSave]);
+    // --- BEGIN VALIDATION ---
+    const updateKeys = Object.keys(updates);
+    let hasValidationError = false;
+    const errorsToSet: Record<string, string> = {};
+    const fieldsToClear: string[] = [];
+
+    for (const { fields, schema } of SCHEMA_MAP) {
+      const relevantKeys = updateKeys.filter(k => fields.has(k));
+      if (relevantKeys.length === 0) continue;
+      const subset: Record<string, any> = {};
+      for (const k of relevantKeys) subset[k] = updates[k];
+      const result = schema.safeParse(subset);
+      if (!result.success) {
+        hasValidationError = true;
+        for (const e of result.error.errors) {
+          if (e.path[0]) errorsToSet[String(e.path[0])] = e.message;
+        }
+        // Fields NOT in error should be cleared
+        for (const k of relevantKeys) {
+          if (!errorsToSet[k]) fieldsToClear.push(k);
+        }
+      } else {
+        fieldsToClear.push(...relevantKeys);
+      }
+    }
+
+    updateFieldErrors(prev => {
+      const next = { ...prev };
+      for (const k of fieldsToClear) delete next[k];
+      Object.assign(next, errorsToSet);
+      return next;
+    });
+
+    if (hasValidationError) {
+      clearTimeout(autoSaveTimerRef.current);
+      return;
+    }
+    // --- END VALIDATION ---
+
+    // Only trigger auto-save if changes include fields we actually save
+    const hasRelevantChanges = Object.keys(updates).some(k => ALLOWED_FIELDS.includes(k));
+    if (hasRelevantChanges) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => doSave(true), 2000);
+      setSaveStatus(prev => prev === 'saving' ? prev : 'idle');
+    }
+  }, [doSave, updateFieldErrors]);
 
   // Flush pending auto-save on tab change
   const handleTabChange = (tab: string) => {
@@ -310,11 +364,6 @@ export default function AIAgentTab() {
               <AlertCircle className="w-3.5 h-3.5" /> Erro — clique para tentar
             </span>
           )}
-          {selectedAgentId && (
-            <Button variant="ghost" size="sm" onClick={() => doSave(false)} className="gap-1.5 text-xs">
-              <Save className="w-3.5 h-3.5" /> Salvar
-            </Button>
-          )}
           <Button variant="outline" className="gap-2" onClick={openCreateDialog}>
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Novo Agente</span>
@@ -403,9 +452,9 @@ export default function AIAgentTab() {
           {selectedAgentId && (
             <>
               <div className="border-t border-border/50 pt-4">
-                <p className="text-xs text-muted-foreground mb-3">
+                <div className="text-xs text-muted-foreground mb-3">
                   Configurando: <strong>{selectedAgent?.name}</strong> · Instancia: <Badge variant="outline" className="text-[10px] ml-1">{instanceName}</Badge>
-                </p>
+                </div>
               </div>
 
               {/* Tab navigation — 7 grouped tabs */}
@@ -443,7 +492,7 @@ export default function AIAgentTab() {
                 {/* INTELIGENCIA: Cerebro + Sub-agentes + Extracao */}
                 {activeTab === 'intelligence' && (
                   <div className="space-y-6">
-                    <BrainConfig config={config} onChange={handleChange} />
+                    <BrainConfig config={config} onChange={handleChange} fieldErrors={fieldErrors} />
                     <SubAgentsConfig config={config} onChange={handleChange} />
                     <ExtractionConfig config={config} onChange={handleChange} />
                   </div>
@@ -462,8 +511,8 @@ export default function AIAgentTab() {
                 {/* SEGURANCA: Regras + Guardrails + Bloqueios */}
                 {activeTab === 'security' && (
                   <div className="space-y-6">
-                    <RulesConfig config={config} onChange={handleChange} />
-                    <GuardrailsConfig config={config} onChange={handleChange} />
+                    <RulesConfig config={config} onChange={handleChange} fieldErrors={fieldErrors} />
+                    <GuardrailsConfig config={config} onChange={handleChange} fieldErrors={fieldErrors} />
                     <BlockedNumbersConfig config={config} onChange={handleChange} />
                   </div>
                 )}
@@ -471,7 +520,7 @@ export default function AIAgentTab() {
                 {/* CANAIS: Voz + Follow-up */}
                 {activeTab === 'channels' && (
                   <div className="space-y-6">
-                    <VoiceConfig config={config} onChange={handleChange} />
+                    <VoiceConfig config={config} onChange={handleChange} fieldErrors={fieldErrors} />
                     <FollowUpConfig config={config} onChange={handleChange} />
                   </div>
                 )}
