@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-29T15:07:40.621Z"
+last_updated: "2026-03-29T18:41:52.162Z"
 progress:
   total_phases: 7
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -212,18 +212,18 @@ progress:
 
 ### Ultima Sessao
 
-- **Fase**: Phase 1 — Blindagem do LLM Provider e Circuit Breaker
-- **Plano Concluido**: 01-02-PLAN.md (Tool execution isolation + token ceiling + correlation IDs)
-- **Proximo**: Phase 2 (Blindagem do Webhook e Dedup de Greeting)
+- **Fase**: Phase 2 — Blindagem do Webhook e Dedup de Greeting
+- **Plano Concluido**: 02-01-PLAN.md (Greeting dedup fallback + mergeTags migration + 401 standardization)
+- **Proximo**: Proximos planos da Phase 2 (se houver)
 - **Timestamp**: 2026-03-29
 
 ### Ultimos 5 Commits
 
-1. `497ee3d` — feat(01-02): wire correlation ID from debounce to ai-agent, add executeToolSafe tests
-2. `f0586a9` — feat(01-02): add executeToolSafe, token ceiling, correlation ID to ai-agent
-3. `8014885` — test(01-01): add CircuitBreaker unit tests covering all state transitions
-4. `1c04c67` — feat(01-01): refactor shadow mode to use callLLM() with circuit breaker
-5. `0f82e08` — fix: E2E waits for ai-agent response before next step
+1. `8cc2a0c` — feat(02-01): greeting dedup fallback + standardize unauthorized responses
+2. `2b65a59` — feat(02-01): move mergeTags to shared agentHelpers + unit tests
+3. `497ee3d` — feat(01-02): wire correlation ID from debounce to ai-agent, add executeToolSafe tests
+4. `f0586a9` — feat(01-02): add executeToolSafe, token ceiling, correlation ID to ai-agent
+5. `8014885` — test(01-01): add CircuitBreaker unit tests covering all state transitions
 
 ### Decisoes Tomadas
 
@@ -234,11 +234,17 @@ progress:
 - executeToolSafe retorna string de erro em portugues — LLM pode continuar conversa sem o resultado da tool
 - Token ceiling de 8192 faz trimming (nao break) — mantém ultimas 6 mensagens
 - request_id e o mesmo UUID no retry (cenario 5xx) — rastreabilidade completa da cadeia de retry
+- mergeTags e escapeLike movidos para _shared/agentHelpers — fonte unica de verdade para todas as edge functions
+- greeting_rpc_error e um code path distinto de greeting_duplicate para observabilidade de falhas de DB
+- unauthorizedResponse() usado em ai-agent e whatsapp-webhook — sem mais construcao inline de 401
 
 ### Divida Tecnica Resolvida
 
 - **DT-01** (Nome de Modelo LLM Invalido): Confirmado gpt-4.1-mini como valido, comentario adicionado
 - **DT-02** (Shadow Mode Ignora Circuit Breaker): Shadow mode agora usa callLLM() com circuit breaker
+- **DT-03** (Fallback de Greeting Dedup Ausente): greeting_rpc_error retorna reason distinto com log estruturado
+- **DT-09 parcial** (Error Handling Inconsistente): unauthorizedResponse() padronizado em ai-agent + webhook
+- **DT-13 parcial** (Codigo Duplicado): mergeTags e escapeLike centralizados em agentHelpers
 - **P1-03** (Tool execution sem isolamento): executeToolSafe wrapper adicionado
 - **P1-04** (Token ceiling ausente): MAX_ACCUMULATED_INPUT_TOKENS=8192 adicionado com trimming
 - **P1-05** (Correlation IDs ausentes): request_id flui do debounce para o ai-agent
@@ -249,10 +255,14 @@ progress:
 - [x] 01-02-PLAN.md — Tool execution isolation + token ceiling + correlation IDs (DONE 2026-03-29)
 - **Phase 1 COMPLETA** — Todos os planos executados
 
+### Phase 2 Status
+
+- [x] 02-01-PLAN.md — Greeting dedup fallback + mergeTags migration + 401 standardization (DONE 2026-03-29)
+
 ### Contexto
 
-- Trabalho recente focado em blindagem do AI Agent (circuit breaker, tool isolation, token ceiling, correlation IDs)
+- Trabalho recente focado em blindagem do AI Agent (circuit breaker, tool isolation, token ceiling, correlation IDs) e Webhook (dedup greeting, shared helpers, 401 padronizado)
 - Playground v2 funcional com tool inspector
 - AI Agent operando com OpenAI (GPT-4.1) + Gemini fallback, totalmente protegido pelo circuit breaker
-- Infra de testes: 24 testes unitarios para shared functions (11 CircuitBreaker + 13 aiRuntime), 148 total na suite
+- Infra de testes: 28 testes unitarios para shared functions (11 CircuitBreaker + 13 aiRuntime + 4 agentHelpers), 158 total na suite
 - executeToolSafe garante que falhas de DB/network em tools retornam string de erro ao LLM, sem retry desnecessario

@@ -30,12 +30,12 @@ Plans:
 **Status**: [ ] Em planejamento
 **Prioridade**: CRITICA
 **Escopo**: `supabase/functions/whatsapp-webhook/index.ts`, `ai-agent/index.ts`, `agentHelpers.ts`, `process-jobs/index.ts`
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 **Objetivo**: Eliminar race conditions no webhook e garantir greeting unico por sessao.
 
 Plans:
-- [ ] 02-01-PLAN.md — Greeting dedup fallback + mergeTags migration + unauthorized response standardization
+- [x] 02-01-PLAN.md — Greeting dedup fallback + mergeTags migration + unauthorized response standardization
 - [ ] 02-02-PLAN.md — Atomic lead message counter + audio transcription via job_queue
 
 **Tarefas**:
