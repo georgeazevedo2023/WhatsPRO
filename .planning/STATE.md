@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-29T18:41:52.162Z"
+last_updated: "2026-03-29T18:50:36.641Z"
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -213,17 +213,17 @@ progress:
 ### Ultima Sessao
 
 - **Fase**: Phase 2 — Blindagem do Webhook e Dedup de Greeting
-- **Plano Concluido**: 02-01-PLAN.md (Greeting dedup fallback + mergeTags migration + 401 standardization)
-- **Proximo**: Proximos planos da Phase 2 (se houver)
+- **Plano Concluido**: 02-02-PLAN.md (Audio transcription via job_queue + atomic lead message counter)
+- **Proximo**: Phase 2 COMPLETA — verificar se ha phase 3
 - **Timestamp**: 2026-03-29
 
 ### Ultimos 5 Commits
 
-1. `8cc2a0c` — feat(02-01): greeting dedup fallback + standardize unauthorized responses
-2. `2b65a59` — feat(02-01): move mergeTags to shared agentHelpers + unit tests
-3. `497ee3d` — feat(01-02): wire correlation ID from debounce to ai-agent, add executeToolSafe tests
-4. `f0586a9` — feat(01-02): add executeToolSafe, token ceiling, correlation ID to ai-agent
-5. `8014885` — test(01-01): add CircuitBreaker unit tests covering all state transitions
+1. `268ddf6` — feat(02-02): route audio transcription through job_queue — fix DT-04
+2. `9680bab` — feat(02-02): atomic lead msg counter — replace COUNT(*) with increment RPC
+3. `918d8bc` — docs(02-01): complete greeting-dedup-and-shared-helpers plan
+4. `8cc2a0c` — feat(02-01): greeting dedup fallback + standardize unauthorized responses
+5. `2b65a59` — feat(02-01): move mergeTags to shared agentHelpers + unit tests
 
 ### Decisoes Tomadas
 
@@ -237,17 +237,23 @@ progress:
 - mergeTags e escapeLike movidos para _shared/agentHelpers — fonte unica de verdade para todas as edge functions
 - greeting_rpc_error e um code path distinto de greeting_duplicate para observabilidade de falhas de DB
 - unauthorizedResponse() usado em ai-agent e whatsapp-webhook — sem mais construcao inline de 401
+- increment_lead_msg_count RPC usa UPDATE...RETURNING atomico — sem SELECT separado; fallback counterErr=0 evita crash
+- max_retries=1 em transcribe_audio jobs (2 tentativas total); job.max_retries ?? 3 preserva compatibilidade
 
 ### Divida Tecnica Resolvida
 
 - **DT-01** (Nome de Modelo LLM Invalido): Confirmado gpt-4.1-mini como valido, comentario adicionado
 - **DT-02** (Shadow Mode Ignora Circuit Breaker): Shadow mode agora usa callLLM() com circuit breaker
 - **DT-03** (Fallback de Greeting Dedup Ausente): greeting_rpc_error retorna reason distinto com log estruturado
+- **DT-04** (Audio Transcription Sem Retry): Webhook enfileira job_queue em vez de chamada sincrona; process-jobs executa com retry
+- **DT-07** (Race Condition no Limite de Mensagens): Substituido COUNT(*) por increment_lead_msg_count() RPC atomico
 - **DT-09 parcial** (Error Handling Inconsistente): unauthorizedResponse() padronizado em ai-agent + webhook
 - **DT-13 parcial** (Codigo Duplicado): mergeTags e escapeLike centralizados em agentHelpers
 - **P1-03** (Tool execution sem isolamento): executeToolSafe wrapper adicionado
 - **P1-04** (Token ceiling ausente): MAX_ACCUMULATED_INPUT_TOKENS=8192 adicionado com trimming
 - **P1-05** (Correlation IDs ausentes): request_id flui do debounce para o ai-agent
+- **P2-T2** (Audio transcription sem retry): RESOLVIDO via job_queue
+- **P2-T3** (Race condition contador mensagens): RESOLVIDO via RPC atomica
 
 ### Phase 1 Status
 
@@ -258,6 +264,8 @@ progress:
 ### Phase 2 Status
 
 - [x] 02-01-PLAN.md — Greeting dedup fallback + mergeTags migration + 401 standardization (DONE 2026-03-29)
+- [x] 02-02-PLAN.md — Audio transcription via job_queue + atomic lead message counter (DONE 2026-03-29)
+- **Phase 2 COMPLETA** — Todos os planos executados
 
 ### Contexto
 
