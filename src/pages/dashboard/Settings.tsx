@@ -12,7 +12,7 @@ import { Navigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { edgeFunctionFetch, type EdgeFunctionError } from '@/lib/edgeFunctionClient';
+import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { useInstances } from '@/hooks/useInstances';
@@ -43,10 +43,11 @@ interface NewConfigForm {
 }
 
 const Settings = () => {
-  const { isSuperAdmin, user } = useAuth();
+  const { isSuperAdmin, user, loading: authLoading } = useAuth();
   const queryClient = useQueryClient();
 
   const [showForm, setShowForm] = useState(false);
+  const [recipientError, setRecipientError] = useState('');
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string; success: boolean; report?: string } | null>(null);
   const [form, setForm] = useState<NewConfigForm>({
@@ -55,10 +56,6 @@ const Settings = () => {
     recipient_number: '',
     send_hour: '18',
   });
-
-  if (!isSuperAdmin) {
-    return <Navigate to="/dashboard" replace />;
-  }
 
   const { inboxes } = useInboxes();
   const { instances } = useInstances();
@@ -174,6 +171,27 @@ const Settings = () => {
     }));
   };
 
+  if (authLoading) {
+    return (
+      <div className="space-y-6 max-w-3xl mx-auto animate-fade-in">
+        <Card className="glass-card-hover">
+          <CardHeader>
+            <CardTitle>Carregando configurações...</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="h-10 rounded-md bg-muted/60" />
+            <div className="h-10 rounded-md bg-muted/40" />
+            <div className="h-32 rounded-lg bg-muted/30" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isSuperAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return (
     <div className="space-y-6 max-w-3xl mx-auto animate-fade-in">
       {/* Header */}
@@ -250,11 +268,19 @@ const Settings = () => {
                     onChange={(e) => {
                       const cleaned = e.target.value.replace(/\D/g, '');
                       setForm((f) => ({ ...f, recipient_number: cleaned }));
+                      if (cleaned && !/^\d{10,13}$/.test(cleaned)) {
+                        setRecipientError('Telefone inválido — use DDI+DDD+número (10-13 dígitos)');
+                      } else {
+                        setRecipientError('');
+                      }
                     }}
                     maxLength={15}
                     className="bg-background"
                   />
-                  <p className="text-xs text-muted-foreground">DDI + DDD + número (sem espaços ou traços) — Ex: 5511999999999</p>
+                  {recipientError
+                    ? <p className="text-destructive text-xs mt-1">{recipientError}</p>
+                    : <p className="text-xs text-muted-foreground">DDI + DDD + número (sem espaços ou traços) — Ex: 5511999999999</p>
+                  }
                 </div>
 
                 <div className="space-y-1.5">
@@ -276,7 +302,7 @@ const Settings = () => {
                 <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>Cancelar</Button>
                 <Button
                   size="sm"
-                  disabled={!form.inbox_id || !form.instance_id || !form.recipient_number || createMutation.isPending}
+                  disabled={!form.inbox_id || !form.instance_id || !form.recipient_number || !!recipientError || createMutation.isPending}
                   onClick={() => createMutation.mutate(form)}
                 >
                   {createMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
