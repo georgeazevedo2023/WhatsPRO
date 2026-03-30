@@ -603,18 +603,16 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
         metadata: { media_type: greetMediaType },
       })
 
-      // If the lead's first message is JUST a greeting ("oi", "bom dia", etc.), stop here.
-      // If they asked something substantive, continue to Gemini to answer their question.
-      const greetingWords = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'eae', 'eai', 'e aí',
-        'hey', 'opa', 'fala', 'salve', 'oii', 'oie', 'hello', 'hi', 'bão', 'blz', 'tudo bem',
-        'tudo bom', 'boa', 'oi tudo bem', 'oi boa tarde', 'oi bom dia', 'oi boa noite']
-      const textNorm = incomingText.toLowerCase().replace(/[!?.,;:]/g, '').trim()
-      // Normalize repeated letters: "oiee" → "oie", "oiii" → "oi", "olaaa" → "ola", "oieee" → "oie"
+      // If the lead's first message is JUST a greeting, stop here and wait for lead to respond.
+      // Strategy: remove ALL known greeting tokens from the message. If nothing remains, it's just a greeting.
+      const greetingTokens = ['oi', 'olá', 'ola', 'oie', 'oii', 'oiee', 'hello', 'hi', 'hey', 'opa', 'eae', 'eai',
+        'e aí', 'fala', 'salve', 'bão', 'blz', 'boa', 'bom', 'dia', 'tarde', 'noite', 'tudo', 'bem', 'bom']
+      const textNorm = incomingText.toLowerCase().replace(/[!?.,;:😊🙂👋🤝💪❤️]/g, '').trim()
+      // Normalize repeated letters: "oiee" → "oie", "oiii" → "oi"
       const textDedup = textNorm.replace(/(.)\1+/g, '$1')
-      const isJustGreeting = greetingWords.some(g => {
-        const gDedup = g.replace(/(.)\1+/g, '$1')
-        return textNorm === g || textNorm === g + ' ' || textDedup === gDedup || textDedup === gDedup + ' '
-      })
+      // Remove all greeting tokens — if nothing remains, it's just a greeting
+      const remaining = textDedup.split(/\s+/).filter(word => !greetingTokens.includes(word.replace(/(.)\1+/g, '$1')))
+      const isJustGreeting = remaining.length === 0 && textNorm.length > 0
 
       if (isJustGreeting || incomingHasAudio) {
         // Pure greeting or audio (likely a short voice note greeting) — stop here, wait for lead to say what they need
