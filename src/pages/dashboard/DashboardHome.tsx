@@ -1,4 +1,5 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
 import type { Instance } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Server, Users, Wifi, WifiOff, MessageSquare, UsersRound, RefreshCw, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import HelpdeskMetricsCharts from '@/components/dashboard/HelpdeskMetricsCharts';
 import AgentPerformanceCard from '@/components/dashboard/AgentPerformanceCard';
+import E2eStatusCard from '@/components/dashboard/E2eStatusCard';
 import BusinessHoursChart from '@/components/dashboard/BusinessHoursChart';
 import TopContactReasons from '@/components/dashboard/TopContactReasons';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -22,6 +24,7 @@ import { toast } from 'sonner';
 import { startOfDay, subDays } from 'date-fns';
 import { formatBR } from '@/lib/dateUtils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { useState } from 'react';
 
 
 interface InstanceStats {
@@ -39,17 +42,40 @@ interface HelpdeskLeadsStats {
   dailyData: { day: string; label: string; leads: number }[];
 }
 
+const DASHBOARD_KEYS = {
+  main: (isAdmin: boolean) => ['dashboard-main', isAdmin] as const,
+  helpdeskLeads: (instanceId: string | null) => ['helpdesk-leads', instanceId] as const,
+  groupsStats: (instanceIds: string) => ['groups-stats', instanceIds] as const,
+} as const;
+
 const DashboardHome = () => {
   const { profile, isSuperAdmin } = useAuth();
   const { inboxes } = useInboxes();
-  const [rawInstances, setInstances] = useState<Instance[]>([]);
-  const [totalUsers, setTotalUsers] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [loadingStats, setLoadingStats] = useState(false);
-  const [instanceStats, setInstanceStats] = useState<InstanceStats[]>([]);
-  const [helpdeskLeads, setHelpdeskLeads] = useState<HelpdeskLeadsStats>({ today: 0, yesterday: 0, total: 0, dailyData: [] });
   const [filters, setFilters] = useState<DashboardFiltersState>({ instanceId: null, inboxId: null, period: 30 });
   const [showInstanceDetails, setShowInstanceDetails] = useState(false);
+
+  const queryClient = useQueryClient();
+
+  // Query 1 — Main data (instances + user count)
+  const { data: mainData, isLoading: loading } = useQuery({
+    queryKey: DASHBOARD_KEYS.main(isSuperAdmin),
+    queryFn: async () => {
+      const [instancesRes, usersRes] = await Promise.all([
+        supabase.from('instances').select('*').eq('disabled', false).order('created_at', { ascending: false }),
+        isSuperAdmin
+          ? supabase.from('user_profiles').select('*', { count: 'exact', head: true })
+          : Promise.resolve({ count: 0 }),
+      ]);
+      if (instancesRes.error) throw instancesRes.error;
+      return {
+        instances: (instancesRes.data || []) as Instance[],
+        totalUsers: isSuperAdmin ? ((usersRes as { count: number }).count || 0) : 0,
+      };
+    },
+  });
+
+  const rawInstances = mainData?.instances ?? [];
+  const totalUsers = mainData?.totalUsers ?? 0;
 
   const ownerIds = useMemo(() => [...new Set(rawInstances.map(i => i.user_id).filter(Boolean) as string[])], [rawInstances]);
   const { profilesMap: ownerProfilesMap } = useUserProfiles({ userIds: ownerIds, enabled: ownerIds.length > 0 });
@@ -63,94 +89,36 @@ const DashboardHome = () => {
     [rawInstances, ownerProfilesMap]
   );
 
-  useEffect(() => {
-    fetchData();
-  }, [isSuperAdmin]);
-
-  useEffect(() => {
-    fetchHelpdeskLeadsStats(filters.instanceId ?? undefined);
-  }, [filters.instanceId]);
-
-  // Realtime for helpdesk leads
-  useEffect(() => {
-    const channel = supabase
-      .channel('helpdesk-leads-realtime')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'lead_database_entries',
-        filter: 'source=eq.helpdesk',
-      }, () => {
-        fetchHelpdeskLeadsStats(filters.instanceId ?? undefined);
-      })
-      .subscribe();
-
-    return () => { channel.unsubscribe(); supabase.removeChannel(channel); };
-  }, [filters.instanceId]);
-
-
-  const fetchData = async () => {
-    try {
-      // Parallel: instances + user count at once (was sequential)
-      const [instancesRes, usersRes] = await Promise.all([
-        supabase.from('instances').select('*').eq('disabled', false).order('created_at', { ascending: false }),
-        isSuperAdmin
-          ? supabase.from('user_profiles').select('*', { count: 'exact', head: true })
-          : Promise.resolve({ count: 0 }),
-      ]);
-
-      if (instancesRes.error) throw instancesRes.error;
-
-      const instancesData = instancesRes.data;
-      if (instancesData && instancesData.length > 0) {
-        setInstances(instancesData as Instance[]);
-        // Groups stats: lazy — don't block initial render
-        setTimeout(() => fetchGroupsStats(instancesData as Instance[]), 100);
-      } else {
-        setInstances([]);
-      }
-
-      if (isSuperAdmin) {
-        setTotalUsers((usersRes as any).count || 0);
-      }
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchHelpdeskLeadsStats = async (instanceId?: string) => {
-    try {
+  // Query 2 — Helpdesk leads stats
+  const { data: helpdeskLeads = { today: 0, yesterday: 0, total: 0, dailyData: [] } } = useQuery({
+    queryKey: DASHBOARD_KEYS.helpdeskLeads(filters.instanceId),
+    queryFn: async (): Promise<HelpdeskLeadsStats> => {
       const now = new Date();
       const todayStart = startOfDay(now).toISOString();
       const yesterdayStart = startOfDay(subDays(now, 1)).toISOString();
       const sevenDaysAgo = startOfDay(subDays(now, 6)).toISOString();
 
       let databaseIds: string[] | null = null;
-      if (instanceId) {
+      if (filters.instanceId) {
         const { data: dbs } = await supabase
           .from('lead_databases')
           .select('id')
-          .eq('instance_id', instanceId);
+          .eq('instance_id', filters.instanceId);
         databaseIds = dbs?.map(d => d.id) || [];
         if (databaseIds.length === 0) {
-          setHelpdeskLeads({ today: 0, yesterday: 0, total: 0, dailyData: [] });
-          return;
+          return { today: 0, yesterday: 0, total: 0, dailyData: [] };
         }
       }
 
-      const buildQuery = (baseQuery: ReturnType<typeof supabase.from>) => {
-        let q = baseQuery;
-        if (databaseIds) q = q.in('database_id', databaseIds);
-        return q;
-      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const applyDbFilter = (q: any) =>
+        databaseIds ? q.in('database_id', databaseIds) : q;
 
       const [todayRes, yesterdayRes, totalRes, weekRes] = await Promise.all([
-        buildQuery(supabase.from('lead_database_entries').select('id', { count: 'exact', head: true }).eq('source', 'helpdesk').gte('created_at', todayStart)),
-        buildQuery(supabase.from('lead_database_entries').select('id', { count: 'exact', head: true }).eq('source', 'helpdesk').gte('created_at', yesterdayStart).lt('created_at', todayStart)),
-        buildQuery(supabase.from('lead_database_entries').select('id', { count: 'exact', head: true }).eq('source', 'helpdesk')),
-        buildQuery(supabase.from('lead_database_entries').select('created_at').eq('source', 'helpdesk').gte('created_at', sevenDaysAgo).order('created_at', { ascending: true })),
+        applyDbFilter(supabase.from('lead_database_entries').select('id', { count: 'exact', head: true }).eq('source', 'helpdesk').gte('created_at', todayStart)),
+        applyDbFilter(supabase.from('lead_database_entries').select('id', { count: 'exact', head: true }).eq('source', 'helpdesk').gte('created_at', yesterdayStart).lt('created_at', todayStart)),
+        applyDbFilter(supabase.from('lead_database_entries').select('id', { count: 'exact', head: true }).eq('source', 'helpdesk')),
+        applyDbFilter(supabase.from('lead_database_entries').select('created_at').eq('source', 'helpdesk').gte('created_at', sevenDaysAgo).order('created_at', { ascending: true })),
       ]);
 
       const dayMap = new Map<string, number>();
@@ -158,7 +126,7 @@ const DashboardHome = () => {
         const d = subDays(now, i);
         dayMap.set(formatBR(d, 'yyyy-MM-dd'), 0);
       }
-      weekRes.data?.forEach((entry) => {
+      (weekRes.data as { created_at: string | null }[] | null)?.forEach((entry) => {
         const dayKey = formatBR(entry.created_at!, 'yyyy-MM-dd');
         dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
       });
@@ -169,66 +137,86 @@ const DashboardHome = () => {
         leads: count,
       }));
 
-      setHelpdeskLeads({
+      return {
         today: todayRes.count || 0,
         yesterday: yesterdayRes.count || 0,
         total: totalRes.count || 0,
         dailyData,
-      });
-    } catch (error) {
-      console.error('Error fetching helpdesk leads stats:', error);
-    }
-  };
+      };
+    },
+  });
 
-  const fetchGroupsStats = async (instancesList: Instance[]) => {
-    setLoadingStats(true);
-    const stats: InstanceStats[] = [];
-    const connectedInstances = instancesList.filter((i) => i.status === 'connected' || i.status === 'online');
+  // Query 3 — Groups stats (depends on rawInstances being loaded)
+  // Use a stable key derived from instance IDs to avoid unnecessary refetches
+  const instanceIdsKey = rawInstances.map(i => i.id).sort().join(',');
 
-    await Promise.all(
-      connectedInstances.map(async (instance) => {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 15000);
-          const { data, error } = await supabase.functions.invoke('uazapi-proxy', {
-            body: { action: 'groups', instance_id: instance.id },
-          });
-          clearTimeout(timeout);
-          if (error) throw error;
-          const groups = Array.isArray(data) ? data : [];
-          let totalParticipants = 0;
-          groups.forEach((group: Record<string, unknown>) => {
-            totalParticipants +=
-              (group.ParticipantCount as number) ||
-              (group.Size as number) ||
-              (group.size as number) ||
-              (Array.isArray(group.Participants) ? group.Participants.length : 0) ||
-              (Array.isArray(group.participants) ? group.participants.length : 0) ||
-              0;
-          });
-          stats.push({ instanceId: instance.id, instanceName: instance.name, groupsCount: groups.length, participantsCount: totalParticipants, status: instance.status });
-        } catch {
+  const { data: instanceStats = [], isLoading: loadingStats, refetch: refetchGroupsStats } = useQuery({
+    queryKey: DASHBOARD_KEYS.groupsStats(instanceIdsKey),
+    queryFn: async (): Promise<InstanceStats[]> => {
+      const stats: InstanceStats[] = [];
+      const connectedList = rawInstances.filter(i => i.status === 'connected' || i.status === 'online');
+
+      await Promise.all(
+        connectedList.map(async (instance) => {
+          try {
+            const { data, error } = await supabase.functions.invoke('uazapi-proxy', {
+              body: { action: 'groups', instance_id: instance.id },
+            });
+            if (error) throw error;
+            const groups = Array.isArray(data) ? data : [];
+            let totalParticipants = 0;
+            groups.forEach((group: Record<string, unknown>) => {
+              totalParticipants +=
+                (group.ParticipantCount as number) ||
+                (group.Size as number) ||
+                (group.size as number) ||
+                (Array.isArray(group.Participants) ? group.Participants.length : 0) ||
+                (Array.isArray(group.participants) ? group.participants.length : 0) ||
+                0;
+            });
+            stats.push({ instanceId: instance.id, instanceName: instance.name, groupsCount: groups.length, participantsCount: totalParticipants, status: instance.status });
+          } catch {
+            stats.push({ instanceId: instance.id, instanceName: instance.name, groupsCount: 0, participantsCount: 0, status: instance.status });
+          }
+        })
+      );
+
+      // Add disconnected instances with zero counts
+      rawInstances
+        .filter(i => i.status !== 'connected' && i.status !== 'online')
+        .forEach((instance) => {
           stats.push({ instanceId: instance.id, instanceName: instance.name, groupsCount: 0, participantsCount: 0, status: instance.status });
-        }
+        });
+
+      return stats;
+    },
+    enabled: rawInstances.length > 0,
+    staleTime: 5 * 60 * 1000, // 5 min — groups stats don't change without user action
+  });
+
+  // Realtime for helpdesk leads — invalidates React Query cache per D-01
+  useEffect(() => {
+    const channel = supabase
+      .channel('helpdesk-leads-realtime')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'lead_database_entries',
+        filter: 'source=eq.helpdesk',
+      }, () => {
+        queryClient.invalidateQueries({ queryKey: DASHBOARD_KEYS.helpdeskLeads(filters.instanceId) });
       })
-    );
+      .subscribe();
 
-    instancesList
-      .filter((i) => i.status !== 'connected' && i.status !== 'online')
-      .forEach((instance) => {
-        stats.push({ instanceId: instance.id, instanceName: instance.name, groupsCount: 0, participantsCount: 0, status: instance.status });
-      });
-
-    setInstanceStats(stats);
-    setLoadingStats(false);
-  };
+    return () => { channel.unsubscribe(); supabase.removeChannel(channel); };
+  }, [filters.instanceId, queryClient]);
 
   const handleRefreshStats = useCallback(async () => {
-    if (instances.length === 0) return;
+    if (rawInstances.length === 0) return;
     toast.info('Atualizando estatísticas...');
-    await fetchGroupsStats(instances);
+    await refetchGroupsStats();
     toast.success('Estatísticas atualizadas!');
-  }, [instances]);
+  }, [rawInstances.length, refetchGroupsStats]);
 
   const connectedInstances = useMemo(() => instances.filter((i) => i.status === 'connected' || i.status === 'online'), [instances]);
   const disconnectedInstances = useMemo(() => instances.filter((i) => i.status !== 'connected' && i.status !== 'online'), [instances]);
@@ -408,6 +396,13 @@ const DashboardHome = () => {
       <LazySection height="300px">
         <AgentPerformanceCard periodDays={filters.period} />
       </LazySection>
+
+      {/* E2E Test Status */}
+      {isSuperAdmin && (
+        <LazySection height="100px">
+          <E2eStatusCard />
+        </LazySection>
+      )}
 
       {/* Recent Instances - Lazy */}
       <LazySection height="200px">
