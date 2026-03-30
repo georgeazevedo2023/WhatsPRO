@@ -1,4 +1,3 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import { geminiBreaker, groqBreaker, mistralBreaker, uazapiBreaker } from '../_shared/circuitBreaker.ts'
@@ -7,145 +6,14 @@ import { STATUS_IA } from '../_shared/constants.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
 import { unauthorizedResponse } from '../_shared/auth.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || ''
-const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY') || ''
-const MISTRAL_API_KEY = Deno.env.get('MISTRAL_API_KEY') || ''
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
-
-/** Remove redundant brand/name from last segment of product title */
-function cleanProductTitle(title: string): string {
-  const parts = title.split(' - ')
-  if (parts.length <= 2) return title
-  const lastPart = parts[parts.length - 1].trim()
-  const rest = parts.slice(0, -1).join(' - ')
-  const lastWords = lastPart.split(/\s+/)
-  // Check for 3-consecutive-word overlap between last segment and earlier text
-  for (let i = 0; i <= lastWords.length - 3; i++) {
-    const subseq = lastWords.slice(i, i + 3).join(' ')
-    if (rest.toLowerCase().includes(subseq.toLowerCase())) {
-      const restLower = rest.toLowerCase()
-      const uniqueWords = lastWords.filter(w => w.length > 2 && !restLower.includes(w.toLowerCase()))
-      return uniqueWords.length > 0 ? `${rest} - ${uniqueWords.join(' ')}` : rest
-    }
-  }
-  return title
-}
-
-// LLM prompt only generates cards 2-N (card 1 is code-generated)
-const COPY_PROMPT = (title: string, price: string, desc: string, count: number) =>
-  `Gere ${count} textos curtos e persuasivos para cards de carrossel WhatsApp.\n` +
-  `Produto: ${title} | ${price}\nDescrição: ${desc.substring(0, 200)}\n\n` +
-  `Responda APENAS um JSON array de ${count} strings. Exemplo: ["texto1","texto2",...]\n` +
-  `- Texto 1: Copy de vendas — benefício principal\n` +
-  `- Texto 2: Detalhes técnicos ou especificações\n` +
-  `- Texto 3: Diferencial de qualidade\n` +
-  `- Texto 4: Urgência + call-to-action\n\n` +
-  `Regras: máx 80 chars por texto, sem emojis, português BR, persuasivo. NÃO mencione o nome completo do produto.`
-
-function parseCopyResponse(text: string, count: number): string[] | null {
-  const match = text.match(/\[[\s\S]*?\]/)
-  if (!match) return null
-  try {
-    const arr = JSON.parse(match[0])
-    if (!Array.isArray(arr) || arr.length < count) return null
-    return arr.slice(0, count).map((c: any) => String(c).substring(0, 120))
-  } catch { return null }
-}
-
-/** Generate sales copy for carousel cards: Card 1 = code, Cards 2-5 = Groq → Gemini → Mistral → static */
-// In-memory cache for carousel copies — avoids redundant LLM calls for same product
-// Persists within the same Deno isolate (shared across concurrent requests)
-const _carouselCopyCache = new Map<string, { copies: string[], expiresAt: number }>()
-const CAROUSEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
-const CAROUSEL_CACHE_MAX_SIZE = 200
-
-async function generateCarouselCopies(product: any, numCards: number): Promise<string[]> {
-  const title = product.title || 'Produto'
-  const price = product.price ? `R$ ${product.price.toFixed(2)}` : 'Sob consulta'
-  const desc = product.description || ''
-
-  // Card 1 is ALWAYS code-generated (deterministic, clean title + price)
-  const card1 = `${cleanProductTitle(title)}\n${price}`
-
-  if (numCards <= 1) return [card1]
-
-  // Check cache by product id + numCards
-  const cacheKey = `${product.id || title}:${numCards}`
-  const cached = _carouselCopyCache.get(cacheKey)
-  if (cached && cached.expiresAt > Date.now()) {
-    console.log(`[ai-agent] Carousel copies: cache HIT for ${cacheKey}`)
-    return cached.copies
-  }
-
-  const copyCount = numCards - 1 // How many cards the LLM needs to generate
-  const prompt = COPY_PROMPT(title, price, desc, copyCount)
-
-  // Static fallback for cards 2-5
-  const fallbackCopies = [
-    `Qualidade garantida!\nO melhor para sua obra`,
-    `Alto desempenho e durabilidade\nResultado profissional`,
-    `Marca de confiança!\nEscolha dos especialistas`,
-    `Aproveite agora!\nUnidades limitadas`,
-  ].slice(0, copyCount)
-
-  // Try LLM chain for cards 2-N: Groq → Gemini → static (max 2 providers, 2s timeout each)
-  const providers: Array<{ name: string, call: () => Promise<string | null> }> = []
-
-  if (GROQ_API_KEY) providers.push({ name: 'Groq', call: async () => {
-    const res = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.8, max_tokens: 300 }),
-    }, 2000)
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.choices?.[0]?.message?.content || null
-  }})
-
-  if (GEMINI_API_KEY) providers.push({ name: 'Gemini', call: async () => {
-    const res = await fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.8, maxOutputTokens: 300 } }) }, 2000)
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || null
-  }})
-
-  let result: string[] | null = null
-  for (const provider of providers) {
-    try {
-      const text = await provider.call()
-      if (text) {
-        const copies = parseCopyResponse(text, copyCount)
-        if (copies) {
-          console.log(`[ai-agent] Carousel copies: ${provider.name} OK`)
-          result = [card1, ...copies]
-          break
-        }
-      }
-      console.warn(`[ai-agent] ${provider.name} copy: bad response`)
-    } catch (e) { console.warn(`[ai-agent] ${provider.name} copy error:`, e) }
-  }
-
-  if (!result) {
-    console.warn('[ai-agent] Carousel copies: all LLMs failed, using static')
-    result = [card1, ...fallbackCopies]
-  }
-
-  // Cache result (evict oldest if cache is full)
-  if (_carouselCopyCache.size >= CAROUSEL_CACHE_MAX_SIZE) {
-    const oldestKey = _carouselCopyCache.keys().next().value
-    if (oldestKey) _carouselCopyCache.delete(oldestKey)
-  }
-  _carouselCopyCache.set(cacheKey, { copies: result, expiresAt: Date.now() + CAROUSEL_CACHE_TTL_MS })
-
-  return result
-}
+const supabase = createServiceClient()
 
 /** Handoff detection patterns — negative lookahead to avoid false positives
  *  e.g., "não vou encaminhar" should NOT trigger handoff */
@@ -215,7 +83,7 @@ Deno.serve(async (req) => {
 
     // 1.5 Validate agent belongs to this instance (prevent cross-instance invocation)
     if (agent.instance_id && agent.instance_id !== instance_id) {
-      console.warn(`[ai-agent] Instance mismatch: agent.instance_id=${agent.instance_id} !== request.instance_id=${instance_id}`)
+      log.warn('Instance mismatch', { agentInstanceId: agent.instance_id, requestInstanceId: instance_id })
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'instance_mismatch' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -288,7 +156,7 @@ Deno.serve(async (req) => {
     /** Send text message via UAZAPI with typing delay + circuit breaker */
     const sendTextMsg = async (text: string) => {
       if (uazapiBreaker.isOpen) {
-        console.warn('[ai-agent] UAZAPI circuit breaker OPEN — skipping send/text')
+        log.warn('UAZAPI circuit breaker OPEN — skipping send/text')
         return false
       }
       try {
@@ -298,11 +166,11 @@ Deno.serve(async (req) => {
           body: JSON.stringify({ number: contact.jid, text, delay: typingDelay(text) }),
         })
         if (res.ok) { uazapiBreaker.onSuccess(); return true }
-        console.error(`[ai-agent] send/text failed: ${res.status} ${(await res.text()).substring(0, 100)}`)
+        log.error('send/text failed', { status: res.status, body: (await res.text()).substring(0, 100) })
         uazapiBreaker.onFailure()
         return false
       } catch (err) {
-        console.error('[ai-agent] send/text error:', err)
+        log.error('send/text error', { error: (err as Error).message })
         uazapiBreaker.onFailure()
         return false
       }
@@ -319,7 +187,7 @@ Deno.serve(async (req) => {
             generationConfig: { response_modalities: ['AUDIO'], speech_config: { voice_config: { prebuilt_voice_config: { voice_name: agent.voice_name || 'Kore' } } } },
           }),
         })
-        if (!ttsRes.ok) { console.warn('[ai-agent] TTS failed:', ttsRes.status); return false }
+        if (!ttsRes.ok) { log.warn('TTS failed', { status: ttsRes.status }); return false }
         const ttsData = await ttsRes.json()
         const audioPart = ttsData?.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData)
         if (!audioPart?.inlineData?.data) return false
@@ -340,9 +208,9 @@ Deno.serve(async (req) => {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'token': instance.token },
           body: JSON.stringify({ number: contact.jid, type: 'ptt', file: btoa(wavBin), delay: 2000 }),
         })
-        console.log(`[ai-agent] TTS sent (${text.length} chars)`)
+        log.info('TTS sent', { chars: text.length })
         return true
-      } catch (e) { console.warn('[ai-agent] TTS error:', e); return false }
+      } catch (e) { log.warn('TTS error', { error: (e as Error).message }); return false }
     }
 
     /** Broadcast event to helpdesk (fire-and-forget, uses SERVICE_ROLE) */
@@ -371,7 +239,7 @@ Deno.serve(async (req) => {
         : (currentMinutes < startMin && currentMinutes >= endMin)
 
       if (isOutsideHours) {
-        console.log(`[ai-agent] Outside business hours (${agent.business_hours.start}-${agent.business_hours.end}, now=${brDate.getHours()}:${String(brDate.getMinutes()).padStart(2, '0')})`)
+        log.info('Outside business hours', { start: agent.business_hours.start, end: agent.business_hours.end, hour: brDate.getHours(), minute: brDate.getMinutes() })
         if (agent.out_of_hours_message) {
           await sendTextMsg(agent.out_of_hours_message)
           await supabase.from('conversation_messages').insert({
@@ -427,7 +295,7 @@ Deno.serve(async (req) => {
       const textLower = incomingText.toLowerCase()
       const matchedTrigger = triggers.find((t: string) => textLower.includes(t.toLowerCase()))
       if (matchedTrigger) {
-        console.log(`[ai-agent] Handoff trigger matched: "${matchedTrigger}" in text: "${incomingText.substring(0, 80)}"`)
+        log.info('Handoff trigger matched', { trigger: matchedTrigger, textPreview: incomingText.substring(0, 80) })
         const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
 
         // Send handoff message
@@ -571,7 +439,7 @@ Deno.serve(async (req) => {
     // ── SHADOW MODE ──────────────────────────────────────────────────────
     // AI listens without responding, only extracts info via tools
     if (conversation.status_ia === STATUS_IA.SHADOW) {
-      console.log(`[ai-agent] Shadow mode for conversation ${conversation_id}`)
+      log.info('Shadow mode', { conversationId: conversation_id })
 
       const shadowPrompt = `Você é um extrator de dados. Analise a mensagem do lead e extraia informações relevantes.
 Use set_tags para registrar dados no formato "chave:valor".
@@ -622,7 +490,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
         }
       } catch (shadowErr) {
         // Circuit breaker already tracked the failure in callLLM — just log and continue
-        console.warn('[ai-agent] Shadow mode LLM failed:', (shadowErr as Error).message)
+        log.warn('Shadow mode LLM failed', { error: (shadowErr as Error).message })
       }
 
       await supabase.from('ai_agent_logs').insert({
@@ -673,7 +541,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     if (isReturningLead) {
       const returningTemplate = agent.returning_greeting_message || 'Olá {nome}! Que bom te ver aqui de novo 😊 Em que posso te ajudar hoje?'
       greetingText = returningTemplate.replace(/\{nome\}/gi, leadProfile!.full_name)
-      console.log(`[ai-agent] Returning lead "${leadName}" — sending welcome-back greeting`)
+      log.info('Returning lead — sending welcome-back greeting', { leadName })
     }
 
     // Send greeting: new lead (static greeting) OR returning lead (personalized welcome-back)
@@ -695,7 +563,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       }
 
       if (!greetResult?.inserted) {
-        console.log('[ai-agent] Greeting duplicate detected (atomic lock) — skipping')
+        log.info('Greeting duplicate detected (atomic lock) — skipping')
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_duplicate' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -728,7 +596,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       }).eq('id', conversation_id)
       broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: greetingText, media_type: greetMediaType })
 
-      console.log(`[ai-agent] First interaction — greeting sent as ${greetMediaType}`)
+      log.info('First interaction — greeting sent', { mediaType: greetMediaType })
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'greeting_sent',
         latency_ms: Date.now() - startTime,
@@ -745,13 +613,13 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 
       if (isJustGreeting || incomingHasAudio) {
         // Pure greeting or audio (likely a short voice note greeting) — stop here, wait for lead to say what they need
-        console.log(`[ai-agent] First interaction — greeting sent, stopping (isJustGreeting=${isJustGreeting}, isAudio=${incomingHasAudio})`)
+        log.info('First interaction — greeting sent, stopping', { isJustGreeting, isAudio: incomingHasAudio })
         return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
       // Lead asked something substantive on first message — continue to Gemini to answer
-      console.log(`[ai-agent] First message has substance ("${incomingText.substring(0, 50)}") — continuing to Gemini`)
+      log.info('First message has substance — continuing to LLM', { textPreview: incomingText.substring(0, 50) })
     }
 
     // 10. Build extraction fields + sub-agents instructions
@@ -1065,7 +933,7 @@ Exemplos de objeções:
               }
               const { data: fallbackProducts } = await fallback.limit(10)
               products = fallbackProducts
-              if (products?.length) console.log(`[ai-agent] search_products fallback found ${products.length} results with words: ${words.join(', ')}`)
+              if (products?.length) log.info('search_products fallback found results', { count: products.length, words: words.join(', ') })
             }
           }
 
@@ -1086,7 +954,7 @@ Exemplos de objeções:
                 image: img,
                 buttons: [{ id: `${p.title}_${idx}`, text: idx === photos.length - 1 ? 'Quero este!' : 'Ver mais', type: 'REPLY' }],
               }))
-              console.log(`[ai-agent] Auto-carousel: ${p.title} with ${photos.length} photos (AI copy)`)
+              log.info('Auto-carousel: single product with multiple photos', { title: p.title, photoCount: photos.length })
             } else {
               // Multiple products → 1 card per product
               carousel = withImages.slice(0, 10).map((p: any) => ({
@@ -1098,8 +966,8 @@ Exemplos de objeções:
 
             // Send carousel with retry strategy (2 variants max, fail fast on 400)
             const carouselPayloads = [
-              { phone: contact.jid, message: 'Confira:', carousel },
-              { number: contact.jid, text: 'Confira:', carousel },
+              { phone: contact.jid, message: agent.carousel_text || 'Confira:', carousel },
+              { number: contact.jid, text: agent.carousel_text || 'Confira:', carousel },
             ]
             let carouselSent = false
             for (const payload of carouselPayloads) {
@@ -1112,24 +980,24 @@ Exemplos de objeções:
                 const resBody = await res.text()
                 if (res.ok && !resBody.includes('missing required')) {
                   carouselSent = true
-                  console.log(`[ai-agent] Auto-carousel sent: ${withImages.length} product(s), variant: ${Object.keys(payload)[0]}`)
+                  log.info('Auto-carousel sent', { productCount: withImages.length, variant: Object.keys(payload)[0] })
                   break
                 }
-                if (res.status === 400) { console.warn('[ai-agent] Carousel 400 — payload structure issue, skipping retries'); break }
-                console.warn(`[ai-agent] Carousel variant ${Object.keys(payload)[0]} failed:`, res.status, resBody.substring(0, 100))
+                if (res.status === 400) { log.warn('Carousel 400 — payload structure issue, skipping retries'); break }
+                log.warn('Carousel variant failed', { variant: Object.keys(payload)[0], status: res.status, body: resBody.substring(0, 100) })
               } catch (err) {
-                console.error('[ai-agent] Carousel attempt failed:', err)
+                log.error('Carousel attempt failed', { error: (err as Error).message })
               }
             }
             if (!carouselSent) {
-              console.error('[ai-agent] All carousel variants failed')
+              log.error('All carousel variants failed')
             } else {
               // Save carousel to conversation_messages so it appears in helpdesk
               await supabase.from('conversation_messages').insert({
                 conversation_id, direction: 'outgoing',
-                content: 'Confira:',
+                content: agent.carousel_text || 'Confira:',
                 media_type: 'carousel',
-                media_url: JSON.stringify({ message: 'Confira:', cards: carousel }),
+                media_url: JSON.stringify({ message: agent.carousel_text || 'Confira:', cards: carousel }),
                 external_id: `ai_carousel_${Date.now()}`,
               })
             }
@@ -1174,7 +1042,7 @@ Exemplos de objeções:
               image: img,
               buttons: [{ id: `${p.title}_${idx}`, text: idx === photos.length - 1 ? 'Quero este!' : 'Ver mais', type: 'REPLY' }],
             }))
-            console.log(`[ai-agent] Multi-photo carousel: ${p.title} with ${photos.length} photos (AI copy)`)
+            log.info('Multi-photo carousel', { title: p.title, photoCount: photos.length })
           } else {
             // Multiple products → 1 card per product
             carousel = withImages.slice(0, 10).map((p: any) => ({
@@ -1280,7 +1148,7 @@ Exemplos de objeções:
 
           if (error) {
             // Fallback to in-memory merge if RPC not available
-            console.warn('[ai-agent] merge_conversation_tags RPC failed, using in-memory fallback:', error.message)
+            log.warn('merge_conversation_tags RPC failed, using in-memory fallback', { error: error.message })
             const existing: string[] = conversation.tags || []
             const tagMap = new Map<string, string>()
             for (const t of existing) tagMap.set(t.split(':')[0], t)
@@ -1448,7 +1316,7 @@ Exemplos de objeções:
         return await executeTool(name, args)
       } catch (err) {
         const errMsg = (err as Error).message || 'unknown error'
-        console.error(`[ai-agent] Tool ${name} threw exception:`, errMsg)
+        log.error('Tool threw exception', { tool: name, error: errMsg })
         return `Erro interno ao executar ${name}. Responda ao lead sem usar este resultado.`
       }
     }
@@ -1489,6 +1357,15 @@ Exemplos de objeções:
           temperature: agent.temperature || 0.7,
           maxTokens: agent.max_tokens || 1024,
           model: llmModel,
+        })
+
+        log.info('LLM response', {
+          provider: llmResult.provider,
+          model: llmResult.model,
+          latency_ms: llmResult.latency_ms,
+          input_tokens: llmResult.inputTokens,
+          output_tokens: llmResult.outputTokens,
+          tool_calls: llmResult.toolCalls.length,
         })
 
         inputTokens += llmResult.inputTokens
@@ -1551,11 +1428,19 @@ Exemplos de objeções:
                 maxTokens: agent.max_tokens || 1024,
                 model: llmModel,
               })
+              log.info('LLM response (final text-only)', {
+                provider: finalResult.provider,
+                model: finalResult.model,
+                latency_ms: finalResult.latency_ms,
+                input_tokens: finalResult.inputTokens,
+                output_tokens: finalResult.outputTokens,
+                tool_calls: 0,
+              })
               inputTokens += finalResult.inputTokens
               outputTokens += finalResult.outputTokens
               responseText = finalResult.text
             } catch (e) {
-              console.error('[ai-agent] Final text-only call failed:', e)
+              log.error('Final text-only call failed', { error: (e as Error).message })
             }
             break
           }
@@ -1569,7 +1454,7 @@ Exemplos de objeções:
 
         if (attempts < 3) {
           const backoffMs = 1500 * Math.pow(2, attempts - 1)
-          console.log(`[ai-agent] Retrying after ${backoffMs}ms...`)
+          log.info('Retrying LLM after backoff', { backoffMs })
           await new Promise(r => setTimeout(r, backoffMs))
           continue
         }
@@ -1602,7 +1487,7 @@ Exemplos de objeções:
       ]
       const forbiddenPhrases = [...baseForbidden, ...inventedInfoPhrases]
       if (forbiddenPhrases.some(p => responseText.toLowerCase().includes(p))) {
-        console.warn('[ai-agent] GUARD: Gemini said forbidden phrase — forcing handoff')
+        log.warn('GUARD: LLM said forbidden phrase — forcing handoff')
         // Replace the response with handoff
         const handoffMsg = agent.handoff_message || 'Vou te encaminhar para um consultor que pode te ajudar!'
         responseText = handoffMsg
@@ -1639,11 +1524,11 @@ Exemplos de objeções:
     // If handoff was called, skip text response entirely (handoff tool already sent its message)
     const hadExplicitHandoffInLoop = toolCallsLog.some(t => t.name === 'handoff_to_human')
     if (hadExplicitHandoffInLoop && !responseText.trim()) {
-      console.log('[ai-agent] Handoff completed — skipping text response')
+      log.info('Handoff completed — skipping text response')
       // Still need to update conversation and log, so set a minimal marker
       responseText = ''
     } else if (!responseText.trim()) {
-      console.warn('[ai-agent] Empty Gemini response — using fallback message')
+      log.warn('Empty LLM response — using fallback message')
       responseText = 'Desculpe, não consegui processar sua mensagem. Pode repetir?'
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'empty_response', model: usedModel,
@@ -1651,7 +1536,7 @@ Exemplos de objeções:
       })
     }
 
-    console.log(`[ai-agent] Response (${outputTokens} tok): ${responseText.substring(0, 100)}...`)
+    log.info('Response generated', { outputTokens, preview: responseText.substring(0, 100) })
 
     // 15.5 Detect handoff BEFORE sending — explicit tool call OR implicit (text mentions transfer)
     const toolNames = toolCallsLog.map((t: any) => t.name)
@@ -1662,7 +1547,7 @@ Exemplos de objeções:
 
     // If implicit handoff detected, switch to shadow BEFORE sending (so helpdesk sees correct status)
     if (textLooksLikeHandoff) {
-      console.log('[ai-agent] Implicit handoff detected — switching to shadow before sending text')
+      log.info('Implicit handoff detected — switching to shadow before sending text')
       await supabase.from('conversations').update({
         status_ia: STATUS_IA.SHADOW,
         tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
@@ -1682,16 +1567,16 @@ Exemplos de objeções:
     const shouldSendAudio = (agent.voice_enabled || (incomingHasAudio && voiceReplyToAudio)) &&
       responseText.length <= maxTtsLength
 
-    console.log(`[ai-agent] TTS check: voice_enabled=${agent.voice_enabled}, incomingHasAudio=${incomingHasAudio}, voiceReplyToAudio=${voiceReplyToAudio}, responseLen=${responseText.length}, maxTts=${maxTtsLength}, shouldSendAudio=${shouldSendAudio}`)
+    log.info('TTS check', { voiceEnabled: agent.voice_enabled, incomingHasAudio, voiceReplyToAudio, responseLen: responseText.length, maxTts: maxTtsLength, shouldSendAudio })
     let ttsDebugError = ''
 
     if (skipTextSend) {
-      console.log('[ai-agent] Skipping text send — handoff tool already sent message')
+      log.info('Skipping text send — handoff tool already sent message')
     } else if (shouldSendAudio) {
       // Switch to "recording..." indicator before TTS
       sendPresence('recording')
       try {
-        console.log('[ai-agent] Generating TTS audio via gemini-2.5-flash-preview-tts...')
+        log.info('Generating TTS audio via gemini-2.5-flash-preview-tts')
         const ttsUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent`
         const ttsRes = await fetchWithTimeout(ttsUrl, {
           method: 'POST',
@@ -1749,21 +1634,21 @@ Exemplos de objeções:
               body: JSON.stringify({ number: contact.jid, type: 'ptt', file: wavBase64, delay: 2000 }),
             })
             sentMediaType = 'audio'
-            console.log(`[ai-agent] TTS audio sent (${responseText.length} chars, WAV ${wavBytes.length} bytes)`)
+            log.info('TTS audio sent', { chars: responseText.length, wavBytes: wavBytes.length })
           } else {
             ttsDebugError = 'no_audio_data_in_response'
-            console.warn('[ai-agent] TTS response has no audio data, fallback to text')
+            log.warn('TTS response has no audio data, fallback to text')
             await sendTextMsg(responseText)
           }
         } else {
           const ttsErrBody = await ttsRes.text().catch(() => '')
           ttsDebugError = `http_${ttsRes.status}: ${ttsErrBody.substring(0, 300)}`
-          console.error('[ai-agent] TTS failed:', ttsRes.status, ttsErrBody.substring(0, 200))
+          log.error('TTS failed', { status: ttsRes.status, error: ttsErrBody.substring(0, 200) })
           await sendTextMsg(responseText)
         }
       } catch (ttsErr: any) {
         ttsDebugError = `exception: ${ttsErr?.message || String(ttsErr)}`
-        console.error('[ai-agent] TTS error:', ttsErr)
+        log.error('TTS error', { error: (ttsErr as Error)?.message || String(ttsErr) })
         await sendTextMsg(responseText)
       }
     } else {
@@ -1861,12 +1746,12 @@ Exemplos de objeções:
 
       await supabase.from('lead_profiles').upsert(profileUpdate, { onConflict: 'contact_id' })
 
-      console.log(`[ai-agent] Profile updated. Summaries: ${updatedSummaries.length}, interactions: ${newCount}`)
+      log.info('Profile updated', { summaries: updatedSummaries.length, interactions: newCount })
     } catch (sumErr) {
-      console.error('[ai-agent] Profile update error:', sumErr)
+      log.error('Profile update error', { error: (sumErr as Error).message })
     }
 
-    console.log(`[ai-agent] Done. ${Date.now() - startTime}ms, ${inputTokens}+${outputTokens} tok, ${toolCallsLog.length} tools`)
+    log.info('Done', { latency_ms: Date.now() - startTime, inputTokens, outputTokens, toolCount: toolCallsLog.length })
 
     return new Response(JSON.stringify({
       ok: true, conversation_id,
@@ -1880,7 +1765,7 @@ Exemplos de objeções:
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     const errStack = err instanceof Error ? err.stack : ''
-    console.error('[ai-agent] FATAL:', errMsg, errStack)
+    log.error('FATAL', { error: errMsg, stack: errStack?.substring(0, 500) })
 
     // Log error to database for debugging
     try {
