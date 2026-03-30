@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T02:34:29.006Z"
+last_updated: "2026-03-30T02:45:24.784Z"
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -232,6 +232,10 @@ progress:
 - Product interface e EMPTY_PRODUCT exportados de CatalogConfig para importacao nos sub-componentes
 - hasActiveFilters cast para !!boolean antes de passar para CatalogTable (era string|boolean no orchestrator)
 - CatalogConfig.tsx reduzido de 704 para 273 LOC — DT-08-catalog resolvido
+- computeResults movido para playground.ts como funcao pura (sem refs, sem side effects) — DT-08 resolvido para Playground
+- scrollRef/inputRef/fileInputRef criados dentro de PlaygroundManualTab (UI-local per D-02) — auto-scroll via useEffect interno
+- overridesRef adicionado ao orchestrator para evitar stale closure em sendToAgent e runScenario (refs read latest value)
+- testGuardrail removido (eslint-disable unused — dead code desde a criacao)
 - Zod schemas usam .partial() — cada campo e validado independentemente via SCHEMA_MAP routing
 - fieldErrorsRef (nao state) usado no guard do doSave — evita stale closure em callbacks memoizados
 - max_tokens Input nao clampeia via Math.min/max — Zod valida e mostra erro inline em vez de correcao silenciosa
@@ -285,7 +289,7 @@ progress:
 
 ### Phase 4 Status
 
-- [x] 04-01-PLAN.md — AIAgentPlayground decomposition (DONE — parallel agent)
+- [x] 04-01-PLAN.md — AIAgentPlayground decomposition: 1353 LOC → 276 LOC orchestrator + 4 tab sub-components + types file (DONE 2026-03-30)
 - [x] 04-02-PLAN.md — CatalogConfig decomposition — CatalogTable + CatalogProductForm (DONE 2026-03-30)
 
 ### Divida Tecnica Resolvida (Adicional)
