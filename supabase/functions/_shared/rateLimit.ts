@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createServiceClient } from './supabaseClient.ts'
 
 /**
  * Atomic per-user + optional global rate limiter using Supabase RPC.
@@ -10,11 +10,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
  *   if (result.limited) return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), { status: 429 })
  */
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-
 // Reuse client across requests in same isolate
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+const supabase = createServiceClient()
 
 // Local in-memory fallback when RPC is unavailable (fail closed instead of open)
 const localFallbackCache = new Map<string, { count: number; resetAt: number }>()
@@ -58,7 +55,7 @@ export async function checkRateLimit(
 
     if (error) {
       // Fail closed with local fallback when RPC unavailable
-      console.warn('[rateLimit] RPC error — using local fallback:', error.message)
+      console.warn(`[rateLimit] RPC error — using local fallback: ${error.message}`)
       const cacheKey = `${userId}:${action}`
       const cached = localFallbackCache.get(cacheKey) || { count: 0, resetAt: Date.now() + windowSeconds * 1000 }
       if (Date.now() > cached.resetAt) { cached.count = 0; cached.resetAt = Date.now() + windowSeconds * 1000 }
