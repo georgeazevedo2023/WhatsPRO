@@ -1,6 +1,7 @@
 import {
   type AIAgent, type ChatMessage, type PlaygroundResponse,
   type Overrides, type ScenarioCategory, type TestScenario, type ScenarioRun, type WatchSpeed,
+  type E2eResult, type E2eLiveStep, type E2eRunResult,
   TEST_SCENARIOS, computeResults,
 } from '@/types/playground';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -35,15 +36,15 @@ const AIAgentPlayground = () => {
   const [overrides, setOverrides] = useState<Overrides>({ temperature: 0.7, maxTokens: 1024, model: 'gpt-4.1-mini', disabledTools: new Set() });
   const [bufferMode, setBufferMode] = useState(false);
   const [bufferSec, setBufferSec] = useState(10);
-  const [bufferedMsgs, setBufferedMsgs] = useState<string[]>([]);  // eslint-disable-line
+  const [_bufferedMsgs, setBufferedMsgs] = useState<string[]>([]);  // eslint-disable-line
   const bufferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [bufferCountdown, setBufferCountdown] = useState(0);  // eslint-disable-line
   const [activeTab, setActiveTab] = useState<'manual' | 'scenarios' | 'results' | 'e2e'>('manual');
   const [e2eNumber, setE2eNumber] = useState('5581985749970');
   const [e2eRunning, setE2eRunning] = useState(false);
-  const [e2eResults, setE2eResults] = useState<any[]>([]);
+  const [e2eResults, setE2eResults] = useState<E2eRunResult[]>([]);
   const [e2eCurrentScenario, setE2eCurrentScenario] = useState<string | null>(null);
-  const [e2eLiveSteps, setE2eLiveSteps] = useState<any[]>([]);
+  const [e2eLiveSteps, setE2eLiveSteps] = useState<E2eLiveStep[]>([]);
   const [e2eSelectedScenario, setE2eSelectedScenario] = useState<TestScenario | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<ScenarioCategory | 'all'>('all');
   const [scenarioSearch, setScenarioSearch] = useState('');
@@ -59,7 +60,7 @@ const AIAgentPlayground = () => {
 
   const fetchAgents = useCallback(async () => {
     try {
-      const { data, error } = await (supabase as any).from('ai_agents')
+      const { data, error } = await supabase.from('ai_agents')
         .select('id, name, instance_id, personality, greeting_message, model, temperature, max_tokens, blocked_topics')
         .eq('enabled', true).order('name');
       if (error) throw error;
@@ -90,8 +91,8 @@ const AIAgentPlayground = () => {
         if (result.tool_calls?.length) setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'system', content: '', timestamp: new Date(), tool_calls: result.tool_calls }]);
         setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: result.response, timestamp: new Date(), tokens: result.tokens, latency_ms: result.latency_ms, tool_calls: result.tool_calls }]);
       } else { toast.error(result.error || 'Erro ao processar resposta'); }
-    } catch (err: any) {
-      if (err?.status === 404) toast.error('Edge function ai-agent-playground nao implantada');
+    } catch (err: unknown) {
+      if (err instanceof Error && 'status' in err && (err as Error & { status: number }).status === 404) toast.error('Edge function ai-agent-playground nao implantada');
       else handleError(err, 'Erro ao chamar agente', 'Playground');
     } finally { setSending(false); }
   };
@@ -140,23 +141,27 @@ const AIAgentPlayground = () => {
   const runE2eScenario = async (scenario: TestScenario) => {
     if (e2eRunning || !selectedAgentId || !selectedAgent?.instance_id) return;
     setE2eRunning(true); setE2eCurrentScenario(scenario.id); setE2eSelectedScenario(scenario);
-    setE2eLiveSteps(scenario.steps.map((s, i) => ({ step: i + 1, input: s.content, media_type: s.media_type || 'text', status: 'sending', agent_response: null, tools_used: [], tags: [], latency_ms: 0 })));
+    setE2eLiveSteps(scenario.steps.map((s, i): E2eLiveStep => ({ step: i + 1, input: s.content, media_type: s.media_type || 'text', status: 'sending', agent_response: null, agent_raw: null, tools_used: [], tags: [], status_ia: undefined, latency_ms: 0, tokens: { input: 0, output: 0 } })));
     try {
       const { data, error } = await supabase.functions.invoke('e2e-test', { body: { agent_id: selectedAgentId, instance_id: selectedAgent.instance_id, test_number: e2eNumber, steps: scenario.steps.map(s => ({ content: s.content, media_type: s.media_type || 'text' })) } });
       if (error) throw error;
-      setE2eLiveSteps((data?.results || []).map((r: any) => ({ ...r, status: 'done' })));
-      const uniqueTools: string[] = [...new Set((data?.results || []).flatMap((r: any) => r.tools_used || []))];
+      type E2eTestData = { results?: E2eResult[]; total_latency_ms?: number; conversation_id?: string | null };
+      const d = (data as E2eTestData | null) ?? {};
+      const results = (d.results || []) as E2eResult[];
+      setE2eLiveSteps(results.map((r): E2eLiveStep => ({ ...r, status: 'done' })));
+      const uniqueTools: string[] = [...new Set(results.flatMap(r => r.tools_used || []))];
       const { tools_must_use, tools_must_not_use, should_handoff } = scenario.expected;
       const tools_missing = tools_must_use.filter(t => !uniqueTools.includes(t));
       const tools_unexpected = tools_must_not_use.filter(t => uniqueTools.includes(t));
       const handoff = uniqueTools.includes('handoff_to_human');
       const pass = !tools_missing.length && !tools_unexpected.length && (should_handoff ? handoff : true);
-      setE2eResults(prev => [{ id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass, tools_used: uniqueTools, tools_missing, tools_unexpected, handoff, steps: data?.results || [], total_latency_ms: data?.total_latency_ms || 0, conversation_id: data?.conversation_id }, ...prev]);
+      setE2eResults(prev => [{ id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass, tools_used: uniqueTools, tools_missing, tools_unexpected, handoff, steps: results, total_latency_ms: d.total_latency_ms || 0, conversation_id: d.conversation_id }, ...prev]);
       toast.success(pass ? `E2E PASSOU: ${scenario.name}` : `E2E FALHOU: ${scenario.name}`, { duration: 5000 });
-    } catch (err: any) {
-      toast.error(`E2E erro: ${err?.message || 'falha na execucao'}`);
-      setE2eLiveSteps(prev => prev.map(s => ({ ...s, status: 'error' })));
-      setE2eResults(prev => [{ id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass: false, error: err?.message, steps: [], total_latency_ms: 0 }, ...prev]);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'falha na execucao';
+      toast.error(`E2E erro: ${errMsg}`);
+      setE2eLiveSteps(prev => prev.map(s => ({ ...s, status: 'error' as const })));
+      setE2eResults(prev => [{ id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass: false, error: errMsg, steps: [], total_latency_ms: 0 }, ...prev]);
     } finally { setE2eRunning(false); setE2eCurrentScenario(null); }
   };
 
@@ -256,7 +261,7 @@ const AIAgentPlayground = () => {
           <p className="text-[10px] leading-tight">Playground de testes do Agente IA — Chat Manual e Cenarios usam LLM simulado. Aba E2E Real envia mensagens reais via WhatsApp.</p>
         </div>
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <Tabs value={activeTab} onValueChange={v => setActiveTab(v as typeof activeTab)} className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <TabsList className="w-full justify-start flex-shrink-0">
             <TabsTrigger value="manual" className="gap-1.5 text-xs"><MessageSquare className="w-3.5 h-3.5" />Chat Manual</TabsTrigger>
             <TabsTrigger value="scenarios" className="gap-1.5 text-xs"><Layers className="w-3.5 h-3.5" />Cenarios<Badge variant="secondary" className="ml-1 text-[9px] px-1">{TEST_SCENARIOS.length}</Badge></TabsTrigger>

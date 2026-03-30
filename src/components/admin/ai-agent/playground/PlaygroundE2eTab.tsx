@@ -1,5 +1,5 @@
 import {
-  type TestScenario, type AIAgent,
+  type TestScenario, type AIAgent, type E2eLiveStep, type E2eRunResult, type ScenarioCategory,
   CATEGORY_META, DIFFICULTY_COLORS, TEST_SCENARIOS,
 } from '@/types/playground';
 import { Button } from '@/components/ui/button';
@@ -12,9 +12,9 @@ import { Bot, Loader2, Zap } from 'lucide-react';
 export interface PlaygroundE2eTabProps {
   e2eNumber: string;
   e2eRunning: boolean;
-  e2eResults: any[];
+  e2eResults: E2eRunResult[];
   e2eCurrentScenario: string | null;
-  e2eLiveSteps: any[];
+  e2eLiveSteps: E2eLiveStep[];
   e2eSelectedScenario: TestScenario | null;
   filteredScenarios: TestScenario[];
   selectedAgent: AIAgent | undefined;
@@ -60,7 +60,7 @@ export const PlaygroundE2eTab = ({
         <div className="border border-border/50 rounded-xl bg-card/50 overflow-hidden flex flex-col min-h-0">
           <ScrollArea className="flex-1">
             <div className="p-3 space-y-4">
-              {(Object.entries(CATEGORY_META) as [any, typeof CATEGORY_META[keyof typeof CATEGORY_META]][]).map(([catKey, catMeta]) => {
+              {(Object.entries(CATEGORY_META) as [ScenarioCategory, typeof CATEGORY_META[ScenarioCategory]][]).map(([catKey, catMeta]) => {
                 const catScenarios = TEST_SCENARIOS.filter(s => s.category === catKey);
                 if (catScenarios.length === 0) return null;
                 return (
@@ -113,7 +113,7 @@ export const PlaygroundE2eTab = ({
               {/* Live steps */}
               <ScrollArea className="flex-1">
                 <div className="p-3 space-y-2">
-                  {e2eLiveSteps.length > 0 ? e2eLiveSteps.map((step: any, i: number) => (
+                  {e2eLiveSteps.length > 0 ? e2eLiveSteps.map((step, i) => (
                     <div key={i} className={`p-3 rounded-lg border transition-all ${step.status === 'sending' ? 'border-amber-500/40 bg-amber-500/5 animate-pulse' : step.status === 'done' ? 'border-border/30 bg-card' : step.status === 'error' ? 'border-red-500/30 bg-red-500/5' : 'border-border/20 bg-muted/20 opacity-50'}`}>
                       <div className="flex items-center gap-2 mb-1.5">
                         <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${step.status === 'done' ? 'bg-emerald-500/20 text-emerald-400' : step.status === 'sending' ? 'bg-amber-500/20 text-amber-400' : step.status === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-muted text-muted-foreground'}`}>

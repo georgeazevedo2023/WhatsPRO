@@ -105,6 +105,42 @@ export interface ScenarioRun {
 
 export type WatchSpeed = 0.5 | 1 | 1.5 | 2 | 3;
 
+/* ── E2E result types ── */
+export interface E2eResult {
+  step: number;
+  input: string;
+  media_type: string;
+  agent_response: string | null;
+  agent_raw: Record<string, unknown> | null;
+  tools_used: string[];
+  tags: string[];
+  status_ia: string | undefined;
+  latency_ms: number;
+  tokens: { input: number; output: number };
+}
+
+export interface E2eLiveStep extends E2eResult {
+  status: 'pending' | 'running' | 'sending' | 'done' | 'error';
+}
+
+/** Aggregated result for one E2E run (scenario-level, not step-level). */
+export interface E2eRunResult {
+  id: string;
+  scenario_id: string;
+  scenario_name: string;
+  category: ScenarioCategory;
+  timestamp: Date;
+  pass: boolean;
+  tools_used?: string[];
+  tools_missing?: string[];
+  tools_unexpected?: string[];
+  handoff?: boolean;
+  steps: E2eResult[];
+  total_latency_ms: number;
+  conversation_id?: string | null;
+  error?: string;
+}
+
 /* ═══════════════════════════════════════════════════════════ */
 /*  Constants                                                  */
 /* ═══════════════════════════════════════════════════════════ */
