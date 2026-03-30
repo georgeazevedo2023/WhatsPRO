@@ -11,6 +11,9 @@
 
 import { fetchWithTimeout } from './fetchWithTimeout.ts'
 import { CircuitBreaker } from './circuitBreaker.ts'
+import { createLogger } from './logger.ts'
+
+const log = createLogger('llm-provider')
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || ''
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || ''
@@ -54,6 +57,8 @@ export interface LLMResponse {
   outputTokens: number
   model: string
   provider: 'openai' | 'gemini'
+  /** Elapsed time from request start to response (ms) */
+  latency_ms: number
 }
 
 /* ═══════════════════════════════════════════ */
@@ -61,6 +66,7 @@ export interface LLMResponse {
 /* ═══════════════════════════════════════════ */
 
 async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
+  const startMs = Date.now()
   const model = req.model || 'gpt-4.1-mini'
 
   const openaiMessages: any[] = [
@@ -112,6 +118,7 @@ async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
     outputTokens: data.usage?.completion_tokens || 0,
     model,
     provider: 'openai',
+    latency_ms: Date.now() - startMs,
   }
 }
 
@@ -160,7 +167,8 @@ function convertMessagesToGemini(messages: LLMMessage[]): any[] {
 }
 
 async function callGemini(req: LLMRequest): Promise<LLMResponse> {
-  const model = 'gemini-2.5-flash'
+  const startMs = Date.now()
+  const model = req.model?.startsWith('gemini-') ? req.model : 'gemini-2.5-flash'
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
 
   const contents = convertMessagesToGemini(req.messages)
@@ -199,6 +207,7 @@ async function callGemini(req: LLMRequest): Promise<LLMResponse> {
     outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
     model,
     provider: 'gemini',
+    latency_ms: Date.now() - startMs,
   }
 }
 
@@ -207,29 +216,56 @@ async function callGemini(req: LLMRequest): Promise<LLMResponse> {
 /* ═══════════════════════════════════════════ */
 
 export async function callLLM(req: LLMRequest): Promise<LLMResponse> {
-  // Primary: OpenAI (with circuit breaker)
-  if (OPENAI_API_KEY && !openaiBreaker.isOpen) {
-    try {
-      const result = await callOpenAI(req)
-      openaiBreaker.onSuccess()
-      return result
-    } catch (err) {
-      openaiBreaker.onFailure()
-      console.warn(`[llm] OpenAI failed (breaker: ${openaiBreaker.isOpen ? 'OPEN' : 'CLOSED'}), falling back to Gemini:`, (err as Error).message)
-    }
-  } else if (OPENAI_API_KEY && openaiBreaker.isOpen) {
-    console.warn('[llm] OpenAI circuit breaker OPEN — skipping to Gemini')
-  }
+  const model = req.model || 'gpt-4.1-mini'
+  const isGeminiModel = model.startsWith('gemini-')
 
-  // Fallback: Gemini (with circuit breaker)
-  if (GEMINI_API_KEY && !geminiLLMBreaker.isOpen) {
-    try {
-      const result = await callGemini(req)
-      geminiLLMBreaker.onSuccess()
-      return result
-    } catch (err) {
-      geminiLLMBreaker.onFailure()
-      throw err // No more fallbacks
+  // Route by model prefix: gemini-* → Gemini first, gpt-* → OpenAI first
+  if (isGeminiModel) {
+    // Gemini-preferred path: try Gemini first, fallback to OpenAI
+    if (GEMINI_API_KEY && !geminiLLMBreaker.isOpen) {
+      try {
+        const result = await callGemini(req)
+        geminiLLMBreaker.onSuccess()
+        return result
+      } catch (err) {
+        geminiLLMBreaker.onFailure()
+        log.warn('Gemini failed, falling back to OpenAI', { error: (err as Error).message })
+      }
+    }
+    if (OPENAI_API_KEY && !openaiBreaker.isOpen) {
+      try {
+        const result = await callOpenAI({ ...req, model: 'gpt-4.1-mini' })
+        openaiBreaker.onSuccess()
+        return result
+      } catch (err) {
+        openaiBreaker.onFailure()
+        throw err
+      }
+    }
+  } else {
+    // OpenAI-preferred path (default): try OpenAI first, fallback to Gemini
+    if (OPENAI_API_KEY && !openaiBreaker.isOpen) {
+      try {
+        const result = await callOpenAI(req)
+        openaiBreaker.onSuccess()
+        return result
+      } catch (err) {
+        openaiBreaker.onFailure()
+        log.warn('OpenAI failed, falling back to Gemini', { error: (err as Error).message, breakerOpen: openaiBreaker.isOpen })
+      }
+    } else if (OPENAI_API_KEY && openaiBreaker.isOpen) {
+      log.warn('OpenAI circuit breaker OPEN, skipping to Gemini')
+    }
+
+    if (GEMINI_API_KEY && !geminiLLMBreaker.isOpen) {
+      try {
+        const result = await callGemini(req)
+        geminiLLMBreaker.onSuccess()
+        return result
+      } catch (err) {
+        geminiLLMBreaker.onFailure()
+        throw err
+      }
     }
   }
 

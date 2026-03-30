@@ -1,4 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createServiceClient, createUserClient } from './supabaseClient.ts'
+import { createLogger } from './logger.ts'
 
 /**
  * Verifies the caller is an authenticated user.
@@ -8,11 +9,7 @@ export async function verifyAuth(req: Request): Promise<{ userId: string } | nul
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: authHeader } } }
-  )
+  const supabase = createUserClient(req)
 
   const token = authHeader.replace('Bearer ', '')
   const { data, error } = await supabase.auth.getUser(token)
@@ -29,10 +26,7 @@ export async function verifySuperAdmin(req: Request): Promise<{ userId: string }
   const auth = await verifyAuth(req)
   if (!auth) return null
 
-  const serviceClient = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  )
+  const serviceClient = createServiceClient()
 
   const { data: roles, error } = await serviceClient
     .from('user_roles')
@@ -52,15 +46,31 @@ export async function verifySuperAdmin(req: Request): Promise<{ userId: string }
  * This is used for functions called by pg_cron or scheduled jobs.
  */
 export function verifyCronOrService(req: Request): boolean {
+  const log = createLogger('auth')
+
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader?.startsWith('Bearer ')) return false
+  if (!authHeader?.startsWith('Bearer ')) {
+    log.error('Invalid auth header format or missing')
+    return false
+  }
 
   const token = authHeader.replace('Bearer ', '')
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  const internalKey = Deno.env.get('INTERNAL_FUNCTION_KEY')
 
-  // Accept both service_role key and anon key (cron jobs use anon key)
-  return token === serviceKey || token === anonKey
+  const isService = serviceKey && token === serviceKey
+  const isAnon = anonKey && token === anonKey
+  const isInternal = internalKey && token === internalKey
+
+  if (!isService && !isAnon && !isInternal) {
+    log.error('Token mismatch', { tokenLength: token.length, hasService: !!serviceKey, hasAnon: !!anonKey, hasInternal: !!internalKey })
+    return false
+  }
+
+  const mode = isInternal ? 'internal' : (isService ? 'service' : 'anon')
+  log.info('verifyCronOrService successful', { mode })
+  return true
 }
 
 /** Standard 401 response */
