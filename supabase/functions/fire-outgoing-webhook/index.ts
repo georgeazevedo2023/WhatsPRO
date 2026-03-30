@@ -1,7 +1,11 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { createUserClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
+import { unauthorizedResponse } from '../_shared/auth.ts'
+
+const log = createLogger('fire-outgoing-webhook')
 
 /**
  * Validate webhook URL to prevent SSRF attacks.
@@ -69,43 +73,27 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return unauthorizedResponse(corsHeaders)
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabase = createUserClient(req)
 
     const token = authHeader.replace("Bearer ", "");
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return unauthorizedResponse(corsHeaders)
     }
 
     const { webhook_url, payload } = await req.json();
 
     if (!webhook_url || !payload) {
-      return new Response(
-        JSON.stringify({ error: "webhook_url and payload are required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return errorResponse(corsHeaders, 'webhook_url and payload are required', 400)
     }
 
     // Validate webhook URL to prevent SSRF
     const urlValidation = validateWebhookUrl(webhook_url);
     if (!urlValidation.valid) {
-      return new Response(
-        JSON.stringify({ error: urlValidation.error }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return errorResponse(corsHeaders, urlValidation.error || 'Invalid webhook URL', 400)
     }
 
     const webhookResponse = await fetchWithTimeout(webhook_url, {
@@ -116,22 +104,15 @@ Deno.serve(async (req) => {
 
     const responseText = await webhookResponse.text();
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        status: webhookResponse.status,
-        response: responseText,
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    log.info('Webhook fired', { url: webhook_url, status: webhookResponse.status })
+
+    return successResponse(corsHeaders, {
+      success: true,
+      status: webhookResponse.status,
+      response: responseText,
+    })
   } catch (err) {
-    console.error("fire-outgoing-webhook error:", err);
-    return new Response(
-      JSON.stringify({ error: "Internal error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    log.error('fire-outgoing-webhook error', { error: (err as Error).message })
+    return errorResponse(corsHeaders, 'Internal error', 500)
   }
 });

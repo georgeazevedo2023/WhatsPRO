@@ -1,6 +1,10 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
+import { unauthorizedResponse } from '../_shared/auth.ts'
+
+const log = createLogger('admin-delete-user')
 
 Deno.serve(async (req) => {
   // Handle CORS preflight
@@ -12,27 +16,17 @@ Deno.serve(async (req) => {
     // Validate auth
     const authHeader = req.headers.get('Authorization')
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return unauthorizedResponse(corsHeaders)
     }
 
-    // Create client with user's token to check if they're super admin
-    const userClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
-    )
+    // Create user-scoped client to verify super_admin
+    const userClient = createUserClient(req)
 
     const token = authHeader.replace('Bearer ', '')
     const { data: userData, error: userError } = await userClient.auth.getUser(token)
-    
+
     if (userError || !userData?.user) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return unauthorizedResponse(corsHeaders)
     }
 
     // Check if user is super admin
@@ -44,10 +38,7 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (roleError || !roleData) {
-      return new Response(
-        JSON.stringify({ error: 'Forbidden: Super admin required' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return errorResponse(corsHeaders, 'Forbidden: Super admin required', 403)
     }
 
     // Parse request body
@@ -55,25 +46,16 @@ Deno.serve(async (req) => {
     const { user_id } = body
 
     if (!user_id) {
-      return new Response(
-        JSON.stringify({ error: 'User ID is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return errorResponse(corsHeaders, 'User ID is required', 400)
     }
 
     // Prevent self-deletion
     if (user_id === userData.user.id) {
-      return new Response(
-        JSON.stringify({ error: 'Cannot delete your own account' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return errorResponse(corsHeaders, 'Cannot delete your own account', 400)
     }
 
     // Create admin client with service role
-    const adminClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
+    const adminClient = createServiceClient()
 
     // Delete user instance access first
     await adminClient
@@ -97,10 +79,7 @@ Deno.serve(async (req) => {
     const { error: deleteError } = await adminClient.auth.admin.deleteUser(user_id)
 
     if (deleteError) {
-      return new Response(
-        JSON.stringify({ error: deleteError.message }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return errorResponse(corsHeaders, deleteError.message, 400)
     }
 
     // Audit log (non-blocking)
@@ -114,17 +93,13 @@ Deno.serve(async (req) => {
       })
     } catch { /* audit log is non-blocking */ }
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    log.info('User deleted', { user_id, deleted_by: userData.user.id })
+
+    return successResponse(corsHeaders, { success: true })
 
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Internal server error'
-    console.error('Error:', error)
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    log.error('Error', { error: errorMessage })
+    return errorResponse(corsHeaders, errorMessage, 500)
   }
 })

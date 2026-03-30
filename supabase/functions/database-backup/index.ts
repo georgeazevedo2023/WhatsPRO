@@ -1,6 +1,10 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
+import { unauthorizedResponse } from '../_shared/auth.ts'
+
+const log = createLogger('database-backup')
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -10,23 +14,17 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      return unauthorizedResponse(corsHeaders)
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY')!
-
-    // Verify user is super_admin
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    })
+    // Verify user is super_admin using user-scoped client
+    const userClient = createUserClient(req)
     const { data: { user }, error: authError } = await userClient.auth.getUser()
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      return unauthorizedResponse(corsHeaders)
     }
 
-    const adminClient = createClient(supabaseUrl, serviceRoleKey)
+    const adminClient = createServiceClient()
 
     const { data: roleData } = await adminClient
       .from('user_roles')
@@ -36,10 +34,12 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (!roleData) {
-      return new Response(JSON.stringify({ error: 'Forbidden: Super Admin only' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      return errorResponse(corsHeaders, 'Forbidden: Super Admin only', 403)
     }
 
     const { action, table_name } = await req.json()
+
+    log.info('Backup action', { action, table_name, user_id: user.id })
 
     let result: any = null
 
@@ -67,14 +67,9 @@ Deno.serve(async (req) => {
       result = data
     }
 
-    return new Response(JSON.stringify({ data: result }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return successResponse(corsHeaders, { data: result })
   } catch (error: any) {
-    console.error('Backup error:', error)
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.error('Backup error', { error: error.message })
+    return errorResponse(corsHeaders, error.message, 500)
   }
 })

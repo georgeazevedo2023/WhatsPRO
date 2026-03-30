@@ -1,10 +1,13 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { createLogger } from '../_shared/logger.ts'
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'content-type',
 }
+
+const log = createLogger('go')
 
 /** Generate a short alphanumeric ref code (no ambiguous chars) */
 function generateRefCode(length = 8): string {
@@ -31,10 +34,7 @@ Deno.serve(async (req) => {
     }
 
     // Service-role client (public endpoint, no user auth)
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    )
+    const supabase = createServiceClient()
 
     // Look up campaign
     const { data: campaign, error } = await supabase
@@ -90,7 +90,9 @@ Deno.serve(async (req) => {
     const text = encodeURIComponent(parts.join(' '))
     const waUrl = `https://wa.me/${phone}?text=${text}`
 
-    // Return instant redirect HTML
+    log.info('Campaign redirect', { slug, campaign_id: campaign.id, ref_code: refCode })
+
+    // Return instant redirect HTML (not a JSON response — keep as-is)
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -127,7 +129,7 @@ a{color:#25D366;text-decoration:none;font-weight:600}
       },
     })
   } catch (err) {
-    console.error('[go] Error:', err)
+    log.error('Error', { error: (err as Error).message })
     return new Response('Internal error', {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
