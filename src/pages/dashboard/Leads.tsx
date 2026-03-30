@@ -12,12 +12,44 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ContactAvatar } from '@/components/helpdesk/ContactAvatar';
 import { PageHeader } from '@/components/ui/page-header';
 import StatsCard from '@/components/dashboard/StatsCard';
-import { Contact2, Search, Loader2, ShieldBan, ShieldCheck, UserPlus, Target, CheckCircle2, X, ChevronDown, ChevronUp, Clock, Sun, Bot } from 'lucide-react';
+import { Contact2, Search, Loader2, ShieldBan, UserPlus, Target, CheckCircle2, X, ChevronDown, ChevronUp, Clock, Sun, Bot } from 'lucide-react';
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { handleError } from '@/lib/errorUtils';
 import { toast } from 'sonner';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import type { LeadData } from '@/components/leads/types';
+
+// Local interfaces for Supabase joined query results
+interface ConvWithContact {
+  id: string;
+  contact_id: string;
+  status: string;
+  tags: string[] | null;
+  last_message: string | null;
+  last_message_at: string | null;
+  ai_summary: { reason?: string } | null;
+  created_at: string;
+  contacts: {
+    id: string;
+    phone: string;
+    jid: string;
+    name: string | null;
+    profile_pic_url: string | null;
+    created_at: string;
+    ia_blocked_instances: string[] | null;
+  };
+}
+
+interface ConvLabel {
+  conversation_id: string;
+  labels: { name: string } | null;
+}
+
+interface KanbanCardWithColumn {
+  contact_id: string | null;
+  board_id: string;
+  kanban_columns: { name: string; color: string } | null;
+}
 
 const CHART_COLORS = ['hsl(var(--primary))', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 const MOTIVO_COLORS: Record<string, string> = { compra: '#10b981', orcamento: '#3b82f6', duvida: '#f59e0b', suporte: '#ec4899', saudacao: '#8b5cf6', informacao: '#06b6d4' };
@@ -55,14 +87,15 @@ const Leads = () => {
       const inboxIds = (inboxes || []).map(i => i.id);
       if (inboxIds.length === 0) { setLeads([]); setLoading(false); return; }
 
-      const { data: conversations, error } = await supabase
+      const { data: rawConversations, error } = await supabase
         .from('conversations')
         .select('id, contact_id, status, tags, last_message, last_message_at, ai_summary, created_at, contacts!inner(id, phone, jid, name, profile_pic_url, created_at, ia_blocked_instances)')
         .in('inbox_id', inboxIds)
         .order('last_message_at', { ascending: false });
       if (error) throw error;
+      const conversations = rawConversations as ConvWithContact[] | null;
 
-      const contactMap = new Map<string, { contact: any; convs: any[] }>();
+      const contactMap = new Map<string, { contact: ConvWithContact['contacts']; convs: ConvWithContact[] }>();
       for (const conv of (conversations || [])) {
         const cid = conv.contact_id;
         if (!contactMap.has(cid)) contactMap.set(cid, { contact: conv.contacts, convs: [] });
@@ -81,23 +114,23 @@ const Leads = () => {
       ]);
       const profileMap = new Map((profilesRes.data || []).map(p => [p.contact_id, p]));
 
-      const convLabels = convLabelsRes.data;
+      const convLabels = convLabelsRes.data as ConvLabel[] | null;
       const labelMap = new Map<string, Set<string>>();
       for (const cl of (convLabels || [])) {
         const conv = (conversations || []).find(c => c.id === cl.conversation_id);
         if (conv) {
           if (!labelMap.has(conv.contact_id)) labelMap.set(conv.contact_id, new Set());
-          if ((cl as any).labels?.name) labelMap.get(conv.contact_id)!.add((cl as any).labels.name);
+          if (cl.labels?.name) labelMap.get(conv.contact_id)!.add(cl.labels.name);
         }
       }
 
-      const kanbanCards = kanbanCardsRes.data;
+      const kanbanCards = kanbanCardsRes.data as KanbanCardWithColumn[] | null;
       const kanbanMap = new Map<string, { stage: string; color: string; board_id: string }>();
       for (const kc of (kanbanCards || [])) {
-        if (kc.contact_id && (kc as any).kanban_columns) {
+        if (kc.contact_id && kc.kanban_columns) {
           kanbanMap.set(kc.contact_id, {
-            stage: (kc as any).kanban_columns.name,
-            color: (kc as any).kanban_columns.color,
+            stage: kc.kanban_columns.name,
+            color: kc.kanban_columns.color,
             board_id: kc.board_id,
           });
         }
@@ -139,7 +172,7 @@ const Leads = () => {
       });
 
       setLeads(leadRows);
-    } catch (err) {
+    } catch (err: unknown) {
       handleError(err, 'Erro ao carregar leads', 'Leads page');
     } finally {
       setLoading(false);
@@ -167,7 +200,7 @@ const Leads = () => {
         l.contact_id === lead.contact_id ? { ...l, ia_blocked_instances: updated } : l
       ));
       toast.success(isBlocked ? `IA ativada para ${lead.display_name}` : `IA desligada para ${lead.display_name}`);
-    } catch (err) {
+    } catch (err: unknown) {
       handleError(err, 'Erro ao alterar IA', 'Leads');
     }
   }, [selectedInstanceId]);
