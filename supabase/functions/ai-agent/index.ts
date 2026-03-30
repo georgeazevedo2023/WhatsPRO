@@ -614,15 +614,13 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       const remaining = textDedup.split(/\s+/).filter(word => !greetingTokens.includes(word.replace(/(.)\1+/g, '$1')))
       const isJustGreeting = remaining.length === 0 && textNorm.length > 0
 
-      if (isJustGreeting || incomingHasAudio) {
-        // Pure greeting or audio (likely a short voice note greeting) — stop here, wait for lead to say what they need
-        log.info('First interaction — greeting sent, stopping', { isJustGreeting, isAudio: incomingHasAudio })
-        return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-      // Lead asked something substantive on first message — continue to Gemini to answer
-      log.info('First message has substance — continuing to LLM', { textPreview: incomingText.substring(0, 50) })
+      // ALWAYS stop after greeting on first interaction — wait for lead to respond with their name.
+      // The greeting asks "com quem eu falo?" — we need the name before continuing.
+      // Any substantive content in the first message will be answered in the NEXT interaction.
+      log.info('First interaction — greeting sent, stopping', { isJustGreeting, isAudio: incomingHasAudio, textPreview: incomingText.substring(0, 50) })
+      return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     // 10. Build extraction fields + sub-agents instructions
@@ -950,13 +948,34 @@ Exemplos de objeções:
 
           if (!products || products.length === 0) return 'Nenhum produto encontrado com esses critérios.'
 
-          // Auto-send carousel when products have images
+          // Auto-send media/carousel when products have images
           const withImages = products.filter((p: any) => p.images?.[0])
-          if (withImages.length > 0) {
+          if (withImages.length === 1) {
+            // Single product → send as photo (send/media) with caption, NOT carousel
+            const p = withImages[0]
+            const caption = `${cleanProductTitle(p.title)}\n${p.description?.substring(0, 100) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
+            try {
+              await fetchWithTimeout(`${uazapiUrl}/send/media`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'token': instance.token },
+                body: JSON.stringify({ number: contact.jid, type: 'image', file: p.images[0], text: caption }),
+              }, 10000)
+              log.info('Auto-media: single product sent as image', { title: p.title })
+              // Save to helpdesk
+              await supabase.from('conversation_messages').insert({
+                conversation_id, direction: 'outgoing',
+                content: caption, media_type: 'image', media_url: p.images[0],
+                external_id: `ai_media_${Date.now()}`,
+              })
+            } catch (err) {
+              log.error('Auto-media send failed', { error: (err as Error).message })
+            }
+          } else if (withImages.length > 1) {
+            // Multiple products → carousel (2+ cards required by WhatsApp)
             let carousel: any[]
 
-            if (withImages.length === 1 && withImages[0].images?.length > 1) {
-              // Single product with multiple photos → multi-photo carousel with AI sales copy
+            if (withImages.length === 2 && withImages[0].images?.length > 1) {
+              // 2 products but first has multiple photos → multi-photo carousel of first product
               const p = withImages[0]
               const photos = (p.images as string[]).slice(0, 5)
               const copies = await generateCarouselCopies(p, photos.length)
@@ -1018,8 +1037,11 @@ Exemplos de objeções:
             `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (SEM ESTOQUE)' : ''}`
           ).join('\n')
 
-          if (withImages.length > 0) {
-            return `Produtos encontrados e carrossel com fotos JÁ FOI ENVIADO ao lead.\nNÃO repita nomes de produtos, preços ou descrições no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "É esse que você procura?" ou "Algum desses te interessa?"`
+          if (withImages.length === 1) {
+            return `Produto encontrado e foto JÁ FOI ENVIADA ao lead via WhatsApp.\nNÃO repita nome do produto, preço ou descrição no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "É esse que você procura?"`
+          }
+          if (withImages.length > 1) {
+            return `Produtos encontrados e carrossel com fotos JÁ FOI ENVIADO ao lead.\nNÃO repita nomes de produtos, preços ou descrições no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "Algum desses te interessa?"`
           }
           return resultText
         }
