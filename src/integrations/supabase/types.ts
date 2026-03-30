@@ -86,9 +86,88 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_agent_logs: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          event: string
+          id: string
+          instance_id: string | null
+          metadata: Json | null
+          tool_calls: Json | null
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          event: string
+          id?: string
+          instance_id?: string | null
+          metadata?: Json | null
+          tool_calls?: Json | null
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          event?: string
+          id?: string
+          instance_id?: string | null
+          metadata?: Json | null
+          tool_calls?: Json | null
+        }
+        Relationships: []
+      }
+      ai_agents: {
+        Row: {
+          business_hours: Json | null
+          created_at: string
+          extraction_fields: Json | null
+          follow_up_rules: Json | null
+          id: string
+          instance_id: string
+          model: string | null
+          name: string | null
+          prompt: string | null
+          sub_agents: Json | null
+          temperature: number | null
+          updated_at: string
+          voice_enabled: boolean | null
+        }
+        Insert: {
+          business_hours?: Json | null
+          created_at?: string
+          extraction_fields?: Json | null
+          follow_up_rules?: Json | null
+          id?: string
+          instance_id: string
+          model?: string | null
+          name?: string | null
+          prompt?: string | null
+          sub_agents?: Json | null
+          temperature?: number | null
+          updated_at?: string
+          voice_enabled?: boolean | null
+        }
+        Update: {
+          business_hours?: Json | null
+          created_at?: string
+          extraction_fields?: Json | null
+          follow_up_rules?: Json | null
+          id?: string
+          instance_id?: string
+          model?: string | null
+          name?: string | null
+          prompt?: string | null
+          sub_agents?: Json | null
+          temperature?: number | null
+          updated_at?: string
+          voice_enabled?: boolean | null
+        }
+        Relationships: []
+      }
       contacts: {
         Row: {
           created_at: string
+          ia_blocked_instances: string[] | null
           id: string
           jid: string
           name: string | null
@@ -97,6 +176,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          ia_blocked_instances?: string[] | null
           id?: string
           jid: string
           name?: string | null
@@ -105,11 +185,75 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          ia_blocked_instances?: string[] | null
           id?: string
           jid?: string
           name?: string | null
           phone?: string
           profile_pic_url?: string | null
+        }
+        Relationships: []
+      }
+      lead_profiles: {
+        Row: {
+          address: Json | null
+          average_ticket: number | null
+          birth_date: string | null
+          city: string | null
+          contact_id: string
+          conversation_summaries: Json | null
+          created_at: string
+          custom_fields: Json | null
+          document: string | null
+          email: string | null
+          full_name: string | null
+          id: string
+          interests: string[] | null
+          last_contact_at: string | null
+          notes: string | null
+          origin: string | null
+          reason: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: Json | null
+          average_ticket?: number | null
+          birth_date?: string | null
+          city?: string | null
+          contact_id: string
+          conversation_summaries?: Json | null
+          created_at?: string
+          custom_fields?: Json | null
+          document?: string | null
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          interests?: string[] | null
+          last_contact_at?: string | null
+          notes?: string | null
+          origin?: string | null
+          reason?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: Json | null
+          average_ticket?: number | null
+          birth_date?: string | null
+          city?: string | null
+          contact_id?: string
+          conversation_summaries?: Json | null
+          created_at?: string
+          custom_fields?: Json | null
+          document?: string | null
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          interests?: string[] | null
+          last_contact_at?: string | null
+          notes?: string | null
+          origin?: string | null
+          reason?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -209,6 +353,7 @@ export type Database = {
           priority: string
           status: string
           status_ia: string | null
+          tags: string[] | null
           updated_at: string
         }
         Insert: {
@@ -226,6 +371,7 @@ export type Database = {
           priority?: string
           status?: string
           status_ia?: string | null
+          tags?: string[] | null
           updated_at?: string
         }
         Update: {
@@ -243,6 +389,7 @@ export type Database = {
           priority?: string
           status?: string
           status_ia?: string | null
+          tags?: string[] | null
           updated_at?: string
         }
         Relationships: [
@@ -605,6 +752,7 @@ export type Database = {
           assigned_to: string | null
           board_id: string
           column_id: string
+          contact_id: string | null
           created_at: string
           created_by: string
           id: string
@@ -618,6 +766,7 @@ export type Database = {
           assigned_to?: string | null
           board_id: string
           column_id: string
+          contact_id?: string | null
           created_at?: string
           created_by: string
           id?: string
@@ -631,6 +780,7 @@ export type Database = {
           assigned_to?: string | null
           board_id?: string
           column_id?: string
+          contact_id?: string | null
           created_at?: string
           created_by?: string
           id?: string
