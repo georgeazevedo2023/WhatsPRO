@@ -113,7 +113,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md — Create type definitions (agent.ts + E2eResult/E2eLiveStep in playground.ts)
-- [ ] 05-02-PLAN.md — Replace all any in Leads.tsx and LeadDetail.tsx
+- [x] 05-02-PLAN.md — Replace all any in Leads.tsx and LeadDetail.tsx
 - [x] 05-03-PLAN.md — Replace all any in AIAgentPlayground.tsx + PlaygroundE2eTab.tsx + enable strict:true
 
 **Criterios de Aceite**:

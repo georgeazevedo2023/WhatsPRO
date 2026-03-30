@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T10:40:54.067Z"
+last_updated: "2026-03-30T10:47:13.857Z"
 progress:
   total_phases: 7
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -295,6 +295,7 @@ progress:
 ### Phase 5 Status
 
 - [x] 05-01-PLAN.md — Type contracts: src/types/agent.ts (4 JSON field interfaces + JsonField helper) + src/types/playground.ts (E2eResult + E2eLiveStep) (DONE 2026-03-30)
+- [x] 05-02-PLAN.md — Zero any in Leads.tsx + LeadDetail.tsx: types.ts backfilled with 3 tables + 3 columns; local join interfaces; catch(err: unknown) (DONE 2026-03-30)
 - [x] 05-03-PLAN.md — Any-elimination AIAgentPlayground + PlaygroundE2eTab + noImplicitAny:true (DONE 2026-03-30)
 
 ### Divida Tecnica Resolvida (Adicional)
@@ -312,9 +313,13 @@ progress:
 - E2eRunResult adicionado para dados de nivel de run (plano esperava E2eResult[] mas shape e resumo de cenario)
 - E2eLiveStep.status estendido com 'sending' — PlaygroundE2eTab usa step.status === 'sending' na UI
 
+- Tabelas faltando (ai_agents, ai_agent_logs, lead_profiles) adicionadas ao types.ts em vez de usar (supabase as any)
+- Colunas faltando (ia_blocked_instances, contact_id, tags) adicionadas a contacts, kanban_cards, conversations
+- (value as unknown as T[]) double-cast necessario para converter Json | null para interfaces tipadas
+- Erros TS totais reduzidos de 219 para 149 como efeito colateral de corrigir types.ts
+
 ### Contexto
 
-- Trabalho recente focado em tipagem estrita (Phase 5): noImplicitAny:true agora ativo
-- Phase 5 Plans 01 e 03 completos: contratos de tipo + any-elimination nos 2 arquivos-alvo
+- Phase 5 Plans 01, 02, e 03 completos: contratos de tipo + any-elimination em Leads.tsx, LeadDetail.tsx e 2 arquivos anteriores
 - Suite total: 173 testes passando
 - Ultima sessao: 2026-03-30
