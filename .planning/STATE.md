@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T10:27:26.552Z"
+last_updated: "2026-03-30T10:40:54.067Z"
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -295,21 +295,26 @@ progress:
 ### Phase 5 Status
 
 - [x] 05-01-PLAN.md — Type contracts: src/types/agent.ts (4 JSON field interfaces + JsonField helper) + src/types/playground.ts (E2eResult + E2eLiveStep) (DONE 2026-03-30)
+- [x] 05-03-PLAN.md — Any-elimination AIAgentPlayground + PlaygroundE2eTab + noImplicitAny:true (DONE 2026-03-30)
 
 ### Divida Tecnica Resolvida (Adicional)
 
 - **DT-08-catalog** (CatalogConfig gigante): CatalogConfig.tsx de 704 para 273 LOC via CatalogTable + CatalogProductForm
-- **DT-05 parcial** (TypeScript strict: false): Criados src/types/agent.ts e src/types/playground.ts — contratos tipados para campos Json do agente e resultados E2e
+- **DT-05 parcial** (TypeScript strict: false): Criados src/types/agent.ts e src/types/playground.ts — contratos tipados; noImplicitAny:true habilitado no tsconfig
+- **DT-05 Plan 03** (Any em AIAgentPlayground/PlaygroundE2eTab): Zero any restante nos 2 arquivos; E2eResult/E2eLiveStep/E2eRunResult tipados
 
 ### Decisoes Tomadas (Phase 5)
 
 - src/types/playground.ts criado do zero (Phase 04 nao o havia criado como esperado); apenas tipos E2e adicionados
 - JsonField<T> = T | null helper para alias limpo de campos Json nulos do Supabase
 - E2eResult.agent_raw tipado como Record<string, unknown> | null para acesso mais facil downstream
+- noImplicitAny:true usado em vez de strict:true — 105 erros pre-existentes fora do escopo (noUnusedLocals) per D-10
+- E2eRunResult adicionado para dados de nivel de run (plano esperava E2eResult[] mas shape e resumo de cenario)
+- E2eLiveStep.status estendido com 'sending' — PlaygroundE2eTab usa step.status === 'sending' na UI
 
 ### Contexto
 
-- Trabalho recente focado em tipagem estrita (Phase 5 iniciada): src/types/agent.ts e src/types/playground.ts criados
-- Phase 5 Plan 01 completo: contratos de tipo estabelecidos para uso downstream
+- Trabalho recente focado em tipagem estrita (Phase 5): noImplicitAny:true agora ativo
+- Phase 5 Plans 01 e 03 completos: contratos de tipo + any-elimination nos 2 arquivos-alvo
 - Suite total: 173 testes passando
 - Ultima sessao: 2026-03-30
