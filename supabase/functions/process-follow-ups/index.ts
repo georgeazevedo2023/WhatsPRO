@@ -1,4 +1,3 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyCronOrService } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
@@ -9,12 +8,14 @@ import {
   resolveNextFollowUpStep,
   type FollowUpRule,
 } from '../_shared/aiRuntime.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const UAZAPI_URL = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+const supabase = createServiceClient()
+const log = createLogger('process-follow-ups')
 
 /**
  * Process Follow-Up Cadences
@@ -33,10 +34,7 @@ Deno.serve(async (req) => {
   }
 
   if (!verifyCronOrService(req)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return errorResponse(corsHeaders, 'Unauthorized', 401)
   }
 
   const startTime = Date.now()
@@ -52,12 +50,10 @@ Deno.serve(async (req) => {
       .eq('enabled', true)
 
     if (!agents || agents.length === 0) {
-      return new Response(JSON.stringify({ ok: true, message: 'No agents with follow-up enabled' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return successResponse(corsHeaders, { message: 'No agents with follow-up enabled' })
     }
 
-    console.log(`[follow-up] Found ${agents.length} agents with follow-up enabled`)
+    log.info('Found agents with follow-up enabled', { count: agents.length })
 
     for (const agent of agents) {
       const rules: FollowUpRule[] = agent.follow_up_rules || []
@@ -69,7 +65,7 @@ Deno.serve(async (req) => {
         const now = new Date()
         const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
         if (currentTime < agent.business_hours.start || currentTime > agent.business_hours.end) {
-          console.log(`[follow-up] Agent ${agent.name}: outside business hours (${agent.business_hours.start}-${agent.business_hours.end}), skipping`)
+          log.info('Agent outside business hours, skipping', { agent: agent.name, hours: `${agent.business_hours.start}-${agent.business_hours.end}` })
           continue
         }
       }
@@ -81,7 +77,7 @@ Deno.serve(async (req) => {
         .single()
 
       if (!instance?.token) {
-        console.warn(`[follow-up] Agent ${agent.name}: no instance token`)
+        log.warn('Agent has no instance token', { agent: agent.name })
         continue
       }
 
@@ -104,7 +100,7 @@ Deno.serve(async (req) => {
 
       if (!conversations || conversations.length === 0) continue
 
-      console.log(`[follow-up] Agent ${agent.name}: ${conversations.length} shadow conversations to check`)
+      log.info('Shadow conversations to check', { agent: agent.name, count: conversations.length })
 
       for (const conv of conversations) {
         processed++
@@ -197,14 +193,14 @@ Deno.serve(async (req) => {
             }).eq('id', conv.id)
 
             sent++
-            console.log(`[follow-up] Sent step ${nextStepIndex + 1}/${rules.length} to ${contact.phone} (${daysSince} days): "${message.substring(0, 60)}..."`)
+            log.info('Sent follow-up step', { step: nextStepIndex + 1, total: rules.length, phone: contact.phone, days: daysSince, preview: message.substring(0, 60) })
           } else {
             errors++
-            console.error(`[follow-up] Failed to send to ${contact.phone}:`, sendRes.status)
+            log.error('Failed to send follow-up', { phone: contact.phone, status: sendRes.status })
           }
         } catch (err) {
           errors++
-          console.error(`[follow-up] Error sending to ${contact.phone}:`, err)
+          log.error('Error sending follow-up', { phone: contact.phone, error: err instanceof Error ? err.message : String(err) })
 
           await supabase.from('follow_up_executions').insert({
             conversation_id: conv.id,
@@ -221,22 +217,16 @@ Deno.serve(async (req) => {
     }
 
     const duration = Date.now() - startTime
-    console.log(`[follow-up] Done. Processed: ${processed}, Sent: ${sent}, Errors: ${errors}, Duration: ${duration}ms`)
+    log.info('Done', { processed, sent, errors, duration_ms: duration })
 
-    return new Response(JSON.stringify({
-      ok: true,
+    return successResponse(corsHeaders, {
       processed,
       sent,
       errors,
       duration_ms: duration,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (err) {
-    console.error('[follow-up] Fatal error:', err)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.error('Fatal error', { error: err instanceof Error ? err.message : String(err) })
+    return errorResponse(corsHeaders, 'Internal server error')
   }
 })

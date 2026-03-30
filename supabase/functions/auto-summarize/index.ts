@@ -1,14 +1,12 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { verifyAuth, verifyCronOrService, verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
-
-const serviceSupabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+const serviceSupabase = createServiceClient()
+const log = createLogger('auto-summarize')
 
 async function summarizeConversation(conversationId: string): Promise<boolean> {
   // Fetch messages
@@ -20,7 +18,7 @@ async function summarizeConversation(conversationId: string): Promise<boolean> {
     .order("created_at", { ascending: true });
 
   if (msgError || !messages || messages.length < 3) {
-    console.log(`[auto-summarize] Skipping ${conversationId}: not enough messages (${messages?.length ?? 0})`);
+    log.info('Skipping conversation: not enough messages', { conversationId, count: messages?.length ?? 0 });
     return false;
   }
 
@@ -57,6 +55,8 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
 - "summary": resumo da conversa em 2-3 frases
 - "resolution": como foi resolvido ou qual o próximo passo (ou "Em aberto" se não resolvido)`;
 
+  const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
+
   const aiResponse = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -74,7 +74,7 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
   });
 
   if (!aiResponse.ok) {
-    console.error(`[auto-summarize] AI error for ${conversationId}:`, aiResponse.status);
+    log.error('AI error for conversation', { conversationId, status: aiResponse.status });
     return false;
   }
 
@@ -85,8 +85,8 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
   try {
     const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     parsedSummary = JSON.parse(cleaned);
-  } catch (e) {
-    console.error(`[auto-summarize] Failed to parse AI response for ${conversationId}:`, rawContent);
+  } catch {
+    log.error('Failed to parse AI response', { conversationId, raw: rawContent });
     return false;
   }
 
@@ -109,17 +109,15 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
     .eq("id", conversationId);
 
   if (updateError) {
-    console.error(`[auto-summarize] Failed to save summary for ${conversationId}:`, updateError);
+    log.error('Failed to save summary', { conversationId, error: updateError.message });
     return false;
   }
 
-  console.log(`[auto-summarize] Summary saved for ${conversationId}`);
+  log.info('Summary saved', { conversationId });
   return true;
 }
 
-import { verifyAuth, verifyCronOrService, verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
-
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -143,32 +141,25 @@ serve(async (req) => {
         .single();
 
       if (!conv) {
-        return new Response(JSON.stringify({ error: "Conversation not found" }), {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return errorResponse(corsHeaders, "Conversation not found", 404);
       }
 
       // Skip if fresh summary exists (less than 5 min old)
       if (conv.ai_summary) {
-        const summary = conv.ai_summary as any;
+        const summary = conv.ai_summary as Record<string, unknown>;
         if (summary.generated_at) {
-          const generatedAt = new Date(summary.generated_at);
+          const generatedAt = new Date(summary.generated_at as string);
           const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
           if (generatedAt > fiveMinAgo) {
-            console.log(`[auto-summarize] Skipping ${conversation_id}: fresh summary exists`);
-            return new Response(JSON.stringify({ skipped: true }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            log.info('Skipping: fresh summary exists', { conversationId: conversation_id });
+            return successResponse(corsHeaders, { skipped: true });
           }
         }
       }
 
       const success = await summarizeConversation(conversation_id);
 
-      return new Response(JSON.stringify({ success }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return successResponse(corsHeaders, { success });
     }
 
     // Mode: backfill — requires cron/service or super_admin
@@ -190,21 +181,16 @@ serve(async (req) => {
         .limit(batchLimit * 3); // fetch more to account for those with <3 messages
 
       if (error) {
-        console.error("[auto-summarize] Error fetching backfill candidates:", error);
-        return new Response(JSON.stringify({ error: "Failed to fetch conversations" }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        log.error('Error fetching backfill candidates', { error: error.message });
+        return errorResponse(corsHeaders, "Failed to fetch conversations");
       }
 
       if (!candidates || candidates.length === 0) {
-        console.log("[auto-summarize] Backfill: no candidates found");
-        return new Response(JSON.stringify({ processed: 0, total_candidates: 0 }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        log.info('Backfill: no candidates found');
+        return successResponse(corsHeaders, { processed: 0, total_candidates: 0 });
       }
 
-      console.log(`[auto-summarize] Backfill: processing up to ${batchLimit} from ${candidates.length} candidates`);
+      log.info('Backfill: processing candidates', { limit: batchLimit, candidates: candidates.length });
 
       let processed = 0;
       let skipped = 0;
@@ -222,15 +208,13 @@ serve(async (req) => {
           // Small delay to avoid AI rate limits
           await new Promise(resolve => setTimeout(resolve, 300));
         } catch (err) {
-          console.error(`[auto-summarize] Backfill error processing ${conv.id}:`, err);
+          log.error('Backfill error processing conversation', { convId: conv.id, error: err instanceof Error ? err.message : String(err) });
           skipped++;
         }
       }
 
-      console.log(`[auto-summarize] Backfill complete: ${processed} processed, ${skipped} skipped`);
-      return new Response(JSON.stringify({ processed, skipped, total_candidates: candidates.length }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      log.info('Backfill complete', { processed, skipped });
+      return successResponse(corsHeaders, { processed, skipped, total_candidates: candidates.length });
     }
 
     // Mode: inactive conversations — requires cron/service or super_admin
@@ -251,21 +235,16 @@ serve(async (req) => {
         .limit(batchLimit * 3); // fetch extra to account for those with <3 messages
 
       if (error) {
-        console.error("[auto-summarize] Error fetching inactive conversations:", error);
-        return new Response(JSON.stringify({ error: "Failed to fetch conversations" }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        log.error('Error fetching inactive conversations', { error: error.message });
+        return errorResponse(corsHeaders, "Failed to fetch conversations");
       }
 
       if (!inactiveConvs || inactiveConvs.length === 0) {
-        console.log("[auto-summarize] No inactive conversations to summarize");
-        return new Response(JSON.stringify({ processed: 0 }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        log.info('No inactive conversations to summarize');
+        return successResponse(corsHeaders, { processed: 0 });
       }
 
-      console.log(`[auto-summarize] Processing ${inactiveConvs.length} inactive conversation candidates`);
+      log.info('Processing inactive conversation candidates', { count: inactiveConvs.length });
 
       let processed = 0;
       for (const conv of inactiveConvs) {
@@ -276,24 +255,16 @@ serve(async (req) => {
           // Small delay to avoid AI rate limits
           await new Promise(resolve => setTimeout(resolve, 500));
         } catch (err) {
-          console.error(`[auto-summarize] Error processing ${conv.id}:`, err);
+          log.error('Error processing inactive conversation', { convId: conv.id, error: err instanceof Error ? err.message : String(err) });
         }
       }
 
-      return new Response(JSON.stringify({ processed }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return successResponse(corsHeaders, { processed });
     }
 
-    return new Response(JSON.stringify({ error: "Invalid request: provide conversation_id, mode=backfill, or mode=inactive" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return errorResponse(corsHeaders, "Invalid request: provide conversation_id, mode=backfill, or mode=inactive", 400);
   } catch (err) {
-    console.error("[auto-summarize] Unexpected error:", err);
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    log.error('Unexpected error', { error: err instanceof Error ? err.message : String(err) });
+    return errorResponse(corsHeaders, err instanceof Error ? err.message : "Unknown error");
   }
 });

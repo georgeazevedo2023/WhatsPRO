@@ -1,11 +1,12 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyAuth } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+const supabase = createServiceClient()
+const log = createLogger('scrape-products-batch')
 
 /**
  * Batch Product Scraper
@@ -19,18 +20,14 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
   const auth = await verifyAuth(req)
-  if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-    status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
+  if (!auth) return errorResponse(corsHeaders, 'Unauthorized', 401)
 
   try {
     // GET: Check job status
     if (req.method === 'GET') {
       const url = new URL(req.url)
       const jobId = url.searchParams.get('job_id')
-      if (!jobId) return new Response(JSON.stringify({ error: 'job_id required' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      if (!jobId) return errorResponse(corsHeaders, 'job_id required', 400)
 
       const { data: job } = await supabase
         .from('scrape_jobs')
@@ -38,9 +35,7 @@ Deno.serve(async (req) => {
         .eq('id', jobId)
         .single()
 
-      if (!job) return new Response(JSON.stringify({ error: 'Job not found' }), {
-        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      if (!job) return errorResponse(corsHeaders, 'Job not found', 404)
 
       return new Response(JSON.stringify(job), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -49,9 +44,7 @@ Deno.serve(async (req) => {
 
     // POST: Start scraping job
     const { url: pageUrl, agent_id } = await req.json()
-    if (!pageUrl || !agent_id) return new Response(JSON.stringify({ error: 'url and agent_id required' }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    if (!pageUrl || !agent_id) return errorResponse(corsHeaders, 'url and agent_id required', 400)
 
     // Create job record
     const { data: job } = await supabase.from('scrape_jobs').insert({
@@ -59,24 +52,18 @@ Deno.serve(async (req) => {
       imported: 0, duplicates: 0, errors: 0, user_id: auth.userId,
     }).select('id').single()
 
-    if (!job) return new Response(JSON.stringify({ error: 'Failed to create job' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    if (!job) return errorResponse(corsHeaders, 'Failed to create job', 500)
 
     // Process in background (non-blocking)
     processJob(job.id, pageUrl, agent_id).catch(err =>
-      console.error('[scrape-batch] Background job error:', err)
+      log.error('Background job error', { error: err instanceof Error ? err.message : String(err) })
     )
 
-    return new Response(JSON.stringify({ ok: true, job_id: job.id }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return successResponse(corsHeaders, { job_id: job.id })
 
   } catch (err) {
-    console.error('[scrape-batch] Error:', err)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.error('Error', { error: err instanceof Error ? err.message : String(err) })
+    return errorResponse(corsHeaders, 'Internal server error')
   }
 })
 
@@ -86,7 +73,7 @@ async function processJob(jobId: string, pageUrl: string, agentId: string) {
   try {
     // Step 1: Fetch page and find product links
     await updateJob(jobId, { status: 'scanning' })
-    console.log(`[scrape-batch] Job ${jobId}: scanning ${pageUrl}`)
+    log.info('Job scanning page', { jobId, url: pageUrl })
 
     const pageRes = await fetchWithTimeout(pageUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; WhatsPRO/1.0)' },
@@ -109,7 +96,7 @@ async function processJob(jobId: string, pageUrl: string, agentId: string) {
     // Save found links and start processing
     const total = Math.min(productLinks.length, 100) // Max 100
     await updateJob(jobId, { status: 'processing', total, found_links: productLinks.slice(0, total) })
-    console.log(`[scrape-batch] Job ${jobId}: found ${productLinks.length} links, processing ${total}`)
+    log.info('Job found links, processing', { jobId, found: productLinks.length, processing: total })
 
     // Step 2: Load existing products for dedup
     const { data: existing } = await supabase
@@ -147,7 +134,7 @@ async function processJob(jobId: string, pageUrl: string, agentId: string) {
         imported++
       } catch (err) {
         errors++
-        console.warn(`[scrape-batch] Failed to scrape ${link}:`, err)
+        log.warn('Failed to scrape URL', { url: link, index: i, total, error: err instanceof Error ? err.message : String(err) })
       }
 
       // Update progress every 5 products
@@ -157,15 +144,15 @@ async function processJob(jobId: string, pageUrl: string, agentId: string) {
     }
 
     await updateJob(jobId, { status: 'completed', progress: total, imported, duplicates, errors })
-    console.log(`[scrape-batch] Job ${jobId}: done. Imported: ${imported}, Dupes: ${duplicates}, Errors: ${errors}`)
+    log.info('Job done', { jobId, imported, duplicates, errors })
 
   } catch (err) {
-    console.error(`[scrape-batch] Job ${jobId} failed:`, err)
+    log.error('Job failed', { jobId, error: err instanceof Error ? err.message : String(err) })
     await updateJob(jobId, { status: 'failed', error_message: err instanceof Error ? err.message : String(err) })
   }
 }
 
-async function updateJob(jobId: string, data: Record<string, any>) {
+async function updateJob(jobId: string, data: Record<string, unknown>) {
   await supabase.from('scrape_jobs').update({ ...data, updated_at: new Date().toISOString() }).eq('id', jobId)
 }
 
@@ -222,6 +209,7 @@ async function scrapeProductUrl(url: string): Promise<ProductData | null> {
 }
 
 function extractProductData(html: string, origin: string): ProductData {
+  void origin
   const product: ProductData = { title: '', price: null, description: '', images: [], category: '', sku: '' }
 
   // JSON-LD
@@ -244,7 +232,7 @@ function extractProductData(html: string, origin: string): ProductData {
           }
           if (item.image) {
             const imgs = Array.isArray(item.image) ? item.image : [item.image]
-            product.images = imgs.filter((i: any) => typeof i === 'string' && i.startsWith('http')).slice(0, 10)
+            product.images = imgs.filter((i: unknown) => typeof i === 'string' && (i as string).startsWith('http')).slice(0, 10)
           }
         }
       }
