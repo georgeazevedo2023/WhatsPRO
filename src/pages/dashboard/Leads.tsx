@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useInstances } from '@/hooks/useInstances';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -59,9 +60,8 @@ const Leads = () => {
   const navigate = useNavigate();
   const { instances, loading: instancesLoading } = useInstances();
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
-  const [leads, setLeads] = useState<LeadData[]>([]);
-  const [loading, setLoading] = useState(false);
   const [showCharts, setShowCharts] = useState(true);
+  const queryClient = useQueryClient();
 
   // Filters
   const [search, setSearch] = useState('');
@@ -69,23 +69,25 @@ const Leads = () => {
   const [originFilter, setOriginFilter] = useState<string>('all');
   const [stageFilter, setStageFilter] = useState<string>('all');
 
-  // Auto-select first instance
+  // Auto-select first instance (UI state, not data)
   useEffect(() => {
     if (instances.length > 0 && !selectedInstanceId) {
       setSelectedInstanceId(instances[0].id);
     }
   }, [instances]);
 
-  const fetchLeads = useCallback(async () => {
-    if (!selectedInstanceId) return;
-    setLoading(true);
-    try {
+  // React Query — fetch leads list
+  const { data: leads = [], isLoading: loading } = useQuery<LeadData[]>({
+    queryKey: ['leads', selectedInstanceId],
+    queryFn: async (): Promise<LeadData[]> => {
+      if (!selectedInstanceId) return [];
+
       const { data: inboxes } = await supabase
         .from('inboxes')
         .select('id')
         .eq('instance_id', selectedInstanceId);
       const inboxIds = (inboxes || []).map(i => i.id);
-      if (inboxIds.length === 0) { setLeads([]); setLoading(false); return; }
+      if (inboxIds.length === 0) return [];
 
       const { data: rawConversations, error } = await supabase
         .from('conversations')
@@ -103,7 +105,7 @@ const Leads = () => {
       }
 
       const contactIds = [...contactMap.keys()];
-      if (contactIds.length === 0) { setLeads([]); setLoading(false); return; }
+      if (contactIds.length === 0) return [];
 
       // Parallel fetch: profiles, labels, and kanban cards at once (was sequential)
       const allConvIds = (conversations || []).map(c => c.id);
@@ -171,39 +173,41 @@ const Leads = () => {
         return db.localeCompare(da);
       });
 
-      setLeads(leadRows);
-    } catch (err: unknown) {
-      handleError(err, 'Erro ao carregar leads', 'Leads page');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedInstanceId]);
+      return leadRows;
+    },
+    enabled: !!selectedInstanceId,
+  });
 
-  useEffect(() => { fetchLeads(); }, [fetchLeads]);
+  // useMutation — toggle IA block for a lead on the current instance
+  const toggleIaMutation = useMutation({
+    mutationFn: async ({ contactId, updatedBlocked }: { contactId: string; updatedBlocked: string[] }) => {
+      const { error } = await supabase
+        .from('contacts')
+        .update({ ia_blocked_instances: updatedBlocked })
+        .eq('id', contactId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['leads', selectedInstanceId] });
+      const lead = leads.find(l => l.contact_id === variables.contactId);
+      const wasBlocked = (lead?.ia_blocked_instances || []).includes(selectedInstanceId!);
+      toast.success(wasBlocked ? `IA ativada para ${lead?.display_name}` : `IA desligada para ${lead?.display_name}`);
+    },
+    onError: (err: unknown) => {
+      handleError(err, 'Erro ao alterar IA', 'Leads');
+    },
+  });
 
-  // Toggle IA block for a lead on the current instance
-  const toggleIaBlock = useCallback(async (lead: LeadData, e: React.MouseEvent) => {
+  const toggleIaBlock = useCallback((lead: LeadData, e: React.MouseEvent) => {
     e.stopPropagation(); // Don't navigate to lead detail
     if (!selectedInstanceId) return;
     const current = lead.ia_blocked_instances || [];
     const isBlocked = current.includes(selectedInstanceId);
-    const updated = isBlocked
+    const updatedBlocked = isBlocked
       ? current.filter(id => id !== selectedInstanceId)
       : [...current, selectedInstanceId];
-    try {
-      const { error } = await supabase
-        .from('contacts')
-        .update({ ia_blocked_instances: updated })
-        .eq('id', lead.contact_id);
-      if (error) throw error;
-      setLeads(prev => prev.map(l =>
-        l.contact_id === lead.contact_id ? { ...l, ia_blocked_instances: updated } : l
-      ));
-      toast.success(isBlocked ? `IA ativada para ${lead.display_name}` : `IA desligada para ${lead.display_name}`);
-    } catch (err: unknown) {
-      handleError(err, 'Erro ao alterar IA', 'Leads');
-    }
-  }, [selectedInstanceId]);
+    toggleIaMutation.mutate({ contactId: lead.contact_id, updatedBlocked });
+  }, [selectedInstanceId, toggleIaMutation]);
 
   // KPIs
   const kpis = useMemo(() => {
