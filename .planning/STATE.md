@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T02:51:08.500Z"
+last_updated: "2026-03-30T10:27:26.552Z"
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 10
+  completed_plans: 8
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -292,13 +292,24 @@ progress:
 - [x] 04-01-PLAN.md — AIAgentPlayground decomposition: 1353 LOC → 276 LOC orchestrator + 4 tab sub-components + types file (DONE 2026-03-30)
 - [x] 04-02-PLAN.md — CatalogConfig decomposition — CatalogTable + CatalogProductForm (DONE 2026-03-30)
 
+### Phase 5 Status
+
+- [x] 05-01-PLAN.md — Type contracts: src/types/agent.ts (4 JSON field interfaces + JsonField helper) + src/types/playground.ts (E2eResult + E2eLiveStep) (DONE 2026-03-30)
+
 ### Divida Tecnica Resolvida (Adicional)
 
 - **DT-08-catalog** (CatalogConfig gigante): CatalogConfig.tsx de 704 para 273 LOC via CatalogTable + CatalogProductForm
+- **DT-05 parcial** (TypeScript strict: false): Criados src/types/agent.ts e src/types/playground.ts — contratos tipados para campos Json do agente e resultados E2e
+
+### Decisoes Tomadas (Phase 5)
+
+- src/types/playground.ts criado do zero (Phase 04 nao o havia criado como esperado); apenas tipos E2e adicionados
+- JsonField<T> = T | null helper para alias limpo de campos Json nulos do Supabase
+- E2eResult.agent_raw tipado como Record<string, unknown> | null para acesso mais facil downstream
 
 ### Contexto
 
-- Trabalho recente focado em decomposicao de componentes gigantes (Phase 4): DT-08-catalog resolvido
-- CatalogConfig.tsx reduzido de 704 para 273 LOC, com 2 novos sub-componentes
+- Trabalho recente focado em tipagem estrita (Phase 5 iniciada): src/types/agent.ts e src/types/playground.ts criados
+- Phase 5 Plan 01 completo: contratos de tipo estabelecidos para uso downstream
 - Suite total: 173 testes passando
 - Ultima sessao: 2026-03-30
