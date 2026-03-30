@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useInstances } from '@/hooks/useInstances';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,18 +62,7 @@ const LeadDetail = () => {
   const navigate = useNavigate();
   const { instances } = useInstances();
   const instanceId = searchParams.get('instance') || instances[0]?.id || null;
-
-  // Data state
-  const [contact, setContact] = useState<ContactRow | null>(null);
-  const [leadProfile, setLeadProfile] = useState<LeadProfileRow | null>(null);
-  const [conversations, setConversations] = useState<ConvRow[]>([]);
-  const [kanbanData, setKanbanData] = useState<{ stage: string; color: string; board_id: string } | null>(null);
-  const [labelNames, setLabelNames] = useState<string[]>([]);
-  const [tags, setTags] = useState<string[]>([]);
-  const [extractionFields, setExtractionFields] = useState<ExtractionField[]>([]);
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
-  const [actionEvents, setActionEvents] = useState<ActionEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   // Editable fields
   const [editOrigin, setEditOrigin] = useState('');
@@ -88,172 +78,197 @@ const LeadDetail = () => {
   // Conversation modal
   const [convModalOpen, setConvModalOpen] = useState(false);
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
 
-  // Fetch all data
+  // Query 1 — Contact (primary)
+  const { data: contactData, isLoading: contactLoading } = useQuery({
+    queryKey: ['lead-contact', contactId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('id', contactId!)
+        .single();
+      if (error) throw error;
+      return data as ContactRow;
+    },
+    enabled: !!contactId,
+  });
+  const contact = contactData ?? null;
+
+  // Query 2 — Lead profile
+  const { data: leadProfile = null, isLoading: profileLoading } = useQuery({
+    queryKey: ['lead-profile', contactId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('lead_profiles')
+        .select('*')
+        .eq('contact_id', contactId!)
+        .maybeSingle();
+      return data as LeadProfileRow | null;
+    },
+    enabled: !!contactId,
+  });
+
+  // Sync editable fields when leadProfile loads/changes
   useEffect(() => {
-    if (!contactId) return;
-    setLoading(true);
+    if (!leadProfile) return;
+    initialLoadRef.current = true;
+    setEditOrigin(leadProfile.origin || '');
+    setEditEmail(leadProfile.email || '');
+    setEditDocument(leadProfile.document || '');
+    setEditBirthDate(leadProfile.birth_date || '');
+    setEditAddress((leadProfile.address as Record<string, string>) || {});
+    setEditCustom((leadProfile.custom_fields as Record<string, string>) || {});
+  }, [leadProfile]);
 
-    const fetchData = async () => {
-      try {
-        // 1. Contact
-        const { data: contactData } = await supabase
-          .from('contacts')
-          .select('*')
-          .eq('id', contactId)
-          .single();
-        if (!contactData) { setLoading(false); return; }
-        setContact(contactData);
+  // Query 3 — Conversations + derived data (labels, tags, kanban)
+  const { data: convsData, isLoading: convsLoading } = useQuery({
+    queryKey: ['lead-conversations', contactId],
+    queryFn: async () => {
+      const { data: rawConvs } = await supabase
+        .from('conversations')
+        .select('id, status, tags, last_message, last_message_at, ai_summary, created_at')
+        .eq('contact_id', contactId!)
+        .order('last_message_at', { ascending: false });
+      const convs = (rawConvs as ConvRow[] | null) || [];
 
-        // 2. Lead profile
-        const { data: profile } = await supabase
-          .from('lead_profiles')
-          .select('*')
-          .eq('contact_id', contactId)
-          .maybeSingle();
-        setLeadProfile(profile);
+      const allTags = [...new Set(convs.flatMap(c => c.tags || []))];
+      const convIds = convs.map(c => c.id);
 
-        // Init editable fields
-        initialLoadRef.current = true;
-        setEditOrigin(profile?.origin || '');
-        setEditEmail(profile?.email || '');
-        setEditDocument(profile?.document || '');
-        setEditBirthDate(profile?.birth_date || '');
-        setEditAddress((profile?.address as Record<string, string>) || {});
-        setEditCustom((profile?.custom_fields as Record<string, string>) || {});
-
-        // 3. Conversations
-        const { data: rawConvs } = await supabase
-          .from('conversations')
-          .select('id, status, tags, last_message, last_message_at, ai_summary, created_at')
-          .eq('contact_id', contactId)
-          .order('last_message_at', { ascending: false });
-        const convs = rawConvs as ConvRow[] | null;
-        setConversations(convs || []);
-
-        // Aggregate tags
-        const allTags = [...new Set((convs || []).flatMap(c => c.tags || []))];
-        setTags(allTags);
-
-        // 4. Labels
-        const convIds = (convs || []).map(c => c.id);
-        if (convIds.length > 0) {
-          const { data: rawConvLabels } = await supabase
-            .from('conversation_labels')
-            .select('conversation_id, labels(name)')
-            .in('conversation_id', convIds.slice(0, 500));
-          const convLabels = rawConvLabels as ConvLabelWithName[] | null;
-          const names = new Set<string>();
-          for (const cl of (convLabels || [])) {
-            if (cl.labels?.name) names.add(cl.labels.name);
-          }
-          setLabelNames([...names]);
+      let labelNamesArr: string[] = [];
+      if (convIds.length > 0) {
+        const { data: rawConvLabels } = await supabase
+          .from('conversation_labels')
+          .select('conversation_id, labels(name)')
+          .in('conversation_id', convIds.slice(0, 500));
+        const convLabels = rawConvLabels as ConvLabelWithName[] | null;
+        const names = new Set<string>();
+        for (const cl of (convLabels || [])) {
+          if (cl.labels?.name) names.add(cl.labels.name);
         }
-
-        // 5. Kanban card
-        const { data: rawKanbanCards } = await supabase
-          .from('kanban_cards')
-          .select('board_id, kanban_columns(name, color)')
-          .eq('contact_id', contactId)
-          .not('contact_id', 'is', null)
-          .limit(1);
-        const kanbanCards = rawKanbanCards as KanbanCardWithColumn[] | null;
-        if (kanbanCards?.[0]?.kanban_columns) {
-          setKanbanData({
-            stage: kanbanCards[0].kanban_columns.name,
-            color: kanbanCards[0].kanban_columns.color,
-            board_id: kanbanCards[0].board_id,
-          });
-        }
-
-        // 6. Extraction fields
-        if (instanceId) {
-          const { data: agent } = await supabase
-            .from('ai_agents')
-            .select('extraction_fields')
-            .eq('instance_id', instanceId)
-            .maybeSingle();
-          setExtractionFields(((agent?.extraction_fields || []) as unknown as ExtractionField[]).filter(f => f.enabled));
-        }
-
-        // 7. Media files
-        if (convIds.length > 0) {
-          supabase
-            .from('conversation_messages')
-            .select('id, media_url, media_type, direction, created_at, content, transcription')
-            .in('conversation_id', convIds.slice(0, 100))
-            .not('media_url', 'is', null)
-            .neq('media_type', 'text')
-            .order('created_at', { ascending: false })
-            .limit(50)
-            .then(({ data }) => setMediaFiles(data || []));
-        }
-
-        // 8. Action events
-        if (convIds.length > 0) {
-          supabase
-            .from('ai_agent_logs')
-            .select('event, created_at, metadata, tool_calls')
-            .in('conversation_id', convIds.slice(0, 100))
-            .order('created_at', { ascending: false })
-            .limit(100)
-            .then(({ data }) => {
-              const events: ActionEvent[] = [];
-              events.push({ date: contactData.created_at, type: 'contact', description: 'Primeiro contato' });
-
-              for (const log of (data || [])) {
-                const meta = log.metadata as LogMetadata | null;
-                switch (log.event) {
-                  case 'response_sent':
-                    events.push({ date: log.created_at, type: 'response', description: `IA respondeu: "${(meta?.response_text || '').substring(0, 60)}..."` });
-                    break;
-                  case 'handoff':
-                    events.push({ date: log.created_at, type: 'handoff', description: `Transbordo: ${meta?.reason || 'sem motivo'}` });
-                    break;
-                  case 'label_assigned':
-                    events.push({ date: log.created_at, type: 'label', description: `Etiqueta: ${meta?.label_name || '?'}` });
-                    break;
-                  case 'shadow_extraction':
-                    events.push({ date: log.created_at, type: 'shadow', description: 'Shadow: dados extraidos' });
-                    break;
-                }
-
-                const tools = (log.tool_calls || []) as unknown as ToolCall[];
-                if (tools?.length) {
-                  for (const tc of tools) {
-                    if (tc.name === 'set_tags') {
-                      const tagList = (tc.args?.tags as string[] | undefined) || [];
-                      events.push({ date: log.created_at, type: 'tag', description: `Tags: ${tagList.join(', ')}` });
-                    }
-                    if (tc.name === 'update_lead_profile') {
-                      const parts: string[] = [];
-                      if (tc.args?.full_name) parts.push(`nome=${tc.args.full_name}`);
-                      if (tc.args?.city) parts.push(`cidade=${tc.args.city}`);
-                      if (parts.length) events.push({ date: log.created_at, type: 'profile', description: `Perfil: ${parts.join(', ')}` });
-                    }
-                    if (tc.name === 'move_kanban') {
-                      events.push({ date: log.created_at, type: 'kanban', description: `CRM: movido para ${(tc.args?.column_name as string | undefined) || '?'}` });
-                    }
-                  }
-                }
-              }
-
-              events.sort((a, b) => b.date.localeCompare(a.date));
-              setActionEvents(events);
-            });
-        }
-      } catch (err: unknown) {
-        handleError(err, 'Erro ao carregar lead', 'LeadDetail');
-      } finally {
-        setLoading(false);
+        labelNamesArr = [...names];
       }
-    };
 
-    fetchData();
-  }, [contactId, instanceId, reloadKey]);
+      let kanban: { stage: string; color: string; board_id: string } | null = null;
+      const { data: rawKanbanCards } = await supabase
+        .from('kanban_cards')
+        .select('board_id, kanban_columns(name, color)')
+        .eq('contact_id', contactId!)
+        .not('contact_id', 'is', null)
+        .limit(1);
+      const kanbanCards = rawKanbanCards as KanbanCardWithColumn[] | null;
+      if (kanbanCards?.[0]?.kanban_columns) {
+        kanban = {
+          stage: kanbanCards[0].kanban_columns.name,
+          color: kanbanCards[0].kanban_columns.color,
+          board_id: kanbanCards[0].board_id,
+        };
+      }
 
-  // Auto-save with 1s debounce
+      return { conversations: convs, tags: allTags, labelNames: labelNamesArr, kanbanData: kanban, convIds };
+    },
+    enabled: !!contactId,
+  });
+  const conversations = convsData?.conversations ?? [];
+  const tags = convsData?.tags ?? [];
+  const labelNames = convsData?.labelNames ?? [];
+  const kanbanData = convsData?.kanbanData ?? null;
+  const convIds = convsData?.convIds ?? [];
+
+  // Query 4 — Extraction fields (depends on instanceId)
+  const { data: extractionFields = [] } = useQuery({
+    queryKey: ['lead-extraction-fields', instanceId],
+    queryFn: async () => {
+      const { data: agent } = await supabase
+        .from('ai_agents')
+        .select('extraction_fields')
+        .eq('instance_id', instanceId!)
+        .maybeSingle();
+      return ((agent?.extraction_fields || []) as unknown as ExtractionField[]).filter(f => f.enabled);
+    },
+    enabled: !!instanceId,
+  });
+
+  // Query 5 — Media files (depends on conversations)
+  const { data: mediaFiles = [] } = useQuery({
+    queryKey: ['lead-media', contactId, convIds.length],
+    queryFn: async () => {
+      if (convIds.length === 0) return [];
+      const { data } = await supabase
+        .from('conversation_messages')
+        .select('id, media_url, media_type, direction, created_at, content, transcription')
+        .in('conversation_id', convIds.slice(0, 100))
+        .not('media_url', 'is', null)
+        .neq('media_type', 'text')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      return (data || []) as MediaFile[];
+    },
+    enabled: convIds.length > 0,
+  });
+
+  // Query 6 — Action events (depends on conversations + contact)
+  const { data: actionEvents = [] } = useQuery({
+    queryKey: ['lead-events', contactId, convIds.length],
+    queryFn: async () => {
+      if (convIds.length === 0 || !contact) return [];
+      const { data } = await supabase
+        .from('ai_agent_logs')
+        .select('event, created_at, metadata, tool_calls')
+        .in('conversation_id', convIds.slice(0, 100))
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      const events: ActionEvent[] = [];
+      events.push({ date: contact.created_at, type: 'contact', description: 'Primeiro contato' });
+
+      for (const log of (data || [])) {
+        const meta = log.metadata as LogMetadata | null;
+        switch (log.event) {
+          case 'response_sent':
+            events.push({ date: log.created_at, type: 'response', description: `IA respondeu: "${(meta?.response_text || '').substring(0, 60)}..."` });
+            break;
+          case 'handoff':
+            events.push({ date: log.created_at, type: 'handoff', description: `Transbordo: ${meta?.reason || 'sem motivo'}` });
+            break;
+          case 'label_assigned':
+            events.push({ date: log.created_at, type: 'label', description: `Etiqueta: ${meta?.label_name || '?'}` });
+            break;
+          case 'shadow_extraction':
+            events.push({ date: log.created_at, type: 'shadow', description: 'Shadow: dados extraidos' });
+            break;
+        }
+
+        const tools = (log.tool_calls || []) as unknown as ToolCall[];
+        if (tools?.length) {
+          for (const tc of tools) {
+            if (tc.name === 'set_tags') {
+              const tagList = (tc.args?.tags as string[] | undefined) || [];
+              events.push({ date: log.created_at, type: 'tag', description: `Tags: ${tagList.join(', ')}` });
+            }
+            if (tc.name === 'update_lead_profile') {
+              const parts: string[] = [];
+              if (tc.args?.full_name) parts.push(`nome=${tc.args.full_name}`);
+              if (tc.args?.city) parts.push(`cidade=${tc.args.city}`);
+              if (parts.length) events.push({ date: log.created_at, type: 'profile', description: `Perfil: ${parts.join(', ')}` });
+            }
+            if (tc.name === 'move_kanban') {
+              events.push({ date: log.created_at, type: 'kanban', description: `CRM: movido para ${(tc.args?.column_name as string | undefined) || '?'}` });
+            }
+          }
+        }
+      }
+
+      events.sort((a, b) => b.date.localeCompare(a.date));
+      return events;
+    },
+    enabled: convIds.length > 0 && !!contact,
+  });
+
+  // Derived loading state
+  const loading = contactLoading || profileLoading || convsLoading;
+
+  // Auto-save with 1s debounce (preserved as-is per Pitfall 5 — do NOT migrate to useMutation)
   const autoSave = useCallback(async () => {
     if (!contactId) return;
     setSaveStatus('saving');
@@ -293,7 +308,8 @@ const LeadDetail = () => {
         ? current.filter((id: string) => id !== instId)
         : [...current, instId];
       await supabase.from('contacts').update({ ia_blocked_instances: updated }).eq('id', contact.id);
-      setContact({ ...contact, ia_blocked_instances: updated });
+      // Invalidate contact query to reflect new ia_blocked_instances
+      queryClient.invalidateQueries({ queryKey: ['lead-contact', contactId] });
       toast.success(updated.includes(instId) ? 'IA bloqueada nesta instancia' : 'IA desbloqueada');
     } catch (err: unknown) {
       handleError(err, 'Erro', 'LeadDetail');
@@ -310,7 +326,6 @@ const LeadDetail = () => {
       }, { onConflict: 'contact_id' });
 
       // Clear conversations: tags, ai_summary + reactivate IA (status_ia → ligada)
-      const convIds = conversations.map(c => c.id);
       if (convIds.length > 0) {
         await supabase.from('conversations').update({ tags: [], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
         // Delete ai_agent_logs
@@ -320,11 +335,13 @@ const LeadDetail = () => {
       // Also unblock IA on this contact (clear ia_blocked_instances)
       if (contact) {
         await supabase.from('contacts').update({ ia_blocked_instances: [] }).eq('id', contact.id);
-        setContact({ ...contact, ia_blocked_instances: [] });
       }
 
-      // Reload all data to reflect cleared state
-      setReloadKey(k => k + 1);
+      // Invalidate queries to reload fresh data
+      queryClient.invalidateQueries({ queryKey: ['lead-conversations', contactId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-events', contactId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-contact', contactId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-profile', contactId] });
       toast.success('Contexto limpo — IA reativada');
     } catch (err: unknown) {
       handleError(err, 'Erro', 'LeadDetail');
@@ -551,7 +568,14 @@ const LeadDetail = () => {
       {/* Conversation Modal */}
       <ConversationModal
         open={convModalOpen}
-        onOpenChange={setConvModalOpen}
+        onOpenChange={(open) => {
+          setConvModalOpen(open);
+          if (!open) {
+            // Invalidate queries instead of reloadKey
+            queryClient.invalidateQueries({ queryKey: ['lead-conversations', contactId] });
+            queryClient.invalidateQueries({ queryKey: ['lead-events', contactId] });
+          }
+        }}
         conversationId={selectedConvId}
         contactName={displayName}
       />

@@ -15,6 +15,7 @@ export interface ExtractionField {
   key: string;
   label: string;
   enabled: boolean;
+  section?: string;
 }
 
 /** Follow-up cadence rule */
