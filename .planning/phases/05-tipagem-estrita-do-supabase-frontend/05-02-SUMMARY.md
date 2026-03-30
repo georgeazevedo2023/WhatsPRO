@@ -124,6 +124,15 @@ None - no stubs introduced. All data is properly wired.
 - Phase 05 Plan 03 (UsersManagement.tsx) can proceed — same pattern: identify any usages, define local interfaces, cast join results
 - types.ts now has ai_agents, ai_agent_logs, lead_profiles — other files that used (supabase as any) for these tables may benefit from follow-up cleanup (out of scope for this plan)
 
+## Self-Check: PASSED
+
+- FOUND: src/pages/dashboard/Leads.tsx
+- FOUND: src/pages/dashboard/LeadDetail.tsx
+- FOUND: src/types/agent.ts
+- FOUND: src/types/playground.ts
+- FOUND: commit 3597454 (Task 1: Leads.tsx)
+- FOUND: commit f47c9af (Task 2: LeadDetail.tsx)
+
 ---
 *Phase: 05-tipagem-estrita-do-supabase-frontend*
 *Completed: 2026-03-30*
