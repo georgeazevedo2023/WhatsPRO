@@ -69,7 +69,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.transcribe-audio]
-verify_jwt = true
+verify_jwt = false
 
 # Called internally by debounce with ANON_KEY — manual auth inside
 [functions.ai-agent]
