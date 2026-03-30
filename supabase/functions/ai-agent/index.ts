@@ -949,50 +949,75 @@ Exemplos de objeções:
           if (!products || products.length === 0) return 'Nenhum produto encontrado com esses critérios.'
 
           // Auto-send media/carousel when products have images
+          // Rules: 1 product + 2+ photos → carousel (1 photo per card)
+          //         1 product + 1 photo  → send/media (photo + clean caption)
+          //         2+ products           → carousel (1 card per product)
           const withImages = products.filter((p: any) => p.images?.[0])
-          if (withImages.length === 1) {
-            // Single product → send as photo (send/media) with caption, NOT carousel
+          if (withImages.length === 1 && (withImages[0].images as string[])?.length >= 2) {
+            // Single product with multiple photos → carousel (1 photo per card with AI copy)
             const p = withImages[0]
-            const caption = `${cleanProductTitle(p.title)}\n${p.description?.substring(0, 100) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
+            const photos = (p.images as string[]).slice(0, 5)
+            const copies = await generateCarouselCopies(p, photos.length)
+            const carousel = photos.map((img: string, idx: number) => ({
+              text: copies[idx] || `${cleanProductTitle(p.title)}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
+              image: img,
+              buttons: [{ id: `${p.title}_${idx}`, text: 'Comprar', type: 'REPLY' }],
+            }))
+            log.info('Auto-carousel: single product multi-photo', { title: p.title, photoCount: photos.length })
+
+            // Send carousel
+            const carouselPayloads = [
+              { phone: contact.jid, message: agent.carousel_text || 'Confira:', carousel },
+              { number: contact.jid, text: agent.carousel_text || 'Confira:', carousel },
+            ]
+            let carouselSent = false
+            for (const payload of carouselPayloads) {
+              try {
+                const res = await fetchWithTimeout(`${uazapiUrl}/send/carousel`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'token': instance.token },
+                  body: JSON.stringify(payload),
+                }, 10000)
+                const resBody = await res.text()
+                if (res.ok && !resBody.includes('missing required')) { carouselSent = true; break }
+                if (res.status === 400) break
+              } catch (err) { log.error('Carousel attempt failed', { error: (err as Error).message }) }
+            }
+            if (carouselSent) {
+              await supabase.from('conversation_messages').insert({
+                conversation_id, direction: 'outgoing',
+                content: agent.carousel_text || 'Confira:',
+                media_type: 'carousel',
+                media_url: JSON.stringify({ message: agent.carousel_text || 'Confira:', cards: carousel }),
+                external_id: `ai_carousel_${Date.now()}`,
+              })
+            }
+          } else if (withImages.length === 1) {
+            // Single product with 1 photo → send/media (photo + clean caption)
+            const p = withImages[0]
+            const title = cleanProductTitle(p.title)
+            const price = `R$ ${p.price?.toFixed(2) || 'Sob consulta'}`
+            const caption = `${title}\n${price}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
             try {
               await fetchWithTimeout(`${uazapiUrl}/send/media`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'token': instance.token },
                 body: JSON.stringify({ number: contact.jid, type: 'image', file: p.images[0], text: caption }),
               }, 10000)
-              log.info('Auto-media: single product sent as image', { title: p.title })
-              // Save to helpdesk
+              log.info('Auto-media: single product single photo', { title: p.title })
               await supabase.from('conversation_messages').insert({
                 conversation_id, direction: 'outgoing',
                 content: caption, media_type: 'image', media_url: p.images[0],
                 external_id: `ai_media_${Date.now()}`,
               })
-            } catch (err) {
-              log.error('Auto-media send failed', { error: (err as Error).message })
-            }
+            } catch (err) { log.error('Auto-media send failed', { error: (err as Error).message }) }
           } else if (withImages.length > 1) {
-            // Multiple products → carousel (2+ cards required by WhatsApp)
-            let carousel: any[]
-
-            if (withImages.length === 2 && withImages[0].images?.length > 1) {
-              // 2 products but first has multiple photos → multi-photo carousel of first product
-              const p = withImages[0]
-              const photos = (p.images as string[]).slice(0, 5)
-              const copies = await generateCarouselCopies(p, photos.length)
-              carousel = photos.map((img: string, idx: number) => ({
-                text: copies[idx] || `${p.title}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
-                image: img,
-                buttons: [{ id: `${p.title}_${idx}`, text: idx === photos.length - 1 ? 'Quero este!' : 'Ver mais', type: 'REPLY' }],
-              }))
-              log.info('Auto-carousel: single product with multiple photos', { title: p.title, photoCount: photos.length })
-            } else {
-              // Multiple products → 1 card per product
-              carousel = withImages.slice(0, 10).map((p: any) => ({
-                text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
-                image: p.images[0],
-                buttons: [{ id: p.title, text: 'Gostei', type: 'REPLY' }],
-              }))
-            }
+            // Multiple products → carousel (1 card per product)
+            const carousel = withImages.slice(0, 10).map((p: any) => ({
+              text: `${cleanProductTitle(p.title)}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
+              image: p.images[0],
+              buttons: [{ id: p.title, text: 'Comprar', type: 'REPLY' }],
+            }))
 
             // Send carousel with retry strategy (2 variants max, fail fast on 400)
             const carouselPayloads = [
@@ -1037,11 +1062,9 @@ Exemplos de objeções:
             `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (SEM ESTOQUE)' : ''}`
           ).join('\n')
 
-          if (withImages.length === 1) {
-            return `Produto encontrado e foto JÁ FOI ENVIADA ao lead via WhatsApp.\nNÃO repita nome do produto, preço ou descrição no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "É esse que você procura?"`
-          }
-          if (withImages.length > 1) {
-            return `Produtos encontrados e carrossel com fotos JÁ FOI ENVIADO ao lead.\nNÃO repita nomes de produtos, preços ou descrições no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "Algum desses te interessa?"`
+          if (withImages.length >= 1) {
+            const mediaType = withImages.length === 1 && (withImages[0].images as string[])?.length < 2 ? 'foto' : 'carrossel'
+            return `Produto(s) encontrado(s) e ${mediaType} JÁ FOI ENVIADO ao lead via WhatsApp.\nNÃO repita nomes de produtos, preços ou descrições no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "É esse que você procura?" ou "Algum desses te interessa?"`
           }
           return resultText
         }
