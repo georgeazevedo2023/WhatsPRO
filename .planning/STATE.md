@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T13:35:52.837Z"
+last_updated: "2026-03-30T13:39:23.432Z"
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 13
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -320,7 +320,7 @@ progress:
 
 ### Phase 6 Status
 
-- [ ] 06-01-PLAN.md — (pendente)
+- [x] 06-01-PLAN.md — LeadDetail migrado para 6 useQuery paralelos (lead-contact/profile/conversations/extraction-fields/media/events); reloadKey eliminado; Leads migrado para useQuery + useMutation(toggleIA) (DONE 2026-03-30)
 - [x] 06-02-PLAN.md — DashboardHome migrado para React Query: 3 useQuery (main/helpdeskLeads/groupsStats) + DASHBOARD_KEYS + Realtime invalidateQueries (DONE 2026-03-30)
 
 ### Decisoes Tomadas (Phase 6)
@@ -330,10 +330,17 @@ progress:
 - Realtime subscription chama queryClient.invalidateQueries per D-01 (nao setState direto)
 - buildQuery helper renomeado para applyDbFilter(q: any) com eslint-disable — TS2589 "instantiation excessively deep" ao passar PostgrestFilterBuilder ja encadeado
 - weekRes.data cast para { created_at: string | null }[] para satisfazer noImplicitAny
+- autoSave em LeadDetail preservado como useCallback+debounce (nao useMutation) — auto-save de formulario nao requer invalidacao de cache
+- reloadKey substituido por invalidateQueries em ConversationModal.onOpenChange e handleClearContext — invalidacao de cache mais limpa
+- section?: string adicionado ao ExtractionField interface (uso pre-existente sem definicao de tipo — Rule 2, reducao colateral de 123→107 erros TS)
+
+### Divida Tecnica Resolvida (Phase 6)
+
+- **DT-16 parcial** (Uso Inconsistente de React Query): LeadDetail.tsx e Leads.tsx agora usam useQuery/useMutation — alinhados com SecretsTab.tsx pattern
 
 ### Contexto
 
 - Phase 5 Plans 01, 02, e 03 completos: contratos de tipo + any-elimination em Leads.tsx, LeadDetail.tsx e 2 arquivos anteriores
-- Phase 6 Plan 02 completo: DashboardHome data fetching padronizado com React Query
+- Phase 6 Plans 01 e 02 completos: data fetching padronizado com React Query em LeadDetail, Leads, DashboardHome
 - Suite total: 173 testes passando
 - Ultima sessao: 2026-03-30
