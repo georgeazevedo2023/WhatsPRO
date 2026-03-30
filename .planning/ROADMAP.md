@@ -147,25 +147,26 @@ Plans:
 ---
 
 ### Phase 7: Consolidacao de Helpers e Reducao de Duplicacao (Backend)
-**Status**: [ ] Pendente
+**Status**: [ ] Em planejamento
 **Prioridade**: MEDIA
-**Escopo**: `supabase/functions/_shared/`, todas as edge functions
+**Escopo**: `supabase/functions/_shared/`, todas as 28 edge functions
+**Plans:** 4 plans
 
-**Objetivo**: Eliminar codigo duplicado e centralizar utilities compartilhadas.
+**Objetivo**: Eliminar codigo duplicado e centralizar utilities compartilhadas em todas as edge functions.
 
-**Tarefas**:
-1. Extrair `createSupabaseClient()` para `_shared/supabaseClient.ts` (usado em 20+ funcoes)
-2. Mover carousel building logic para helper compartilhado (duplicado entre ai-agent e search_products)
-3. Centralizar error response helpers: `unauthorizedResponse()`, `badRequestResponse()`, `serverErrorResponse()`
-4. Tornar `'Confira:'` (carousel auto-send text) configuravel por agente
-5. Adicionar metricas estruturadas basicas (latencia LLM, token count, error rate por provider)
+Plans:
+- [ ] 07-01-PLAN.md — Foundation: supabaseClient.ts + carousel.ts + LLM metrics + auth.ts update
+- [ ] 07-02-PLAN.md — Migrate 14 small functions (<250 LOC) to shared utilities
+- [ ] 07-03-PLAN.md — Migrate 10 medium functions (242-414 LOC) to shared utilities
+- [ ] 07-04-PLAN.md — Migrate 4 large functions (426-1898 LOC) + carousel integration + configurable carousel_text
 
 **Criterios de Aceite**:
 - [ ] Supabase client criado em 1 lugar, importado por todas as funcoes
 - [ ] Zero duplicacao de carousel building logic
-- [ ] Error responses padronizadas com CORS correto
-- [ ] Carousel auto-send text configuravel
-- [ ] Metricas basicas registradas em logs estruturados
+- [ ] Error responses padronizadas com CORS correto (successResponse/errorResponse)
+- [ ] Carousel auto-send text configuravel (agent.carousel_text)
+- [ ] Metricas LLM basicas registradas em logs estruturados (latency_ms, token_count, provider)
+- [ ] Todas as 28 funcoes usam createLogger (zero console.log/error)
 
 ---
 
