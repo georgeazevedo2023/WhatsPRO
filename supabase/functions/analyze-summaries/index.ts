@@ -1,17 +1,14 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { checkRateLimit, rateLimitHeaders } from '../_shared/rateLimit.ts'
+import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
+const serviceSupabase = createServiceClient()
+const log = createLogger('analyze-summaries')
 
-const serviceSupabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -20,22 +17,14 @@ serve(async (req) => {
     // Validate user auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "Unauthorized", 401);
     }
 
-    const userSupabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const userSupabase = createUserClient(req)
     const token = authHeader.replace("Bearer ", "");
     const { data: { user }, error: userError } = await userSupabase.auth.getUser(token);
     if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "Unauthorized", 401);
     }
 
     const userId = user.id;
@@ -58,14 +47,13 @@ serve(async (req) => {
       .single();
 
     if (!roleData) {
-      return new Response(JSON.stringify({ error: "Forbidden: super admin only" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "Forbidden: super admin only", 403);
     }
 
     const body = await req.json();
     const { inbox_id, period_days = 30 } = body;
+
+    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
 
     // Calculate date range
     const sinceDate = new Date();
@@ -99,29 +87,23 @@ serve(async (req) => {
     const { data: conversations, error: convError } = await query;
 
     if (convError) {
-      console.error("[analyze-summaries] Error fetching conversations:", convError);
-      return new Response(JSON.stringify({ error: "Failed to fetch conversations" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      log.error("Error fetching conversations", { error: convError.message });
+      return errorResponse(corsHeaders, "Failed to fetch conversations");
     }
 
     const totalConversations = conversations?.length || 0;
 
     if (totalConversations === 0) {
-      return new Response(
-        JSON.stringify({
-          total_analyzed: 0,
-          total_available: totalAvailable || 0,
-          top_reasons: [],
-          top_products: [],
-          top_objections: [],
-          sentiment: { positive: 0, neutral: 0, negative: 0 },
-          key_insights: "",
-          conversations_detail: [],
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return successResponse(corsHeaders, {
+        total_analyzed: 0,
+        total_available: totalAvailable || 0,
+        top_reasons: [],
+        top_products: [],
+        top_objections: [],
+        sentiment: { positive: 0, neutral: 0, negative: 0 },
+        key_insights: "",
+        conversations_detail: [],
+      });
     }
 
     // Fetch contact data for all conversations
@@ -137,7 +119,7 @@ serve(async (req) => {
     // Build text from all summaries (truncate each to 500 chars)
     const summariesText = conversations!
       .map((conv, idx) => {
-        const s = conv.ai_summary as any;
+        const s = conv.ai_summary as Record<string, string>;
         const reason = (s.reason || "N/A").substring(0, 500);
         const summary = (s.summary || "N/A").substring(0, 500);
         const resolution = (s.resolution || "N/A").substring(0, 500);
@@ -145,7 +127,7 @@ serve(async (req) => {
       })
       .join("\n\n");
 
-    console.log(`[analyze-summaries] Analyzing ${totalConversations} conversations with AI...`);
+    log.info("Analyzing conversations with AI", { count: totalConversations });
 
     const systemPrompt = `Você é um analista de negócios especializado em atendimento ao cliente via WhatsApp.
 Analise os resumos de ${totalConversations} conversas e retorne APENAS um JSON válido, sem markdown, sem blocos de código, sem texto extra.
@@ -178,7 +160,7 @@ Regras:
       };
 
       for (let attempt = 1; attempt <= 3; attempt++) {
-        console.log(`[analyze-summaries] Attempt ${attempt}/3 with llama-3.3-70b-versatile`);
+        log.info("AI attempt", { attempt, model: models[0] });
         const resp = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -192,16 +174,16 @@ Regras:
         if (resp.status === 429 || resp.status === 402) return resp;
 
         const errBody = await resp.text();
-        console.error(`[analyze-summaries] Attempt ${attempt} failed: ${resp.status} ${errBody}`);
+        log.error("AI attempt failed", { attempt, status: resp.status, body: errBody });
 
         if (attempt < 3) {
-          const delay = attempt * 2000;
-          console.log(`[analyze-summaries] Waiting ${delay}ms before retry...`);
-          await new Promise(r => setTimeout(r, delay));
+          const delayMs = attempt * 2000;
+          log.info("Waiting before retry", { delay_ms: delayMs });
+          await new Promise(r => setTimeout(r, delayMs));
         }
       }
 
-      console.log(`[analyze-summaries] Trying fallback model: ${fallback}`);
+      log.info("Trying fallback model", { model: fallback });
       return await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -216,41 +198,29 @@ Regras:
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit excedido. Tente novamente em alguns minutos." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return errorResponse(corsHeaders, "Rate limit excedido. Tente novamente em alguns minutos.", 429);
       }
       if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ error: "Créditos de IA insuficientes. Adicione créditos ao workspace." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return errorResponse(corsHeaders, "Créditos de IA insuficientes. Adicione créditos ao workspace.", 402);
       }
       const errBody = await aiResponse.text();
-      console.error("[analyze-summaries] All attempts failed:", aiResponse.status, errBody);
-      return new Response(JSON.stringify({ error: "Erro ao processar análise de IA após múltiplas tentativas" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      log.error("All attempts failed", { status: aiResponse.status, body: errBody });
+      return errorResponse(corsHeaders, "Erro ao processar análise de IA após múltiplas tentativas");
     }
 
     const aiData = await aiResponse.json();
     const rawContent = aiData.choices?.[0]?.message?.content || "";
 
-    let analysis: Record<string, any>;
+    let analysis: Record<string, unknown>;
     try {
       const cleaned = rawContent
         .replace(/```json\n?/g, "")
         .replace(/```\n?/g, "")
         .trim();
       analysis = JSON.parse(cleaned);
-    } catch (e) {
-      console.error("[analyze-summaries] Failed to parse AI response:", rawContent);
-      return new Response(JSON.stringify({ error: "Falha ao processar resposta da IA" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    } catch {
+      log.error("Failed to parse AI response", { raw: rawContent });
+      return errorResponse(corsHeaders, "Falha ao processar resposta da IA");
     }
 
     // Ensure total_analyzed and total_available are accurate
@@ -267,39 +237,40 @@ Regras:
 
     // Enrich top_reasons with conversation_ids
     if (Array.isArray(analysis.top_reasons)) {
-      analysis.top_reasons = analysis.top_reasons.map((r: any) => ({
+      analysis.top_reasons = (analysis.top_reasons as Array<Record<string, unknown>>).map((r) => ({
         ...r,
-        conversation_ids: indicesToIds(r.conversation_indices || []),
+        conversation_ids: indicesToIds((r.conversation_indices as number[]) || []),
       }));
     }
 
     // Enrich top_products with conversation_ids
     if (Array.isArray(analysis.top_products)) {
-      analysis.top_products = analysis.top_products.map((p: any) => ({
+      analysis.top_products = (analysis.top_products as Array<Record<string, unknown>>).map((p) => ({
         ...p,
-        conversation_ids: indicesToIds(p.conversation_indices || []),
+        conversation_ids: indicesToIds((p.conversation_indices as number[]) || []),
       }));
     }
 
     // Enrich top_objections with conversation_ids
     if (Array.isArray(analysis.top_objections)) {
-      analysis.top_objections = analysis.top_objections.map((o: any) => ({
+      analysis.top_objections = (analysis.top_objections as Array<Record<string, unknown>>).map((o) => ({
         ...o,
-        conversation_ids: indicesToIds(o.conversation_indices || []),
+        conversation_ids: indicesToIds((o.conversation_indices as number[]) || []),
       }));
     }
 
     // Enrich sentiment with conversation_ids
     if (analysis.sentiment) {
-      analysis.sentiment.positive_ids = indicesToIds(analysis.sentiment.positive_indices || []);
-      analysis.sentiment.neutral_ids = indicesToIds(analysis.sentiment.neutral_indices || []);
-      analysis.sentiment.negative_ids = indicesToIds(analysis.sentiment.negative_indices || []);
+      const sentiment = analysis.sentiment as Record<string, unknown>;
+      sentiment.positive_ids = indicesToIds((sentiment.positive_indices as number[]) || []);
+      sentiment.neutral_ids = indicesToIds((sentiment.neutral_indices as number[]) || []);
+      sentiment.negative_ids = indicesToIds((sentiment.negative_indices as number[]) || []);
     }
 
     // Build conversations_detail array
     const conversationsDetail = conversations!.map(conv => {
       const contact = contactMap.get(conv.contact_id);
-      const s = conv.ai_summary as any;
+      const s = conv.ai_summary as Record<string, string>;
       return {
         id: conv.id,
         contact_name: contact?.name || null,
@@ -311,16 +282,13 @@ Regras:
 
     analysis.conversations_detail = conversationsDetail;
 
-    console.log(`[analyze-summaries] Analysis complete for ${totalConversations} conversations`);
+    log.info("Analysis complete", { count: totalConversations });
 
     return new Response(JSON.stringify(analysis), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    console.error("[analyze-summaries] Unexpected error:", err);
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    log.error("Unexpected error", { error: err instanceof Error ? err.message : "Unknown error" });
+    return errorResponse(corsHeaders, err instanceof Error ? err.message : "Unknown error");
   }
 });

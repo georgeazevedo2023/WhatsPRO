@@ -1,14 +1,14 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // Use wildcard CORS — playground is protected by verifySuperAdmin auth
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
 import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
-import { isJustGreeting, buildBusinessInfoSection, buildKnowledgeInstruction, buildExtractionInstruction, buildSubAgentInstruction, buildGeminiContents, buildPlaygroundResponse, validateSetTags, validateLeadProfileUpdate, normalizeCarouselProductIds } from '../_shared/agentHelpers.ts'
+import { isJustGreeting, buildBusinessInfoSection, buildKnowledgeInstruction, buildExtractionInstruction, buildSubAgentInstruction, buildGeminiContents, validateSetTags, validateLeadProfileUpdate, normalizeCarouselProductIds, escapeLike } from '../_shared/agentHelpers.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+const supabase = createServiceClient()
+const log = createLogger('ai-agent-playground')
 
 /**
  * AI Agent Playground v4 — Mirrors production ai-agent logic
@@ -34,17 +34,13 @@ Deno.serve(async (req) => {
     const { agent_id, messages: chatMessages, overrides } = body
 
     if (!agent_id) {
-      return new Response(JSON.stringify({ ok: false, error: 'agent_id required' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'agent_id required', 400)
     }
 
     // ── Load agent (same as production) ──
     const { data: agent } = await supabase.from('ai_agents').select('*').eq('id', agent_id).single()
     if (!agent) {
-      return new Response(JSON.stringify({ ok: false, error: 'Agent not found' }), {
-        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Agent not found', 404)
     }
 
     // ── Load labels (real, same as production) ──
@@ -58,24 +54,26 @@ Deno.serve(async (req) => {
       supabase.from('ai_agent_knowledge').select('type, title, content').eq('agent_id', agent_id).order('position').limit(30),
     ])
 
-    const availableLabelNames = (availableLabels || []).map((l: any) => l.name)
+    void currentLabelsData // loaded but not used (no real playground conversation)
+
+    const availableLabelNames = (availableLabels || []).map((l: { name: string }) => l.name)
     const currentLabelNames: string[] = []
 
     // ── Build sections using shared helpers ──
-    const faqItems = (knowledgeItems || []).filter((k: any) => k.type === 'faq' && k.title && k.content)
-    const docItems = (knowledgeItems || []).filter((k: any) => k.type === 'document' && k.content)
+    const faqItems = (knowledgeItems || []).filter((k: { type: string; title: string; content: string }) => k.type === 'faq' && k.title && k.content)
+    const docItems = (knowledgeItems || []).filter((k: { type: string; content: string }) => k.type === 'document' && k.content)
     const knowledgeInstruction = buildKnowledgeInstruction(faqItems, docItems)
     const extractionInstruction = buildExtractionInstruction(agent.extraction_fields || [])
     const subAgentInstruction = buildSubAgentInstruction(agent.sub_agents || {})
 
     // ── Determine greeting context ──
-    const hasAssistantMsg = (chatMessages || []).some((m: any) => m.direction === 'outgoing')
+    const hasAssistantMsg = (chatMessages || []).some((m: { direction: string }) => m.direction === 'outgoing')
     const greetingText = agent.greeting_message || ''
     const isReturningLead = false // Playground always treats as new lead
     const leadName: string | null = null
     const leadContext = '\n\nNenhum histórico anterior deste lead. Trate como NOVO cliente — não assuma que já se conhecem.'
     const campaignContext = ''
-    const leadMsgCount = (chatMessages || []).filter((m: any) => m.direction === 'incoming').length
+    const leadMsgCount = (chatMessages || []).filter((m: { direction: string }) => m.direction === 'incoming').length
     const MAX_LEAD_MESSAGES = agent.max_lead_messages || 8
 
     // ── BUILD SYSTEM PROMPT — IDENTICAL TO PRODUCTION ──
@@ -188,24 +186,22 @@ Quando o lead expressar uma objeção, SEMPRE:
     const geminiContents = buildGeminiContents(chatMessages || [])
 
     if (geminiContents.length === 0) {
-      return new Response(JSON.stringify({ ok: false, error: 'No messages to process' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'No messages to process', 400)
     }
 
     // If first message is just a greeting ("oi"), return ONLY the configured greeting
     // (production does the same — sends greeting and stops, waits for substantive message)
     if (isFirstMsgJustGreeting) {
-      return new Response(JSON.stringify({
-        ok: true, response: agent.greeting_message,
+      return successResponse(corsHeaders, {
+        response: agent.greeting_message,
         greeting_sent: true, just_greeting: true,
         tokens: { input: 0, output: 0 }, latency_ms: Date.now() - startTime,
         system_prompt_length: systemPrompt.length,
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      })
     }
 
     if (geminiContents[geminiContents.length - 1]?.role !== 'user') {
-      const lastUserMsg = [...(chatMessages || [])].reverse().find((m: any) => m.direction === 'incoming')
+      const lastUserMsg = [...(chatMessages || [])].reverse().find((m: { direction: string; content: string }) => m.direction === 'incoming')
       if (lastUserMsg?.content?.trim()) {
         geminiContents.push({ role: 'user', parts: [{ text: lastUserMsg.content }] })
       }
@@ -234,7 +230,7 @@ Quando o lead expressar uma objeção, SEMPRE:
     ].filter(t => !disabledTools.includes(t.name))
 
     // ── TOOL EXECUTION — REAL DB for data, MOCK for WhatsApp sends ──
-    async function executeTool(name: string, args: Record<string, any>): Promise<string> {
+    async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
       switch (name) {
         case 'search_products': {
           // REAL: queries actual product database
@@ -243,7 +239,7 @@ Quando o lead expressar uma objeção, SEMPRE:
             if (args.category) query = query.ilike('category', `%${args.category}%`)
             if (args.subcategory) query = query.ilike('subcategory', `%${args.subcategory}%`)
             if (args.query) {
-              const escaped = String(args.query).replace(/%/g, '\\%').replace(/_/g, '\\_')
+              const escaped = escapeLike(String(args.query))
               query = query.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%,category.ilike.%${escaped}%`)
             }
             if (args.min_price) query = query.gte('price', args.min_price)
@@ -251,17 +247,17 @@ Quando o lead expressar uma objeção, SEMPRE:
             const { data: products, error } = await query.order('position').limit(10)
             if (error) return `Erro ao buscar produtos: ${error.message}`
             if (!products?.length) return 'Nenhum produto encontrado com esses critérios.'
-            return products.map((p: any, i: number) => `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || '?'} ${!p.in_stock ? '(SEM ESTOQUE)' : ''}${p.images?.[0] ? ' [com foto]' : ' [sem foto]'}`).join('\n')
+            return products.map((p: { title: string; price: number | null; in_stock: boolean; images: string[] }, i: number) => `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || '?'} ${!p.in_stock ? '(SEM ESTOQUE)' : ''}${p.images?.[0] ? ' [com foto]' : ' [sem foto]'}`).join('\n')
           } catch (e) { return `Erro ao buscar produtos: ${e instanceof Error ? e.message : 'unknown'}` }
         }
 
         case 'send_carousel': {
           // MOCK: simulates WhatsApp carousel send (no UAZAPI)
-          const titles = normalizeCarouselProductIds(args.product_ids)
+          const titles = normalizeCarouselProductIds(args.product_ids as string[])
           const { data: products } = await supabase.from('ai_agent_products').select('title, price, images').eq('agent_id', agent_id).eq('enabled', true)
-          const found = (products || []).filter((p: any) => titles.some(t => p.title?.toLowerCase().includes(t.toLowerCase())) && p.images?.[0])
+          const found = (products || []).filter((p: { title: string; price: number | null; images: string[] }) => titles.some(t => p.title?.toLowerCase().includes(t.toLowerCase())) && p.images?.[0])
           return found.length > 0
-            ? `[ENVIADO] Carrossel com ${found.length} produto(s): ${found.map((p: any) => `${p.title} (R$${p.price?.toFixed(2)})`).join(', ')}`
+            ? `[ENVIADO] Carrossel com ${found.length} produto(s): ${found.map((p: { title: string; price: number | null }) => `${p.title} (R$${p.price?.toFixed(2)})`).join(', ')}`
             : `Nenhum produto encontrado com imagem para carrossel. Produtos buscados: ${titles.join(', ')}`
         }
 
@@ -271,19 +267,19 @@ Quando o lead expressar uma objeção, SEMPRE:
 
         case 'assign_label': {
           // REAL: checks if label exists (no DB write in playground — just validates)
-          const { data: label } = await supabase.from('labels').select('id, name').eq('inbox_id', inboxId).ilike('name', args.label_name?.replace(/%/g, '\\%').replace(/_/g, '\\_') || '').maybeSingle()
+          const { data: label } = await supabase.from('labels').select('id, name').eq('inbox_id', inboxId).ilike('name', (args.label_name as string)?.replace(/%/g, '\\%').replace(/_/g, '\\_') || '').maybeSingle()
           if (!label) return `Etiqueta "${args.label_name}" não encontrada. Disponíveis: ${availableLabelNames.join(', ')}`
           return `Label "${label.name}" atribuída com sucesso.`
         }
 
         case 'set_tags':
-          return validateSetTags(args.tags).message
+          return validateSetTags(args.tags as string[]).message
 
         case 'move_kanban': {
           // REAL: checks if kanban column exists
           const { data: board } = await supabase.from('kanban_boards').select('id').eq('instance_id', agent.instance_id).maybeSingle()
           if (!board) return 'Nenhum quadro Kanban vinculado a esta instância.'
-          const { data: col } = await supabase.from('kanban_columns').select('id, name').eq('board_id', board.id).ilike('name', args.column_name || '').maybeSingle()
+          const { data: col } = await supabase.from('kanban_columns').select('id, name').eq('board_id', board.id).ilike('name', (args.column_name as string) || '').maybeSingle()
           if (!col) return `Coluna "${args.column_name}" não encontrada no Kanban.`
           return `Card movido para coluna "${col.name}".`
         }
@@ -301,11 +297,11 @@ Quando o lead expressar uma objeção, SEMPRE:
     }
 
     // ── LLM call loop (same as production) ──
-    const llmModel = overrides?.model || agent.model || 'gemini-2.5-flash'
+    const llmModel = overrides?.model || agent.model || 'gpt-4.1-mini'
     const activeTemperature = overrides?.temperature ?? agent.temperature ?? 0.7
     const activeMaxTokens = overrides?.max_tokens ?? agent.max_tokens ?? 1024
 
-    let llmMessages: LLMMessage[] = geminiContents.map((c: any) => ({
+    let llmMessages: LLMMessage[] = geminiContents.map((c: { role: string; parts: Array<{ text: string }> }) => ({
       role: (c.role === 'model' ? 'assistant' : 'user') as 'user' | 'assistant',
       content: c.parts?.[0]?.text || '',
     }))
@@ -313,7 +309,7 @@ Quando o lead expressar uma objeção, SEMPRE:
     let responseText = ''
     let inputTokens = 0
     let outputTokens = 0
-    const toolCallsLog: any[] = []
+    const toolCallsLog: Array<Record<string, unknown>> = []
     let attempts = 0
     let usedModel = llmModel
 
@@ -345,9 +341,8 @@ Quando o lead expressar uma objeção, SEMPRE:
     }
 
     if (!responseText.trim()) {
-      return new Response(JSON.stringify({ ok: false, error: 'Resposta vazia após 5 tentativas' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      log.error('Empty response after max attempts', { attempts })
+      return errorResponse(corsHeaders, 'Resposta vazia após 5 tentativas')
     }
 
     // On first interaction, prepend the configured greeting to the response
@@ -360,8 +355,8 @@ Quando o lead expressar uma objeção, SEMPRE:
         : `${agent.greeting_message}\n\n${responseText}`
     }
 
-    return new Response(JSON.stringify({
-      ok: true, response: finalResponse,
+    return successResponse(corsHeaders, {
+      response: finalResponse,
       greeting_sent: isFirstTurn || undefined,
       just_greeting: isFirstMsgJustGreeting || undefined,
       tokens: { input: inputTokens, output: outputTokens },
@@ -369,14 +364,10 @@ Quando o lead expressar uma objeção, SEMPRE:
       tool_calls: toolCallsLog.length > 0 ? toolCallsLog : undefined,
       model_used: usedModel,
       system_prompt_length: systemPrompt.length,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
 
   } catch (err) {
-    console.error('[playground] Error:', err)
-    return new Response(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : 'Unknown error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.error('Error', { error: err instanceof Error ? err.message : 'Unknown error' })
+    return errorResponse(corsHeaders, err instanceof Error ? err.message : 'Unknown error')
   }
 })

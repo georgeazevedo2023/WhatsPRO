@@ -1,11 +1,14 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { checkRateLimit, rateLimitHeaders } from '../_shared/rateLimit.ts'
+import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
-serve(async (req) => {
+const serviceSupabase = createServiceClient()
+const log = createLogger('summarize-conversation')
+
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -13,25 +16,15 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "Unauthorized", 401);
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabase = createUserClient(req)
 
     const token = authHeader.replace("Bearer ", "");
     const { data: authData, error: authError } = await supabase.auth.getUser(token);
     if (authError || !authData?.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "Unauthorized", 401);
     }
 
     const userId = authData.user.id;
@@ -48,10 +41,7 @@ serve(async (req) => {
     const { conversation_id, force_refresh } = await req.json();
 
     if (!conversation_id) {
-      return new Response(JSON.stringify({ error: "conversation_id is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "conversation_id is required", 400);
     }
 
     // Fetch conversation to validate access
@@ -62,10 +52,7 @@ serve(async (req) => {
       .single();
 
     if (convError || !conversation) {
-      return new Response(JSON.stringify({ error: "Conversation not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "Conversation not found", 404);
     }
 
     // Verify access via has_inbox_access
@@ -80,18 +67,12 @@ serve(async (req) => {
     });
 
     if (!hasAccess && !isSuperAdmin) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "Forbidden", 403);
     }
 
     // Return cached summary if exists and not forcing refresh
     if (conversation.ai_summary && !force_refresh) {
-      return new Response(JSON.stringify({ summary: conversation.ai_summary }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return successResponse(corsHeaders, { summary: conversation.ai_summary });
     }
 
     // Fetch all messages
@@ -103,18 +84,12 @@ serve(async (req) => {
       .order("created_at", { ascending: true });
 
     if (msgError) {
-      console.error("Error fetching messages:", msgError);
-      return new Response(JSON.stringify({ error: "Failed to fetch messages" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      log.error("Error fetching messages", { error: msgError.message });
+      return errorResponse(corsHeaders, "Failed to fetch messages");
     }
 
     if (!messages || messages.length === 0) {
-      return new Response(JSON.stringify({ error: "No messages to summarize" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "No messages to summarize", 400);
     }
 
     // Format conversation history as text
@@ -145,10 +120,7 @@ serve(async (req) => {
 
     const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
     if (!GROQ_API_KEY) {
-      return new Response(JSON.stringify({ error: "AI not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "AI not configured");
     }
 
     const systemPrompt = `Você é um assistente de atendimento ao cliente. Analise esta conversa de WhatsApp e gere um resumo estruturado.
@@ -178,25 +150,16 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
-      console.error("AI gateway error:", aiResponse.status, errorText);
+      log.error("AI gateway error", { status: aiResponse.status, body: errorText });
 
       if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: "Limite de IA atingido. Tente novamente em alguns instantes." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return errorResponse(corsHeaders, "Limite de IA atingido. Tente novamente em alguns instantes.", 429);
       }
       if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ error: "Créditos de IA insuficientes." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return errorResponse(corsHeaders, "Créditos de IA insuficientes.", 402);
       }
 
-      return new Response(JSON.stringify({ error: "Falha ao gerar resumo" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse(corsHeaders, "Falha ao gerar resumo");
     }
 
     const aiData = await aiResponse.json();
@@ -207,12 +170,9 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
     try {
       const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       parsedSummary = JSON.parse(cleaned);
-    } catch (e) {
-      console.error("Failed to parse AI response:", rawContent);
-      return new Response(JSON.stringify({ error: "Resposta da IA inválida" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    } catch {
+      log.error("Failed to parse AI response", { raw: rawContent });
+      return errorResponse(corsHeaders, "Resposta da IA inválida");
     }
 
     const summaryData = {
@@ -222,11 +182,6 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
     };
 
     // Persist to DB using service role for update
-    const serviceSupabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
     // Save summary with 60-day expiry
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 60);
@@ -240,19 +195,13 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
       .eq("id", conversation_id);
 
     if (updateError) {
-      console.error("Failed to save summary:", updateError);
+      log.error("Failed to save summary", { error: updateError.message });
       // Still return the summary even if save failed
     }
 
-    return new Response(JSON.stringify({ summary: summaryData }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return successResponse(corsHeaders, { summary: summaryData });
   } catch (err) {
-    console.error("Unexpected error:", err);
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    log.error("Unexpected error", { error: err instanceof Error ? err.message : "Unknown error" });
+    return errorResponse(corsHeaders, err instanceof Error ? err.message : "Unknown error");
   }
 });

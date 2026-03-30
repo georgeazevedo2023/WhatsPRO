@@ -1,7 +1,11 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
+
+const serviceClient = createServiceClient()
+const log = createLogger('sync-conversations')
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -11,31 +15,20 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Unauthorized', 401)
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
-    )
+    const supabase = createUserClient(req)
 
     const token = authHeader.replace('Bearer ', '')
     const { data: userData, error: authError } = await supabase.auth.getUser(token)
     if (authError || !userData?.user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Unauthorized', 401)
     }
 
-    const userId = userData.user.id
     const { inbox_id } = await req.json()
     if (!inbox_id) {
-      return new Response(JSON.stringify({ error: 'inbox_id required' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'inbox_id required', 400)
     }
 
     // Verify user has access to this inbox (via RLS on user's client)
@@ -46,17 +39,10 @@ Deno.serve(async (req) => {
       .single()
 
     if (inboxError || !inbox) {
-      return new Response(JSON.stringify({ error: 'Inbox not found or access denied' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Inbox not found or access denied', 403)
     }
 
     // Use service client to get instance token (user client can't access tokens)
-    const serviceClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
-
     const { data: instance, error: instanceError } = await serviceClient
       .from('instances')
       .select('id, name, token')
@@ -64,15 +50,13 @@ Deno.serve(async (req) => {
       .single()
 
     if (instanceError || !instance) {
-      return new Response(JSON.stringify({ error: 'Instance not found for this inbox' }), {
-        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Instance not found for this inbox', 404)
     }
 
     const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
     const instanceToken = instance.token
 
-    console.log(`Syncing conversations for inbox ${inbox.name} (instance: ${instance.name})`)
+    log.info('Syncing conversations', { inbox: inbox.name, instance: instance.name })
 
     // 2. Fetch chats from UAZAPI
     const chatsRes = await fetchWithTimeout(`${uazapiUrl}/chat/find`, {
@@ -83,16 +67,12 @@ Deno.serve(async (req) => {
 
     const chatsText = await chatsRes.text()
     if (!chatsRes.ok) {
-      return new Response(JSON.stringify({ error: `UAZAPI /chat/find returned ${chatsRes.status}` }), {
-        status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, `UAZAPI /chat/find returned ${chatsRes.status}`, 502)
     }
 
     let chatsParsed: unknown
     try { chatsParsed = JSON.parse(chatsText) } catch {
-      return new Response(JSON.stringify({ error: 'Failed to parse /chat/find response' }), {
-        status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Failed to parse /chat/find response', 502)
     }
 
     let chats: Array<Record<string, unknown>> = []
@@ -110,10 +90,10 @@ Deno.serve(async (req) => {
       return jid.endsWith('@s.whatsapp.net') && !jid.includes('status')
     })
 
-    console.log(`Total chats: ${chats.length}, individual: ${individualChats.length}`)
+    log.info('Chats fetched', { total: chats.length, individual: individualChats.length })
 
     // 3. Fetch ALL messages ONCE with high limit
-    console.log(`Fetching all messages in a single batch...`)
+    log.info('Fetching all messages in a single batch')
     const msgsRes = await fetchWithTimeout(`${uazapiUrl}/message/find`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'token': instanceToken },
@@ -121,7 +101,7 @@ Deno.serve(async (req) => {
     })
 
     const msgsText = await msgsRes.text()
-    console.log(`/message/find (batch): status=${msgsRes.status}, length=${msgsText.length}`)
+    log.info('Message batch fetched', { status: msgsRes.status, length: msgsText.length })
 
     let allMessages: Array<Record<string, unknown>> = []
     if (msgsRes.ok) {
@@ -137,7 +117,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`Total messages fetched: ${allMessages.length}`)
+    log.info('Total messages fetched', { count: allMessages.length })
 
     // 4. Group messages by chatid (the REAL field in the response)
     const messagesByChat = new Map<string, Array<Record<string, unknown>>>()
@@ -156,7 +136,7 @@ Deno.serve(async (req) => {
     for (const [chatid, msgs] of messagesByChat) {
       distribution[chatid] = msgs.length
     }
-    console.log(`Message distribution by chatid:`, JSON.stringify(distribution))
+    log.info('Message distribution by chatid', { distribution: JSON.stringify(distribution) })
 
     // 5. Process each chat - upsert contact, conversation, and insert ONLY matching messages
     let synced = 0
@@ -168,7 +148,7 @@ Deno.serve(async (req) => {
         const jid = String(chat.wa_chatid || chat.wa_fastid || chat.jid || chat.id || '')
         const chatName = String(chat.wa_contactName || chat.wa_name || chat.name || chat.pushName || '')
         const phone = jid.split('@')[0]
-        let profilePic = chat.imagePreview || chat.image || null
+        let profilePic: string | null = (chat.imagePreview || chat.image || null) as string | null
 
         // If no profile pic from chat data, try fetching via UAZAPI API
         if (!profilePic && jid) {
@@ -186,7 +166,7 @@ Deno.serve(async (req) => {
               }
             }
           } catch (picErr) {
-            console.log(`Failed to fetch profile pic for ${jid}:`, picErr)
+            log.info('Failed to fetch profile pic', { jid, error: picErr instanceof Error ? picErr.message : String(picErr) })
           }
         }
 
@@ -221,7 +201,7 @@ Deno.serve(async (req) => {
             .single()
 
           if (insertErr || !newContact) {
-            console.error(`Failed to insert contact ${jid}:`, insertErr)
+            log.error('Failed to insert contact', { jid, error: insertErr?.message })
             errors++
             continue
           }
@@ -263,7 +243,7 @@ Deno.serve(async (req) => {
             .single()
 
           if (convErr || !newConv) {
-            console.error(`Failed to create conversation for ${jid}:`, convErr)
+            log.error('Failed to create conversation', { jid, error: convErr?.message })
             errors++
             continue
           }
@@ -272,7 +252,7 @@ Deno.serve(async (req) => {
 
         // 5c. Get messages ONLY for this specific chatid from our grouped map
         const chatMessages = messagesByChat.get(jid) || []
-        console.log(`Chat ${phone} (${jid}): ${chatMessages.length} messages matched`)
+        log.info('Chat messages matched', { phone, jid, count: chatMessages.length })
 
         if (chatMessages.length > 0) {
           const messagesToInsert = []
@@ -340,10 +320,10 @@ Deno.serve(async (req) => {
               .insert(messagesToInsert)
 
             if (insertMsgErr) {
-              console.error(`Failed to insert messages for ${jid}:`, insertMsgErr)
+              log.error('Failed to insert messages', { jid, error: insertMsgErr.message })
             } else {
               messagesImported += messagesToInsert.length
-              console.log(`Inserted ${messagesToInsert.length} messages for ${phone}`)
+              log.info('Inserted messages', { phone, count: messagesToInsert.length })
             }
           }
 
@@ -363,24 +343,18 @@ Deno.serve(async (req) => {
 
         synced++
       } catch (chatErr) {
-        console.error('Error processing chat:', chatErr)
+        log.error('Error processing chat', { error: chatErr instanceof Error ? chatErr.message : String(chatErr) })
         errors++
       }
     }
 
-    console.log(`Sync complete: ${synced} synced, ${messagesImported} messages imported, ${errors} errors`)
+    log.info('Sync complete', { synced, messagesImported, errors, total: individualChats.length })
 
-    return new Response(
-      JSON.stringify({ synced, errors, messagesImported, total: individualChats.length }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return successResponse(corsHeaders, { synced, errors, messagesImported, total: individualChats.length })
 
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Internal server error'
-    console.error('Sync error:', error)
-    return new Response(
-      JSON.stringify({ error: msg }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    log.error('Sync error', { error: msg })
+    return errorResponse(corsHeaders, msg)
   }
 })
