@@ -1,15 +1,12 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { shouldTriggerAiAgentFromWebhook } from '../_shared/aiRuntime.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { unauthorizedResponse } from '../_shared/auth.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { createLogger } from '../_shared/logger.ts'
 
 // Module-level singleton: reuse connection pool across requests in same Deno isolate
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-)
+const supabase = createServiceClient()
 
 function normalizeMediaType(raw: string): string {
   if (!raw || raw === '') return 'text'
@@ -23,9 +20,11 @@ function normalizeMediaType(raw: string): string {
   return 'text'
 }
 
+const webhookModuleLog = createLogger('whatsapp-webhook')
+
 async function getMediaLink(messageId: string, instanceToken: string, isAudio: boolean = false): Promise<{ url: string; mimetype?: string } | null> {
   try {
-    console.log('Calling /message/download for messageId:', messageId, 'isAudio:', isAudio)
+    webhookModuleLog.info('Calling /message/download', { messageId, isAudio })
     const body: Record<string, unknown> = {
       id: messageId,
       return_base64: false,
@@ -49,12 +48,12 @@ async function getMediaLink(messageId: string, instanceToken: string, isAudio: b
     })
 
     if (!response.ok) {
-      console.error('Download link request failed:', response.status, await response.text())
+      webhookModuleLog.error('Download link request failed', { status: response.status, body: await response.text() })
       return null
     }
 
     const data = await response.json()
-    console.log('UAZAPI /message/download response keys:', Object.keys(data).join(','))
+    webhookModuleLog.info('UAZAPI /message/download response keys', { keys: Object.keys(data).join(',') })
     // For audio: prefer raw link (ogg/opus — faster, no conversion wait).
     // mp3Link is the converted version — use it only if raw link is missing.
     const rawUrl = data.link || data.url || data.fileUrl || data.fileURL || null
@@ -65,7 +64,7 @@ async function getMediaLink(messageId: string, instanceToken: string, isAudio: b
     }
     return rawUrl ? { url: rawUrl, mimetype: data.mimetype || data.mimeType } : null
   } catch (err) {
-    console.error('Error getting media link:', err)
+    webhookModuleLog.error('Error getting media link', { error: (err as Error).message })
     return null
   }
 }
@@ -82,23 +81,24 @@ Deno.serve(async (req) => {
   // Generate unique request ID for tracing across logs
   const reqId = crypto.randomUUID().substring(0, 8)
   const startMs = Date.now()
+  const log = createLogger('whatsapp-webhook', reqId)
 
   try {
     // Validate webhook secret token (if configured — STRONGLY recommended for production)
     const webhookSecret = Deno.env.get('WEBHOOK_SECRET')
     if (!webhookSecret) {
-      console.warn(`[${reqId}] WEBHOOK_SECRET not set — webhook is unprotected. Configure it in Admin > Secrets.`)
+      log.warn('WEBHOOK_SECRET not set — webhook is unprotected. Configure it in Admin > Secrets.')
     }
     if (webhookSecret) {
       const incomingToken = req.headers.get('x-webhook-secret') || req.headers.get('authorization')?.replace('Bearer ', '')
       if (incomingToken !== webhookSecret) {
-        console.warn(`[${reqId}] Invalid webhook secret`)
+        log.warn('Invalid webhook secret')
         return unauthorizedResponse(corsHeaders)
       }
     }
 
     const rawPayload = await req.json()
-    console.log('Webhook raw received:', JSON.stringify(rawPayload).substring(0, 500))
+    log.info('Webhook raw received', { preview: JSON.stringify(rawPayload).substring(0, 500) })
 
     // Unwrap: n8n pode enviar como array e/ou encapsular em body/Body
     let unwrapped = rawPayload
@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
     }
     const inner = unwrapped?.body || unwrapped?.Body
     let payload = (inner?.EventType || inner?.eventType) ? inner : unwrapped
-    console.log('Webhook unwrapped EventType:', payload.EventType || payload.eventType || 'none')
+    log.info('Webhook unwrapped', { eventType: payload.EventType || payload.eventType || 'none' })
 
     // Variables to propagate resolved inbox/conversation from status_ia block
     let resolvedInboxIdForMessage = ''
@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
     // 1. Check status_ia FIRST (before isRawMessage) — status_ia payloads must never be treated as messages
     const statusIaPayload = payload.status_ia || unwrapped?.status_ia || inner?.status_ia
     if (!payload.EventType && !payload.eventType && statusIaPayload) {
-      console.log('Detected status_ia payload:', statusIaPayload)
+      log.info('Detected status_ia payload', { statusIaPayload })
 
       const chatid = payload.chatid || payload.sender || payload.remotejid ||
         unwrapped?.chatid || unwrapped?.sender || unwrapped?.remotejid ||
@@ -152,7 +152,7 @@ Deno.serve(async (req) => {
         }
         const { data: iaInstance } = await iaInstanceQuery.maybeSingle()
         if (!iaInstance) {
-          console.log('status_ia: instance not found')
+          log.info('status_ia: instance not found')
           return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'status_ia_instance_not_found' }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
@@ -160,7 +160,7 @@ Deno.serve(async (req) => {
 
         const { data: iaInbox } = await supabase.from('inboxes').select('id').eq('instance_id', iaInstance.id).maybeSingle()
         if (!iaInbox) {
-          console.log('status_ia: no inbox for instance', iaInstance.id)
+          log.info('status_ia: no inbox for instance', { instanceId: iaInstance.id })
           return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'status_ia_no_inbox' }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
       // Find contact by JID
       const { data: iaContact } = await supabase.from('contacts').select('id').eq('jid', chatid).maybeSingle()
       if (!iaContact) {
-        console.log('status_ia: contact not found for jid', chatid)
+        log.info('status_ia: contact not found', { jid: chatid })
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'status_ia_contact_not_found' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -190,18 +190,18 @@ Deno.serve(async (req) => {
         // No open conversation found - check if payload also contains message content
         const hasMessageContentNoConv = payload.content?.text || unwrapped?.content?.text
         if (!hasMessageContentNoConv) {
-          console.log('status_ia: no open conversation found and no message content')
+          log.info('status_ia: no open conversation found and no message content')
           return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'status_ia_no_conversation' }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         }
         // Has message content - fall through to message processing which will create the conversation
-        console.log('status_ia: no open conversation but has message content, falling through to message processing')
+        log.info('status_ia: no open conversation but has message content, falling through to message processing')
         resolvedInboxIdForMessage = resolvedInboxId
       } else {
         // Conversation found - update status_ia
         await supabase.from('conversations').update({ status_ia: statusIaPayload }).eq('id', iaConv.id)
-        console.log('status_ia updated to', statusIaPayload, 'for conversation', iaConv.id)
+        log.info('status_ia updated', { statusIaPayload, conversationId: iaConv.id })
 
         // Broadcast via REST API
         const SB_URL = Deno.env.get('SUPABASE_URL')!
@@ -229,14 +229,14 @@ Deno.serve(async (req) => {
         // Has message content alongside status_ia - fall through to message processing
         resolvedInboxIdForMessage = resolvedInboxId
         resolvedConversationId = iaConv.id
-        console.log('status_ia updated, continuing to process message content:', hasMessageContent.substring(0, 80), 'resolvedInboxId:', resolvedInboxIdForMessage)
+        log.info('status_ia updated, continuing to process message', { contentPreview: hasMessageContent.substring(0, 80), resolvedInboxId: resolvedInboxIdForMessage })
       }
     }
 
     // 2. Detect raw UAZAPI message format (e.g. from n8n agent output)
     const isRawMessage = !payload.EventType && !payload.eventType && (payload.chatid || payload.content)
     if (isRawMessage) {
-      console.log('Detected raw UAZAPI message format (agent output), synthesizing payload')
+      log.info('Detected raw UAZAPI message format (agent output), synthesizing payload')
       if (payload.fromMe === undefined && payload.content?.text) {
         payload.fromMe = true
       }
@@ -255,7 +255,7 @@ Deno.serve(async (req) => {
 
     // Only process message events
     if (eventType !== 'messages') {
-      console.log('Ignoring event type:', eventType)
+      log.info('Ignoring event type', { eventType })
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'not_message_event' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -265,7 +265,7 @@ Deno.serve(async (req) => {
     const chat = payload.chat
 
     if (!message) {
-      console.error('No message object in payload')
+      log.error('No message object in payload')
       return new Response(JSON.stringify({ error: 'No message data' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -290,7 +290,7 @@ Deno.serve(async (req) => {
     const payloadInboxId = payload.inbox_id || resolvedInboxIdForMessage
 
     if (payloadInboxId) {
-      console.log('Using pre-resolved inbox_id:', payloadInboxId)
+      log.info('Using pre-resolved inbox_id', { inboxId: payloadInboxId })
       inbox = { id: payloadInboxId }
 
       // Still need instance for token (media download etc)
@@ -300,12 +300,12 @@ Deno.serve(async (req) => {
         instance = inst
       }
       if (!instance) {
-        console.log('Could not find instance for pre-resolved inbox, proceeding with null token')
+        log.warn('Could not find instance for pre-resolved inbox, proceeding with null token')
         instance = { id: '', name: '', token: '' }
       }
     } else {
       if (!instanceName) {
-        console.error('No instance identifier in payload')
+        log.error('No instance identifier in payload')
         return new Response(JSON.stringify({ error: 'No instance identifier' }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -336,7 +336,7 @@ Deno.serve(async (req) => {
         .maybeSingle()
 
       if (!foundInstance) {
-        console.error('Instance not found:', instanceName, 'owner:', ownerField, 'ownerClean:', ownerClean)
+        log.error('Instance not found', { instanceName, ownerField, ownerClean })
         return new Response(JSON.stringify({ error: 'Instance not found' }), {
           status: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -352,7 +352,7 @@ Deno.serve(async (req) => {
         .maybeSingle()
 
       if (!foundInbox) {
-        console.log('No inbox configured for instance:', instance.id)
+        log.info('No inbox configured for instance', { instanceId: instance.id })
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'no_inbox' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -408,8 +408,8 @@ Deno.serve(async (req) => {
     }
 
     // Log ALL media-related fields for debugging
-    console.log('Full message keys:', Object.keys(message).join(','))
-    console.log('Message media fields:', JSON.stringify({
+    log.info('Full message keys', { keys: Object.keys(message).join(',') })
+    log.info('Message media fields', {
       fileURL: message.fileURL,
       fileUrl: message.fileUrl,
       file_url: message.file_url,
@@ -420,7 +420,7 @@ Deno.serve(async (req) => {
       mediaType: message.mediaType,
       fileName: message.fileName,
       resolvedMediaUrl: mediaUrl?.substring(0, 100),
-    }))
+    })
 
     // Media: obter link persistente da UAZAPI antes de salvar
     const mimeExtMap: Record<string, string> = {
@@ -477,14 +477,14 @@ Deno.serve(async (req) => {
         const ext = mimeExtMap[mime] || mime.split('/').pop() || 'pdf'
         content = `Documento.${ext}`
       }
-      console.log('Media resolved:', mediaType, mediaUrl?.substring(0, 80))
+      log.info('Media resolved', { mediaType, urlPreview: mediaUrl?.substring(0, 80) })
     }
 
-    console.log(`Processing: direction=${direction}, mediaType=${mediaType}, externalId=${externalId}, chatId=${chatId}, mediaUrl=${mediaUrl ? 'YES' : 'NO'}`)
+    log.info('Processing message', { direction, mediaType, externalId, chatId, hasMediaUrl: !!mediaUrl })
 
     // Deduplication: skip if message already exists
     if (dupResult.data) {
-      console.log('Duplicate message skipped:', externalId)
+      log.info('Duplicate message skipped', { externalId })
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -515,7 +515,7 @@ Deno.serve(async (req) => {
           const picUrl = picData.profilePicUrl || picData.imgUrl || picData.url || picData.eurl || null
           if (picUrl && typeof picUrl === 'string' && picUrl.startsWith('http')) {
             await supabase.from('contacts').update({ profile_pic_url: picUrl }).eq('jid', contactJid)
-            console.log('Profile pic updated async for', contactJid)
+            log.info('Profile pic updated async', { jid: contactJid })
           }
         }
       }).catch(() => {}) // Non-critical
@@ -539,7 +539,7 @@ Deno.serve(async (req) => {
     }
 
     if (!contact) {
-      console.error('Failed to upsert contact')
+      log.error('Failed to upsert contact')
       return new Response(JSON.stringify({ error: 'Failed to upsert contact' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -585,7 +585,7 @@ Deno.serve(async (req) => {
     }
 
     if (!conversation) {
-      console.error('Failed to create conversation')
+      log.error('Failed to create conversation')
       return new Response(JSON.stringify({ error: 'Failed to create conversation' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -605,12 +605,12 @@ Deno.serve(async (req) => {
 
     if (insertError) {
       if (insertError.code === '23505') {
-        console.log('Duplicate detected by unique index, skipping:', externalId)
+        log.info('Duplicate detected by unique index, skipping', { externalId })
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate_index' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
-      console.error('Failed to insert message:', insertError)
+      log.error('Failed to insert message', { error: insertError.message })
       return new Response(JSON.stringify({ error: 'Failed to insert message' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -618,7 +618,7 @@ Deno.serve(async (req) => {
     }
 
     if (!insertedMsg) {
-      console.log('No row inserted (possible duplicate):', externalId)
+      log.info('No row inserted (possible duplicate)', { externalId })
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'no_insert' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -695,7 +695,7 @@ Deno.serve(async (req) => {
             }
           }
         } catch (err) {
-          console.error('Error auto-adding to lead database:', err)
+          log.error('Error auto-adding to lead database', { error: (err as Error).message })
         }
       })()
     }
@@ -703,7 +703,7 @@ Deno.serve(async (req) => {
     // Extract status_ia from original message payload
     const statusIa = message.status_ia || rawPayload?.status_ia || (Array.isArray(rawPayload) ? rawPayload[0]?.status_ia : null) || null
     if (statusIa) {
-      console.log('status_ia detected:', statusIa, '— persisting to conversation', conversation.id)
+      log.info('status_ia detected — persisting', { statusIa, conversationId: conversation.id })
       await supabase
         .from('conversations')
         .update({ status_ia: statusIa })
@@ -760,11 +760,11 @@ Deno.serve(async (req) => {
                 .update({ tags: Array.from(tagMap.values()) })
                 .eq('id', conversation.id)
 
-              console.log('UTM campaign matched:', campaign.name, 'ref:', refCode)
+              log.info('UTM campaign matched', { campaignName: campaign.name, refCode })
             }
           }
         } catch (err) {
-          console.error('UTM attribution error (non-critical):', err)
+          log.error('UTM attribution error (non-critical)', { error: (err as Error).message })
         }
       }
     }
@@ -813,7 +813,7 @@ Deno.serve(async (req) => {
     }
     const broadcastStatuses = await Promise.all(topics.map(broadcastWithTimeout))
 
-    console.log(`[${reqId}] Message processed (${Date.now() - startMs}ms) broadcast:${broadcastStatuses.join(',')}`, conversation.id, direction, mediaType)
+    log.info('Message processed', { latency_ms: Date.now() - startMs, broadcastStatuses: broadcastStatuses.join(','), conversationId: conversation.id, direction, mediaType })
 
     // Wrapper to ensure background fetches survive response return in Edge Functions
     const backgroundFetch = (promise: Promise<any>) => {
@@ -826,7 +826,7 @@ Deno.serve(async (req) => {
 
     // Enqueue audio transcription via job_queue (D-01: primary mechanism, not fallback)
     if (mediaType === 'audio' && mediaUrl && insertedMsg && direction === 'incoming') {
-      console.log('[webhook] Enqueueing audio transcription job for message:', insertedMsg.id)
+      log.info('Enqueueing audio transcription job', { messageId: insertedMsg.id })
       const { error: jobErr } = await supabase.from('job_queue').insert({
         job_type: 'transcribe_audio',
         payload: {
@@ -840,7 +840,7 @@ Deno.serve(async (req) => {
         max_retries: 1,
       })
       if (jobErr) {
-        console.error('[webhook] Failed to enqueue transcription job:', jobErr.message)
+        log.error('Failed to enqueue transcription job', { error: jobErr.message })
       }
     }
 
@@ -870,7 +870,7 @@ Deno.serve(async (req) => {
         .maybeSingle()
 
       if (aiAgent) {
-        console.log('AI Agent active, triggering debounce for conversation:', conversation.id)
+        log.info('AI Agent active, triggering debounce', { conversationId: conversation.id })
         backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
           method: 'POST',
           headers: {
@@ -888,7 +888,7 @@ Deno.serve(async (req) => {
               direction: 'incoming',
             },
           }),
-        }).catch(err => console.error('AI Agent debounce call failed:', err)))
+        }).catch(err => log.error('AI Agent debounce call failed', { error: (err as Error).message })))
       }
     }
 
@@ -896,7 +896,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (error) {
-    console.error(`[${reqId}] Webhook error (${Date.now() - startMs}ms):`, error)
+    log.error('Webhook error', { latency_ms: Date.now() - startMs, error: (error as Error).message })
     return new Response(JSON.stringify({ error: 'Internal server error', request_id: reqId }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

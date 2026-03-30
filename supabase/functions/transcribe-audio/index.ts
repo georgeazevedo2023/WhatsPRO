@@ -1,10 +1,13 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyAuth, verifyCronOrService, unauthorizedResponse } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { checkRateLimit, rateLimitHeaders } from '../_shared/rateLimit.ts'
 import { STATUS_IA } from '../_shared/constants.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
+
+const moduleLog = createLogger('transcribe-audio')
 
 // Wrapper to ensure background fetches survive response return in Edge Functions
 function backgroundFetch(promise: Promise<any>): void {
@@ -55,7 +58,7 @@ async function transcribeWithGemini(audioUrl: string, geminiKey: string, mimeHin
   // UAZAPI returns HTTP URLs — we MUST download and send as inline_data (base64).
   // This is the fastest path: skip the URL-based attempt entirely (saves 60s timeout on failure).
 
-  console.log('[transcribe] Gemini inline_data: downloading audio from:', audioUrl.substring(0, 120))
+  moduleLog.info('Gemini inline_data: downloading audio', { urlPreview: audioUrl.substring(0, 120) })
   const startMs = Date.now()
 
   const audioResp = await fetchWithTimeout(audioUrl, undefined, 30000)
@@ -70,12 +73,12 @@ async function transcribeWithGemini(audioUrl: string, geminiKey: string, mimeHin
   const base64Audio = arrayBufferToBase64(audioBuffer)
   const downloadMs = Date.now() - startMs
 
-  console.log(`[transcribe] Audio downloaded: ${(audioBuffer.byteLength / 1024).toFixed(1)}KB, mime=${mimeType}, download=${downloadMs}ms`)
+  moduleLog.info('Audio downloaded', { sizeKb: (audioBuffer.byteLength / 1024).toFixed(1), mimeType, downloadMs })
 
   // For large files (>20MB), use Gemini File API to avoid request size limits
   const MAX_INLINE_SIZE = 20 * 1024 * 1024
   if (audioBuffer.byteLength > MAX_INLINE_SIZE) {
-    console.log('[transcribe] Large file detected — using File API upload')
+    moduleLog.info('Large file detected — using File API upload')
     return await transcribeViaFileApi(audioBuffer, mimeType, prompt, geminiKey)
   }
 
@@ -100,13 +103,13 @@ async function transcribeWithGemini(audioUrl: string, geminiKey: string, mimeHin
     const data = await resp.json()
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
     if (text) {
-      console.log(`[transcribe] Gemini success (download=${downloadMs}ms, llm=${llmMs}ms): ${text.substring(0, 80)}`)
+      moduleLog.info('Gemini success', { downloadMs, llmMs, preview: text.substring(0, 80) })
       return text
     }
-    console.warn('[transcribe] Gemini returned empty text, response:', JSON.stringify(data).substring(0, 300))
+    moduleLog.warn('Gemini returned empty text', { response: JSON.stringify(data).substring(0, 300) })
   } else {
     const errText = await resp.text()
-    console.error(`[transcribe] Gemini failed: ${resp.status} ${errText.substring(0, 200)}`)
+    moduleLog.error('Gemini failed', { status: resp.status, error: errText.substring(0, 200) })
   }
 
   throw new Error('Gemini transcription failed')
@@ -143,7 +146,7 @@ async function transcribeViaFileApi(
   const fileUri = uploadData?.file?.uri
   if (!fileUri) throw new Error('File API returned no file URI')
 
-  console.log('[transcribe] File API upload OK, uri:', fileUri)
+  moduleLog.info('File API upload OK', { fileUri })
 
   // Step 2: Use file_data.file_uri to transcribe (now works because it's a Gemini URI)
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
@@ -165,7 +168,7 @@ async function transcribeViaFileApi(
     const data = await resp.json()
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
     if (text) {
-      console.log(`[transcribe] Gemini File API success: ${text.substring(0, 80)}`)
+      moduleLog.info('Gemini File API success', { preview: text.substring(0, 80) })
       return text
     }
   }
@@ -179,13 +182,13 @@ async function transcribeViaFileApi(
 // ────────────────────────────────────────────────────────────────────────
 
 async function transcribeWithGroq(audioUrl: string, groqKey: string): Promise<string> {
-  console.log('[transcribe] Trying Groq Whisper fallback, url:', audioUrl.substring(0, 80))
+  moduleLog.info('Trying Groq Whisper fallback', { urlPreview: audioUrl.substring(0, 80) })
 
   const audioResp = await fetchWithTimeout(audioUrl, undefined, 30000)
   if (!audioResp.ok) throw new Error(`Audio download failed: ${audioResp.status}`)
 
   const audioBlob = await audioResp.blob()
-  console.log('[transcribe] Groq audio size:', audioBlob.size, 'type:', audioBlob.type)
+  moduleLog.info('Groq audio blob', { size: audioBlob.size, type: audioBlob.type })
 
   const formData = new FormData()
   formData.append('file', audioBlob, 'audio.mp3')
@@ -206,13 +209,13 @@ async function transcribeWithGroq(audioUrl: string, groqKey: string): Promise<st
       const result = await groqResp.json()
       const text = result.text || ''
       if (text) {
-        console.log('[transcribe] Groq success:', text.substring(0, 80))
+        moduleLog.info('Groq success', { preview: text.substring(0, 80) })
         return text
       }
     }
 
     const errText = await groqResp.text()
-    console.error(`[transcribe] Groq error (attempt ${attempt}):`, groqResp.status, errText.substring(0, 200))
+    moduleLog.error('Groq error', { attempt, status: groqResp.status, error: errText.substring(0, 200) })
 
     if (attempt === 2 || ![429, 500, 503].includes(groqResp.status)) {
       throw new Error(`Groq failed (${groqResp.status}): ${errText.substring(0, 200)}`)
@@ -236,6 +239,8 @@ Deno.serve(async (req) => {
   const auth = isService ? { userId: 'service' } : await verifyAuth(req)
   if (!auth) return unauthorizedResponse(corsHeaders)
 
+  const log = createLogger('transcribe-audio')
+
   if (!isService) {
     const rl = await checkRateLimit(auth.userId, 'transcribe-audio', 20, 60)
     if (rl.limited) {
@@ -248,30 +253,24 @@ Deno.serve(async (req) => {
 
   try {
     const { messageId, audioUrl, mimeType: callerMimeType, conversationId } = await req.json()
-    console.log('[transcribe] ========= START =========')
-    console.log('[transcribe] messageId:', messageId, 'conversationId:', conversationId, 'audioUrl:', audioUrl?.substring(0, 150))
-    
+    log.info('START', { messageId, conversationId, audioUrl: audioUrl?.substring(0, 150) })
+
     if (auth.userId === 'service') {
-      console.log('[transcribe] Authenticated as internal service.')
+      log.info('Authenticated as internal service.')
     }
 
     if (!messageId || !audioUrl) {
-      console.error('[transcribe] Missing params: messageId=', messageId, 'audioUrl=', audioUrl)
-      return new Response(JSON.stringify({ error: 'messageId and audioUrl required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      log.error('Missing params', { messageId, audioUrl })
+      return errorResponse(corsHeaders, 'messageId and audioUrl required', 400)
     }
 
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || Deno.env.get('GOOGLE_AI_API_KEY') || ''
     const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY') || ''
 
-    console.log('[transcribe] Keys available — Gemini:', !!GEMINI_API_KEY, 'Groq:', !!GROQ_API_KEY)
+    log.info('Keys available', { hasGemini: !!GEMINI_API_KEY, hasGroq: !!GROQ_API_KEY })
 
     if (!GEMINI_API_KEY && !GROQ_API_KEY) {
-      return new Response(JSON.stringify({ error: 'No transcription provider configured' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'No transcription provider configured', 500)
     }
 
     // ── Provider chain: Gemini → Groq ────────────────────────────────
@@ -283,7 +282,7 @@ Deno.serve(async (req) => {
         transcription = await transcribeWithGemini(audioUrl, GEMINI_API_KEY, callerMimeType)
         providerUsed = 'gemini'
       } catch (err) {
-        console.error('[transcribe] Gemini fully failed:', (err as Error).message)
+        log.error('Gemini fully failed', { error: (err as Error).message })
       }
     }
 
@@ -292,24 +291,19 @@ Deno.serve(async (req) => {
         transcription = await transcribeWithGroq(audioUrl, GROQ_API_KEY)
         providerUsed = 'groq'
       } catch (err) {
-        console.error('[transcribe] Groq also failed:', (err as Error).message)
+        log.error('Groq also failed', { error: (err as Error).message })
       }
     }
 
     if (!transcription) {
-      console.error('[transcribe] ALL providers failed')
-      return new Response(JSON.stringify({ error: 'All transcription providers failed' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      log.error('ALL providers failed')
+      return errorResponse(corsHeaders, 'All transcription providers failed', 500)
     }
 
-    console.log(`[transcribe] ✅ Transcribed via ${providerUsed}:`, transcription.substring(0, 100))
+    log.info('Transcribed', { provider: providerUsed, preview: transcription.substring(0, 100) })
 
     // ── Save to database ────────────────────────────────────────────
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    )
+    const supabase = createServiceClient()
 
     const { error: updateError } = await supabase
       .from('conversation_messages')
@@ -320,13 +314,11 @@ Deno.serve(async (req) => {
       .eq('id', messageId)
 
     if (updateError) {
-      console.error('[transcribe] DB update error:', updateError)
-      return new Response(JSON.stringify({ error: 'Failed to save transcription' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      log.error('DB update error', { error: updateError.message })
+      return errorResponse(corsHeaders, 'Failed to save transcription', 500)
     }
 
-    console.log('[transcribe] Saved to DB for message:', messageId)
+    log.info('Saved to DB', { messageId })
 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
     const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY')!
@@ -349,8 +341,8 @@ Deno.serve(async (req) => {
             }],
           }),
         }, 10000)
-          .then(r => console.log('[transcribe] Broadcast status:', r.status))
-          .catch(err => console.error('[transcribe] Broadcast failed:', err)),
+          .then(r => log.info('Broadcast status', { status: r.status }))
+          .catch(err => log.error('Broadcast failed', { error: (err as Error).message })),
       )
     }
 
@@ -385,7 +377,7 @@ Deno.serve(async (req) => {
                 .eq('id', conv.contact_id)
                 .single()
 
-              console.log('[transcribe] Triggering AI agent for conversation:', conversationId)
+              log.info('Triggering AI agent', { conversationId })
               backgroundFetch(
                 fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
                   method: 'POST',
@@ -403,24 +395,20 @@ Deno.serve(async (req) => {
                       media_type: 'audio',
                     },
                   }),
-                }).catch(err => console.error('[transcribe] AI agent trigger failed:', err)),
+                }).catch(err => log.error('AI agent trigger failed', { error: (err as Error).message })),
               )
             }
           }
         }
       } catch (err) {
-        console.error('[transcribe] AI agent trigger error:', err)
+        log.error('AI agent trigger error', { error: (err as Error).message })
       }
     }
 
-    console.log('[transcribe] ========= END =========')
-    return new Response(JSON.stringify({ ok: true, transcription, provider: providerUsed }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.info('END', { messageId, provider: providerUsed })
+    return successResponse(corsHeaders, { transcription, provider: providerUsed })
   } catch (error) {
-    console.error('[transcribe] FATAL ERROR:', error)
-    return new Response(JSON.stringify({ error: 'Internal server error', details: (error as Error).message }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.error('FATAL ERROR', { error: (error as Error).message })
+    return errorResponse(corsHeaders, 'Internal server error', 500, (error as Error).message)
   }
 })

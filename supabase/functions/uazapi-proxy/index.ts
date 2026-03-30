@@ -1,7 +1,9 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
+import { createLogger } from '../_shared/logger.ts'
+
+const log = createLogger('uazapi-proxy')
 
 /**
  * Resolve instance token server-side from instance_id.
@@ -12,10 +14,7 @@ async function resolveInstanceToken(
   userId: string,
   instanceId: string
 ): Promise<string | null> {
-  const serviceClient = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  )
+  const serviceClient = createServiceClient()
 
   // Check user has access (super_admin or explicit access)
   const { data: roles, error: rolesError } = await serviceClient
@@ -25,7 +24,7 @@ async function resolveInstanceToken(
     .in('role', ['super_admin', 'gerente'])
 
   if (rolesError) {
-    console.error('Error fetching user roles:', rolesError)
+    log.error('Error fetching user roles', { error: rolesError.message })
     return null
   }
 
@@ -40,12 +39,12 @@ async function resolveInstanceToken(
       .maybeSingle()
 
     if (accessError) {
-      console.error('Error checking instance access:', accessError)
+      log.error('Error checking instance access', { error: accessError.message })
       return null
     }
 
     if (!access) {
-      console.error('User', userId, 'does not have access to instance', instanceId)
+      log.error('User does not have access to instance', { userId, instanceId })
       return null
     }
   }
@@ -58,7 +57,7 @@ async function resolveInstanceToken(
     .single()
 
   if (error || !instance) {
-    console.error('Instance not found:', instanceId, error)
+    log.error('Instance not found', { instanceId, error: error?.message })
     return null
   }
 
@@ -81,11 +80,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
-    )
+    const supabase = createUserClient(req)
 
     const token = authHeader.replace('Bearer ', '')
     const { data: claimsData, error: claimsError } = await supabase.auth.getUser(token)
@@ -143,8 +138,8 @@ Deno.serve(async (req) => {
           )
         }
         
-        console.log('Connecting instance (resolved server-side)')
-        
+        log.info('Connecting instance (resolved server-side)')
+
         response = await fetchWithTimeout(`${uazapiUrl}/instance/connect`, {
           method: 'POST',
           headers: {
@@ -154,10 +149,10 @@ Deno.serve(async (req) => {
           body: JSON.stringify({}),
         })
         
-        console.log('Connect response status:', response.status)
-        
+        log.info('Connect response status', { status: response.status })
+
         const connectRawText = await response.text()
-        console.log('Connect response (first 500 chars):', connectRawText.substring(0, 500))
+        log.info('Connect response', { preview: connectRawText.substring(0, 500) })
         
         let connectData: unknown
         try {
@@ -191,12 +186,12 @@ Deno.serve(async (req) => {
           },
         })
         
-        console.log('Status response status:', response.status)
+        log.info('Status response status', { status: response.status })
         break
       }
 
       case 'list': {
-        console.log('Fetching instances from:', `${uazapiUrl}/instance/all`)
+        log.info('Fetching instances', { url: `${uazapiUrl}/instance/all` })
         response = await fetchWithTimeout(`${uazapiUrl}/instance/all`, {
           method: 'GET',
           headers: {
@@ -205,7 +200,7 @@ Deno.serve(async (req) => {
             'token': adminToken,
           },
         })
-        console.log('UAZAPI response status:', response.status)
+        log.info('UAZAPI list response status', { status: response.status })
         break
       }
 
@@ -223,7 +218,7 @@ Deno.serve(async (req) => {
             'token': instanceToken,
           },
         })
-        console.log('Groups response status:', groupsResponse.status)
+        log.info('Groups response status', { status: groupsResponse.status })
         
         const groupsData = await groupsResponse.json()
         
@@ -235,7 +230,7 @@ Deno.serve(async (req) => {
         } else if (groupsData?.data && Array.isArray(groupsData.data)) {
           normalizedGroups = groupsData.data
         } else {
-          console.log('Unexpected groups format:', JSON.stringify(groupsData).substring(0, 200))
+          log.warn('Unexpected groups format', { preview: JSON.stringify(groupsData).substring(0, 200) })
           normalizedGroups = []
         }
         
@@ -304,7 +299,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify(sendBody),
         })
         
-        console.log('Send response status:', sendResponse.status)
+        log.info('Send response status', { status: sendResponse.status })
         
         const rawText = await sendResponse.text()
         let sendData: unknown
@@ -359,7 +354,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify(mediaBody),
         })
         
-        console.log('Media response status:', mediaResponse.status)
+        log.info('Media response status', { status: mediaResponse.status })
         
         const mediaRawText = await mediaResponse.text()
         
@@ -473,7 +468,7 @@ Deno.serve(async (req) => {
 
         for (let attempt = 0; attempt < payloadCandidates.length; attempt++) {
           const candidate = payloadCandidates[attempt]
-          console.log(`Carousel attempt #${attempt + 1} payload keys:`, Object.keys(candidate).join(', '))
+          log.info(`Carousel attempt #${attempt + 1}`, { payloadKeys: Object.keys(candidate).join(', ') })
 
           const resp = await fetchWithTimeout(carouselEndpoint, {
             method: 'POST',
@@ -486,10 +481,10 @@ Deno.serve(async (req) => {
 
           lastStatus = resp.status
           lastRawText = await resp.text()
-          console.log(`Carousel attempt #${attempt + 1} status:`, lastStatus)
+          log.info(`Carousel attempt #${attempt + 1} status`, { status: lastStatus })
 
           if (resp.ok) {
-            console.log(`Carousel SUCCESS with attempt #${attempt + 1}`)
+            log.info(`Carousel SUCCESS with attempt #${attempt + 1}`)
             break
           }
 
@@ -621,7 +616,7 @@ Deno.serve(async (req) => {
                 }
               })
           } catch (err) {
-            console.error('Error fetching group/info for', gjid, err)
+            log.error('Error fetching group/info', { groupJid: gjid, error: (err as Error).message })
           }
         }
         
@@ -639,10 +634,7 @@ Deno.serve(async (req) => {
           )
         }
 
-        const serviceSupabase = createClient(
-          Deno.env.get('SUPABASE_URL')!,
-          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-        )
+        const serviceSupabase = createServiceClient()
 
         const { data: inst, error: instError } = await serviceSupabase
           .from('instances')
@@ -657,7 +649,7 @@ Deno.serve(async (req) => {
           )
         }
 
-        console.log('Proxying file download:', body.fileUrl.substring(0, 80))
+        log.info('Proxying file download', { urlPreview: body.fileUrl.substring(0, 80) })
         const fileResp = await fetchWithTimeout(body.fileUrl, {
           headers: { 'token': inst.token },
         })
@@ -775,7 +767,7 @@ Deno.serve(async (req) => {
           )
         }
 
-        console.log('Creating new instance:', body.instanceName)
+        log.info('Creating new instance', { instanceName: body.instanceName })
         const createResponse = await fetchWithTimeout(`${uazapiUrl}/instance/create`, {
           method: 'POST',
           headers: {
@@ -790,7 +782,7 @@ Deno.serve(async (req) => {
         })
 
         const createRawText = await createResponse.text()
-        console.log('Create instance response:', createResponse.status, createRawText.substring(0, 300))
+        log.info('Create instance response', { status: createResponse.status, preview: createRawText.substring(0, 300) })
 
         let createData: unknown
         try {
@@ -814,7 +806,7 @@ Deno.serve(async (req) => {
           )
         }
 
-        console.log('Deleting instance from UAZAPI:', deleteInstanceId)
+        log.info('Deleting instance from UAZAPI', { deleteInstanceId })
 
         // Try /instance/delete endpoint
         const deleteResponse = await fetchWithTimeout(`${uazapiUrl}/instance/delete`, {
@@ -831,7 +823,7 @@ Deno.serve(async (req) => {
         })
 
         const deleteRawText = await deleteResponse.text()
-        console.log('Delete instance response:', deleteResponse.status, deleteRawText.substring(0, 300))
+        log.info('Delete instance response', { status: deleteResponse.status, preview: deleteRawText.substring(0, 300) })
 
         let deleteData: unknown
         try {
@@ -854,7 +846,7 @@ Deno.serve(async (req) => {
           )
         }
 
-        console.log('Disconnecting instance')
+        log.info('Disconnecting instance')
         const disconnectResponse = await fetchWithTimeout(`${uazapiUrl}/instance/disconnect`, {
           method: 'POST',
           headers: {
@@ -930,7 +922,7 @@ Deno.serve(async (req) => {
 
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Internal server error'
-    console.error('Error:', error)
+    log.error('Error', { error: errorMessage })
     return new Response(
       JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
