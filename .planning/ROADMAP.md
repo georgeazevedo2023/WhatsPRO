@@ -172,17 +172,23 @@ Plans:
 
 ## Proximos Milestones (Backlog)
 
-### Milestone 2: Observabilidade e Monitoramento
+### Milestone 2: Agent QA Framework
+- **Fase 1**: Fluxo de aprovação admin — botões aprovar/rejeitar/ajustar no Playground por resultado de teste
+- **Fase 2**: Histórico persistente de batches — dashboard comparando runs entre deploys (v10 vs v11 vs v12)
+- **Fase 3**: Barra de evolução do agente — score composto (taxa aprovação + cobertura + regressões + latência)
+- **Fase 4**: Ciclo automatizado — teste falha → admin ajusta prompt → re-roda → documenta diff antes/depois
+
+### Milestone 3: Observabilidade e Monitoramento
 - Dashboard de saude do agente (latencia, token usage, error rates)
 - Alertas automaticos (circuit breaker OPEN, taxa de erro alta)
 - Tracing distribuido (correlation IDs end-to-end)
 
-### Milestone 3: Escalabilidade
+### Milestone 4: Escalabilidade
 - Particionamento de tabelas grandes (conversations, messages)
 - Cache layer para knowledge base e catalogo
 - Worker dedicado para transcricao de audio
 
-### Milestone 4: Feature Expansion
+### Milestone 5: Feature Expansion
 - Multi-modelo por agente (diferentes LLMs para diferentes tools)
 - A/B testing de system prompts
 - Analytics avancado de conversas (sentiment trending, topic clustering)

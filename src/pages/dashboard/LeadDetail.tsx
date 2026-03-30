@@ -325,9 +325,11 @@ const LeadDetail = () => {
         reason: null, full_name: null, average_ticket: null,
       }, { onConflict: 'contact_id' });
 
-      // Clear conversations: tags, ai_summary + reactivate IA (status_ia → ligada)
+      // Clear conversations: replace tags with ia_cleared marker, clear ai_summary, reactivate IA
+      // IMPORTANT: ia_cleared:TIMESTAMP resets the handoff message counter in ai-agent
+      const clearedTag = `ia_cleared:${new Date().toISOString()}`;
       if (convIds.length > 0) {
-        await supabase.from('conversations').update({ tags: [], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
+        await supabase.from('conversations').update({ tags: [clearedTag], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
         // Delete ai_agent_logs
         await supabase.from('ai_agent_logs').delete().in('conversation_id', convIds);
       }

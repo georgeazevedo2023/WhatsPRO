@@ -13,7 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ContactAvatar } from '@/components/helpdesk/ContactAvatar';
 import { PageHeader } from '@/components/ui/page-header';
 import StatsCard from '@/components/dashboard/StatsCard';
-import { Contact2, Search, Loader2, ShieldBan, UserPlus, Target, CheckCircle2, X, ChevronDown, ChevronUp, Clock, Sun, Bot } from 'lucide-react';
+import { Contact2, Search, Loader2, ShieldBan, UserPlus, Target, CheckCircle2, X, ChevronDown, ChevronUp, Clock, Sun, Bot, Eraser } from 'lucide-react';
+import { STATUS_IA } from '@/constants/statusIa';
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { handleError } from '@/lib/errorUtils';
 import { toast } from 'sonner';
@@ -208,6 +209,43 @@ const Leads = () => {
       : [...current, selectedInstanceId];
     toggleIaMutation.mutate({ contactId: lead.contact_id, updatedBlocked });
   }, [selectedInstanceId, toggleIaMutation]);
+
+  // useMutation — clear context for a lead (tags, summary, profile, ia_blocked, ai_agent_logs)
+  const clearContextMutation = useMutation({
+    mutationFn: async ({ lead }: { lead: LeadData }) => {
+      const convIds = lead.conversations.map((c: { id: string }) => c.id);
+
+      // Clear lead_profile
+      await supabase.from('lead_profiles').upsert({
+        contact_id: lead.contact_id,
+        conversation_summaries: [], interests: null, notes: null,
+        reason: null, full_name: null, average_ticket: null,
+      }, { onConflict: 'contact_id' });
+
+      // Clear conversations: replace tags with ia_cleared marker, clear ai_summary, reactivate IA
+      // IMPORTANT: ia_cleared:TIMESTAMP resets the handoff message counter in ai-agent
+      const clearedTag = `ia_cleared:${new Date().toISOString()}`;
+      if (convIds.length > 0) {
+        await supabase.from('conversations').update({ tags: [clearedTag], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
+        await supabase.from('ai_agent_logs').delete().in('conversation_id', convIds);
+      }
+
+      // Unblock IA on this contact
+      await supabase.from('contacts').update({ ia_blocked_instances: [] }).eq('id', lead.contact_id);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['leads', selectedInstanceId] });
+      toast.success(`Contexto limpo para ${variables.lead.display_name} — IA reativada`);
+    },
+    onError: (err: unknown) => {
+      handleError(err, 'Erro ao limpar contexto', 'Leads');
+    },
+  });
+
+  const handleClearContext = useCallback((lead: LeadData, e: React.MouseEvent) => {
+    e.stopPropagation();
+    clearContextMutation.mutate({ lead });
+  }, [clearContextMutation]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -640,6 +678,7 @@ const Leads = () => {
                 <TableHead className="hidden lg:table-cell text-sm">Etiqueta</TableHead>
                 <TableHead className="hidden lg:table-cell text-sm">Estagio</TableHead>
                 <TableHead className="hidden xl:table-cell text-sm">Resumo</TableHead>
+                <TableHead className="w-10 text-center text-sm">Contexto</TableHead>
                 <TableHead className="w-10 text-center text-sm">IA</TableHead>
               </TableRow>
             </TableHeader>
@@ -698,6 +737,21 @@ const Leads = () => {
                   </TableCell>
                   <TableCell className="hidden xl:table-cell text-sm text-muted-foreground truncate max-w-[160px]">
                     {lead.last_summary_reason || '—'}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <TooltipProvider delayDuration={200}>
+                      <UiTooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={(e) => handleClearContext(lead, e)}
+                            className="p-1.5 rounded-lg transition-colors bg-muted/50 text-muted-foreground hover:bg-red-500/15 hover:text-red-400"
+                          >
+                            <Eraser className="w-4 h-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Limpar contexto (tags, resumo, perfil, logs IA)</TooltipContent>
+                      </UiTooltip>
+                    </TooltipProvider>
                   </TableCell>
                   <TableCell className="text-center">
                     <TooltipProvider delayDuration={200}>

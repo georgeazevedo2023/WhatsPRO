@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TabsContent } from '@/components/ui/tabs';
-import { Bot, Loader2, Zap } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { Bot, Loader2, Zap, PlayCircle, StopCircle } from 'lucide-react';
 
 export interface PlaygroundE2eTabProps {
   e2eNumber: string;
@@ -18,8 +19,12 @@ export interface PlaygroundE2eTabProps {
   e2eSelectedScenario: TestScenario | null;
   filteredScenarios: TestScenario[];
   selectedAgent: AIAgent | undefined;
+  batchRunning: boolean;
+  batchProgress: { current: number; total: number };
   onNumberChange: (v: string) => void;
   onRunE2e: (scenario: TestScenario) => void;
+  onRunAll: () => void;
+  onStopBatch: () => void;
   onSelectE2eScenario: (scenario: TestScenario) => void;
   onClearResults: () => void;
 }
@@ -27,8 +32,12 @@ export interface PlaygroundE2eTabProps {
 export const PlaygroundE2eTab = ({
   e2eNumber, e2eRunning, e2eResults, e2eCurrentScenario, e2eLiveSteps,
   e2eSelectedScenario, selectedAgent,
-  onNumberChange, onRunE2e, onSelectE2eScenario, onClearResults,
+  onNumberChange, onRunE2e, onRunAll, onStopBatch, onSelectE2eScenario, onClearResults,
+  batchRunning, batchProgress,
 }: PlaygroundE2eTabProps) => {
+  const batchPct = batchProgress.total > 0 ? Math.round((batchProgress.current / batchProgress.total) * 100) : 0;
+  const passCount = e2eResults.filter(r => r.pass).length;
+  const failCount = e2eResults.filter(r => !r.pass).length;
   return (
     <TabsContent value="e2e" className="flex-1 min-h-0">
       {/* Config bar */}
@@ -42,16 +51,36 @@ export const PlaygroundE2eTab = ({
           <Zap className="w-3.5 h-3.5" />
           <span className="text-[11px]">Mensagens REAIS via WhatsApp + Gemini</span>
         </div>
+        <div className="flex-1" />
+        {batchRunning ? (
+          <Button size="sm" variant="destructive" className="text-xs h-7 gap-1.5" onClick={onStopBatch}>
+            <StopCircle className="w-3.5 h-3.5" />Parar Batch
+          </Button>
+        ) : (
+          <Button size="sm" variant="default" className="text-xs h-7 gap-1.5" onClick={onRunAll} disabled={e2eRunning}>
+            <PlayCircle className="w-3.5 h-3.5" />Rodar Todos ({filteredScenarios.length})
+          </Button>
+        )}
         {e2eResults.length > 0 && (
           <>
-            <div className="flex-1" />
             <Badge variant="secondary" className="text-xs">{e2eResults.length} runs</Badge>
-            <Badge variant="outline" className="text-xs text-emerald-400">{e2eResults.filter(r => r.pass).length} pass</Badge>
-            <Badge variant="outline" className="text-xs text-red-400">{e2eResults.filter(r => !r.pass).length} fail</Badge>
+            <Badge variant="outline" className="text-xs text-emerald-400">{passCount} pass</Badge>
+            <Badge variant="outline" className="text-xs text-red-400">{failCount} fail</Badge>
             <Button size="sm" variant="outline" className="text-xs h-7" onClick={onClearResults}>Limpar</Button>
           </>
         )}
       </div>
+
+      {/* Batch progress bar */}
+      {batchRunning && (
+        <div className="mb-2 space-y-1">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Batch: {batchProgress.current}/{batchProgress.total} cenarios</span>
+            <span className="font-mono">{batchPct}%</span>
+          </div>
+          <Progress value={batchPct} className="h-2" />
+        </div>
+      )}
 
       {/* 2-column layout: scenarios (left) + live execution (right) */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-3 flex-1 min-h-0">

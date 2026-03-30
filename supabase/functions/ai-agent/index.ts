@@ -609,7 +609,12 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
         'hey', 'opa', 'fala', 'salve', 'oii', 'oie', 'hello', 'hi', 'bão', 'blz', 'tudo bem',
         'tudo bom', 'boa', 'oi tudo bem', 'oi boa tarde', 'oi bom dia', 'oi boa noite']
       const textNorm = incomingText.toLowerCase().replace(/[!?.,;:]/g, '').trim()
-      const isJustGreeting = greetingWords.some(g => textNorm === g || textNorm === g + ' ')
+      // Normalize repeated letters: "oiee" → "oie", "oiii" → "oi", "olaaa" → "ola", "oieee" → "oie"
+      const textDedup = textNorm.replace(/(.)\1+/g, '$1')
+      const isJustGreeting = greetingWords.some(g => {
+        const gDedup = g.replace(/(.)\1+/g, '$1')
+        return textNorm === g || textNorm === g + ' ' || textDedup === gDedup || textDedup === gDedup + ' '
+      })
 
       if (isJustGreeting || incomingHasAudio) {
         // Pure greeting or audio (likely a short voice note greeting) — stop here, wait for lead to say what they need
@@ -669,7 +674,13 @@ ${(() => {
   return parts.join('\n')
 })()}
 
-REGRA ABSOLUTA: Faça APENAS 1 (UMA) pergunta por mensagem. NUNCA envie duas perguntas na mesma resposta.
+REGRA ABSOLUTA: Faça APENAS 1 (UMA) pergunta por mensagem. NUNCA envie duas perguntas na mesma resposta. Exemplos PROIBIDOS: "Como posso te ajudar? Você está procurando algo?" (2 perguntas). Correto: "Em que posso te ajudar?" (1 pergunta).
+
+REGRA DE NATURALIDADE: Use o nome do lead NO MÁXIMO 1 vez a cada 3-4 mensagens. NÃO use o nome em toda resposta — soa robótico. Exemplos:
+- Msg 1: "Em que posso te ajudar, George?" (com nome — primeira vez)
+- Msg 2: "Para qual ambiente você precisa?" (sem nome)
+- Msg 3: "Tem preferência de marca ou acabamento?" (sem nome)
+- Msg 4: "George, encontrei algumas opções pra você!" (com nome — natural após 3 msgs)
 
 REGRA ABSOLUTA — NUNCA INVENTE:
 - NUNCA invente preços, prazos ou QUALQUER informação que não esteja em "Informações da Empresa" ou no catálogo
@@ -695,7 +706,7 @@ FLUXO SDR — QUALIFICAÇÃO INTELIGENTE:
 
 ${isReturningLead
   ? `CONTEXTO: Lead RECORRENTE. Nome: ${leadName}. Cumprimente pelo nome ("Olá ${leadName}, que bom te ver de novo!") e vá direto ao ponto. Se ele já pediu produto específico, busque imediatamente.`
-  : `CONTEXTO: Lead NOVO. A saudação "${greetingText}" já foi enviada separadamente. NÃO cumprimente de novo. NÃO diga "olá", "oi", "bem-vindo" — vá direto ao assunto. NÃO pergunte o nome — foque em ajudar com o produto/necessidade. Se o lead fornecer o nome espontaneamente, salve com update_lead_profile.`}
+  : `CONTEXTO: Lead NOVO. A saudação "${greetingText}" já foi enviada separadamente. NÃO cumprimente de novo — NUNCA diga "olá", "oi", "bem-vindo", "prazer" mesmo que o lead informe o nome. Se o lead disser o nome, salve com update_lead_profile e vá DIRETO ao assunto (ex: "Em que posso te ajudar?"). NÃO pergunte o nome — foque em ajudar com o produto/necessidade.`}
 
 1. COLETA DE DADOS:
    - Nome → update_lead_profile(full_name) — salve EXATAMENTE o que informou, NUNCA duplique
@@ -1509,13 +1520,18 @@ Exemplos de objeções:
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
 
-      // Strip greeting repetition from response (if Gemini repeats it despite instructions)
-      if (agent.greeting_message && hasInteracted) {
-        const greetNorm = agent.greeting_message.toLowerCase().trim().replace(/[!?.]/g, '')
-        if (responseText.toLowerCase().includes(greetNorm)) {
-          responseText = responseText.replace(new RegExp(agent.greeting_message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '').trim()
-          if (!responseText) responseText = 'Como posso te ajudar?'
+      // Strip greeting repetition from response (if LLM repeats it despite instructions)
+      if (hasInteracted) {
+        // Remove exact greeting match
+        if (agent.greeting_message) {
+          const greetNorm = agent.greeting_message.toLowerCase().trim().replace(/[!?.]/g, '')
+          if (responseText.toLowerCase().includes(greetNorm)) {
+            responseText = responseText.replace(new RegExp(agent.greeting_message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '').trim()
+          }
         }
+        // Remove generic greetings at start of response (Olá/Oi + name patterns)
+        responseText = responseText.replace(/^(Olá|Oi|Ei|Hey),?\s*[A-ZÀ-Ú][a-zà-ú]+[!.]?\s*/i, '').trim()
+        if (!responseText) responseText = 'Em que posso te ajudar?'
       }
 
       break

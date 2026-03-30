@@ -85,13 +85,13 @@ npx supabase functions deploy <name>  # Deploy edge function
 - Tags on conversations use TEXT[] array with "key:value" format
 - status_ia constants: use STATUS_IA.LIGADA/DESLIGADA/SHADOW from _shared/constants.ts (edge) or src/constants/statusIa.ts (frontend) — NEVER use magic strings
 - Shadow mode: status_ia=STATUS_IA.SHADOW — AI extracts data without responding (auto after handoff)
-- Greeting: sent directly before Gemini, save-first lock prevents duplicates, TTS when voice active
+- Greeting: sent directly before Gemini, save-first lock prevents duplicates, TTS when voice active. LLM tends to re-greet when lead gives name — strip "Olá, [Name]!" from response start + system prompt says NEVER greet again
 - SDR flow: generic terms → qualify first, specific → search immediately
 - Handoff: tool sends 1 message + breaks loop (no duplicate text), implicit detection before send
 - Debounce: atomic UPDATE WHERE processed=false (eliminates race condition)
 - AI Agent helpers: sendTextMsg(), sendTts(), broadcastEvent(), mergeTags(), cleanProductTitle()
 - LLM carousel copies: Groq→Gemini→Mistral chain, Card 1 code-generated (title+price), Cards 2-5 AI
-- Clear context: resets status_ia='ligada' + clears ia_blocked_instances
+- Clear context: resets status_ia='ligada' + clears ia_blocked_instances + sets tags to ['ia_cleared:TIMESTAMP'] (NEVER [] — empty tags breaks handoff counter, causing immediate handoff on next message)
 - Circuit breaker: geminiBreaker/groqBreaker/mistralBreaker (3 failures → OPEN 30s → HALF_OPEN probe)
 - Rate limit: atomic RPC check_rate_limit() with global limit support (no race condition)
 - Webhook: parallel I/O (media+dedup+contact via Promise.all), profile pic in background

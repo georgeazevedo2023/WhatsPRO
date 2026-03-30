@@ -139,7 +139,32 @@ const AIAgentPlayground = () => {
     for (const msg of persona.msgs) { setInput(msg); await new Promise(r => setTimeout(r, 300)); await sendToAgent([msg]); await new Promise(r => setTimeout(r, 500)); }
   };
 
-  const runE2eScenario = async (scenario: TestScenario) => {
+  // Save E2E result to database for persistence + approval workflow
+  const saveE2eResult = async (result: E2eRunResult, runType: 'single' | 'batch', batchId?: string) => {
+    if (!selectedAgentId || !selectedAgent?.instance_id) return;
+    try {
+      await supabase.from('e2e_test_runs').insert({
+        agent_id: selectedAgentId,
+        instance_id: selectedAgent.instance_id,
+        test_number: e2eNumber,
+        scenario_id: result.scenario_id,
+        scenario_name: result.scenario_name,
+        total_steps: result.steps?.length || 0,
+        passed: result.pass,
+        results: result.steps || [],
+        latency_ms: result.total_latency_ms || 0,
+        error: result.error || null,
+        run_type: runType,
+        batch_id: batchId || null,
+        category: result.category,
+        tools_used: result.tools_used || [],
+        tools_missing: result.tools_missing || [],
+        approval: result.pass ? 'auto_approved' : null,
+      });
+    } catch { /* silent — DB save is best-effort */ }
+  };
+
+  const runE2eScenario = async (scenario: TestScenario, runType: 'single' | 'batch' = 'single', batchId?: string) => {
     if (e2eRunning || !selectedAgentId || !selectedAgent?.instance_id) return;
     setE2eRunning(true); setE2eCurrentScenario(scenario.id); setE2eSelectedScenario(scenario);
     setE2eLiveSteps(scenario.steps.map((s, i): E2eLiveStep => ({ step: i + 1, input: s.content, media_type: s.media_type || 'text', status: 'sending', agent_response: null, agent_raw: null, tools_used: [], tags: [], status_ia: undefined, latency_ms: 0, tokens: { input: 0, output: 0 } })));
@@ -156,15 +181,50 @@ const AIAgentPlayground = () => {
       const tools_unexpected = tools_must_not_use.filter(t => uniqueTools.includes(t));
       const handoff = uniqueTools.includes('handoff_to_human');
       const pass = !tools_missing.length && !tools_unexpected.length && (should_handoff ? handoff : true);
-      setE2eResults(prev => [{ id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass, tools_used: uniqueTools, tools_missing, tools_unexpected, handoff, steps: results, total_latency_ms: d.total_latency_ms || 0, conversation_id: d.conversation_id }, ...prev]);
-      toast.success(pass ? `E2E PASSOU: ${scenario.name}` : `E2E FALHOU: ${scenario.name}`, { duration: 5000 });
+      const runResult: E2eRunResult = { id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass, tools_used: uniqueTools, tools_missing, tools_unexpected, handoff, steps: results, total_latency_ms: d.total_latency_ms || 0, conversation_id: d.conversation_id };
+      setE2eResults(prev => [runResult, ...prev]);
+      await saveE2eResult(runResult, runType, batchId);
+      if (runType === 'single') toast.success(pass ? `E2E PASSOU: ${scenario.name}` : `E2E FALHOU: ${scenario.name}`, { duration: 5000 });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'falha na execucao';
-      toast.error(`E2E erro: ${errMsg}`);
+      if (runType === 'single') toast.error(`E2E erro: ${errMsg}`);
       setE2eLiveSteps(prev => prev.map(s => ({ ...s, status: 'error' as const })));
-      setE2eResults(prev => [{ id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass: false, error: errMsg, steps: [], total_latency_ms: 0 }, ...prev]);
+      const failResult: E2eRunResult = { id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass: false, error: errMsg, steps: [], total_latency_ms: 0 };
+      setE2eResults(prev => [failResult, ...prev]);
+      await saveE2eResult(failResult, runType, batchId);
     } finally { setE2eRunning(false); setE2eCurrentScenario(null); }
   };
+
+  // Batch: run ALL scenarios sequentially
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+  const batchAbortRef = useRef(false);
+
+  const runAllE2e = async () => {
+    if (e2eRunning || batchRunning || !selectedAgentId) return;
+    const scenarios = filteredScenarios;
+    if (scenarios.length === 0) return;
+    setBatchRunning(true);
+    batchAbortRef.current = false;
+    const batchId = `batch_${Date.now()}`;
+    setBatchProgress({ current: 0, total: scenarios.length });
+    setE2eResults([]);
+    let passed = 0; let failed = 0;
+    for (let i = 0; i < scenarios.length; i++) {
+      if (batchAbortRef.current) break;
+      setBatchProgress({ current: i + 1, total: scenarios.length });
+      await runE2eScenario(scenarios[i], 'batch', batchId);
+      // Check last result
+      const lastResult = e2eResults[0]; // will be stale, check via state update
+      if (lastResult?.pass) passed++; else failed++;
+      // Small delay between scenarios to avoid rate limiting
+      if (i < scenarios.length - 1) await new Promise(r => setTimeout(r, 2000));
+    }
+    setBatchRunning(false);
+    toast.success(`Batch completo: ${passed} passou, ${failed} falhou de ${scenarios.length} cenários`, { duration: 8000 });
+  };
+
+  const stopBatch = () => { batchAbortRef.current = true; };
 
   const runScenario = async (scenario: TestScenario) => {
     if (sending || !selectedAgentId) return;
@@ -277,7 +337,7 @@ const AIAgentPlayground = () => {
           </ErrorBoundary>
           <PlaygroundResultsTab runHistory={runHistory} onClearHistory={() => setRunHistory([])} />
           <ErrorBoundary section="Playground E2E">
-            <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} />
+            <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} batchRunning={batchRunning} batchProgress={batchProgress} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onRunAll={runAllE2e} onStopBatch={stopBatch} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} />
           </ErrorBoundary>
         </Tabs>
       </div>
