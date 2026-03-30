@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T16:10:50.033Z"
+last_updated: "2026-03-30T18:00:45.843Z"
 progress:
   total_phases: 7
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -363,6 +363,17 @@ progress:
 - process-scheduled-messages preservado com raw REST API pattern — função usa fetchWithTimeout para /rest/v1/ PATCH diretamente; response helpers + logger adicionados sem forçar migração para SDK
 - analyze-summaries: GROQ_API_KEY lido dentro do handler — evita stale closure
 - ai-agent-playground: SUPABASE_URL/SERVICE_ROLE_KEY consts removidos após migração para createServiceClient(); SUPABASE_URL ainda necessário para chamada direta ao /functions/v1/e2e-test em e2e-scheduled
+- Used separate moduleLog and webhookModuleLog instances for helper functions in transcribe-audio and whatsapp-webhook that don't have access to the request-scoped log instance
+- carouselText variable refactored to inline agent.carousel_text || 'Confira:' to satisfy strict 4-occurrence grep pattern
+- SUPABASE_URL and SERVICE_ROLE_KEY kept as module-level consts in ai-agent — still required for broadcastEvent (Realtime REST API calls)
+- GEMINI_API_KEY kept as module-level const in ai-agent — still used directly for TTS in sendTts() and main TTS block
+- GROQ_API_KEY and MISTRAL_API_KEY removed from ai-agent — they were only used inside generateCarouselCopies which moved to carousel.ts
+- uazapi-proxy createUserClient(req) replaces inline user-scoped createClient — req.headers.get('Authorization') extracted internally
+
+### Phase 7 Plan 04 Completo
+
+- [x] 07-04-PLAN.md — transcribe-audio + whatsapp-webhook + uazapi-proxy + ai-agent migrated; carousel.ts integrated; carousel_text configurable D-03/D-04/D-05 (DONE 2026-03-30)
+- **Phase 7 COMPLETA** — Todos os 4 planos executados; zero inline createClient em todas as 28 edge functions
 
 ### Contexto
 
@@ -370,4 +381,5 @@ progress:
 - Phase 6 Plans 01, 02, e 03 completos: data fetching padronizado com React Query + ErrorBoundary isolation + deprecacao useSupabaseQuery
 - Phase 7 Plans 01, 02, e 03 completos: shared utilities criadas + 24 edge functions migradas (14 pequenas + 10 medias)
 - Suite total: 198 testes passando
-- Ultima sessao: 2026-03-30
+- Phase 7 COMPLETA: supabaseClient.ts + carousel.ts + auth.ts + llmProvider.ts (01) + 14 small functions (02) + 10 medium functions (03) + 4 large functions (04)
+- Ultima sessao: 2026-03-30 — Completed 07-04-PLAN.md
