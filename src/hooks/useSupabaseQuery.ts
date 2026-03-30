@@ -26,6 +26,12 @@ export interface UseSupabaseQueryResult<T> {
   refetch: () => Promise<void>;
 }
 
+/**
+ * @deprecated Use React Query (useQuery/useMutation from @tanstack/react-query) instead.
+ * Remaining usages in Intelligence.tsx, ScheduledMessages.tsx, Settings.tsx
+ * will be migrated in a future phase.
+ * @see src/components/admin/SecretsTab.tsx — reference migration pattern
+ */
 export function useSupabaseQuery<T>(
   options: UseSupabaseQueryOptions<T>,
 ): UseSupabaseQueryResult<T> {
