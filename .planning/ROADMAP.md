@@ -87,13 +87,13 @@ Plans:
 **Status**: [ ] Em planejamento
 **Prioridade**: ALTA
 **Escopo**: `src/pages/dashboard/AIAgentPlayground.tsx`, `src/components/admin/ai-agent/CatalogConfig.tsx`
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 **Objetivo**: Reduzir complexidade dos componentes maiores para facilitar manutencao e performance.
 
 Plans:
 - [ ] 04-01-PLAN.md — AIAgentPlayground decomposition: types to playground.ts + 4 tab sub-components + orchestrator <300 LOC
-- [ ] 04-02-PLAN.md — CatalogConfig decomposition: CatalogTable + CatalogProductForm + orchestrator <300 LOC
+- [x] 04-02-PLAN.md — CatalogConfig decomposition: CatalogTable + CatalogProductForm + orchestrator <300 LOC
 
 **Criterios de Aceite**:
 - [ ] AIAgentPlayground.tsx < 300 LOC (orquestrador)

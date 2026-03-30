@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-29T20:50:00.286Z"
+last_updated: "2026-03-30T02:34:29.006Z"
 progress:
   total_phases: 7
   completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 7
+  completed_plans: 6
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -212,21 +212,26 @@ progress:
 
 ### Ultima Sessao
 
-- **Fase**: Phase 2 — Blindagem do Webhook e Dedup de Greeting
-- **Plano Concluido**: 02-02-PLAN.md (Audio transcription via job_queue + atomic lead message counter)
-- **Proximo**: Phase 2 COMPLETA — verificar se ha phase 3
-- **Timestamp**: 2026-03-29
+- **Fase**: Phase 4 — Decomposicao de Componentes Gigantes
+- **Plano Concluido**: 04-02-PLAN.md (CatalogConfig decomposition — CatalogTable + CatalogProductForm)
+- **Proximo**: Phase 4 — verificar se ha mais planos pendentes
+- **Timestamp**: 2026-03-30
 
 ### Ultimos 5 Commits
 
-1. `eddbaa7` — feat(03-01): Settings.tsx — recipient_number inline validation
-2. `8d14190` — feat(03-01): ExtractionConfig + BlockedNumbersConfig — local inline validation
-3. `28411d4` — feat(03-01): add fieldErrors prop + inline error display to 4 config panels
-4. `70e010e` — feat(03-01): AIAgentTab — fieldErrors state, validation in handleChange, doSave guard
-5. `6d9fd5d` — feat(03-01): create Zod validation schemas for AI Agent config panels
+1. `0d80712` — feat(04-02): extract CatalogProductForm, slim orchestrator to 273 LOC
+2. `924d049` — feat(04-02): extract CatalogTable sub-component with filters, grid, bulk actions
+3. `eddbaa7` — feat(03-01): Settings.tsx — recipient_number inline validation
+4. `8d14190` — feat(03-01): ExtractionConfig + BlockedNumbersConfig — local inline validation
+5. `28411d4` — feat(03-01): add fieldErrors prop + inline error display to 4 config panels
 
 ### Decisoes Tomadas
 
+- handleImportFromUrl e handleGenerateDescription movidos para CatalogProductForm — handlers UI-transient do dialog, so tocam form state
+- fileInputRef criado dentro de CatalogProductForm — ref UI-local para input de arquivo dentro do Dialog
+- Product interface e EMPTY_PRODUCT exportados de CatalogConfig para importacao nos sub-componentes
+- hasActiveFilters cast para !!boolean antes de passar para CatalogTable (era string|boolean no orchestrator)
+- CatalogConfig.tsx reduzido de 704 para 273 LOC — DT-08-catalog resolvido
 - Zod schemas usam .partial() — cada campo e validado independentemente via SCHEMA_MAP routing
 - fieldErrorsRef (nao state) usado no guard do doSave — evita stale closure em callbacks memoizados
 - max_tokens Input nao clampeia via Math.min/max — Zod valida e mostra erro inline em vez de correcao silenciosa
@@ -278,10 +283,18 @@ progress:
 - [x] 03-01-PLAN.md — Zod validation schemas + inline errors + auto-save guard + phone validation (DONE 2026-03-29)
 - **Phase 3 COMPLETA** — Todos os planos executados
 
+### Phase 4 Status
+
+- [x] 04-01-PLAN.md — AIAgentPlayground decomposition (DONE — parallel agent)
+- [x] 04-02-PLAN.md — CatalogConfig decomposition — CatalogTable + CatalogProductForm (DONE 2026-03-30)
+
+### Divida Tecnica Resolvida (Adicional)
+
+- **DT-08-catalog** (CatalogConfig gigante): CatalogConfig.tsx de 704 para 273 LOC via CatalogTable + CatalogProductForm
+
 ### Contexto
 
-- Trabalho recente focado em validacao estrita de formularios frontend (Phase 3): DT-06 resolvido
-- 15 novos testes unitarios para schemas Zod; suite total: 173 testes passando
-- Campos numericos fora do range exibem erro inline; auto-save bloqueado enquanto erro ativo
-- AI Agent operando com OpenAI (GPT-4.1) + Gemini fallback, totalmente protegido pelo circuit breaker
-- Ultima sessao: 2026-03-29
+- Trabalho recente focado em decomposicao de componentes gigantes (Phase 4): DT-08-catalog resolvido
+- CatalogConfig.tsx reduzido de 704 para 273 LOC, com 2 novos sub-componentes
+- Suite total: 173 testes passando
+- Ultima sessao: 2026-03-30
