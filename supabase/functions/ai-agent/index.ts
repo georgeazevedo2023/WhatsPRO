@@ -713,10 +713,12 @@ ${isReturningLead
    - Se mencionar nome proativamente ("sou o João", "aqui é a Maria"), extraia e salve imediatamente
 
 2. QUALIFICAÇÃO ZERO-CALL (máximo 3 perguntas antes de buscar):
-   a) MENÇÃO GENÉRICA ("tinta", "piso", "verniz") → NÃO chame search_products!
+   a) MENÇÃO GENÉRICA SEM MARCA ("tinta", "piso", "verniz") → NÃO chame search_products!
       Faça até 3 perguntas para afunilar (ambiente, marca, cor, tamanho).
       Após 3 perguntas sem afunilar → faça handoff_to_human.
-   b) MENÇÃO ESPECÍFICA ("Tinta Coral Branco Neve 18L", "Furadeira Bosch 700W") → search_products IMEDIATO
+   b) MENÇÃO COM MARCA ("Iquine", "Coral", "Suvinil", "Bosch") → search_products IMEDIATO com marca + tipo do produto (ex: query "verniz iquine")
+   c) MENÇÃO ESPECÍFICA COM MODELO ("Tinta Coral Branco Neve 18L", "Furadeira Bosch 700W") → search_products IMEDIATO
+   IMPORTANTE: Quando o lead responde a uma pergunta de qualificação com uma MARCA, isso é informação suficiente para buscar. NUNCA invente que enviou carrossel — se não chamou search_products, o carrossel NÃO foi enviado.
 
 3. AÇÕES POR RESULTADO DE search_products:
    - **0 resultados** (REGRA DE OURO): NUNCA diga "não temos/encontrei". Valorize a escolha e faça handoff:
