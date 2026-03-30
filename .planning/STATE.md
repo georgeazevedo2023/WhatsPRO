@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T13:39:23.432Z"
+last_updated: "2026-03-30T13:48:51.434Z"
 progress:
   total_phases: 7
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 13
   completed_plans: 13
 ---
@@ -322,6 +322,7 @@ progress:
 
 - [x] 06-01-PLAN.md — LeadDetail migrado para 6 useQuery paralelos (lead-contact/profile/conversations/extraction-fields/media/events); reloadKey eliminado; Leads migrado para useQuery + useMutation(toggleIA) (DONE 2026-03-30)
 - [x] 06-02-PLAN.md — DashboardHome migrado para React Query: 3 useQuery (main/helpdeskLeads/groupsStats) + DASHBOARD_KEYS + Realtime invalidateQueries (DONE 2026-03-30)
+- [x] 06-03-PLAN.md — 9 ErrorBoundary wrappers adicionados: 3 DashboardHome + 3 AIAgentPlayground + 1 KanbanBoard + 1 Broadcaster + 1 LeadsBroadcaster; useSupabaseQuery deprecated com @deprecated JSDoc (DONE 2026-03-30)
 
 ### Decisoes Tomadas (Phase 6)
 
@@ -333,14 +334,18 @@ progress:
 - autoSave em LeadDetail preservado como useCallback+debounce (nao useMutation) — auto-save de formulario nao requer invalidacao de cache
 - reloadKey substituido por invalidateQueries em ConversationModal.onOpenChange e handleClearContext — invalidacao de cache mais limpa
 - section?: string adicionado ao ExtractionField interface (uso pre-existente sem definicao de tipo — Rule 2, reducao colateral de 123→107 erros TS)
+- AIAgentPlayground tabs renderizam todos os componentes simultaneamente (nao TabsContent condicional) — cada tab component recebe boundary proprio
+- KanbanBoard: header/nav excluidos do ErrorBoundary, somente board content + CardDetailSheet isolados
+- useSupabaseQuery: @deprecated JSDoc adicionado sem alterar logica — permanece como hook legado para migracao futura
 
 ### Divida Tecnica Resolvida (Phase 6)
 
 - **DT-16 parcial** (Uso Inconsistente de React Query): LeadDetail.tsx e Leads.tsx agora usam useQuery/useMutation — alinhados com SecretsTab.tsx pattern
+- **DT-17** (Error Boundaries Insuficientes): 9 ErrorBoundary wrappers adicionados — 3 DashboardHome + 3 Playground + 1 Kanban + 1 Broadcaster + 1 LeadsBroadcaster
 
 ### Contexto
 
 - Phase 5 Plans 01, 02, e 03 completos: contratos de tipo + any-elimination em Leads.tsx, LeadDetail.tsx e 2 arquivos anteriores
-- Phase 6 Plans 01 e 02 completos: data fetching padronizado com React Query em LeadDetail, Leads, DashboardHome
+- Phase 6 Plans 01, 02, e 03 completos: data fetching padronizado com React Query + ErrorBoundary isolation + deprecacao useSupabaseQuery
 - Suite total: 173 testes passando
 - Ultima sessao: 2026-03-30

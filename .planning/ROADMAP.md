@@ -129,14 +129,14 @@ Plans:
 **Status**: [ ] Em planejamento
 **Prioridade**: MEDIA
 **Escopo**: `src/hooks/`, `src/pages/dashboard/`, `src/components/ErrorBoundary.tsx`
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 **Objetivo**: Unificar patterns de data fetching e proteger UI contra crashes isolados.
 
 Plans:
 - [x] 06-01-PLAN.md — React Query migration for LeadDetail.tsx + Leads.tsx (useQuery, useMutation, invalidateQueries)
 - [x] 06-02-PLAN.md — React Query migration for DashboardHome.tsx (3 useQuery + Realtime invalidation)
-- [ ] 06-03-PLAN.md — ErrorBoundary granular (9 boundaries across 5 pages) + deprecate useSupabaseQuery.ts
+- [x] 06-03-PLAN.md — ErrorBoundary granular (9 boundaries across 5 pages) + deprecate useSupabaseQuery.ts
 
 **Criterios de Aceite**:
 - [ ] Todos os data fetches usam React Query (zero useSupabaseQuery)
