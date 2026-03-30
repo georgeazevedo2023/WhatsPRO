@@ -1,6 +1,7 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyCronOrService } from '../_shared/auth.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 
@@ -16,10 +17,7 @@ import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
  * Uses SELECT ... FOR UPDATE SKIP LOCKED for safe concurrent processing.
  */
 
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-)
+const supabase = createServiceClient()
 
 const UAZAPI_URL = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
 
@@ -121,9 +119,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
   if (!verifyCronOrService(req)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return errorResponse(corsHeaders, 'Unauthorized', 401)
   }
 
   const log = createLogger('process-jobs')
@@ -162,7 +158,5 @@ Deno.serve(async (req) => {
 
   log.info('Batch complete', { processed: totalProcessed, failed: totalFailed })
 
-  return new Response(JSON.stringify({ ok: true, processed: totalProcessed, failed: totalFailed }), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
+  return successResponse(corsHeaders, { processed: totalProcessed, failed: totalFailed })
 })

@@ -1,4 +1,3 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import {
@@ -6,12 +5,11 @@ import {
   createQueuedMessage,
   type QueuedMessage,
 } from '../_shared/aiRuntime.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+const supabase = createServiceClient()
 
 interface DebounceQueueRow {
   id: string
@@ -58,7 +56,8 @@ async function legacyQueueMessage(
     throw error || new Error('legacy_queue_upsert_failed')
   }
 
-  console.warn('[debounce] Used legacy fallback with merge — RPC preferred')
+  const legacyLog = createLogger('ai-agent-debounce')
+  legacyLog.warn('Used legacy fallback with merge — RPC preferred')
   return data as DebounceQueueRow
 }
 
@@ -86,9 +85,7 @@ Deno.serve(async (req) => {
     const log = createLogger('ai-agent-debounce', request_id)
 
     if (!conversation_id || !instance_id) {
-      return new Response(JSON.stringify({ error: 'conversation_id and instance_id required' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'conversation_id and instance_id required', 400)
     }
 
     // Get agent config for debounce_seconds
@@ -100,9 +97,7 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (!agent) {
-      return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'no_active_agent' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return successResponse(corsHeaders, { skipped: true, reason: 'no_active_agent' })
     }
 
     const debounceMs = (agent.debounce_seconds || 10) * 1000
@@ -124,12 +119,12 @@ Deno.serve(async (req) => {
 
     let queued = queueData as DebounceQueueRow | null
     if (queueError) {
-      console.warn('[debounce] append_ai_debounce_message unavailable, falling back to legacy queue flow:', queueError.message)
+      log.warn('append_ai_debounce_message unavailable, falling back to legacy queue flow', { error: queueError.message })
       queued = await legacyQueueMessage(conversation_id, instance_id, messageEntry, processAfter)
     }
 
     const queuedCount = queued?.messages?.length || 0
-    console.log(`[debounce] Queue ${queued?.id || conversation_id} now has ${queuedCount} msg(s), timer ${agent.debounce_seconds}s`)
+    log.info('Queue updated', { queue_id: queued?.id || conversation_id, msg_count: queuedCount, debounce_seconds: agent.debounce_seconds })
 
     // Send "typing..." indicator via UAZAPI
     if (contact_jid) {
@@ -153,6 +148,7 @@ Deno.serve(async (req) => {
     // Uses a promise-based delay instead of bare setTimeout to avoid orphaned closures.
     // ATOMIC processing: UPDATE ... WHERE processed=false AND process_after <= now()
     // Only ONE timer callback will succeed — others get 0 rows and skip.
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
     const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 
     const processAfterDelay = async () => {
@@ -204,14 +200,12 @@ Deno.serve(async (req) => {
             }),
           })
           const retryResult = await retryResp.json()
-          log.info('ai-agent response', { status: retryResp.status })
-          console.log(`[debounce] ai-agent retry result:`, JSON.stringify(retryResult).substring(0, 200))
+          log.info('ai-agent retry response', { status: retryResp.status, result_summary: JSON.stringify(retryResult).substring(0, 200) })
           return
         }
 
         const result = await agentResp.json()
-        log.info('ai-agent response', { status: agentResp.status })
-        console.log(`[debounce] ai-agent result:`, JSON.stringify(result).substring(0, 200))
+        log.info('ai-agent response', { status: agentResp.status, result_summary: JSON.stringify(result).substring(0, 200) })
       } catch (err) {
         log.error('Error calling ai-agent', { error: (err as Error).message })
         // Mark as unprocessed so it can be retried by a cleanup job (best effort)
@@ -232,14 +226,11 @@ Deno.serve(async (req) => {
       ;(globalThis as any).EdgeRuntime.waitUntil(delayPromise)
     }
 
-    return new Response(JSON.stringify({ ok: true, debounce_seconds: agent.debounce_seconds }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return successResponse(corsHeaders, { debounce_seconds: agent.debounce_seconds })
 
   } catch (err) {
-    console.error('[debounce] Error:', err)
-    return new Response(JSON.stringify({ error: 'Internal error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    const errLog = createLogger('ai-agent-debounce')
+    errLog.error('Error', { error: (err as Error).message })
+    return errorResponse(corsHeaders, 'Internal error', 500)
   }
 })

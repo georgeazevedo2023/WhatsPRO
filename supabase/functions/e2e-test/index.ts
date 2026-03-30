@@ -1,13 +1,16 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
-import { verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
+import { verifySuperAdmin, verifyCronOrService, unauthorizedResponse } from '../_shared/auth.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+const supabase = createServiceClient()
+
+const log = createLogger('e2e-test')
 
 /**
  * E2E Test Runner — sends REAL messages via UAZAPI + calls REAL ai-agent.
@@ -23,17 +26,16 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
+  // Allow super_admin (manual from Playground) OR service_role (automated from e2e-scheduled)
   const auth = await verifySuperAdmin(req)
-  if (!auth) return unauthorizedResponse(corsHeaders)
+  if (!auth && !verifyCronOrService(req)) return unauthorizedResponse(corsHeaders)
 
   try {
     const body = await req.json()
     const { agent_id, instance_id, test_number, steps } = body
 
     if (!agent_id || !instance_id || !test_number || !steps?.length) {
-      return new Response(JSON.stringify({ ok: false, error: 'agent_id, instance_id, test_number, steps[] required' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'agent_id, instance_id, test_number, steps[] required', 400)
     }
 
     // Load agent + instance
@@ -43,17 +45,12 @@ Deno.serve(async (req) => {
     ])
 
     if (!agent?.enabled) {
-      return new Response(JSON.stringify({ ok: false, error: 'Agent not found or disabled' }), {
-        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Agent not found or disabled', 404)
     }
     if (!instance?.token) {
-      return new Response(JSON.stringify({ ok: false, error: 'Instance token not found' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Instance token not found', 500)
     }
 
-    const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
     const testJid = test_number.includes('@') ? test_number : `${test_number.replace(/\D/g, '')}@s.whatsapp.net`
 
     // Find or create conversation for this test contact
@@ -63,16 +60,12 @@ Deno.serve(async (req) => {
       contact = newContact
     }
     if (!contact) {
-      return new Response(JSON.stringify({ ok: false, error: 'Could not find/create test contact' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Could not find/create test contact', 500)
     }
 
     const { data: inbox } = await supabase.from('inboxes').select('id').eq('instance_id', instance_id).maybeSingle()
     if (!inbox) {
-      return new Response(JSON.stringify({ ok: false, error: 'No inbox for this instance' }), {
-        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'No inbox for this instance', 404)
     }
 
     // Find or create conversation
@@ -80,14 +73,12 @@ Deno.serve(async (req) => {
       .select('id').eq('contact_id', contact.id).eq('inbox_id', inbox.id).maybeSingle()
     if (!conversation) {
       const { data: newConv } = await supabase.from('conversations').insert({
-        contact_id: contact.id, inbox_id: inbox.id, instance_id, status: 'open', status_ia: 'ligada',
+        contact_id: contact.id, inbox_id: inbox.id, status: 'aberta', status_ia: 'ligada',
       }).select('id').single()
       conversation = newConv
     }
     if (!conversation) {
-      return new Response(JSON.stringify({ ok: false, error: 'Could not find/create conversation' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'Could not find/create conversation', 500)
     }
 
     // Reset conversation state for clean test
@@ -107,10 +98,8 @@ Deno.serve(async (req) => {
       const step = steps[i]
       const stepStart = Date.now()
 
-      // Count outgoing msgs BEFORE this step (to detect new ones after)
-      const { count: outgoingBefore } = await supabase.from('conversation_messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('conversation_id', conversation.id).eq('direction', 'outgoing')
+      // Timestamp BEFORE this step (to detect new outgoing msgs after)
+      const stepTimestamp = new Date().toISOString()
 
       // 1. Save incoming message to DB (simulates webhook)
       await supabase.from('conversation_messages').insert({
@@ -139,16 +128,16 @@ Deno.serve(async (req) => {
       // 3. Wait a bit for DB writes to settle, then read agent's NEW response
       await new Promise(r => setTimeout(r, 1000))
 
-      const { data: agentMsgs } = await supabase.from('conversation_messages')
+      // Get only NEW outgoing messages (created after this step started)
+      const { data: newMsgs } = await supabase.from('conversation_messages')
         .select('content, media_type, direction, created_at')
         .eq('conversation_id', conversation.id)
         .eq('direction', 'outgoing')
+        .gte('created_at', stepTimestamp)
         .order('created_at', { ascending: false })
-        .limit(3)
+        .limit(5)
 
-      // Get only NEW outgoing messages (skip ones from before this step)
-      const newMsgs = (agentMsgs || []).slice(0, (agentMsgs?.length || 0) - (outgoingBefore || 0))
-      const agentResponse = newMsgs[0]?.content || agentResult?.greeting || agentResult?.response || null
+      const agentResponse = newMsgs?.[0]?.content || agentResult?.greeting || agentResult?.response || null
 
       // 4. Read tags and logs for THIS step
       const [{ data: convState }, { data: logs }] = await Promise.all([
@@ -181,21 +170,18 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({
-      ok: true,
+    log.info('E2E test complete', { agent_id, steps: steps.length, total_latency_ms: Date.now() - startTime })
+
+    return successResponse(corsHeaders, {
       test_number,
       conversation_id: conversation.id,
       total_steps: steps.length,
       total_latency_ms: Date.now() - startTime,
       results,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
 
   } catch (err) {
-    console.error('[e2e-test] Error:', err)
-    return new Response(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : 'Unknown error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.error('Error', { error: (err as Error).message })
+    return errorResponse(corsHeaders, err instanceof Error ? err.message : 'Unknown error', 500)
   }
 })

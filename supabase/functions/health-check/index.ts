@@ -1,5 +1,7 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
 /**
  * Health check endpoint — verifies database connectivity and key services.
@@ -8,10 +10,9 @@ import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
  * GET /functions/v1/health-check → { status: 'ok', checks: {...} }
  */
 
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-)
+const log = createLogger('health-check')
+
+const supabase = createServiceClient()
 
 interface CheckResult {
   ok: boolean
@@ -51,6 +52,8 @@ Deno.serve(async (req) => {
   const [db, vault] = await Promise.all([checkDatabase(), checkVault()])
 
   const allOk = db.ok && vault.ok
+  log.info('Health check complete', { db_ok: db.ok, vault_ok: vault.ok, all_ok: allOk })
+
   const body = {
     status: allOk ? 'ok' : 'degraded',
     uptime_s: Math.floor(performance.now() / 1000),
@@ -64,6 +67,7 @@ Deno.serve(async (req) => {
     },
   }
 
+  // health-check uses custom 200/503 structure — preserve exact response shape
   return new Response(JSON.stringify(body), {
     status: allOk ? 200 : 503,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },

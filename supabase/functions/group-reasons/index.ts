@@ -1,11 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyAuth, unauthorizedResponse } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
 const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
+
+const log = createLogger('group-reasons')
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -20,16 +23,12 @@ serve(async (req) => {
     const { reasons } = await req.json();
 
     if (!reasons || !Array.isArray(reasons) || reasons.length === 0) {
-      return new Response(JSON.stringify({ grouped: [] }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return successResponse(corsHeaders, { grouped: [] })
     }
 
     // If few reasons, no need for AI grouping
     if (reasons.length <= 3) {
-      return new Response(JSON.stringify({ grouped: reasons }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return successResponse(corsHeaders, { grouped: reasons })
     }
 
     const reasonsList = reasons.map((r: any) => `- "${r.reason}" (${r.count}x)`).join("\n");
@@ -66,10 +65,8 @@ Formato de resposta:
     });
 
     if (!aiResponse.ok) {
-      console.error("[group-reasons] AI error:", aiResponse.status);
-      return new Response(JSON.stringify({ grouped: reasons }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      log.error('AI error', { status: aiResponse.status })
+      return successResponse(corsHeaders, { grouped: reasons })
     }
 
     const aiData = await aiResponse.json();
@@ -78,20 +75,13 @@ Formato de resposta:
     try {
       const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const grouped = JSON.parse(cleaned);
-      return new Response(JSON.stringify({ grouped }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return successResponse(corsHeaders, { grouped })
     } catch {
-      console.error("[group-reasons] Failed to parse AI response:", rawContent);
-      return new Response(JSON.stringify({ grouped: reasons }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      log.error('Failed to parse AI response', { raw: rawContent.substring(0, 200) })
+      return successResponse(corsHeaders, { grouped: reasons })
     }
   } catch (err) {
-    console.error("[group-reasons] Error:", err);
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    log.error('Error', { error: (err as Error).message })
+    return errorResponse(corsHeaders, err instanceof Error ? err.message : "Unknown error", 500)
   }
 });

@@ -1,6 +1,8 @@
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyAuth, unauthorizedResponse } from '../_shared/auth.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
 
 /**
  * scrape-product: Extracts product data (title, price, description, images)
@@ -10,6 +12,9 @@ import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
  * This runs server-side to avoid CORS issues and keeps scraping logic
  * away from the frontend.
  */
+
+const log = createLogger('scrape-product')
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -22,9 +27,7 @@ Deno.serve(async (req) => {
     const { url } = await req.json()
 
     if (!url || typeof url !== 'string') {
-      return new Response(JSON.stringify({ ok: false, error: 'URL is required' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'URL is required', 400)
     }
 
     // Validate URL
@@ -33,9 +36,7 @@ Deno.serve(async (req) => {
       parsedUrl = new URL(url)
       if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Invalid protocol')
     } catch {
-      return new Response(JSON.stringify({ ok: false, error: 'URL inválida' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, 'URL inválida', 400)
     }
 
     // Fetch the page
@@ -48,22 +49,18 @@ Deno.serve(async (req) => {
     }, 20000)
 
     if (!pageResponse.ok) {
-      return new Response(JSON.stringify({ ok: false, error: `Erro ao acessar URL: ${pageResponse.status}` }), {
-        status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return errorResponse(corsHeaders, `Erro ao acessar URL: ${pageResponse.status}`, 422)
     }
 
     const html = await pageResponse.text()
     const product = extractProductData(html, parsedUrl.origin)
 
-    return new Response(JSON.stringify({ ok: true, product }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.info('Product scraped', { url, title: product.title })
+
+    return successResponse(corsHeaders, { product })
   } catch (err) {
-    console.error('[scrape-product] Error:', err)
-    return new Response(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : 'Erro ao importar produto' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.error('Error', { error: (err as Error).message })
+    return errorResponse(corsHeaders, err instanceof Error ? err.message : 'Erro ao importar produto', 500)
   }
 })
 

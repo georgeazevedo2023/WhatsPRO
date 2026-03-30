@@ -1,7 +1,10 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyCronOrService, verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { successResponse, errorResponse } from '../_shared/response.ts'
+import { createLogger } from '../_shared/logger.ts'
+
+const log = createLogger('cleanup-old-media')
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -15,16 +18,13 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
+    const supabase = createServiceClient()
 
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
     const cutoff = thirtyDaysAgo.toISOString()
 
-    console.log('Cleaning up media older than:', cutoff)
+    log.info('Cleaning up media older than cutoff', { cutoff })
 
     const buckets = ['audio-messages', 'helpdesk-media']
     let totalDeleted = 0
@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
         .list('', { limit: 1000 })
 
       if (listErr) {
-        console.error(`Error listing ${bucket}:`, listErr)
+        log.error(`Error listing bucket`, { bucket, error: listErr.message })
         continue
       }
 
@@ -62,25 +62,20 @@ Deno.serve(async (req) => {
             .remove(paths)
 
           if (delErr) {
-            console.error(`Error deleting from ${bucket}:`, delErr)
+            log.error(`Error deleting from bucket`, { bucket, folder: folder.name, error: delErr.message })
           } else {
             totalDeleted += paths.length
-            console.log(`Deleted ${paths.length} files from ${bucket}/${folder.name}`)
+            log.info(`Deleted files`, { count: paths.length, bucket, folder: folder.name })
           }
         }
       }
     }
 
-    console.log('Cleanup complete. Total files deleted:', totalDeleted)
+    log.info('Cleanup complete', { total_deleted: totalDeleted })
 
-    return new Response(JSON.stringify({ ok: true, deleted: totalDeleted }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return successResponse(corsHeaders, { deleted: totalDeleted })
   } catch (error) {
-    console.error('Cleanup error:', error)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    log.error('Cleanup error', { error: (error as Error).message })
+    return errorResponse(corsHeaders, 'Internal server error', 500)
   }
 })
