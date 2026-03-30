@@ -126,23 +126,17 @@ Plans:
 ---
 
 ### Phase 6: Padronizacao de Data Fetching e Error Boundaries
-**Status**: [ ] Pendente
+**Status**: [ ] Em planejamento
 **Prioridade**: MEDIA
 **Escopo**: `src/hooks/`, `src/pages/dashboard/`, `src/components/ErrorBoundary.tsx`
+**Plans:** 3 plans
 
 **Objetivo**: Unificar patterns de data fetching e proteger UI contra crashes isolados.
 
-**Tarefas**:
-1. Migrar `useSupabaseQuery` -> React Query (useQuery/useMutation) em:
-   - DashboardHome.tsx
-   - Leads.tsx
-   - LeadDetail.tsx
-2. Adicionar Error Boundaries granulares:
-   - Dashboard sections (cada card independente)
-   - Playground (chat, tools, scenarios separados)
-   - Broadcast modal
-   - CRM Kanban board
-3. Implementar loading skeletons consistentes em todas as paginas
+Plans:
+- [ ] 06-01-PLAN.md — React Query migration for LeadDetail.tsx + Leads.tsx (useQuery, useMutation, invalidateQueries)
+- [ ] 06-02-PLAN.md — React Query migration for DashboardHome.tsx (3 useQuery + Realtime invalidation)
+- [ ] 06-03-PLAN.md — ErrorBoundary granular (9 boundaries across 5 pages) + deprecate useSupabaseQuery.ts
 
 **Criterios de Aceite**:
 - [ ] Todos os data fetches usam React Query (zero useSupabaseQuery)
