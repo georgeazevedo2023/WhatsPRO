@@ -157,7 +157,7 @@ Plans:
 Plans:
 - [x] 07-01-PLAN.md — Foundation: supabaseClient.ts + carousel.ts + LLM metrics + auth.ts update
 - [x] 07-02-PLAN.md — Migrate 14 small functions (<250 LOC) to shared utilities
-- [ ] 07-03-PLAN.md — Migrate 10 medium functions (242-414 LOC) to shared utilities
+- [x] 07-03-PLAN.md — Migrate 10 medium functions (242-414 LOC) to shared utilities
 - [ ] 07-04-PLAN.md — Migrate 4 large functions (426-1898 LOC) + carousel integration + configurable carousel_text
 
 **Criterios de Aceite**:

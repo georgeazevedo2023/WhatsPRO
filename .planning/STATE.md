@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T16:07:38.817Z"
+last_updated: "2026-03-30T16:10:50.033Z"
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -347,6 +347,7 @@ progress:
 
 - [x] 07-01-PLAN.md — supabaseClient.ts (D-01 factory) + carousel.ts (D-03 extraction) + auth.ts migration + llmProvider.ts latency_ms (D-05) (DONE 2026-03-30)
 - [x] 07-02-PLAN.md — 14 small edge functions migrated to createServiceClient/createUserClient + successResponse/errorResponse + createLogger (DONE 2026-03-30)
+- [x] 07-03-PLAN.md — 10 medium edge functions migrated: process-follow-ups, scrape-products-batch, auto-summarize, process-scheduled-messages, e2e-scheduled, summarize-conversation, analyze-summaries, ai-agent-playground, sync-conversations, send-shift-report (DONE 2026-03-30)
 
 ### Decisoes Tomadas (Phase 7)
 
@@ -359,11 +360,14 @@ progress:
 - health-check: response shape customizado 200/503 preservado — status code dinamico impede uso de successResponse
 - scrape-product e group-reasons: sem Supabase client — supabaseClient migration pulada, apenas response + logger
 - activate-ia: token extraido explicitamente para getUser(token) — mantém comportamento original
+- process-scheduled-messages preservado com raw REST API pattern — função usa fetchWithTimeout para /rest/v1/ PATCH diretamente; response helpers + logger adicionados sem forçar migração para SDK
+- analyze-summaries: GROQ_API_KEY lido dentro do handler — evita stale closure
+- ai-agent-playground: SUPABASE_URL/SERVICE_ROLE_KEY consts removidos após migração para createServiceClient(); SUPABASE_URL ainda necessário para chamada direta ao /functions/v1/e2e-test em e2e-scheduled
 
 ### Contexto
 
 - Phase 5 Plans 01, 02, e 03 completos: contratos de tipo + any-elimination em Leads.tsx, LeadDetail.tsx e 2 arquivos anteriores
 - Phase 6 Plans 01, 02, e 03 completos: data fetching padronizado com React Query + ErrorBoundary isolation + deprecacao useSupabaseQuery
-- Phase 7 Plans 01 e 02 completos: shared utilities criadas + 14 edge functions migradas
+- Phase 7 Plans 01, 02, e 03 completos: shared utilities criadas + 24 edge functions migradas (14 pequenas + 10 medias)
 - Suite total: 198 testes passando
 - Ultima sessao: 2026-03-30
