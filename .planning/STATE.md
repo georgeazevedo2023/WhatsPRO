@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T15:48:08.148Z"
+last_updated: "2026-03-30T16:07:38.817Z"
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 17
-  completed_plans: 14
+  completed_plans: 15
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -346,6 +346,7 @@ progress:
 ### Phase 7 Status
 
 - [x] 07-01-PLAN.md — supabaseClient.ts (D-01 factory) + carousel.ts (D-03 extraction) + auth.ts migration + llmProvider.ts latency_ms (D-05) (DONE 2026-03-30)
+- [x] 07-02-PLAN.md — 14 small edge functions migrated to createServiceClient/createUserClient + successResponse/errorResponse + createLogger (DONE 2026-03-30)
 
 ### Decisoes Tomadas (Phase 7)
 
@@ -354,11 +355,15 @@ progress:
 - vi.mock('https://esm.sh/@supabase/supabase-js@2') necessario em supabaseClient.test.ts — Node ESM loader nao consegue buscar URLs https://
 - createLogger('auth') instanciado dentro de verifyCronOrService() — consistente com padrao de logging por request
 - latency_ms adicionado a callOpenAI e callGemini independentemente — callLLM nao precisa mudar pois retorna o resultado diretamente
+- go/index.ts: HTML/text responses preservadas — successResponse nao aplicavel para endpoint nao-JSON
+- health-check: response shape customizado 200/503 preservado — status code dinamico impede uso de successResponse
+- scrape-product e group-reasons: sem Supabase client — supabaseClient migration pulada, apenas response + logger
+- activate-ia: token extraido explicitamente para getUser(token) — mantém comportamento original
 
 ### Contexto
 
 - Phase 5 Plans 01, 02, e 03 completos: contratos de tipo + any-elimination em Leads.tsx, LeadDetail.tsx e 2 arquivos anteriores
 - Phase 6 Plans 01, 02, e 03 completos: data fetching padronizado com React Query + ErrorBoundary isolation + deprecacao useSupabaseQuery
-- Phase 7 Plan 01 completo: supabaseClient.ts + carousel.ts criados; auth.ts e llmProvider.ts atualizados
+- Phase 7 Plans 01 e 02 completos: shared utilities criadas + 14 edge functions migradas
 - Suite total: 198 testes passando
 - Ultima sessao: 2026-03-30
