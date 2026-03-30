@@ -104,30 +104,24 @@ Plans:
 ---
 
 ### Phase 5: Tipagem Estrita do Supabase (Frontend)
-**Status**: [ ] Pendente
+**Status**: [ ] Em planejamento
 **Prioridade**: MEDIA
-**Escopo**: `tsconfig.app.json`, `src/integrations/supabase/types.ts`, componentes com `any`
+**Escopo**: `tsconfig.app.json`, `src/types/agent.ts`, `src/types/playground.ts`, `LeadDetail.tsx`, `Leads.tsx`, `AIAgentPlayground.tsx`, `PlaygroundE2eTab.tsx`
+**Plans:** 3 plans
 
-**Objetivo**: Eliminar `any` implicitos e preparar caminho para strict mode.
+**Objetivo**: Eliminar `any` explicitos nos arquivos de escopo, tipar campos Json do agente, e habilitar strict mode.
 
-**Tarefas**:
-1. Substituir `any` explicitos nos 10+ locais identificados:
-   - LeadDetail.tsx:29 (contact state)
-   - Leads.tsx:99 (tag filter)
-   - UsersManagement.tsx:38 (instance info)
-   - AIAgentPlayground.tsx (inline types)
-2. Criar tipos especificos para campos Json:
-   - `BusinessHours` (start: string, end: string)
-   - `ExtractionField` (key: string, label: string, enabled: boolean)
-   - `FollowUpRule` (days: number, message: string)
-   - `SubAgentConfig` (mode: string, prompt: string)
-3. Habilitar `strict: true` no tsconfig.app.json (fix errors incrementalmente)
+Plans:
+- [ ] 05-01-PLAN.md — Create type definitions (agent.ts + E2eResult/E2eLiveStep in playground.ts)
+- [ ] 05-02-PLAN.md — Replace all any in Leads.tsx and LeadDetail.tsx
+- [ ] 05-03-PLAN.md — Replace all any in AIAgentPlayground.tsx + PlaygroundE2eTab.tsx + enable strict:true
 
 **Criterios de Aceite**:
-- [ ] Zero `any` explicitos em componentes de configuracao do agente
-- [ ] Campos Json tipados com interfaces especificas
-- [ ] Build compila sem erros com strict: true
-- [ ] Nenhum `@ts-ignore` ou `@ts-expect-error` adicionado
+- [ ] Zero `any` explicitos nos 4 arquivos de escopo + PlaygroundE2eTab
+- [ ] Campos Json tipados com interfaces especificas (BusinessHours, ExtractionField, FollowUpRule, SubAgentConfig)
+- [ ] Build compila sem erros com strict: true (ou noImplicitAny: true se >10 erros fora de escopo)
+- [ ] Nenhum `@ts-ignore` adicionado
+- [ ] catch blocks usam `unknown` com instanceof Error guard
 
 ---
 
