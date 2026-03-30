@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T11:02:41.747Z"
+last_updated: "2026-03-30T13:35:52.837Z"
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 13
+  completed_plans: 11
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -318,8 +318,22 @@ progress:
 - (value as unknown as T[]) double-cast necessario para converter Json | null para interfaces tipadas
 - Erros TS totais reduzidos de 219 para 149 como efeito colateral de corrigir types.ts
 
+### Phase 6 Status
+
+- [ ] 06-01-PLAN.md — (pendente)
+- [x] 06-02-PLAN.md — DashboardHome migrado para React Query: 3 useQuery (main/helpdeskLeads/groupsStats) + DASHBOARD_KEYS + Realtime invalidateQueries (DONE 2026-03-30)
+
+### Decisoes Tomadas (Phase 6)
+
+- DASHBOARD_KEYS constant com 3 keys: main/helpdeskLeads/groupsStats para DashboardHome React Query migration
+- Groups stats query usa enabled:rawInstances.length>0 + staleTime:5min — substitui setTimeout(100ms) artificial
+- Realtime subscription chama queryClient.invalidateQueries per D-01 (nao setState direto)
+- buildQuery helper renomeado para applyDbFilter(q: any) com eslint-disable — TS2589 "instantiation excessively deep" ao passar PostgrestFilterBuilder ja encadeado
+- weekRes.data cast para { created_at: string | null }[] para satisfazer noImplicitAny
+
 ### Contexto
 
 - Phase 5 Plans 01, 02, e 03 completos: contratos de tipo + any-elimination em Leads.tsx, LeadDetail.tsx e 2 arquivos anteriores
+- Phase 6 Plan 02 completo: DashboardHome data fetching padronizado com React Query
 - Suite total: 173 testes passando
 - Ultima sessao: 2026-03-30
