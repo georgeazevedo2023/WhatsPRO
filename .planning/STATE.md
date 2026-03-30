@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-30T13:56:19.977Z"
+last_updated: "2026-03-30T15:48:08.148Z"
 progress:
   total_phases: 7
   completed_phases: 6
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 17
+  completed_plans: 14
 ---
 
 # STATE.md — WhatsPRO (Snapshot 2026-03-29)
@@ -343,9 +343,22 @@ progress:
 - **DT-16 parcial** (Uso Inconsistente de React Query): LeadDetail.tsx e Leads.tsx agora usam useQuery/useMutation — alinhados com SecretsTab.tsx pattern
 - **DT-17** (Error Boundaries Insuficientes): 9 ErrorBoundary wrappers adicionados — 3 DashboardHome + 3 Playground + 1 Kanban + 1 Broadcaster + 1 LeadsBroadcaster
 
+### Phase 7 Status
+
+- [x] 07-01-PLAN.md — supabaseClient.ts (D-01 factory) + carousel.ts (D-03 extraction) + auth.ts migration + llmProvider.ts latency_ms (D-05) (DONE 2026-03-30)
+
+### Decisoes Tomadas (Phase 7)
+
+- createUserClient(req) extrai Authorization header internamente — token ainda extraido separadamente em verifyAuth para supabase.auth.getUser(token)
+- API keys lidas dentro do corpo de generateCarouselCopies() — evita stale closure quando env muda entre requests (RESEARCH pitfall 3)
+- vi.mock('https://esm.sh/@supabase/supabase-js@2') necessario em supabaseClient.test.ts — Node ESM loader nao consegue buscar URLs https://
+- createLogger('auth') instanciado dentro de verifyCronOrService() — consistente com padrao de logging por request
+- latency_ms adicionado a callOpenAI e callGemini independentemente — callLLM nao precisa mudar pois retorna o resultado diretamente
+
 ### Contexto
 
 - Phase 5 Plans 01, 02, e 03 completos: contratos de tipo + any-elimination em Leads.tsx, LeadDetail.tsx e 2 arquivos anteriores
 - Phase 6 Plans 01, 02, e 03 completos: data fetching padronizado com React Query + ErrorBoundary isolation + deprecacao useSupabaseQuery
-- Suite total: 173 testes passando
+- Phase 7 Plan 01 completo: supabaseClient.ts + carousel.ts criados; auth.ts e llmProvider.ts atualizados
+- Suite total: 198 testes passando
 - Ultima sessao: 2026-03-30
