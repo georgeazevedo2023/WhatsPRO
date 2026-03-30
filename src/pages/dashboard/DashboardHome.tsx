@@ -25,6 +25,7 @@ import { startOfDay, subDays } from 'date-fns';
 import { formatBR } from '@/lib/dateUtils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useState } from 'react';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 
 interface InstanceStats {
@@ -264,46 +265,49 @@ const DashboardHome = () => {
         />
       </div>
 
-      {/* KPI Cards - Compact mobile grid */}
-      <div className="grid gap-2 md:gap-3 grid-cols-2 lg:grid-cols-4 animate-fade-in" style={{ animationDelay: '100ms' }}>
-        <StatsCard title="Instâncias" value={instances.length} icon={Server} className="min-h-0" />
-        <StatsCard title="Online" value={connectedInstances.length} icon={Wifi} className="min-h-0" />
-        <StatsCard title="Grupos" value={loadingStats ? '...' : totalGroups} icon={MessageSquare} className="min-h-0" />
-        <StatsCard
-          title="Leads Hoje"
-          value={helpdeskLeads.today}
-          icon={UserPlus}
-          description={`${helpdeskLeads.total} total`}
-          trend={helpdeskLeads.yesterday > 0 ? {
-            value: Math.round(((helpdeskLeads.today - helpdeskLeads.yesterday) / helpdeskLeads.yesterday) * 100),
-            positive: helpdeskLeads.today >= helpdeskLeads.yesterday,
-          } : undefined}
-          className="min-h-0"
-        />
-      </div>
+      <ErrorBoundary section="Estatisticas">
+        {/* KPI Cards - Compact mobile grid */}
+        <div className="grid gap-2 md:gap-3 grid-cols-2 lg:grid-cols-4 animate-fade-in" style={{ animationDelay: '100ms' }}>
+          <StatsCard title="Instâncias" value={instances.length} icon={Server} className="min-h-0" />
+          <StatsCard title="Online" value={connectedInstances.length} icon={Wifi} className="min-h-0" />
+          <StatsCard title="Grupos" value={loadingStats ? '...' : totalGroups} icon={MessageSquare} className="min-h-0" />
+          <StatsCard
+            title="Leads Hoje"
+            value={helpdeskLeads.today}
+            icon={UserPlus}
+            description={`${helpdeskLeads.total} total`}
+            trend={helpdeskLeads.yesterday > 0 ? {
+              value: Math.round(((helpdeskLeads.today - helpdeskLeads.yesterday) / helpdeskLeads.yesterday) * 100),
+              positive: helpdeskLeads.today >= helpdeskLeads.yesterday,
+            } : undefined}
+            className="min-h-0"
+          />
+        </div>
 
-      {/* Secondary KPIs - Progressive Disclosure */}
-      <Collapsible open={showInstanceDetails} onOpenChange={setShowInstanceDetails}>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground gap-1.5 h-7 px-2">
-            {showInstanceDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            {showInstanceDetails ? 'Menos detalhes' : 'Mais detalhes'}
-            <Badge variant="outline" className="text-[10px] ml-1">
-              {disconnectedInstances.length} off · {totalParticipants.toLocaleString('pt-BR')} participantes
-              {isSuperAdmin ? ` · ${totalUsers} usuários` : ''}
-            </Badge>
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-2">
-          <div className="grid gap-2 md:gap-3 grid-cols-2 lg:grid-cols-4 animate-fade-in">
-            <StatsCard title="Offline" value={disconnectedInstances.length} icon={WifiOff} className="min-h-0" />
-            <StatsCard title="Participantes" value={loadingStats ? '...' : totalParticipants.toLocaleString('pt-BR')} icon={UsersRound} className="min-h-0" />
-            {isSuperAdmin && <StatsCard title="Usuários" value={totalUsers} icon={Users} className="min-h-0" />}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+        {/* Secondary KPIs - Progressive Disclosure */}
+        <Collapsible open={showInstanceDetails} onOpenChange={setShowInstanceDetails}>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground gap-1.5 h-7 px-2">
+              {showInstanceDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {showInstanceDetails ? 'Menos detalhes' : 'Mais detalhes'}
+              <Badge variant="outline" className="text-[10px] ml-1">
+                {disconnectedInstances.length} off · {totalParticipants.toLocaleString('pt-BR')} participantes
+                {isSuperAdmin ? ` · ${totalUsers} usuários` : ''}
+              </Badge>
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2">
+            <div className="grid gap-2 md:gap-3 grid-cols-2 lg:grid-cols-4 animate-fade-in">
+              <StatsCard title="Offline" value={disconnectedInstances.length} icon={WifiOff} className="min-h-0" />
+              <StatsCard title="Participantes" value={loadingStats ? '...' : totalParticipants.toLocaleString('pt-BR')} icon={UsersRound} className="min-h-0" />
+              {isSuperAdmin && <StatsCard title="Usuários" value={totalUsers} icon={Users} className="min-h-0" />}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </ErrorBoundary>
 
       {/* Charts - Instance & Groups */}
+      <ErrorBoundary section="Graficos">
       <LazySection height="300px">
         <DashboardCharts
           instanceStats={instanceStats}
@@ -330,7 +334,9 @@ const DashboardHome = () => {
           <TopContactReasons instanceId={filters.instanceId} inboxId={filters.inboxId} periodDays={filters.period} />
         </div>
       </LazySection>
+      </ErrorBoundary>
 
+      <ErrorBoundary section="Helpdesk e Grupos">
       {/* Instance Groups Breakdown - Collapsible */}
       <Collapsible>
         <div className="flex items-center justify-between">
@@ -422,6 +428,7 @@ const DashboardHome = () => {
           )}
         </div>
       </LazySection>
+      </ErrorBoundary>
     </div>
   );
 };

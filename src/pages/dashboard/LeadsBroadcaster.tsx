@@ -8,6 +8,7 @@ import MessageStep from '@/components/broadcast/MessageStep';
 import EditDatabaseDialog from '@/components/broadcast/EditDatabaseDialog';
 import ManageLeadDatabaseDialog from '@/components/broadcast/ManageLeadDatabaseDialog';
 import { useLeadsBroadcaster } from '@/hooks/useLeadsBroadcaster';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export interface Lead {
   id: string;
@@ -70,6 +71,7 @@ const LeadsBroadcaster = () => {
   } = useLeadsBroadcaster();
 
   return (
+    <ErrorBoundary section="Broadcast Leads">
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -244,6 +246,7 @@ const LeadsBroadcaster = () => {
         }}
       />
     </div>
+    </ErrorBoundary>
   );
 };
 

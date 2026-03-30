@@ -25,6 +25,7 @@ import { KanbanColumn } from '@/components/kanban/KanbanColumn';
 import { KanbanCardItem, CardData } from '@/components/kanban/KanbanCardItem';
 import { CardDetailSheet } from '@/components/kanban/CardDetailSheet';
 import { useKanbanBoardData } from '@/hooks/useKanbanBoardData';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 
 const KanbanBoard = () => {
@@ -346,6 +347,7 @@ const KanbanBoard = () => {
         )}
       </div>
 
+      <ErrorBoundary section="Kanban Board">
       {/* Kanban board */}
       <div className="relative flex-1 overflow-hidden">
         {/* Scroll buttons — visíveis em touch/tablet */}
@@ -432,6 +434,7 @@ const KanbanBoard = () => {
         onSaved={loadAll}
         onDeleted={loadAll}
       />
+      </ErrorBoundary>
     </div>
   );
 };

@@ -11,6 +11,7 @@ import type { Group } from '@/types';
 import BroadcastMessageForm from '@/components/broadcast/BroadcastMessageForm';
 import BroadcasterHeader from '@/components/broadcast/BroadcasterHeader';
 import CreateLeadDatabaseDialog from '@/components/broadcast/CreateLeadDatabaseDialog';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 interface ResendData {
   messageType: string;
@@ -82,6 +83,7 @@ const Broadcaster = () => {
   };
 
   return (
+    <ErrorBoundary section="Broadcast">
     <div className="space-y-4 md:space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -304,6 +306,7 @@ const Broadcaster = () => {
         }}
       />
     </div>
+    </ErrorBoundary>
   );
 };
 

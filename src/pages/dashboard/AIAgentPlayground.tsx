@@ -21,6 +21,7 @@ import { PlaygroundManualTab } from '@/components/admin/ai-agent/playground/Play
 import { PlaygroundScenariosTab } from '@/components/admin/ai-agent/playground/PlaygroundScenariosTab';
 import { PlaygroundResultsTab } from '@/components/admin/ai-agent/playground/PlaygroundResultsTab';
 import { PlaygroundE2eTab } from '@/components/admin/ai-agent/playground/PlaygroundE2eTab';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 const AIAgentPlayground = () => {
   const { isSuperAdmin } = useAuth();
@@ -181,7 +182,7 @@ const AIAgentPlayground = () => {
         setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'user', content: step.content, timestamp: new Date(), media_type: 'audio' }]);
         setSending(true);
         try {
-          const history = [...messagesRef.current].map(m => ({ content: m.content, media_type: m.media_type || 'text', media_url: null, direction: m.role === 'user' ? 'incoming' : 'outgoing', timestamp: m.timestamp.toISOString() }));
+          const history = [...messagesRef.current].map(m => ({ content: m.content, media_type: m.media_type || 'text', media_url: null as string | null, direction: m.role === 'user' ? 'incoming' : 'outgoing', timestamp: m.timestamp.toISOString() }));
           const cur = overridesRef.current;
           const result = await edgeFunctionFetch<PlaygroundResponse>('ai-agent-playground', { agent_id: selectedAgentId!, messages: history, overrides: { temperature: cur.temperature, max_tokens: cur.maxTokens, model: cur.model, disabled_tools: [...cur.disabledTools] } });
           if (result.ok && result.response) {
@@ -268,10 +269,16 @@ const AIAgentPlayground = () => {
             <TabsTrigger value="results" className="gap-1.5 text-xs"><BarChart3 className="w-3.5 h-3.5" />Resultados{runHistory.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] px-1">{runHistory.length}</Badge>}</TabsTrigger>
             <TabsTrigger value="e2e" className="gap-1.5 text-xs"><Zap className="w-3.5 h-3.5 text-amber-400" />E2E Real{e2eResults.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] px-1">{e2eResults.length}</Badge>}</TabsTrigger>
           </TabsList>
-          <PlaygroundManualTab messages={messages} sending={sending} input={input} attachedImage={attachedImage} bufferMode={bufferMode} bufferSec={bufferSec} bufferCountdown={bufferCountdown} showOverrides={showOverrides} overrides={overrides} selectedAgent={selectedAgent} totalTokens={totalTokens} avgLatency={avgLatency} onInputChange={setInput} onSend={handleSend} onClear={handleClear} onAttachImage={setAttachedImage} onBufferModeChange={setBufferMode} onBufferSecChange={setBufferSec} onOverridesChange={setOverrides} onShowOverridesToggle={() => setShowOverrides(!showOverrides)} onRateMessage={rateMessage} onReplayMessage={replayMessage} onRunPersona={runPersona} onKeyDown={handleKeyDown} onExportConversation={exportConversation} />
-          <PlaygroundScenariosTab filteredScenarios={filteredScenarios} selectedCategory={selectedCategory} scenarioSearch={scenarioSearch} selectedScenario={selectedScenario} scenarioRun={scenarioRun} watchSpeed={watchSpeed} messages={messages} sending={sending} onCategoryChange={setSelectedCategory} onSearchChange={setScenarioSearch} onSelectScenario={(s) => { setSelectedScenario(s); setMessages([]); setScenarioRun(null); }} onRunScenario={runScenario} onPause={pauseScenario} onResume={resumeScenario} onStop={stopScenario} onWatchSpeedChange={(v) => { setWatchSpeed(v); watchSpeedRef.current = v; }} onClearMessages={handleClear} />
+          <ErrorBoundary section="Playground Manual">
+            <PlaygroundManualTab messages={messages} sending={sending} input={input} attachedImage={attachedImage} bufferMode={bufferMode} bufferSec={bufferSec} bufferCountdown={bufferCountdown} showOverrides={showOverrides} overrides={overrides} selectedAgent={selectedAgent} totalTokens={totalTokens} avgLatency={avgLatency} onInputChange={setInput} onSend={handleSend} onClear={handleClear} onAttachImage={setAttachedImage} onBufferModeChange={setBufferMode} onBufferSecChange={setBufferSec} onOverridesChange={setOverrides} onShowOverridesToggle={() => setShowOverrides(!showOverrides)} onRateMessage={rateMessage} onReplayMessage={replayMessage} onRunPersona={runPersona} onKeyDown={handleKeyDown} onExportConversation={exportConversation} />
+          </ErrorBoundary>
+          <ErrorBoundary section="Playground Cenarios">
+            <PlaygroundScenariosTab filteredScenarios={filteredScenarios} selectedCategory={selectedCategory} scenarioSearch={scenarioSearch} selectedScenario={selectedScenario} scenarioRun={scenarioRun} watchSpeed={watchSpeed} messages={messages} sending={sending} onCategoryChange={setSelectedCategory} onSearchChange={setScenarioSearch} onSelectScenario={(s) => { setSelectedScenario(s); setMessages([]); setScenarioRun(null); }} onRunScenario={runScenario} onPause={pauseScenario} onResume={resumeScenario} onStop={stopScenario} onWatchSpeedChange={(v) => { setWatchSpeed(v); watchSpeedRef.current = v; }} onClearMessages={handleClear} />
+          </ErrorBoundary>
           <PlaygroundResultsTab runHistory={runHistory} onClearHistory={() => setRunHistory([])} />
-          <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} />
+          <ErrorBoundary section="Playground E2E">
+            <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} />
+          </ErrorBoundary>
         </Tabs>
       </div>
     </TooltipProvider>
