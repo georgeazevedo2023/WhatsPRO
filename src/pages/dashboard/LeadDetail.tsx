@@ -100,7 +100,7 @@ const LeadDetail = () => {
         setTags(allTags);
 
         // 4. Labels
-        const convIds = (convs || []).map(c => c.id);
+        const convIds = (convs || []).map((c: { id: string }) => c.id);
         if (convIds.length > 0) {
           const { data: convLabels } = await (supabase
             .from('conversation_labels')

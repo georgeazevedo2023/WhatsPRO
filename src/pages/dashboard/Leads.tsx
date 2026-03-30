@@ -12,12 +12,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ContactAvatar } from '@/components/helpdesk/ContactAvatar';
 import { PageHeader } from '@/components/ui/page-header';
 import StatsCard from '@/components/dashboard/StatsCard';
-import { Contact2, Search, Loader2, ShieldBan, ShieldCheck, UserPlus, Target, CheckCircle2, X, ChevronDown, ChevronUp, Clock, Sun, Bot } from 'lucide-react';
+import { Contact2, Search, Loader2, ShieldBan, UserPlus, Target, CheckCircle2, X, ChevronDown, ChevronUp, Clock, Sun, Bot, RotateCcw } from 'lucide-react';
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { handleError } from '@/lib/errorUtils';
 import { toast } from 'sonner';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import type { LeadData } from '@/components/leads/types';
+import { STATUS_IA } from '@/constants/statusIa';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const CHART_COLORS = ['hsl(var(--primary))', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 const MOTIVO_COLORS: Record<string, string> = { compra: '#10b981', orcamento: '#3b82f6', duvida: '#f59e0b', suporte: '#ec4899', saudacao: '#8b5cf6', informacao: '#06b6d4' };
@@ -36,6 +47,7 @@ const Leads = () => {
   const [dateRange, setDateRange] = useState<string>('all');
   const [originFilter, setOriginFilter] = useState<string>('all');
   const [stageFilter, setStageFilter] = useState<string>('all');
+  const [leadToClear, setLeadToClear] = useState<LeadData | null>(null);
 
   // Auto-select first instance
   useEffect(() => {
@@ -55,9 +67,9 @@ const Leads = () => {
       const inboxIds = (inboxes || []).map(i => i.id);
       if (inboxIds.length === 0) { setLeads([]); setLoading(false); return; }
 
-      const { data: conversations, error } = await supabase
+      const { data: conversations, error } = await (supabase
         .from('conversations')
-        .select('id, contact_id, status, tags, last_message, last_message_at, ai_summary, created_at, contacts!inner(id, phone, jid, name, profile_pic_url, created_at, ia_blocked_instances)')
+        .select('id, contact_id, status, tags, last_message, last_message_at, ai_summary, created_at, contacts!inner(id, phone, jid, name, profile_pic_url, created_at, ia_blocked_instances)') as any)
         .in('inbox_id', inboxIds)
         .order('last_message_at', { ascending: false });
       if (error) throw error;
@@ -73,18 +85,18 @@ const Leads = () => {
       if (contactIds.length === 0) { setLeads([]); setLoading(false); return; }
 
       // Parallel fetch: profiles, labels, and kanban cards at once (was sequential)
-      const allConvIds = (conversations || []).map(c => c.id);
+      const allConvIds = (conversations || []).map((c: { id: string }) => c.id);
       const [profilesRes, convLabelsRes, kanbanCardsRes] = await Promise.all([
-        supabase.from('lead_profiles').select('*').in('contact_id', contactIds),
-        supabase.from('conversation_labels').select('conversation_id, labels(name)').in('conversation_id', allConvIds),
-        supabase.from('kanban_cards').select('contact_id, board_id, kanban_columns(name, color)').in('contact_id', contactIds).not('contact_id', 'is', null),
+        (supabase.from('lead_profiles' as any) as any).select('*').in('contact_id', contactIds),
+        (supabase.from('conversation_labels' as any) as any).select('conversation_id, labels(name)').in('conversation_id', allConvIds),
+        (supabase.from('kanban_cards' as any) as any).select('contact_id, board_id, kanban_columns(name, color)').in('contact_id', contactIds).not('contact_id', 'is', null),
       ]);
-      const profileMap = new Map((profilesRes.data || []).map(p => [p.contact_id, p]));
+      const profileMap = new Map((profilesRes.data || []).map((p: { contact_id: string }) => [p.contact_id, p]));
 
       const convLabels = convLabelsRes.data;
       const labelMap = new Map<string, Set<string>>();
       for (const cl of (convLabels || [])) {
-        const conv = (conversations || []).find(c => c.id === cl.conversation_id);
+        const conv = (conversations || []).find((c: { id: string; contact_id: string }) => c.id === (cl as { conversation_id: string }).conversation_id);
         if (conv) {
           if (!labelMap.has(conv.contact_id)) labelMap.set(conv.contact_id, new Set());
           if ((cl as any).labels?.name) labelMap.get(conv.contact_id)!.add((cl as any).labels.name);
@@ -117,9 +129,9 @@ const Leads = () => {
           jid: contact.jid,
           name: contact.name,
           profile_pic_url: contact.profile_pic_url,
-          ia_blocked_instances: contact.ia_blocked_instances || [],
+          ia_blocked_instances: (contact as any).ia_blocked_instances || [],
           first_contact_at: contact.created_at,
-          display_name: lp?.full_name || contact.name || contact.phone,
+          display_name: (lp as any)?.full_name || contact.name || contact.phone,
           lead_profile: lp || null,
           conversations: convs,
           tags: allTags,
@@ -129,7 +141,7 @@ const Leads = () => {
           kanban_stage: kanbanMap.get(cid)?.stage || null,
           kanban_color: kanbanMap.get(cid)?.color || null,
           kanban_board_id: kanbanMap.get(cid)?.board_id || null,
-        });
+        } as any);
       }
 
       leadRows.sort((a, b) => {
@@ -158,19 +170,56 @@ const Leads = () => {
       ? current.filter(id => id !== selectedInstanceId)
       : [...current, selectedInstanceId];
     try {
-      const { error } = await supabase
-        .from('contacts')
-        .update({ ia_blocked_instances: updated })
-        .eq('id', lead.contact_id);
+      const { error } = await (supabase
+        .from('contacts' as any)
+        .update({ ia_blocked_instances: updated } as any)
+        .eq('id', lead.contact_id) as any);
       if (error) throw error;
       setLeads(prev => prev.map(l =>
-        l.contact_id === lead.contact_id ? { ...l, ia_blocked_instances: updated } : l
+        l.contact_id === lead.contact_id ? ({ ...l, ia_blocked_instances: updated } as any) : l
       ));
       toast.success(isBlocked ? `IA ativada para ${lead.display_name}` : `IA desligada para ${lead.display_name}`);
     } catch (err) {
       handleError(err, 'Erro ao alterar IA', 'Leads');
     }
   }, [selectedInstanceId]);
+
+  // Clear IA context for lead
+  const handleConfirmClearContext = async () => {
+    if (!leadToClear) return;
+    const lead = leadToClear;
+    setLeadToClear(null);
+
+    try {
+      // Clear lead_profile updates
+      await (supabase.from('lead_profiles' as any) as any).upsert({
+        contact_id: lead.contact_id,
+        conversation_summaries: [], interests: null, notes: null,
+        reason: null, full_name: null, average_ticket: null,
+      }, { onConflict: 'contact_id' });
+
+      // Force status_ia to LIGADA and reset LLM history using ia_cleared tag
+      const convIds = lead.conversations.map((c: any) => c.id);
+      if (convIds.length > 0) {
+        const clearTag = `ia_cleared:${new Date().toISOString()}`;
+        await supabase.from('conversations').update({ tags: [clearTag], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
+        await (supabase.from('ai_agent_logs' as any) as any).delete().in('conversation_id', convIds);
+      }
+
+      // Unblock instance
+      await (supabase.from('contacts' as any) as any).update({ ia_blocked_instances: [] }).eq('id', lead.contact_id);
+
+      toast.success('Contexto limpo, IA reativada!');
+      fetchLeads();
+    } catch (err) {
+      handleError(err, 'Erro ao limpar contexto', 'Leads page');
+    }
+  };
+
+  const openClearConfirm = (lead: LeadData, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLeadToClear(lead);
+  };
 
   // KPIs
   const kpis = useMemo(() => {
@@ -603,7 +652,7 @@ const Leads = () => {
                 <TableHead className="hidden lg:table-cell text-sm">Etiqueta</TableHead>
                 <TableHead className="hidden lg:table-cell text-sm">Estagio</TableHead>
                 <TableHead className="hidden xl:table-cell text-sm">Resumo</TableHead>
-                <TableHead className="w-10 text-center text-sm">IA</TableHead>
+                <TableHead className="w-20 text-center text-sm">IA</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -631,20 +680,26 @@ const Leads = () => {
                   </TableCell>
                   <TableCell className="hidden xl:table-cell">
                     <div className="flex flex-wrap gap-1 max-w-[220px] overflow-hidden">
-                      {lead.tags.slice(0, 4).map(t => {
-                        const [key, ...rest] = t.split(':');
-                        const val = rest.join(':') || key;
-                        const color = key === 'motivo' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                          : key === 'interesse' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                          : key === 'ia' ? 'bg-orange-500/15 text-orange-400 border-orange-500/30'
-                          : 'bg-muted text-muted-foreground';
-                        return (
-                          <Badge key={t} variant="outline" className={`text-[11px] px-1.5 py-0 truncate max-w-[100px] ${color}`} title={val}>
-                            {val}
-                          </Badge>
-                        );
-                      })}
-                      {lead.tags.length > 4 && <Badge variant="secondary" className="text-[11px]">+{lead.tags.length - 4}</Badge>}
+                      {lead.tags
+                        .filter(t => !t.toLowerCase().includes('ia_cleared'))
+                        .slice(0, 4).map(t => {
+                          const [key, ...rest] = t.split(':');
+                          const val = rest.join(':') || key;
+                          const color = key === 'motivo' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                            : key === 'interesse' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : key === 'ia' ? 'bg-orange-500/15 text-orange-400 border-orange-500/30'
+                            : 'bg-muted text-muted-foreground';
+                          return (
+                            <Badge key={t} variant="outline" className={`text-[11px] px-1.5 py-0 truncate max-w-[100px] ${color}`} title={val}>
+                              {val}
+                            </Badge>
+                          );
+                        })}
+                      {lead.tags.filter(t => !t.toLowerCase().includes('ia_cleared')).length > 4 && 
+                        <Badge variant="secondary" className="text-[11px]">
+                          +{lead.tags.filter(t => !t.toLowerCase().includes('ia_cleared')).length - 4}
+                        </Badge>
+                      }
                     </div>
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
@@ -663,31 +718,47 @@ const Leads = () => {
                     {lead.last_summary_reason || '—'}
                   </TableCell>
                   <TableCell className="text-center">
-                    <TooltipProvider delayDuration={200}>
-                      <UiTooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={(e) => toggleIaBlock(lead, e)}
-                            className={`p-1.5 rounded-lg transition-colors ${
-                              selectedInstanceId && lead.ia_blocked_instances.includes(selectedInstanceId)
-                                ? 'bg-orange-500/15 text-orange-500 hover:bg-orange-500/25'
-                                : 'bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25'
-                            }`}
-                          >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <TooltipProvider delayDuration={200}>
+                        <UiTooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={(e) => toggleIaBlock(lead, e)}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                selectedInstanceId && lead.ia_blocked_instances.includes(selectedInstanceId)
+                                  ? 'bg-orange-500/15 text-orange-500 hover:bg-orange-500/25'
+                                  : 'bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25'
+                              }`}
+                            >
+                              {selectedInstanceId && lead.ia_blocked_instances.includes(selectedInstanceId)
+                                ? <ShieldBan className="w-4 h-4" />
+                                : <Bot className="w-4 h-4" />
+                              }
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
                             {selectedInstanceId && lead.ia_blocked_instances.includes(selectedInstanceId)
-                              ? <ShieldBan className="w-4 h-4" />
-                              : <Bot className="w-4 h-4" />
+                              ? 'IA desligada — clique para ativar'
+                              : 'IA ativa — clique para desligar'
                             }
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {selectedInstanceId && lead.ia_blocked_instances.includes(selectedInstanceId)
-                            ? 'IA desligada — clique para ativar'
-                            : 'IA ativa — clique para desligar'
-                          }
-                        </TooltipContent>
-                      </UiTooltip>
-                    </TooltipProvider>
+                          </TooltipContent>
+                        </UiTooltip>
+                      </TooltipProvider>
+
+                      <TooltipProvider delayDuration={200}>
+                        <UiTooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={(e) => openClearConfirm(lead, e)}
+                              className="p-1.5 rounded-lg transition-colors bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Limpar Contexto da IA</TooltipContent>
+                        </UiTooltip>
+                      </TooltipProvider>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -695,6 +766,26 @@ const Leads = () => {
           </Table>
         </div>
       )}
+
+      <AlertDialog open={!!leadToClear} onOpenChange={(open) => !open && setLeadToClear(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Limpar contexto de {leadToClear?.display_name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acao resetara o historico de qualificacao da IA, removera etiquetas de estagio e permitira que a IA atenda o lead como se fosse a primeira vez. Os logs serao apagados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmClearContext}
+            >
+              Limpar agora
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
