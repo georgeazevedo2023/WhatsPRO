@@ -84,23 +84,16 @@ Plans:
 ---
 
 ### Phase 4: Decomposicao de Componentes Gigantes
-**Status**: [ ] Pendente
+**Status**: [ ] Em planejamento
 **Prioridade**: ALTA
 **Escopo**: `src/pages/dashboard/AIAgentPlayground.tsx`, `src/components/admin/ai-agent/CatalogConfig.tsx`
+**Plans:** 2 plans
 
 **Objetivo**: Reduzir complexidade dos componentes maiores para facilitar manutencao e performance.
 
-**Tarefas**:
-1. AIAgentPlayground.tsx (1353 LOC) -> extrair:
-   - PlaygroundChat (display de mensagens + input)
-   - PlaygroundToolInspector (inspecao de tools usadas)
-   - PlaygroundScenarioRunner (execucao de cenarios)
-   - PlaygroundMetrics (metricas de performance)
-2. CatalogConfig.tsx (704 LOC) -> extrair:
-   - CatalogTable (listagem + filtros + sort)
-   - CatalogImportPanel (CSV + batch scrape)
-   - CatalogProductForm (formulario de produto)
-3. Extrair tipos inline do Playground para `src/types/playground.ts`
+Plans:
+- [ ] 04-01-PLAN.md — AIAgentPlayground decomposition: types to playground.ts + 4 tab sub-components + orchestrator <300 LOC
+- [ ] 04-02-PLAN.md — CatalogConfig decomposition: CatalogTable + CatalogProductForm + orchestrator <300 LOC
 
 **Criterios de Aceite**:
 - [ ] AIAgentPlayground.tsx < 300 LOC (orquestrador)
