@@ -151,18 +151,19 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     const channel = supabase.channel('helpdesk-realtime')
       .on('broadcast', { event: 'new-message' }, (payload) => {
         if (payload.payload?.conversation_id === conversation.id) {
-          // Fetch latest message and append (not full refetch)
+          // Fetch last 3 messages to catch carousel+text pairs sent in quick succession
           supabase.from('conversation_messages')
             .select('*')
             .eq('conversation_id', conversation.id)
             .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
+            .limit(3)
             .then(({ data }) => {
-              if (data) {
+              if (data && data.length > 0) {
                 setMessages(prev => {
-                  if (prev.some(m => m.id === data.id)) return prev;
-                  return [...prev, data as Message];
+                  const existingIds = new Set(prev.map(m => m.id));
+                  const newMsgs = data.filter(m => !existingIds.has(m.id)) as Message[];
+                  if (newMsgs.length === 0) return prev;
+                  return [...prev, ...newMsgs.reverse()];
                 });
               }
             })

@@ -11,6 +11,7 @@ export const brainSchema = z.object({
 export const rulesSchema = z.object({
   handoff_cooldown_minutes: z.number().int().min(5, 'Minimo: 5 min').max(1440, 'Maximo: 1440 min (24h)'),
   max_lead_messages: z.number().int().min(1, 'Minimo: 1').max(50, 'Maximo: 50'),
+  max_qualification_retries: z.number().int().min(0, 'Minimo: 0').max(5, 'Maximo: 5'),
 }).partial();
 
 export const guardrailsSchema = z.object({
@@ -22,7 +23,7 @@ export const voiceSchema = z.object({
 }).partial();
 
 export const BRAIN_FIELDS = new Set(['model', 'temperature', 'max_tokens']);
-export const RULES_FIELDS = new Set(['handoff_cooldown_minutes', 'max_lead_messages']);
+export const RULES_FIELDS = new Set(['handoff_cooldown_minutes', 'max_lead_messages', 'max_qualification_retries']);
 export const GUARDRAILS_FIELDS = new Set(['max_discount_percent']);
 export const VOICE_FIELDS = new Set(['voice_max_text_length']);
 

@@ -90,6 +90,8 @@ npx supabase functions deploy <name>  # Deploy edge function
 - Handoff: tool sends 1 message + breaks loop (no duplicate text), implicit detection before send
 - Debounce: atomic UPDATE WHERE processed=false (eliminates race condition)
 - AI Agent helpers: sendTextMsg(), sendTts(), broadcastEvent(), mergeTags(), cleanProductTitle()
+- Media inserts MUST broadcast: after every conversation_messages INSERT of carousel/image in ai-agent, call broadcastEvent() — otherwise helpdesk Realtime never shows the message
+- ChatPanel new-message handler fetches last 3 (not 1) to avoid race condition when carousel+text inserted in quick succession
 - LLM carousel copies: Groq→Gemini→Mistral chain, Card 1 code-generated (title+price), Cards 2-5 AI
 - Clear context: resets status_ia='ligada' + clears ia_blocked_instances + sets tags to ['ia_cleared:TIMESTAMP'] (NEVER [] — empty tags breaks handoff counter, causing immediate handoff on next message)
 - Circuit breaker: geminiBreaker/groqBreaker/mistralBreaker (3 failures → OPEN 30s → HALF_OPEN probe)

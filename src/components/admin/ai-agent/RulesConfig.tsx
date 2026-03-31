@@ -3,7 +3,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ShieldAlert, Clock, Frown, Timer, MessageSquare } from 'lucide-react';
+import { ShieldAlert, Clock, Frown, Timer, MessageSquare, SearchX } from 'lucide-react';
 
 interface RulesConfigProps {
   config: Record<string, any>;
@@ -96,6 +96,30 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
             />
             {fieldErrors?.max_lead_messages && <p className="text-destructive text-xs mt-1">{fieldErrors.max_lead_messages}</p>}
             <p className="text-xs text-muted-foreground">Após esse número de mensagens, transfere automaticamente para humano (1-50)</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Qualificação antes do transbordo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <SearchX className="w-4 h-4 text-primary" />
+            Qualificação quando Produto não Encontrado
+          </CardTitle>
+          <CardDescription>Quantas perguntas de qualificação a IA pode fazer antes de transferir ao consultor quando o produto não está no catálogo</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Tentativas de qualificação</Label>
+            <Input
+              type="number" min={0} max={5}
+              value={config.max_qualification_retries ?? 2}
+              onChange={(e) => onChange({ max_qualification_retries: parseInt(e.target.value) || 0 })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              0 = transfere imediatamente. 1-5 = a IA pergunta marca, especificação, uso etc. antes de transbordar. Recomendado: 2.
+            </p>
           </div>
         </CardContent>
       </Card>

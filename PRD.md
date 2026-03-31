@@ -33,6 +33,79 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v4.10.0 (2026-03-30) — Módulo Disparador: Leads no sidebar + Página de Templates
+
+**Navegação completa do módulo Disparador:**
+- Sidebar "Disparador" agora tem 4 sub-itens: Grupos, Leads, Templates, Historico
+- Nova página dedicada `/dashboard/broadcast/templates` para gerenciamento CRUD de templates
+- Templates: grid de cards com busca, filtro por categoria/tipo, criar, editar, excluir com confirmação
+- Rota lazy-loaded com ErrorBoundary + AdminRoute
+
+**Arquivos:**
+- `src/components/dashboard/Sidebar.tsx` — sub-itens Leads + Templates no menu Disparador
+- `src/pages/dashboard/MessageTemplatesPage.tsx` — nova página de templates
+- `src/App.tsx` — lazy import + rota `/dashboard/broadcast/templates`
+
+### v4.9.0 (2026-03-30) — Fix: Botão "Enviar" do Disparador de Leads não funcionava (carrossel)
+
+**Causa raiz (3 bugs combinados):**
+1. `handleSend` sem try/catch — erros antes do loop de envio eram engolidos silenciosamente
+2. Cards vazios do carrossel enviados para UAZAPI — cards sem imagem/texto causavam rejeição da API
+3. `canSend` aceitava 1 card válido — WhatsApp exige mínimo 2 cards no carrossel
+
+**Fix:**
+- try/catch em `handleSend` com toast.error para surfacear erros
+- Filtro `validCards` remove cards sem imagem ou texto antes do envio
+- `canSend` agora exige `>= 2` cards válidos (alinhado com Broadcaster de grupos)
+- Validação `handleSendCarousel` exige mínimo 2 cards preenchidos
+
+**Arquivos:**
+- `src/components/broadcast/LeadMessageForm.tsx` — try/catch + filtro cards + validação min 2
+
+### v4.8.0 (2026-03-31) — Qualificação antes do Handoff (produto não encontrado)
+
+**Feature: Perguntas de qualificação quando search_products retorna 0 resultados**
+
+Antes do handoff automático, a IA agora tenta qualificar a busca com o lead (marca, especificação técnica, finalidade, tamanho, potência etc.). O número de tentativas é configurável no painel admin.
+
+**Fluxo (exemplo com max_qualification_retries = 2):**
+1. Lead: "tem lâmpada led?" → search = 0 → IA: "Tem preferência de marca ou quer luz quente/fria?"
+2. Lead: "quero fria" → search = 0 → handoff_to_human (2ª tentativa = limite)
+
+**Implementação:**
+- `ai_agents.max_qualification_retries INT DEFAULT 2` — novo campo no banco
+- Tag `search_fail:N` na conversa rastreia tentativas (reset automático quando produto encontrado)
+- Quando `N < max`: retorno guia LLM a perguntar qualificação (não chamar handoff)
+- Quando `N >= max`: retorno instrui LLM a chamar `handoff_to_human`
+- Configurável em: **Admin → Agente IA → aba Segurança → "Qualificação quando Produto não Encontrado"** (campo 0-5, default 2)
+
+**Arquivos:**
+- `supabase/migrations/20260331000000_add_qualification_retries_to_agents.sql`
+- `supabase/functions/ai-agent/index.ts` — lógica na tool `search_products`
+- `src/components/admin/ai-agent/RulesConfig.tsx` — novo card de configuração
+- `src/components/admin/AIAgentTab.tsx` — `max_qualification_retries` no ALLOWED_FIELDS
+- `src/components/admin/ai-agent/validationSchemas.ts` — validação 0-5
+- `src/integrations/supabase/types.ts` — tipos atualizados
+
+### v4.7.0 (2026-03-31) — Fix: Carousel entregue mas invisível no Helpdesk
+
+**Causa raiz (2 bugs combinados):**
+1. `ai-agent` enviava o carousel para o WhatsApp e salvava em `conversation_messages`, mas **não chamava `broadcastEvent()`** para notificar o helpdesk via Realtime — o ChatPanel nunca soubesse que havia uma nova mensagem de carousel.
+2. `ChatPanel` buscava apenas `limit(1)` (última mensagem) ao receber qualquer broadcast — quando carousel + resposta de texto eram inseridos em rápida sucessão, o carousel era pulado (a resposta de texto já era a "última" quando o fetch rodava).
+
+**Fixes aplicados:**
+
+`supabase/functions/ai-agent/index.ts`:
+- Adicionado `broadcastEvent({ ..., media_type: 'carousel', media_url: ... })` após cada INSERT de carousel (3 pontos: auto-carousel multi-foto, auto-carousel multi-produto, `send_carousel` tool)
+- Adicionado `broadcastEvent({ ..., media_type: 'image', media_url: ... })` após INSERT de `send/media` (produto único com 1 foto)
+- Variante de payload corrigida: `{ phone, message }` como primária (não `{ number, message }`) — UAZAPI aceita ambas com HTTP 200 mas só entrega com `phone`
+- Break condition alargada: `!resBody.toLowerCase().includes('missing')` (era `!includes('missing required')`)
+
+`src/components/helpdesk/ChatPanel.tsx`:
+- Alterado de `limit(1).maybeSingle()` para `limit(3)` + adição incremental de todas as mensagens novas não presentes — elimina race condition quando carousel + texto chegam em sequência rápida
+
+**Padrão documentado:** Todo INSERT de mensagem de mídia no ai-agent **deve** ser seguido de `broadcastEvent()` para que o helpdesk exiba em tempo real.
+
 ### v4.6.0 (2026-03-27) — Sprint E Completo: Agent Performance + Bulk Actions
 
 **E5: Agent Performance Dashboard**
@@ -322,8 +395,8 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 - Audio transcription flow: webhook → transcribe-audio (SERVICE_ROLE) → debounce → ai-agent
 - Product search: word-by-word fallback quando ILIKE exata não encontra
 - Auto-carousel: enviado automaticamente dentro de `search_products` (não depende de Gemini chamar tool)
-- Carousel retry: 3 variantes UAZAPI (phone/number/chatId)
-- Mensagens salvas no helpdesk: carousel, media e texto do agente em `conversation_messages`
+- Carousel retry: 4 variantes UAZAPI — `{phone+jid, message}` → `{number+jid, text}` → `{phone+rawNum, message}` → `{number+rawNum, text}` (primária é phone+message para contatos individuais)
+- Mensagens salvas no helpdesk: carousel, media e texto do agente em `conversation_messages` + broadcastEvent() obrigatório após cada INSERT de mídia
 - Presence indicators: composing no início, recording antes de TTS
 - Handoff triggers: auto-transbordo quando texto do lead contém keywords configuradas
 - Tag classification melhorada: "Vocês tem X?" = compra (não dúvida)

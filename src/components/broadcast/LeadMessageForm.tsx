@@ -412,16 +412,17 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
   };
 
   const handleSendCarousel = async () => {
-    const hasValidCard = carouselData.cards.some(c => (c.image || c.imageFile) && c.text.trim());
-    if (!hasValidCard) { toast.error('Preencha pelo menos um card com imagem e texto'); return; }
+    const validCards = carouselData.cards.filter(c => (c.image || c.imageFile) && c.text.trim());
+    if (validCards.length < 2) { toast.error('Preencha pelo menos 2 cards com imagem e texto'); return; }
 
+    const carouselToSend: CarouselData = { ...carouselData, cards: validCards };
     const accessToken = await getAccessToken();
 
     const { startedAt, successCount, failCount } = await runSendLoop(accessToken, async (lead) => {
-      await sendCarousel(lead.jid, carouselData, accessToken);
+      await sendCarousel(lead.jid, carouselToSend, accessToken);
       try {
         const helpdeskCards = await Promise.all(
-          carouselData.cards.map(async (c) => {
+          validCards.map(async (c) => {
             let imageUrl = c.image || '';
             if (c.imageFile) imageUrl = await uploadCarouselImage(c.imageFile);
             else if (c.image && c.image.startsWith('data:')) {
@@ -432,9 +433,9 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
           })
         );
         saveToHelpdesk(instance.id, lead.jid, lead.phone, lead.name || null, {
-          content: carouselData.message || '📋 Carrossel enviado',
+          content: carouselToSend.message || '📋 Carrossel enviado',
           media_type: 'carousel',
-          media_url: JSON.stringify({ message: carouselData.message, cards: helpdeskCards }),
+          media_url: JSON.stringify({ message: carouselToSend.message, cards: helpdeskCards }),
         });
       } catch (uploadErr) {
         console.error('[LeadMessageForm] Error uploading carousel images for helpdesk:', uploadErr);
@@ -448,10 +449,10 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
 
     const leadNames = selectedLeads.slice(0, 50).map(l => l.name || l.phone);
     await saveBroadcastLog({
-      messageType: 'carousel', content: carouselData.message || null, mediaUrl: null,
+      messageType: 'carousel', content: carouselToSend.message || null, mediaUrl: null,
       recipientsTargeted: selectedLeads.length, recipientsSuccess: successCount, recipientsFailed: failCount,
       status: isCancelledRef.current ? 'cancelled' : (failCount > 0 ? 'error' : 'completed'),
-      startedAt, leadNames, carouselData,
+      startedAt, leadNames, carouselData: carouselToSend,
     });
   };
 
@@ -512,9 +513,15 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
   };
 
   const handleSend = async () => {
-    if (activeTab === 'text') await handleSendText();
-    else if (activeTab === 'carousel') await handleSendCarousel();
-    else await handleSendMedia();
+    try {
+      if (activeTab === 'text') await handleSendText();
+      else if (activeTab === 'carousel') await handleSendCarousel();
+      else await handleSendMedia();
+    } catch (error) {
+      console.error('[LeadMessageForm] Send error:', error);
+      toast.error(error instanceof Error ? error.message : 'Erro ao enviar mensagem');
+      setProgress(p => ({ ...p, status: 'idle' }));
+    }
   };
 
   const handleReset = () => {
@@ -524,10 +531,10 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
     isCancelledRef.current = false;
   };
 
-  const canSend = activeTab === 'text' 
+  const canSend = activeTab === 'text'
     ? message.trim().length > 0
     : activeTab === 'carousel'
-      ? carouselData.cards.some(c => (c.image || c.imageFile) && c.text.trim())
+      ? carouselData.cards.filter(c => (c.image || c.imageFile) && c.text.trim()).length >= 2
       : !!(selectedFile || mediaUrl.trim());
 
   const isSending = progress.status === 'sending' || progress.status === 'paused';

@@ -34,6 +34,7 @@ import {
   Contact2,
   Megaphone,
   Plus,
+  BookMarked,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -567,6 +568,8 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           '/dashboard/broadcast',
           <>
             {renderSubItem('/dashboard/broadcast', 'Grupos', undefined)}
+            {renderSubItem('/dashboard/broadcast/leads', 'Leads', Contact2)}
+            {renderSubItem('/dashboard/broadcast/templates', 'Templates', BookMarked)}
             {renderSubItem('/dashboard/broadcast/history', 'Historico', undefined)}
           </>
         )}

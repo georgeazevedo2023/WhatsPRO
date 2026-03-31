@@ -946,13 +946,40 @@ Exemplos de objeções:
             }
           }
 
-          if (!products || products.length === 0) return 'Nenhum produto encontrado com esses critérios.'
+          if (!products || products.length === 0) {
+            // Qualification retries before handoff
+            const maxRetries = (agent.max_qualification_retries as number) ?? 2
+            const searchFailTag = (conversation.tags || []).find((t: string) => t.startsWith('search_fail:'))
+            const searchFailCount = searchFailTag ? (parseInt(searchFailTag.split(':')[1]) || 0) : 0
+            const newCount = searchFailCount + 1
+
+            await supabase.from('conversations').update({
+              tags: mergeTags(conversation.tags || [], { search_fail: String(newCount) }),
+            }).eq('id', conversation_id)
+
+            log.info('search_products: no results', { query: searchText, attempt: newCount, max: maxRetries })
+
+            if (newCount >= maxRetries) {
+              return `Nenhum produto encontrado para "${searchText}" mesmo após ${newCount} tentativas de qualificação. Agora você DEVE chamar handoff_to_human — informe ao consultor o que o lead está procurando. NÃO faça mais perguntas de qualificação.`
+            }
+
+            return `Nenhum produto encontrado para "${searchText}" (tentativa ${newCount} de ${maxRetries}). OBRIGATÓRIO: faça UMA pergunta de qualificação ao lead para refinar a busca — por exemplo: marca preferida, especificação técnica, finalidade de uso, tamanho ou potência. NÃO faça handoff ainda.`
+          }
+
+          // Products found — reset qualification retry counter
+          if ((conversation.tags || []).some((t: string) => t.startsWith('search_fail:'))) {
+            await supabase.from('conversations').update({
+              tags: mergeTags(conversation.tags || [], { search_fail: '0' }),
+            }).eq('id', conversation_id)
+          }
 
           // Auto-send media/carousel when products have images
           // Rules: 1 product + 2+ photos → carousel (1 photo per card)
           //         1 product + 1 photo  → send/media (photo + clean caption)
           //         2+ products           → carousel (1 card per product)
           const withImages = products.filter((p: any) => p.images?.[0])
+          let mediaSent = false
+
           if (withImages.length === 1 && (withImages[0].images as string[])?.length >= 2) {
             // Single product with multiple photos → carousel (1 photo per card with AI copy)
             const p = withImages[0]
@@ -965,12 +992,14 @@ Exemplos de objeções:
             }))
             log.info('Auto-carousel: single product multi-photo', { title: p.title, photoCount: photos.length })
 
-            // Send carousel
+            // Send carousel — 4 variants matching uazapi-proxy order (phone+message is primary for individual)
+            const rawNum1 = contact.jid.split('@')[0]
             const carouselPayloads = [
               { phone: contact.jid, message: agent.carousel_text || 'Confira:', carousel },
               { number: contact.jid, text: agent.carousel_text || 'Confira:', carousel },
+              { phone: rawNum1, message: agent.carousel_text || 'Confira:', carousel },
+              { number: rawNum1, text: agent.carousel_text || 'Confira:', carousel },
             ]
-            let carouselSent = false
             for (const payload of carouselPayloads) {
               try {
                 const res = await fetchWithTimeout(`${uazapiUrl}/send/carousel`, {
@@ -979,18 +1008,22 @@ Exemplos de objeções:
                   body: JSON.stringify(payload),
                 }, 10000)
                 const resBody = await res.text()
-                if (res.ok && !resBody.includes('missing required')) { carouselSent = true; break }
-                if (res.status === 400) break
+                log.info('Auto-carousel attempt', { variant: Object.keys(payload)[0], status: res.status, body: resBody.substring(0, 120) })
+                if (res.ok && !resBody.toLowerCase().includes('missing')) { mediaSent = true; break }
               } catch (err) { log.error('Carousel attempt failed', { error: (err as Error).message }) }
             }
-            if (carouselSent) {
+            if (mediaSent) {
+              const carouselMediaUrl1 = JSON.stringify({ message: agent.carousel_text || 'Confira:', cards: carousel })
               await supabase.from('conversation_messages').insert({
                 conversation_id, direction: 'outgoing',
                 content: agent.carousel_text || 'Confira:',
                 media_type: 'carousel',
-                media_url: JSON.stringify({ message: agent.carousel_text || 'Confira:', cards: carousel }),
+                media_url: carouselMediaUrl1,
                 external_id: `ai_carousel_${Date.now()}`,
               })
+              broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.carousel_text || 'Confira:', media_type: 'carousel', media_url: carouselMediaUrl1 })
+            } else {
+              log.error('Auto-carousel (multi-photo) all variants failed')
             }
           } else if (withImages.length === 1) {
             // Single product with 1 photo → send/media (photo + clean caption)
@@ -999,17 +1032,24 @@ Exemplos de objeções:
             const price = `R$ ${p.price?.toFixed(2) || 'Sob consulta'}`
             const caption = `${title}\n${price}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
             try {
-              await fetchWithTimeout(`${uazapiUrl}/send/media`, {
+              const res = await fetchWithTimeout(`${uazapiUrl}/send/media`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'token': instance.token },
                 body: JSON.stringify({ number: contact.jid, type: 'image', file: p.images[0], text: caption }),
               }, 10000)
-              log.info('Auto-media: single product single photo', { title: p.title })
-              await supabase.from('conversation_messages').insert({
-                conversation_id, direction: 'outgoing',
-                content: caption, media_type: 'image', media_url: p.images[0],
-                external_id: `ai_media_${Date.now()}`,
-              })
+              if (res.ok) {
+                mediaSent = true
+                log.info('Auto-media: single product single photo', { title: p.title })
+                await supabase.from('conversation_messages').insert({
+                  conversation_id, direction: 'outgoing',
+                  content: caption, media_type: 'image', media_url: p.images[0],
+                  external_id: `ai_media_${Date.now()}`,
+                })
+                broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: caption, media_type: 'image', media_url: p.images[0] })
+              } else {
+                const body = await res.text()
+                log.error('Auto-media send failed', { status: res.status, body: body.substring(0, 120) })
+              }
             } catch (err) { log.error('Auto-media send failed', { error: (err as Error).message }) }
           } else if (withImages.length > 1) {
             // Multiple products → carousel (1 card per product)
@@ -1019,42 +1059,43 @@ Exemplos de objeções:
               buttons: [{ id: p.title, text: 'Comprar', type: 'REPLY' }],
             }))
 
-            // Send carousel with retry strategy (2 variants max, fail fast on 400)
+            // Send carousel — 4 variants matching uazapi-proxy order (phone+message is primary for individual)
+            const rawNum2 = contact.jid.split('@')[0]
             const carouselPayloads = [
               { phone: contact.jid, message: agent.carousel_text || 'Confira:', carousel },
               { number: contact.jid, text: agent.carousel_text || 'Confira:', carousel },
+              { phone: rawNum2, message: agent.carousel_text || 'Confira:', carousel },
+              { number: rawNum2, text: agent.carousel_text || 'Confira:', carousel },
             ]
-            let carouselSent = false
             for (const payload of carouselPayloads) {
               try {
                 const res = await fetchWithTimeout(`${uazapiUrl}/send/carousel`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'token': instance.token },
                   body: JSON.stringify(payload),
-                }, 10000) // 10s timeout instead of default 30s
+                }, 10000)
                 const resBody = await res.text()
-                if (res.ok && !resBody.includes('missing required')) {
-                  carouselSent = true
-                  log.info('Auto-carousel sent', { productCount: withImages.length, variant: Object.keys(payload)[0] })
+                log.info('Auto-carousel attempt', { productCount: withImages.length, variant: Object.keys(payload)[0], status: res.status, body: resBody.substring(0, 120) })
+                if (res.ok && !resBody.toLowerCase().includes('missing')) {
+                  mediaSent = true
                   break
                 }
-                if (res.status === 400) { log.warn('Carousel 400 — payload structure issue, skipping retries'); break }
-                log.warn('Carousel variant failed', { variant: Object.keys(payload)[0], status: res.status, body: resBody.substring(0, 100) })
               } catch (err) {
                 log.error('Carousel attempt failed', { error: (err as Error).message })
               }
             }
-            if (!carouselSent) {
-              log.error('All carousel variants failed')
+            if (!mediaSent) {
+              log.error('Auto-carousel (multi-product) all variants failed', { productCount: withImages.length })
             } else {
-              // Save carousel to conversation_messages so it appears in helpdesk
+              const carouselMediaUrl2 = JSON.stringify({ message: agent.carousel_text || 'Confira:', cards: carousel })
               await supabase.from('conversation_messages').insert({
                 conversation_id, direction: 'outgoing',
                 content: agent.carousel_text || 'Confira:',
                 media_type: 'carousel',
-                media_url: JSON.stringify({ message: agent.carousel_text || 'Confira:', cards: carousel }),
+                media_url: carouselMediaUrl2,
                 external_id: `ai_carousel_${Date.now()}`,
               })
+              broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.carousel_text || 'Confira:', media_type: 'carousel', media_url: carouselMediaUrl2 })
             }
           }
 
@@ -1062,7 +1103,7 @@ Exemplos de objeções:
             `${i + 1}. ${p.title} - R$${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (SEM ESTOQUE)' : ''}`
           ).join('\n')
 
-          if (withImages.length >= 1) {
+          if (mediaSent) {
             const mediaType = withImages.length === 1 && (withImages[0].images as string[])?.length < 2 ? 'foto' : 'carrossel'
             return `Produto(s) encontrado(s) e ${mediaType} JÁ FOI ENVIADO ao lead via WhatsApp.\nNÃO repita nomes de produtos, preços ou descrições no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "É esse que você procura?" ou "Algum desses te interessa?"`
           }
@@ -1108,11 +1149,14 @@ Exemplos de objeções:
             }))
           }
 
-          // Retry strategy for carousel (UAZAPI field names vary)
+          // Retry strategy for carousel — 4 variants matching uazapi-proxy order (phone+message is primary for individual)
           const msg = args.message || 'Confira nossas opções:'
+          const rawNumSc = contact.jid.split('@')[0]
           const variants = [
             { phone: contact.jid, message: msg, carousel },
             { number: contact.jid, text: msg, carousel },
+            { phone: rawNumSc, message: msg, carousel },
+            { number: rawNumSc, text: msg, carousel },
           ]
           let sent = false
           for (const payload of variants) {
@@ -1122,17 +1166,19 @@ Exemplos de objeções:
               body: JSON.stringify(payload),
             }, 10000)
             const body = await res.text()
-            if (res.ok && !body.includes('missing required')) { sent = true; break }
-            if (res.status === 400) break // Fail fast — payload structure issue
+            log.info('send_carousel attempt', { variant: Object.keys(payload)[0], status: res.status, body: body.substring(0, 120) })
+            if (res.ok && !body.toLowerCase().includes('missing')) { sent = true; break }
           }
           if (!sent) return 'Erro ao enviar carrossel. Descreva os produtos por texto.'
 
           // Save carousel to helpdesk
+          const scMediaUrl = JSON.stringify({ message: msg, cards: carousel })
           await supabase.from('conversation_messages').insert({
             conversation_id, direction: 'outgoing', content: msg,
-            media_type: 'carousel', media_url: JSON.stringify({ message: msg, cards: carousel }),
+            media_type: 'carousel', media_url: scMediaUrl,
             external_id: `ai_carousel_${Date.now()}`,
           })
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: msg, media_type: 'carousel', media_url: scMediaUrl })
 
           const photoCount = withImages.length === 1 ? `${(withImages[0].images as string[]).slice(0, 5).length} fotos` : `${withImages.length} produto(s)`
           return `Carrossel enviado com ${photoCount} ao lead! NÃO repita os nomes dos produtos no texto — apenas pergunte se é isso que procura.`
