@@ -34,10 +34,20 @@ BEGIN
   ),
   contact_matches AS (
     SELECT DISTINCT ON (cv.id)
-      cv.id, cv.inbox_id, ai.name, ct.id, ct.name, ct.phone, ct.profile_pic_url,
-      cv.status, cv.priority, cv.assigned_to, cv.last_message_at, cv.is_read,
-      CASE WHEN ct.name ILIKE _pattern THEN 'contact_name' ELSE 'phone' END,
-      NULL::text
+      cv.id AS conversation_id,
+      cv.inbox_id AS inbox_id,
+      ai.name AS inbox_name,
+      ct.id AS contact_id,
+      ct.name AS contact_name,
+      ct.phone AS contact_phone,
+      ct.profile_pic_url AS contact_profile_pic_url,
+      cv.status,
+      cv.priority,
+      cv.assigned_to,
+      cv.last_message_at,
+      cv.is_read,
+      CASE WHEN ct.name ILIKE _pattern THEN 'contact_name' ELSE 'phone' END AS match_type,
+      NULL::text AS message_snippet
     FROM conversations cv
     JOIN accessible_inboxes ai ON ai.id = cv.inbox_id
     JOIN contacts ct ON ct.id = cv.contact_id
@@ -47,9 +57,20 @@ BEGIN
   ),
   message_matches AS (
     SELECT DISTINCT ON (cv.id)
-      cv.id, cv.inbox_id, ai.name, ct.id, ct.name, ct.phone, ct.profile_pic_url,
-      cv.status, cv.priority, cv.assigned_to, cv.last_message_at, cv.is_read,
-      'message'::text, LEFT(cm.content, 120)
+      cv.id AS conversation_id,
+      cv.inbox_id AS inbox_id,
+      ai.name AS inbox_name,
+      ct.id AS contact_id,
+      ct.name AS contact_name,
+      ct.phone AS contact_phone,
+      ct.profile_pic_url AS contact_profile_pic_url,
+      cv.status,
+      cv.priority,
+      cv.assigned_to,
+      cv.last_message_at,
+      cv.is_read,
+      'message'::text AS match_type,
+      LEFT(cm.content, 120) AS message_snippet
     FROM conversation_messages cm
     JOIN conversations cv ON cv.id = cm.conversation_id
     JOIN accessible_inboxes ai ON ai.id = cv.inbox_id

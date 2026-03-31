@@ -33,6 +33,12 @@ export function useGlobalSearch() {
           setResults((data || []) as GlobalSearchResult[]);
         }
         setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[globalSearch] fetch error:', err);
+        setResults([]);
+        setLoading(false);
       });
 
     return () => { cancelled = true; };
