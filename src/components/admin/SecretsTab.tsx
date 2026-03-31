@@ -32,10 +32,13 @@ interface SystemSetting {
 }
 
 const KNOWN_SECRETS: Array<{ key: string; description: string; is_secret: boolean }> = [
+  { key: 'OPENAI_API_KEY', description: 'Chave da API OpenAI — LLM principal do agente IA (gpt-4.1-mini)', is_secret: true },
+  { key: 'GEMINI_API_KEY', description: 'Chave da API Google Gemini — transcrição de áudio, TTS e fallback LLM', is_secret: true },
   { key: 'SUPABASE_MANAGEMENT_TOKEN', description: 'Token de gerenciamento do Supabase (para aplicar secrets via API)', is_secret: true },
   { key: 'GROQ_API_KEY', description: 'Chave da API Groq para IA e transcrição de áudio', is_secret: true },
   { key: 'UAZAPI_SERVER_URL', description: 'URL do servidor UAZAPI', is_secret: false },
   { key: 'UAZAPI_ADMIN_TOKEN', description: 'Token de administrador do UAZAPI', is_secret: true },
+  { key: 'WEBHOOK_SECRET', description: 'Token secreto do webhook UAZAPI — protege contra payloads falsos', is_secret: true },
   { key: 'ALLOWED_ORIGIN', description: 'Origem permitida para CORS das Edge Functions (ex: https://seusite.com)', is_secret: false },
 ];
 

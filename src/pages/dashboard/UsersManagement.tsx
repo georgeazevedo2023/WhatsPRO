@@ -54,7 +54,7 @@ interface UserWithRole {
 
 
 const UsersManagement = () => {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, loading: authLoading } = useAuth();
   const [users, setUsers] = useState<UserWithRole[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,15 +73,6 @@ const UsersManagement = () => {
   const [userToDelete, setUserToDelete] = useState<UserWithRole | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // Redirect if not super admin
-  if (!isSuperAdmin) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
-  useEffect(() => {
-    fetchUsers();
-  }, []);
 
   const fetchUsers = async () => {
     try {
@@ -151,6 +142,15 @@ const UsersManagement = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isSuperAdmin) {
+      setLoading(false);
+      return;
+    }
+    void fetchUsers();
+  }, [authLoading, isSuperAdmin]);
 
   const handleCreateUser = async () => {
     if (!newUserEmail.trim() || !newUserPassword.trim()) {
@@ -243,6 +243,22 @@ const UsersManagement = () => {
       user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  if (authLoading) {
+    return (
+      <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-10 w-40" />
+        </div>
+        <Skeleton className="h-96" />
+      </div>
+    );
+  }
+
+  if (!isSuperAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   if (loading) {
     return (

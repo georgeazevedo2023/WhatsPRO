@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, AreaChart, Area, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, AreaChart, Area, CartesianGrid } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface InstanceStats {
@@ -40,16 +40,6 @@ const statusChartConfig = {
 };
 
 const DashboardCharts = ({ instanceStats, connectedCount, disconnectedCount, loading, helpdeskLeadsDailyData, helpdeskChartTitle }: DashboardChartsProps) => {
-  if (loading) {
-    return (
-      <div className="grid gap-4 md:grid-cols-2 animate-fade-in" style={{ animationDelay: '175ms' }}>
-        <Skeleton className="h-[280px]" />
-        <Skeleton className="h-[280px]" />
-        <Skeleton className="h-[280px] md:col-span-2" />
-      </div>
-    );
-  }
-
   // Memoized data for status pie chart
   const statusData = useMemo(() => 
     [
@@ -89,6 +79,16 @@ const DashboardCharts = ({ instanceStats, connectedCount, disconnectedCount, loa
 
   const hasData = instanceStats.length > 0;
   const hasStatusData = statusData.length > 0;
+
+  if (loading) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2 animate-fade-in" style={{ animationDelay: '175ms' }}>
+        <Skeleton className="h-[280px]" />
+        <Skeleton className="h-[280px]" />
+        <Skeleton className="h-[280px] md:col-span-2" />
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-4 md:grid-cols-2 animate-fade-in" style={{ animationDelay: '175ms' }}>
