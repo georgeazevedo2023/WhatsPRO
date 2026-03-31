@@ -33,6 +33,18 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v4.11.0 (2026-03-31) — Fix: Busca Global (Ctrl+K) travada em "Buscando..."
+
+**Causa raiz:** A RPC `global_search_conversations` tinha colunas sem alias (`cv.id`, `ct.id`) nos CTEs, gerando erro PostgreSQL `column combined.conversation_id does not exist`. O hook ficava preso em loading infinito.
+
+**Fix:**
+- RPC: aliases explícitos em todas as colunas dos CTEs (`cv.id AS conversation_id`, `ct.id AS contact_id`, etc.)
+- Hook: `.catch()` adicionado para nunca travar em loading se a RPC falhar por qualquer motivo
+
+**Arquivos:**
+- `supabase/migrations/20260323000004_global_search_rpc.sql` — aliases corrigidos
+- `src/hooks/useGlobalSearch.ts` — `.catch()` no Promise da RPC
+
 ### v4.10.0 (2026-03-30) — Módulo Disparador: Leads no sidebar + Página de Templates
 
 **Navegação completa do módulo Disparador:**
