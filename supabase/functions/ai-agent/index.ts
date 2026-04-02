@@ -603,6 +603,22 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       })
     }
 
+    // 9.5 Race condition guard: if another concurrent call just sent greeting (within 30s), stop
+    if (!hasInteracted) {
+      const { count: recentGreetings } = await supabase
+        .from('ai_agent_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('conversation_id', conversation_id)
+        .eq('event', 'greeting_sent')
+        .gte('created_at', new Date(Date.now() - 30000).toISOString())
+      if ((recentGreetings || 0) > 0) {
+        log.info('Race condition: greeting just sent by concurrent call — stopping')
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_race_guard' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
     // 10. Build extraction fields + sub-agents instructions
     const extractionFields = (agent.extraction_fields || []).filter((f: any) => f.enabled)
     const extractionInstruction = extractionFields.length > 0
