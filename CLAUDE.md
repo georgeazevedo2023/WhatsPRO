@@ -136,6 +136,8 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - TTS fallback chain: _shared/ttsProviders.ts — Gemini → Cartesia → Murf → Speechify → text. Provider chain configurable via ai_agents.tts_fallback_providers JSONB. API keys: CARTESIA_API_KEY, MURF_API_KEY, SPEECHIFY_API_KEY env vars.
 - Audio split for long responses: splitAudioAndText() sends first sentence as TTS audio + full text as follow-up message (when response > voice_max_text_length and lead sent audio)
 - Fuzzy product search: search_products_fuzzy() RPC — pg_trgm word-level similarity. Fallback after ILIKE exact + word-by-word. Threshold 0.3. Catches typos like "cooral"→"coral".
+- Post-search AND filter: after EVERY search (primary + fallbacks), filter results to keep only products matching ALL query words. Prevents "tinta iquine branco" from returning Coral (matches "tinta"+"branco" but not "iquine"). If strict filter removes everything, keeps original results.
+- Search pipeline order: 1) ILIKE exact phrase → 2) word-by-word AND → 3) fuzzy pg_trgm → post-filter AND on ALL results. NEVER return products that don't match the brand/keyword the lead specified.
 - Carousel config: ai_agents.carousel_text + carousel_button_1 + carousel_button_2 — customizable text and 2 buttons per card (second button optional, empty = hidden)
 - Carousel fallback: when all 4 UAZAPI payload variants fail, sends up to 3 individual photos before falling back to text
 - Handoff → SHADOW: all handoff types (tool, trigger, implicit) set status_ia='shadow' (not 'desligada'). AI continues extracting data silently. Only Clear Context uses 'desligada'.
