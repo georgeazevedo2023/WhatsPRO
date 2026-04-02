@@ -33,6 +33,54 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v5.0.0 (2026-04-01) — AI Agent v2: Validator Agent + Prompt Studio + 30 melhorias
+
+**Sprint completo com 30 perguntas de validação. 5 fases implementadas.**
+
+**Validator Agent (auditor de qualidade):**
+- Segundo agente IA audita cada resposta antes de enviar ao lead (score 0-10)
+- PASS (envia), REWRITE (corrige), BLOCK (handoff)
+- Detecta: frases proibidas, tópicos bloqueados, desconto acima do limite, múltiplas perguntas, nome repetido, info inventada
+- Dashboard de métricas: score médio, distribuição, top violações, sugestões de melhoria
+- Configurável no admin: toggle, modelo (nano/mini/flash), rigor (moderado/rigoroso/máximo)
+
+**Prompt Studio (10 seções editáveis):**
+- System prompt modular: Identidade, SDR, Produtos, Transbordo, Tags, Regras Absolutas, Objeções, Adicional
+- Contexto da Empresa auto-gerado dos campos Business Info
+- Preview do prompt final com contagem de tokens
+- Defaults globais em system_settings (editáveis sem deploy)
+- Botão "Restaurar padrão" por seção
+
+**Melhorias de fluxo (backend):**
+- Handoff → SHADOW padronizado (#11): IA continua extraindo dados pós-handoff
+- Descartar texto LLM após handoff (#12): lead recebe só handoff_message
+- Handoff message por horário comercial (#22): mensagem diferente dentro/fora
+- Grade semanal business_hours (#23): horário por dia da semana
+- Busca fuzzy pg_trgm word-level (#6): captura erros como "cooral"→"coral"
+- Carousel fallback (#10): quando 4 variantes falham → fotos individuais
+- Carousel botões configuráveis (#8, #27): 2 botões + texto personalizável
+- TTS fallback chain (#21): Gemini → Cartesia → Murf → Speechify → texto
+- Áudio resumido + texto (#20): resposta longa → 1ª sentença em áudio + texto completo
+- Roteamento sub-agentes por tags (#18): motivo:compra → modo Vendas
+- Taxonomia 3 tags (#25): motivo + interesse + produto com enforcement rígido
+- Auto-extração de categoria dos produtos encontrados
+
+**Admin (frontend):**
+- Nova aba "Prompt Studio" com 9 seções editáveis
+- Validator Agent UI: toggle, modelo, nível de rigor
+- Carousel config: texto + 2 botões configuráveis
+- Handoff: mensagem separada para fora do horário
+- Renomeado: "Memória do Lead" + "Histórico da Conversa Atual" (#28)
+- Removidos stubs de nicho vazios (#29)
+- Dashboard Validator: score médio, PASS/REWRITE/BLOCK %, top violações, sugestões
+
+**Banco de dados:**
+- Tabela `ai_agent_validations` (scoring por mensagem)
+- 10 colunas novas em `ai_agents`
+- Função `search_products_fuzzy()` com índices trgm
+- Defaults em `system_settings` (prompt_sections + sub_agent_prompts)
+- Migração `business_hours` para grade semanal
+
 ### v4.11.0 (2026-03-31) — Fix: Busca Global (Ctrl+K) travada em "Buscando..."
 
 **Causa raiz:** A RPC `global_search_conversations` tinha colunas sem alias (`cv.id`, `ct.id`) nos CTEs, gerando erro PostgreSQL `column combined.conversation_id does not exist`. O hook ficava preso em loading infinito.

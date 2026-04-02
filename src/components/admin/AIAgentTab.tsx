@@ -27,6 +27,7 @@ import { BlockedNumbersConfig } from './ai-agent/BlockedNumbersConfig';
 import { FollowUpConfig } from './ai-agent/FollowUpConfig';
 import { BusinessInfoConfig } from './ai-agent/BusinessInfoConfig';
 import { PromptStudio } from './ai-agent/PromptStudio';
+import { ValidatorMetrics } from './ai-agent/ValidatorMetrics';
 import { NICHE_TEMPLATES } from '@/data/nicheTemplates';
 
 interface AIAgent {
@@ -545,7 +546,10 @@ export default function AIAgentTab() {
 
                 {/* METRICAS */}
                 {activeTab === 'metrics' && (
-                  <MetricsConfig agentId={selectedAgentId} />
+                  <div className="space-y-6">
+                    <MetricsConfig agentId={selectedAgentId} />
+                    <ValidatorMetrics agentId={selectedAgentId} />
+                  </div>
                 )}
               </div>
             </>
