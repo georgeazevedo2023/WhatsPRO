@@ -1114,18 +1114,32 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
             const mediaType = withImages.length === 1 && (withImages[0].images as string[])?.length < 2 ? 'foto' : 'carrossel'
             const productNames = withImages.slice(0, 3).map((p: any) => cleanProductTitle(p.title)).join(', ')
             const productCount = withImages.length
+            const firstProduct = withImages[0]
+            const hasMultiple = productCount > 1
+
             return `${mediaType === 'foto' ? 'Foto' : 'Carrossel'} com ${productCount} produto(s) JÁ FOI ENVIADO ao lead: ${productNames}.
 
-INSTRUÇÕES PARA SUA RESPOSTA:
-- Faça uma copy de vendas CURTA (1-2 frases) apresentando o produto ao lead
-- Referencie o que o lead pediu e confirme que encontrou (ex: "Encontrei a Iquine que você pediu!")
-- NÃO repita nome completo, preço ou descrição (já está no ${mediaType})
-- NÃO use send_carousel nem send_media (já enviado)
-- Termine com UMA pergunta de fechamento: "É esse que você procura?" ou "Alguma dessas te interessa?"
-- NÃO pergunte "qual produto busca" — o lead JÁ DISSE o que quer e você JÁ ENVIOU
+INSTRUÇÕES PARA SUA RESPOSTA (NÍVEL 2 — QUALIFICAÇÃO CONTÍNUA):
+- O ${mediaType} já foi enviado. NÃO use send_carousel nem send_media novamente.
+- NÃO repita nome completo, preço ou descrição (já está no ${mediaType}).
+- NÃO pergunte "qual produto busca?" ou "em que posso ajudar?" — o lead JÁ DISSE o que quer.
+- NÃO pergunte "alguma te interessa?" de forma genérica.
 
-Exemplo bom: "Encontrei opções de tinta Iquine pra você! Alguma dessas te interessa? 😊"
-Exemplo ruim: "Olá! Poderia me informar qual produto busca?" (PROIBIDO — lead já disse)`
+SEU OBJETIVO: continuar qualificando para fechar a venda. Faça copy de vendas + 1 pergunta de qualificação.
+
+${hasMultiple ? `MÚLTIPLOS PRODUTOS (${productCount}): Destaque um diferencial do produto principal e pergunte qual atende melhor.
+Exemplo: "A linha Dialine é super versátil e tem ótimo rendimento! Qual dessas opções combina mais com seu projeto?"`
+: `PRODUTO ÚNICO: Destaque um benefício real do produto e faça pergunta de qualificação para fechar.
+Produto: ${firstProduct.title} - R$${firstProduct.price?.toFixed(2) || 'sob consulta'}
+${firstProduct.description ? `Descrição: ${firstProduct.description.substring(0, 100)}` : ''}
+
+Exemplos de qualificação contínua (use o que fizer sentido):
+- Cor: "Essa tinta tem excelente cobertura! Qual a cor de sua preferência?"
+- Quantidade: "Rendimento de até 80m² por galão! Quantos m² você precisa pintar?"
+- Fechamento: "A Dialine Branco Neve é top pra externo! Posso separar pra você?"
+NÃO invente benefícios — use apenas dados do produto acima.`}
+
+REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_to_human imediatamente.`
           }
           return resultText
         }
