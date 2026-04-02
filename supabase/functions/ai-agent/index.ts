@@ -1112,7 +1112,20 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 
           if (mediaSent) {
             const mediaType = withImages.length === 1 && (withImages[0].images as string[])?.length < 2 ? 'foto' : 'carrossel'
-            return `Produto(s) encontrado(s) e ${mediaType} JÁ FOI ENVIADO ao lead via WhatsApp.\nNÃO repita nomes de produtos, preços ou descrições no texto.\nNÃO use send_carousel nem send_media (já enviado).\nApenas responda com uma PERGUNTA CURTA como: "É esse que você procura?" ou "Algum desses te interessa?"`
+            const productNames = withImages.slice(0, 3).map((p: any) => cleanProductTitle(p.title)).join(', ')
+            const productCount = withImages.length
+            return `${mediaType === 'foto' ? 'Foto' : 'Carrossel'} com ${productCount} produto(s) JÁ FOI ENVIADO ao lead: ${productNames}.
+
+INSTRUÇÕES PARA SUA RESPOSTA:
+- Faça uma copy de vendas CURTA (1-2 frases) apresentando o produto ao lead
+- Referencie o que o lead pediu e confirme que encontrou (ex: "Encontrei a Iquine que você pediu!")
+- NÃO repita nome completo, preço ou descrição (já está no ${mediaType})
+- NÃO use send_carousel nem send_media (já enviado)
+- Termine com UMA pergunta de fechamento: "É esse que você procura?" ou "Alguma dessas te interessa?"
+- NÃO pergunte "qual produto busca" — o lead JÁ DISSE o que quer e você JÁ ENVIOU
+
+Exemplo bom: "Encontrei opções de tinta Iquine pra você! Alguma dessas te interessa? 😊"
+Exemplo ruim: "Olá! Poderia me informar qual produto busca?" (PROIBIDO — lead já disse)`
           }
           return resultText
         }
