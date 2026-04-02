@@ -61,6 +61,7 @@ const ALLOWED_FIELDS = [
   'returning_greeting_message',
   'max_lead_messages',
   'max_qualification_retries',
+  'max_enrichment_questions',
   'prompt_sections',
   'carousel_text',
   'carousel_button_1',

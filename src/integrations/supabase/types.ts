@@ -324,6 +324,7 @@ export type Database = {
           max_discount_percent: number | null
           max_lead_messages: number
           max_qualification_retries: number
+          max_enrichment_questions: number
           max_tokens: number
           model: string
           name: string
@@ -376,6 +377,7 @@ export type Database = {
           max_discount_percent?: number | null
           max_lead_messages?: number
           max_qualification_retries?: number
+          max_enrichment_questions?: number
           max_tokens?: number
           model?: string
           name?: string
@@ -428,6 +430,7 @@ export type Database = {
           max_discount_percent?: number | null
           max_lead_messages?: number
           max_qualification_retries?: number
+          max_enrichment_questions?: number
           max_tokens?: number
           model?: string
           name?: string

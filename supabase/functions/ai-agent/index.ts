@@ -787,6 +787,7 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
       .replace(/\{personality\}/g, agent.personality || 'Profissional, simpático e objetivo')
       .replace(/\{max_pre_search_questions\}/g, String(agent.max_pre_search_questions || 3))
       .replace(/\{max_qualification_retries\}/g, String(agent.max_qualification_retries || 2))
+      .replace(/\{max_enrichment_questions\}/g, String(agent.max_enrichment_questions || 2))
       .replace(/\{max_discount_percent\}/g, agent.max_discount_percent ? `${agent.max_discount_percent}%` : 'NUNCA ofereça desconto')
 
     // Section 1: Identity
@@ -844,7 +845,7 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
 
     // Hardcoded safety rules — cannot be removed by admin via Prompt Studio
     const hardcodedRules = `REGRAS INVIOLÁVEIS (hardcoded):
-- NUNCA diga "não encontrei", "não temos", "sem estoque", "não encontrei opções", "não temos esse produto". O lead NUNCA deve saber que a busca falhou. Em vez disso, faça mais perguntas de qualificação ou transfira para consultor.
+- NUNCA diga "não encontrei", "não temos", "sem estoque", "não encontrei opções", "não temos esse produto", "não trabalhamos com", "não disponível", "em falta", "indisponível". O lead NUNCA deve saber que a busca falhou. Se o produto não foi encontrado após qualificação completa (3+ perguntas respondidas), transfira para consultor com handoff_to_human.
 - NUNCA exponha erros internos ao lead (ex: "não consegui processar", "erro", "falha").
 - NUNCA invente produtos, preços ou informações que não vieram das ferramentas.
 - Quando resultados de ferramenta são marcados com [INTERNO], NUNCA repita o conteúdo ao lead.
@@ -857,8 +858,9 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
 - PREÇO OBRIGATÓRIO: quando o lead perguntar "quanto custa?" ou pedir preço, SEMPRE inclua o valor numérico exato (R$XX,XX) do catálogo. Nunca responda sobre preço sem citar o valor.
 - SEARCH ANTES DE FALAR DE PRODUTO: NUNCA fale sobre preço, qualidade, custo-benefício ou características de produto sem ter chamado search_products PRIMEIRO. Se o lead falar "achei caro" ou "tem mais barato?" e você ainda NÃO buscou, chame search_products ANTES de responder. Sem dados do catálogo = sem opinião sobre produto.
 - NOME DO LEAD: sempre use o PRIMEIRO NOME. "Paulo Roberto" → chame de "Paulo". "Ana Clara" → chame de "Ana". Se o lead informou apenas um nome, use esse. NUNCA use o pushName do WhatsApp (ex: "E2E Test") como nome — só use o nome que o lead informou na conversa.
-- QUALIFICAÇÃO DE TINTAS: quando o lead quer tinta/verniz/impermeabilizante, qualifique NESTA ORDEM: (1) ambiente (interno/externo), (2) cor ou acabamento (fosco/acetinado/esmalte), (3) marca se relevante. NUNCA pergunte marca antes da cor — a cor é mais determinante para a busca.
-- MARCA NÃO DISPONÍVEL: se a busca retornar [INTERNO] informando que a marca pedida não está no catálogo, NÃO chame send_carousel com produtos de outras marcas. Informe o lead empaticamente que não trabalhamos com aquela marca no momento e pergunte se aceita uma alternativa. Se o lead RECUSAR a alternativa ou INSISTIR na marca indisponível, chame handoff_to_human IMEDIATAMENTE — não tente convencê-lo novamente.
+- QUALIFICAÇÃO DE TINTAS: quando o lead quer tinta/verniz/impermeabilizante, qualifique NESTA ORDEM: (1) ambiente (interno/externo), (2) cor ou acabamento (fosco/acetinado/esmalte), (3) marca se relevante. NUNCA pergunte marca antes da cor.
+- ENRIQUECIMENTO PÓS-BUSCA: quando a busca retorna 0 resultados e o [INTERNO] indica FASE DE ENRIQUECIMENTO, siga as instruções exatamente — faça a pergunta sugerida e salve a resposta com set_tags (acabamento, marca_preferida, quantidade, area, aplicacao). NÃO diga que o produto não foi encontrado. Diga algo natural como "Certo! E sobre acabamento, prefere fosco ou brilho?". Quando o [INTERNO] disser que o enriquecimento está COMPLETO, chame handoff_to_human com motivo no formato "Nome > Categoria > Produto > Detalhe1 > Detalhe2".
+- NUNCA dizer "não trabalhamos com", "não temos", "não encontrei", "em falta", "indisponível" em NENHUMA circunstância. Se o produto não existe, entre no fluxo de enriquecimento naturalmente e depois transfira.
 - QUALIFICAÇÃO + OBJEÇÃO NA MESMA MSG: se o lead enviou cor + objeção na mesma mensagem (ex: "Branco\\nAchei caro"), PRIMEIRO chame search_products com a cor, DEPOIS responda a objeção com dados reais do catálogo.`
 
     const systemPrompt = [
@@ -1009,6 +1011,62 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
       },
     ]
 
+    // 13.5 Enrichment helpers — contextual questions + qualification chain builder
+    function buildEnrichmentInstructions(
+      currentTags: string[], step: number, maxSteps: number, brandNotFound: string | null
+    ): string {
+      const has = (key: string) => currentTags.some(t => t.startsWith(`${key}:`))
+      const interesse = currentTags.find(t => t.startsWith('interesse:'))?.split(':')[1] || ''
+
+      const suggestions: string[] = []
+      if (interesse.includes('tinta') || interesse.includes('esmalte')) {
+        if (!has('acabamento')) suggestions.push('acabamento (fosco, acetinado, brilho, semibrilho)')
+        if (!has('marca_preferida') && !brandNotFound) suggestions.push('marca preferida')
+        if (!has('quantidade')) suggestions.push('quantidade (litros ou galões)')
+        if (!has('area')) suggestions.push('metragem da área a pintar')
+      } else if (interesse.includes('impermeabilizante') || interesse.includes('manta')) {
+        if (!has('area')) suggestions.push('tamanho da área')
+        if (!has('aplicacao')) suggestions.push('tipo de aplicação (laje, parede, piso)')
+        if (!has('marca_preferida')) suggestions.push('marca preferida')
+      } else {
+        if (!has('acabamento')) suggestions.push('especificação ou acabamento desejado')
+        if (!has('marca_preferida')) suggestions.push('marca preferida')
+        if (!has('quantidade')) suggestions.push('quantidade necessária')
+      }
+
+      const suggestionText = suggestions.length > 0
+        ? `Sugestões de pergunta: ${suggestions.slice(0, 2).join(' ou ')}.`
+        : 'Pergunte algo relevante que ajude o vendedor.'
+
+      const isLast = step >= maxSteps
+      const urgency = isLast
+        ? ' Esta é a ÚLTIMA pergunta — após a resposta do lead, chame handoff_to_human com motivo detalhado.'
+        : ''
+
+      return `AÇÃO: faça UMA pergunta de enriquecimento para coletar mais dados para o vendedor. ${suggestionText}${urgency} NÃO diga que o produto não foi encontrado. Diga algo natural como "Certo! E sobre acabamento, prefere fosco ou brilho?" Salve a resposta do lead com set_tags (chaves: acabamento, marca_preferida, quantidade, area, aplicacao). PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei".`
+    }
+
+    function buildQualificationChain(tags: string[], pendingTags: Record<string, string>, name: string | null): string {
+      const tagMap = new Map<string, string>()
+      for (const t of tags) { const [k, ...r] = t.split(':'); tagMap.set(k, r.join(':')) }
+      for (const [k, v] of Object.entries(pendingTags)) tagMap.set(k, v)
+
+      const parts: string[] = []
+      if (name) parts.push(name)
+      const fmt = (v: string) => v.replace(/_/g, ' ')
+
+      if (tagMap.has('interesse')) parts.push(fmt(tagMap.get('interesse')!))
+      if (tagMap.has('produto')) parts.push(fmt(tagMap.get('produto')!))
+      if (tagMap.has('aplicacao')) parts.push(fmt(tagMap.get('aplicacao')!))
+      if (tagMap.has('acabamento')) parts.push(fmt(tagMap.get('acabamento')!))
+      if (tagMap.has('marca_preferida')) parts.push(fmt(tagMap.get('marca_preferida')!))
+      else if (tagMap.has('marca_indisponivel')) parts.push(`marca: ${fmt(tagMap.get('marca_indisponivel')!)} (indisponível)`)
+      if (tagMap.has('quantidade')) parts.push(fmt(tagMap.get('quantidade')!))
+      if (tagMap.has('area')) parts.push(`${tagMap.get('area')}m²`)
+
+      return parts.join(' > ')
+    }
+
     // 14. Tool execution function
     async function executeTool(name: string, args: Record<string, any>): Promise<string> {
       switch (name) {
@@ -1137,22 +1195,26 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
           }
 
           if (!products || products.length === 0) {
-            // Qualification retries before handoff
+            // Qualification retries + enrichment before handoff
             const maxRetries = (agent.max_qualification_retries as number) ?? 2
+            const maxEnrichment = (agent.max_enrichment_questions as number) ?? 2
             const searchFailTag = (conversation.tags || []).find((t: string) => t.startsWith('search_fail:'))
             const searchFailCount = searchFailTag ? (parseInt(searchFailTag.split(':')[1]) || 0) : 0
+            const enrichTag = (conversation.tags || []).find((t: string) => t.startsWith('enrich_count:'))
+            const enrichCount = enrichTag ? (parseInt(enrichTag.split(':')[1]) || 0) : 0
 
-            // brandNotFound = brand explicitly not in catalog → jump to maxRetries-1 so ONE more attempt = handoff
-            const newCount = brandNotFound
-              ? Math.max(searchFailCount + 1, maxRetries - 1)
-              : searchFailCount + 1
+            const queryWords = searchText ? searchText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2) : []
+            const hasInteresseTag = (conversation.tags || []).some((t: string) => t.startsWith('interesse:'))
+            const isWellQualified = queryWords.length >= 3 || (hasInteresseTag && queryWords.length >= 1)
 
-            // Build tags: search_fail + marca_indisponivel (demand tracking) + interesse from query
-            const failTags: Record<string, string> = { search_fail: String(newCount) }
+            // Build common tags: marca_indisponivel, produto, interesse
+            const failTags: Record<string, string> = {}
             if (brandNotFound) {
               failTags.marca_indisponivel = brandNotFound.toLowerCase().replace(/\s+/g, '_')
             }
-            // Auto-tag interesse even on 0 results — detect category from query words
+            if (searchText && queryWords.length >= 2) {
+              failTags.produto = searchText.toLowerCase().replace(/\s+/g, '_')
+            }
             const categoryKeywords: Record<string, string> = {
               tinta: 'tintas', verniz: 'seladores_e_vernizes', manta: 'impermeabilizantes',
               impermeabilizante: 'impermeabilizantes', selador: 'seladores_e_vernizes',
@@ -1161,28 +1223,74 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
             if (searchText) {
               const queryLower = searchText.toLowerCase()
               for (const [kw, cat] of Object.entries(categoryKeywords)) {
-                if (queryLower.includes(kw)) {
-                  failTags.interesse = cat
-                  break
-                }
+                if (queryLower.includes(kw)) { failTags.interesse = cat; break }
               }
             }
+
+            // === PATH A: Well-qualified + enrichment NOT complete → ask enrichment question ===
+            if (isWellQualified && maxEnrichment > 0 && enrichCount < maxEnrichment) {
+              const newEnrichCount = enrichCount + 1
+              failTags.enrich_count = String(newEnrichCount)
+              failTags.search_fail = String(searchFailCount + 1)
+
+              await supabase.from('conversations').update({
+                tags: mergeTags(conversation.tags || [], failTags),
+              }).eq('id', conversation_id)
+
+              const chainParts: string[] = []
+              for (const t of (conversation.tags || [])) {
+                if (t.startsWith('interesse:')) chainParts.push(t.split(':')[1])
+                if (t.startsWith('produto:')) chainParts.push(t.split(':')[1].replace(/_/g, ' '))
+              }
+              const chainStr = chainParts.length > 0 ? ` Qualificação até agora: ${chainParts.join(' > ')}.` : ''
+              const instructions = buildEnrichmentInstructions(conversation.tags || [], newEnrichCount, maxEnrichment, brandNotFound)
+
+              log.info('search_products: enrichment phase', { query: searchText, enrichStep: newEnrichCount, maxEnrichment, brandNotFound })
+
+              return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" sem resultados. FASE DE ENRIQUECIMENTO (pergunta ${newEnrichCount}/${maxEnrichment}).${chainStr} ${instructions}`
+            }
+
+            // === PATH B: Well-qualified + enrichment COMPLETE → handoff with full chain ===
+            if (isWellQualified && enrichCount >= maxEnrichment) {
+              failTags.qualificacao_completa = 'true'
+              failTags.search_fail = String(searchFailCount + 1)
+
+              await supabase.from('conversations').update({
+                tags: mergeTags(conversation.tags || [], failTags),
+              }).eq('id', conversation_id)
+
+              const qualChain = buildQualificationChain(
+                mergeTags(conversation.tags || [], failTags),
+                {},
+                leadName || contact?.name || null
+              )
+
+              log.info('search_products: enrichment complete → handoff', { query: searchText, qualificationChain: qualChain })
+
+              return `[INTERNO — NÃO mostre isso ao lead] Enriquecimento COMPLETO. Cadeia de qualificação: ${qualChain}. AÇÃO: chame handoff_to_human AGORA com motivo="${qualChain}". Diga algo como "Vou te conectar com nosso consultor que pode te ajudar a encontrar exatamente o que você precisa!" PROIBIDO: dizer "não encontrei", "não temos", "não trabalhamos".`
+            }
+
+            // === PATH C: NOT well-qualified → existing search_fail retry logic ===
+            const newCount = brandNotFound
+              ? Math.max(searchFailCount + 1, maxRetries - 1)
+              : searchFailCount + 1
+            failTags.search_fail = String(newCount)
 
             await supabase.from('conversations').update({
               tags: mergeTags(conversation.tags || [], failTags),
             }).eq('id', conversation_id)
 
-            log.info('search_products: no results', { query: searchText, attempt: newCount, max: maxRetries, brandNotFound })
-
-            const brandHint = brandNotFound
-              ? ` A marca/produto "${brandNotFound}" NÃO está no catálogo. Informe o lead de forma empática que não trabalhamos com essa marca no momento e pergunte se aceita uma alternativa. Ex: "Não trabalhamos com ${brandNotFound} no momento, mas temos ótimas opções de outras marcas. Qual a finalidade da tinta?" NUNCA chame send_carousel com produtos de marca diferente da pedida. Se o lead RECUSAR a alternativa ou INSISTIR na marca, chame handoff_to_human IMEDIATAMENTE.`
-              : ' AÇÃO: faça UMA pergunta para refinar — cor, acabamento, marca alternativa ou tamanho.'
+            log.info('search_products: no results (not well qualified)', { query: searchText, attempt: newCount, max: maxRetries, brandNotFound })
 
             if (newCount >= maxRetries) {
-              return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" sem resultados após ${newCount} tentativas.${brandNotFound ? ` Marca "${brandNotFound}" não disponível.` : ''} AÇÃO: chame handoff_to_human AGORA informando o que o lead procura. PROIBIDO: dizer "não encontrei", "não temos", "sem estoque". Diga algo como "Vou te conectar com nosso consultor que pode te ajudar melhor com isso!"`
+              return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" sem resultados após ${newCount} tentativas.${brandNotFound ? ` Termo "${brandNotFound}" não encontrado no catálogo.` : ''} AÇÃO: chame handoff_to_human AGORA com motivo="${searchText}". Diga algo como "Vou te conectar com nosso consultor que pode te ajudar a encontrar exatamente o que você precisa!" PROIBIDO: dizer "não encontrei", "não temos", "não trabalhamos".`
             }
 
-            return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" retornou 0 produtos (tentativa ${newCount}/${maxRetries}).${brandHint} PROIBIDO: dizer "não encontrei", "não temos", "sem estoque", "não encontrei opções". O lead NUNCA deve saber que a busca falhou. Pergunte naturalmente como se estivesse oferecendo alternativas.`
+            const brandHint = brandNotFound
+              ? ` O termo "${brandNotFound}" não foi encontrado no catálogo. Pergunte se o lead aceita uma opção diferente. Se o lead RECUSAR, chame handoff_to_human. PROIBIDO: dizer "não trabalhamos com", "não temos".`
+              : ' AÇÃO: faça UMA pergunta para refinar — cor, acabamento, marca alternativa ou tamanho.'
+
+            return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" retornou 0 produtos (tentativa ${newCount}/${maxRetries}).${brandHint} PROIBIDO: dizer "não encontrei", "não temos", "não trabalhamos". O lead NUNCA deve saber que a busca falhou.`
           }
 
           // Products found — reset qualification retry counter
@@ -1566,7 +1674,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           if (rawTags.length === 0) return 'Nenhuma tag informada.'
 
           // #25: Enforcement — validate tag keys and motivo values
-          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel'])
+          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel','acabamento','marca_preferida','quantidade','area','aplicacao','enrich_count','qualificacao_completa'])
           const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
           const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro'])
 
@@ -1779,12 +1887,30 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             await supabase.from('conversation_labels').insert({ conversation_id, label_id: handoffLabel.id })
           }
 
+          // Build qualification chain from tags for structured handoff data
+          const qualChain = buildQualificationChain(
+            conversation.tags || [],
+            {},
+            leadName || contact?.name || null
+          )
+
           // Log + broadcast
           await supabase.from('ai_agent_logs').insert({
             agent_id, conversation_id, event: 'handoff',
-            metadata: { reason: args.reason, cooldown_minutes: cooldown, new_status: newStatus },
+            metadata: { reason: args.reason, qualification_chain: qualChain, cooldown_minutes: cooldown, new_status: newStatus },
           })
           broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+
+          // Persist qualification chain to lead_profiles.notes for seller reference
+          if (qualChain && qualChain.includes('>')) {
+            supabase.from('lead_profiles').upsert({
+              contact_id: contact.id,
+              notes: `Qualificação: ${qualChain}`,
+              last_contact_at: new Date().toISOString(),
+            }, { onConflict: 'contact_id' }).then(({ error: e }) => {
+              if (e) log.warn('Failed to persist qualification chain to lead_profiles', { error: e.message })
+            })
+          }
 
           return `Conversa transferida para atendente humano. Motivo: ${args.reason}. IA em modo shadow (observando).`
         }
@@ -2065,6 +2191,20 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
         if (validation.verdict === 'REWRITE' && validation.rewritten) {
           log.info('Validator rewrote response', { original: responseText.substring(0, 80), rewritten: validation.rewritten.substring(0, 80) })
           responseText = validation.rewritten
+        }
+      }
+
+      // HARDCODED GUARD: max 1 question per message — validator LLM often miscounts
+      // Count real question marks (ignore "?" inside quotes or rhetorical)
+      const questionMarks = (responseText.match(/\?/g) || []).length
+      if (questionMarks > 1) {
+        // Split into sentences and keep only up to the first question
+        const sentences = responseText.split(/(?<=[.!?])\s+/)
+        const firstQuestionIdx = sentences.findIndex(s => s.includes('?'))
+        if (firstQuestionIdx >= 0 && firstQuestionIdx < sentences.length - 1) {
+          const trimmed = sentences.slice(0, firstQuestionIdx + 1).join(' ')
+          log.info('Hardcoded guard: removed extra questions', { original: responseText.substring(0, 120), trimmed: trimmed.substring(0, 120), questionMarks })
+          responseText = trimmed
         }
       }
 

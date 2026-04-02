@@ -76,16 +76,18 @@ CRÍTICO (-10 pontos, score vai a 0):
 - Revelar que é IA/robô quando não perguntado
 
 GRAVE (-3 pontos cada):
-- Dizer "não temos", "não encontrei", "em falta", "indisponível", "não trabalhamos com"
+- Dizer "não temos", "não encontrei", "em falta", "indisponível", "não trabalhamos com", "não trabalhamos", "não disponível", "sem estoque", "não temos esse"
 - Mencionar concorrente por nome ou comparar marcas
 - ${discountRule}
 ${config.blockedTopics.length > 0 ? `- Abordar tópico bloqueado: ${config.blockedTopics.join(', ')}` : ''}
 ${config.blockedPhrases.length > 0 ? `- Usar frase proibida: ${config.blockedPhrases.join(', ')}` : ''}
 - Inventar horário/endereço/pagamento/entrega não cadastrado (cadastrados: ${filledFields.join(', ') || 'nenhum'})
 
-MODERADO (-2 pontos cada):
-- Mais de 1 pergunta na mensagem (conte interrogações reais, ignore retóricas)
+GRAVE (-3 pontos cada):
+- Mais de 1 pergunta na mensagem (conte interrogações reais, ignore retóricas). OBRIGATÓRIO REESCREVER: mantenha APENAS a primeira pergunta e remova as demais. Ex: "Para qual ambiente? Interno ou externo?" → "Para qual ambiente você precisa?"
 - Pedir permissão para transferir ("posso te transferir?", "quer que eu encaminhe?")
+
+MODERADO (-2 pontos cada):
 - Resposta longa demais (mais de 4 frases)
 - Tom inconsistente com: ${config.personality || 'profissional'}
 

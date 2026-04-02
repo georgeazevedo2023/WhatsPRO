@@ -33,6 +33,22 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v5.2.0 (2026-04-02) — Enrichment Qualification Flow + validator guard
+
+**Feature: Enriquecimento pós-busca antes do handoff**
+- Quando busca retorna 0 após qualificação, agente faz 2 perguntas extras (acabamento, marca) antes de transferir
+- Vendedor recebe cadeia completa: "George > Tintas > Tinta Rosa > Fosco > Iquine"
+- Configurável: `max_enrichment_questions` (default 2, 0 = handoff imediato antigo)
+- 7 novas tags: acabamento, marca_preferida, quantidade, area, aplicacao, enrich_count, qualificacao_completa
+- Qualification chain salva em ai_agent_logs.metadata + lead_profiles.notes
+- buildEnrichmentInstructions(): perguntas contextuais por categoria (tintas, impermeabilizantes, genérico)
+- buildQualificationChain(): monta cadeia estruturada para handoff
+
+**Fix: Validator não barrava 2 perguntas na mesma mensagem**
+- 2+ perguntas promovido de MODERADO (-2) para GRAVE (-3) no validator
+- Hardcoded question guard: conta "?" no texto, corta após primeira pergunta se >1
+- "Pedir permissão para transferir" também promovido para GRAVE
+
 ### v5.1.0 (2026-04-02) — AI Agent qualification fixes + tab focus refresh
 
 **3 bug fixes (cenário Livia) + 3 melhorias de qualificação + fix UX tab stale:**

@@ -187,11 +187,14 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - ValidatorMetrics component: score avg, PASS/REWRITE/BLOCK rates, score distribution, top violations with severity, AI suggestions
 - Validator rigor levels: moderado (score>=8 PASS), rigoroso (>=9), maximo (only 10). Config: ai_agents.validator_enabled, validator_model, validator_rigor
 - AI Agent Tools (8): search_products, send_carousel, send_media, handoff_to_human, assign_label, set_tags, move_kanban, update_lead_profile
-- Qualification retries: max_qualification_retries (default 2) — search_fail:N tag tracks failed searches. N >= max → force handoff. Resets on product found. When brandNotFound detected, search_fail jumps to maxRetries-1 (one more failure = handoff). Lead refusing alternative for unavailable brand → immediate handoff.
-- Brand demand tracking: tag marca_indisponivel:X auto-set when brand not in catalog. VALID_KEYS includes marca_indisponivel. Analytics can track demand for brands not carried.
-- Auto-tag interesse on 0 results: category detected from query keywords (tinta→tintas, verniz→seladores_e_vernizes, manta→impermeabilizantes) even when search returns 0 products. Lead interest is always tracked.
+- Qualification retries: max_qualification_retries (default 2) — search_fail:N tag tracks failed searches. N >= max → force handoff. Resets on product found.
+- Enrichment flow: max_enrichment_questions (default 2) — when search returns 0 AND lead is well-qualified (interesse:X tag exists or 3+ query terms), agent enters enrichment phase: asks contextual questions (acabamento, marca_preferida, quantidade, area) before handoff. Tags: enrich_count:N, qualificacao_completa:true. Handoff includes qualification_chain: "Nome > Interesse > Produto > Acabamento > Marca".
+- Enrichment tags: acabamento, marca_preferida, quantidade, area, aplicacao, enrich_count, qualificacao_completa — all in VALID_KEYS. buildEnrichmentInstructions() generates contextual suggestions per category. buildQualificationChain() builds structured chain for handoff reason + lead_profiles.notes.
+- Brand demand tracking: tag marca_indisponivel:X auto-set when brand not in catalog.
+- Auto-tag interesse on 0 results: category detected from query keywords (tinta→tintas, verniz→seladores_e_vernizes, manta→impermeabilizantes) even when search returns 0.
 - Paint qualification order: hardcoded prompt rule — (1) ambiente interno/externo, (2) cor/acabamento, (3) marca. NEVER ask marca before cor.
-- leadName from lead_profiles ONLY: never use contact.name (WhatsApp pushName like "E2E Test"). leadFullName = leadProfile?.full_name || null. update_lead_profile tool instructs LLM to use newly saved name immediately.
+- leadName from lead_profiles ONLY: never use contact.name (WhatsApp pushName). leadFullName = leadProfile?.full_name || null.
+- Hardcoded question guard: after validator, count "?" in response — if >1, truncate to first question only. Validator LLM (gpt-4.1-nano) miscounts scores, so this is a code-level safety net.
 - max_pre_search_questions: max perguntas de qualificacao antes de search_products para termos genericos (default 3)
 - max_lead_messages: auto-handoff apos N msgs do lead (default 8). Atomic counter via increment_lead_msg_count RPC.
 - Campaign context: tag campanha:NAME on conversation → loads utm_campaigns.ai_template + ai_custom_text into system prompt

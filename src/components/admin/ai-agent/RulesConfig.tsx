@@ -143,6 +143,17 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
               Quando a busca retorna 0 resultados, o agente faz perguntas adicionais antes de transferir. 0 = transfere imediatamente. Recomendado: 2.
             </p>
           </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Perguntas de enriquecimento (apos busca sem resultado)</Label>
+            <Input
+              type="number" min={0} max={5}
+              value={config.max_enrichment_questions ?? 2}
+              onChange={(e) => onChange({ max_enrichment_questions: parseInt(e.target.value) || 0 })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Quando o lead ja qualificou (ex: tinta + interno + rosa) mas o produto nao foi encontrado, o agente faz perguntas extras (acabamento, marca) para enriquecer dados antes de transferir. O vendedor recebe a cadeia completa. 0 = transfere imediatamente. Recomendado: 2.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
