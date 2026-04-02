@@ -74,6 +74,21 @@ npm run build        # Production build
 npx supabase functions deploy <name>  # Deploy edge function
 ```
 
+## Regra de Consistencia Obrigatoria (SYNC RULE)
+Toda alteracao em campo configuravel, regra do agente, ou comportamento DEVE ser sincronizada automaticamente em TODOS os 6 locais abaixo. NAO esperar o usuario pedir. NAO fazer parcialmente.
+
+**Checklist obrigatorio ao alterar qualquer feature do AI Agent:**
+1. **Banco (coluna)** — campo existe em `ai_agents`? Default correto? Migration criada?
+2. **Types.ts** — campo adicionado em Row, Insert e Update de `ai_agents`?
+3. **Admin UI** — campo visivel e editavel no painel? Label e descricao claras?
+4. **ALLOWED_FIELDS** — campo listado em `AIAgentTab.tsx` ALLOWED_FIELDS para auto-save?
+5. **Backend (ai-agent)** — campo lido e usado no `index.ts`? Logica implementada?
+6. **Prompt (prompt_sections)** — regra refletida no system prompt? Variavel template se aplicavel?
+7. **system_settings defaults** — default atualizado para novos agentes?
+8. **Documentacao** — CLAUDE.md + PRD.md atualizados?
+
+Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. Verificar ANTES de reportar como concluida.
+
 ## Important Patterns
 - UAZAPI responses have inconsistent field names (PascalCase/camelCase) - always handle both
 - Instance tokens are resolved server-side, never exposed to frontend
