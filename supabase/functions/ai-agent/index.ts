@@ -857,20 +857,27 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 
           let { data: products } = await query.limit(10)
 
-          // Fallback: if no results and query has multiple words, search each word
+          // Fallback: if no results and query has multiple words, search each word with AND logic
           if ((!products || products.length === 0) && searchText && searchText.includes(' ')) {
             const words = searchText.split(/\s+/).filter((w: string) => w.length > 2)
             if (words.length > 1) {
+              // Fetch broad set then filter in JS for true AND logic
+              // (Supabase .or() chains are OR, not AND)
+              const broadTerms = words.slice(0, 5).map(w => `title.ilike.%${escapeLike(w)}%,description.ilike.%${escapeLike(w)}%`).join(',')
               let fallback = baseQuery()
               if (args.min_price) fallback = fallback.gte('price', args.min_price)
               if (args.max_price) fallback = fallback.lte('price', args.max_price)
-              // Match ALL words in title or description (AND logic)
-              for (const word of words.slice(0, 5)) {
-                fallback = fallback.or(`title.ilike.%${escapeLike(word)}%,description.ilike.%${escapeLike(word)}%`)
+              fallback = fallback.or(broadTerms)
+              const { data: broadProducts } = await fallback.limit(50)
+              // Filter: keep only products that match ALL words (AND)
+              const filtered = (broadProducts || []).filter((p: any) => {
+                const haystack = `${p.title} ${p.description || ''} ${p.category || ''}`.toLowerCase()
+                return words.every(w => haystack.includes(w.toLowerCase()))
+              })
+              if (filtered.length > 0) {
+                products = filtered.slice(0, 10)
+                log.info('search_products AND-fallback found results', { count: products.length, words: words.join(', ') })
               }
-              const { data: fallbackProducts } = await fallback.limit(10)
-              products = fallbackProducts
-              if (products?.length) log.info('search_products fallback found results', { count: products.length, words: words.join(', ') })
             }
           }
 
