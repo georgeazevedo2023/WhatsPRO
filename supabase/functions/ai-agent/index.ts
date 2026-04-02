@@ -8,6 +8,7 @@ import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
 import { unauthorizedResponse } from '../_shared/auth.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.ts'
+import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -946,6 +947,16 @@ Exemplos de objeções:
             }
           }
 
+          // #6: Fallback 2 — fuzzy search (pg_trgm word-level) for typos like "cooral" → "coral"
+          if ((!products || products.length === 0) && searchText) {
+            const { data: fuzzyProducts } = await supabase
+              .rpc('search_products_fuzzy', { _agent_id: agent_id, _query: searchText, _threshold: 0.3, _limit: 10 })
+            if (fuzzyProducts && fuzzyProducts.length > 0) {
+              products = fuzzyProducts
+              log.info('search_products fuzzy fallback found results', { count: products.length, query: searchText, topSim: fuzzyProducts[0]?.sim })
+            }
+          }
+
           if (!products || products.length === 0) {
             // Qualification retries before handoff
             const maxRetries = (agent.max_qualification_retries as number) ?? 2
@@ -973,6 +984,18 @@ Exemplos de objeções:
             }).eq('id', conversation_id)
           }
 
+          // #25: Auto-extract category tag from found products (interesse:CATEGORY)
+          const firstCategory = products[0]?.category
+          if (firstCategory) {
+            const catTag = firstCategory.toLowerCase().replace(/\s+/g, '_')
+            const autoTags: Record<string, string> = { interesse: catTag }
+            if (searchText) autoTags.produto = searchText.toLowerCase().replace(/\s+/g, '_')
+            await supabase.from('conversations').update({
+              tags: mergeTags(conversation.tags || [], autoTags),
+            }).eq('id', conversation_id)
+            log.info('Auto-tagged from search results', { interesse: catTag, produto: autoTags.produto })
+          }
+
           // Auto-send media/carousel when products have images
           // Rules: 1 product + 2+ photos → carousel (1 photo per card)
           //         1 product + 1 photo  → send/media (photo + clean caption)
@@ -985,20 +1008,25 @@ Exemplos de objeções:
             const p = withImages[0]
             const photos = (p.images as string[]).slice(0, 5)
             const copies = await generateCarouselCopies(p, photos.length)
+            const btn1Text = agent.carousel_button_1 || 'Eu quero!'
+            const btn2Text = agent.carousel_button_2 || ''
             const carousel = photos.map((img: string, idx: number) => ({
               text: copies[idx] || `${cleanProductTitle(p.title)}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
               image: img,
-              buttons: [{ id: `${p.title}_${idx}`, text: 'Comprar', type: 'REPLY' }],
+              buttons: [
+                { id: `${p.title}_${idx}`, text: btn1Text, type: 'REPLY' },
+                ...(btn2Text ? [{ id: `info_${p.title}_${idx}`, text: btn2Text, type: 'REPLY' }] : []),
+              ],
             }))
             log.info('Auto-carousel: single product multi-photo', { title: p.title, photoCount: photos.length })
 
-            // Send carousel — 4 variants matching uazapi-proxy order (phone+message is primary for individual)
+            const carouselMsg = agent.carousel_text || 'Confira nossas opções:'
             const rawNum1 = contact.jid.split('@')[0]
             const carouselPayloads = [
-              { phone: contact.jid, message: agent.carousel_text || 'Confira:', carousel },
-              { number: contact.jid, text: agent.carousel_text || 'Confira:', carousel },
-              { phone: rawNum1, message: agent.carousel_text || 'Confira:', carousel },
-              { number: rawNum1, text: agent.carousel_text || 'Confira:', carousel },
+              { phone: contact.jid, message: carouselMsg, carousel },
+              { number: contact.jid, text: carouselMsg, carousel },
+              { phone: rawNum1, message: carouselMsg, carousel },
+              { number: rawNum1, text: carouselMsg, carousel },
             ]
             for (const payload of carouselPayloads) {
               try {
@@ -1053,19 +1081,24 @@ Exemplos de objeções:
             } catch (err) { log.error('Auto-media send failed', { error: (err as Error).message }) }
           } else if (withImages.length > 1) {
             // Multiple products → carousel (1 card per product)
+            const mpBtn1 = agent.carousel_button_1 || 'Eu quero!'
+            const mpBtn2 = agent.carousel_button_2 || ''
             const carousel = withImages.slice(0, 10).map((p: any) => ({
               text: `${cleanProductTitle(p.title)}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
               image: p.images[0],
-              buttons: [{ id: p.title, text: 'Comprar', type: 'REPLY' }],
+              buttons: [
+                { id: p.title, text: mpBtn1, type: 'REPLY' },
+                ...(mpBtn2 ? [{ id: `info_${p.title}`, text: mpBtn2, type: 'REPLY' }] : []),
+              ],
             }))
 
-            // Send carousel — 4 variants matching uazapi-proxy order (phone+message is primary for individual)
+            const mpMsg = agent.carousel_text || 'Confira nossas opções:'
             const rawNum2 = contact.jid.split('@')[0]
             const carouselPayloads = [
-              { phone: contact.jid, message: agent.carousel_text || 'Confira:', carousel },
-              { number: contact.jid, text: agent.carousel_text || 'Confira:', carousel },
-              { phone: rawNum2, message: agent.carousel_text || 'Confira:', carousel },
-              { number: rawNum2, text: agent.carousel_text || 'Confira:', carousel },
+              { phone: contact.jid, message: mpMsg, carousel },
+              { number: contact.jid, text: mpMsg, carousel },
+              { phone: rawNum2, message: mpMsg, carousel },
+              { number: rawNum2, text: mpMsg, carousel },
             ]
             for (const payload of carouselPayloads) {
               try {
@@ -1130,22 +1163,29 @@ Exemplos de objeções:
           let carousel: any[]
 
           // Single product with multiple photos → multi-photo carousel with AI sales copy
+          const scBtn1 = agent.carousel_button_1 || 'Eu quero!'
+          const scBtn2 = agent.carousel_button_2 || ''
           if (withImages.length === 1 && withImages[0].images?.length > 1) {
             const p = withImages[0]
-            const photos = (p.images as string[]).slice(0, 5) // Max 5 photos
+            const photos = (p.images as string[]).slice(0, 5)
             const copies = await generateCarouselCopies(p, photos.length)
             carousel = photos.map((img: string, idx: number) => ({
               text: copies[idx] || `${p.title}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
               image: img,
-              buttons: [{ id: `${p.title}_${idx}`, text: idx === photos.length - 1 ? 'Quero este!' : 'Ver mais', type: 'REPLY' }],
+              buttons: [
+                { id: `${p.title}_${idx}`, text: scBtn1, type: 'REPLY' },
+                ...(scBtn2 ? [{ id: `info_${p.title}_${idx}`, text: scBtn2, type: 'REPLY' }] : []),
+              ],
             }))
             log.info('Multi-photo carousel', { title: p.title, photoCount: photos.length })
           } else {
-            // Multiple products → 1 card per product
             carousel = withImages.slice(0, 10).map((p: any) => ({
               text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
               image: p.images[0],
-              buttons: [{ id: p.title, text: 'Gostei', type: 'REPLY' }],
+              buttons: [
+                { id: p.title, text: scBtn1, type: 'REPLY' },
+                ...(scBtn2 ? [{ id: `info_${p.title}`, text: scBtn2, type: 'REPLY' }] : []),
+              ],
             }))
           }
 
@@ -1238,11 +1278,29 @@ Exemplos de objeções:
         }
 
         case 'set_tags': {
-          const newTags: string[] = args.tags || []
-          if (newTags.length === 0) return 'Nenhuma tag informada.'
+          const rawTags: string[] = args.tags || []
+          if (rawTags.length === 0) return 'Nenhuma tag informada.'
+
+          // #25: Enforcement — validate tag keys and motivo values
+          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento'])
+          const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
+          const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro'])
+
+          const newTags: string[] = []
+          const rejected: string[] = []
+          for (const tag of rawTags) {
+            const [key, ...rest] = tag.split(':')
+            const value = rest.join(':')
+            if (!key || !value) { rejected.push(tag); continue }
+            if (!VALID_KEYS.has(key)) { rejected.push(tag); log.warn('Tag rejected: invalid key', { tag }); continue }
+            if (key === 'motivo' && !VALID_MOTIVOS.has(value)) { rejected.push(tag); log.warn('Tag rejected: invalid motivo', { tag }); continue }
+            if (key === 'objecao' && !VALID_OBJECOES.has(value)) { rejected.push(tag); log.warn('Tag rejected: invalid objecao', { tag }); continue }
+            newTags.push(tag)
+          }
+
+          if (newTags.length === 0) return `Nenhuma tag válida. Rejeitadas: ${rejected.join(', ')}`
 
           // Atomic merge: read + merge + write in a single SQL statement
-          // Prevents race condition when two concurrent tool calls merge tags
           const { data: updatedConv, error } = await supabase.rpc('merge_conversation_tags', {
             p_conversation_id: conversation_id,
             p_new_tags: newTags,
@@ -1373,19 +1431,40 @@ Exemplos de objeções:
 
         case 'handoff_to_human': {
           const cooldown = agent.handoff_cooldown_minutes || 30
-          const newStatus = STATUS_IA.DESLIGADA // AI is fully disabled after handoff — human takes over
+          // #11: All handoffs → SHADOW (AI continues extracting data silently)
+          const newStatus = STATUS_IA.SHADOW
 
-          // Send handoff message directly (don't rely on Gemini generating it)
-          const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+          // #22: Choose handoff message based on business hours
+          let handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+          const bh = agent.business_hours
+          if (bh && typeof bh === 'object' && !Array.isArray(bh)) {
+            const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+            const nowBR = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
+            const dayKey = dayKeys[nowBR.getDay()]
+            const dayConfig = (bh as Record<string, any>)[dayKey]
+            if (dayConfig && dayConfig.open === false) {
+              // Closed day → use outside hours message
+              handoffMsg = agent.handoff_message_outside_hours || 'Sua mensagem foi recebida e retornaremos assim que possível! 😊'
+            } else if (dayConfig && dayConfig.start && dayConfig.end) {
+              const currentMin = nowBR.getHours() * 60 + nowBR.getMinutes()
+              const [sh, sm] = dayConfig.start.split(':').map(Number)
+              const [eh, em] = dayConfig.end.split(':').map(Number)
+              if (currentMin < sh * 60 + sm || currentMin >= eh * 60 + em) {
+                handoffMsg = agent.handoff_message_outside_hours || 'Sua mensagem foi recebida e retornaremos assim que possível! 😊'
+              }
+            }
+          }
+
+          // Send handoff message directly (don't rely on LLM generating it)
           await sendTextMsg(handoffMsg)
           await supabase.from('conversation_messages').insert({
             conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
           })
 
-          // Set IA to disabled + tag
+          // Set IA to SHADOW + tag
           await supabase.from('conversations').update({
             status_ia: newStatus,
-            tags: mergeTags(conversation.tags || [], { ia: 'handoff' }),
+            tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
           }).eq('id', conversation_id)
 
           // Auto-assign "Atendimento Humano" label if available
@@ -1402,7 +1481,7 @@ Exemplos de objeções:
             agent_id, conversation_id, event: 'handoff',
             metadata: { reason: args.reason, cooldown_minutes: cooldown, new_status: newStatus },
           })
-          broadcastEvent({ conversation_id, status_ia: newStatus })
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
 
           return `Conversa transferida para atendente humano. Motivo: ${args.reason}. IA em modo shadow (observando).`
         }
@@ -1574,65 +1653,79 @@ Exemplos de objeções:
       // Fix doubled names in response (e.g., "GeorgeGeorge" → "George")
       responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
 
-      // Post-response guard: if Gemini said "não encontrei" despite instructions, force handoff
-      const baseForbidden = [
-        'não encontrei', 'não temos', 'não achei', 'não localizei', 'não disponível',
-        'não está disponível', 'fora de estoque', 'não possuímos',
-      ]
-      // Only forbid business info phrases when NOT configured in the agent
-      const bi = agent.business_info || {}
-      const inventedInfoPhrases = [
-        ...(!bi.hours ? ['nosso horário', 'funciona das', 'abrimos às', 'fechamos às', 'horário de funcionamento'] : []),
-        ...(!bi.address ? ['nosso endereço', 'estamos localizados', 'fica na rua'] : []),
-        ...(!bi.delivery_info ? ['entregamos em', 'prazo de entrega'] : []),
-        ...(!bi.payment_methods ? ['parcelamos em', 'aceitamos pix'] : []),
-      ]
-      const forbiddenPhrases = [...baseForbidden, ...inventedInfoPhrases]
-      if (forbiddenPhrases.some(p => responseText.toLowerCase().includes(p))) {
-        log.warn('GUARD: LLM said forbidden phrase — forcing handoff')
-        // Replace the response with handoff
-        const handoffMsg = agent.handoff_message || 'Vou te encaminhar para um consultor que pode te ajudar!'
-        responseText = handoffMsg
-        // Trigger handoff side effects
-        await sendTextMsg(handoffMsg)
-        await supabase.from('conversation_messages').insert({
-          conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
-        })
-        await supabase.from('conversations').update({
-          status_ia: STATUS_IA.DESLIGADA,
-          tags: mergeTags(conversation.tags || [], { ia: 'handoff_auto' }),
-        }).eq('id', conversation_id)
-        broadcastEvent({ conversation_id, status_ia: STATUS_IA.DESLIGADA })
-        // Skip normal send flow
-        return new Response(JSON.stringify({
-          ok: true, response: handoffMsg, handoff: true, reason: 'forbidden_phrase_guard',
-          tokens: { input: inputTokens, output: outputTokens },
-          latency_ms: Date.now() - startTime,
-        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-      }
-
       // Strip greeting repetition from response (if LLM repeats it despite instructions)
       if (hasInteracted) {
-        // Remove exact greeting match
         if (agent.greeting_message) {
           const greetNorm = agent.greeting_message.toLowerCase().trim().replace(/[!?.]/g, '')
           if (responseText.toLowerCase().includes(greetNorm)) {
             responseText = responseText.replace(new RegExp(agent.greeting_message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '').trim()
           }
         }
-        // Remove generic greetings at start of response (Olá/Oi + name patterns)
         responseText = responseText.replace(/^(Olá|Oi|Ei|Hey),?\s*[A-ZÀ-Ú][a-zà-ú]+[!.]?\s*/i, '').trim()
         if (!responseText) responseText = 'Em que posso te ajudar?'
+      }
+
+      // ── VALIDATOR AGENT ─────────────────────────────────────────────
+      // Scores response 0-10, rewrites if needed, blocks if critical violation
+      if (agent.validator_enabled !== false && responseText.trim().length >= 15) {
+        const recentOutgoing = contextMessages
+          .filter((m: any) => m.direction === 'outgoing' && m.content)
+          .slice(-6)
+          .map((m: any) => m.content)
+        const msgsSinceName = countMsgsSinceNameUse(leadName, recentOutgoing)
+
+        const validatorConfig: ValidatorConfig = {
+          enabled: true,
+          model: agent.validator_model || 'gpt-4.1-nano',
+          rigor: agent.validator_rigor || 'moderado',
+          personality: agent.personality || 'Profissional, simpático e objetivo',
+          systemPrompt: agent.system_prompt || '',
+          blockedTopics: agent.blocked_topics || [],
+          blockedPhrases: agent.blocked_phrases || [],
+          maxDiscountPercent: agent.max_discount_percent,
+          businessInfo: agent.business_info || null,
+          leadName,
+          msgsSinceLastNameUse: msgsSinceName,
+        }
+
+        const validation = await validateResponse(responseText, validatorConfig, agent_id, conversation_id)
+        log.info('Validator result', { score: validation.score, verdict: validation.verdict, violations: validation.violations.length })
+
+        if (validation.verdict === 'BLOCK') {
+          // Critical violation — send handoff instead
+          const handoffMsg = agent.handoff_message || 'Só um instante, vou te encaminhar para nosso consultor de vendas.'
+          await sendTextMsg(handoffMsg)
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+          })
+          await supabase.from('conversations').update({
+            status_ia: STATUS_IA.SHADOW,
+            tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+          }).eq('id', conversation_id)
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+          return new Response(JSON.stringify({
+            ok: true, response: handoffMsg, handoff: true, reason: 'validator_block',
+            validator: { score: validation.score, violations: validation.violations },
+            tokens: { input: inputTokens, output: outputTokens },
+            latency_ms: Date.now() - startTime,
+          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+
+        if (validation.verdict === 'REWRITE' && validation.rewritten) {
+          log.info('Validator rewrote response', { original: responseText.substring(0, 80), rewritten: validation.rewritten.substring(0, 80) })
+          responseText = validation.rewritten
+        }
       }
 
       break
     }
 
-    // If handoff was called, skip text response entirely (handoff tool already sent its message)
+    // #12: If handoff was called, ALWAYS discard LLM text — handoff tool already sent handoff_message
     const hadExplicitHandoffInLoop = toolCallsLog.some(t => t.name === 'handoff_to_human')
-    if (hadExplicitHandoffInLoop && !responseText.trim()) {
-      log.info('Handoff completed — skipping text response')
-      // Still need to update conversation and log, so set a minimal marker
+    if (hadExplicitHandoffInLoop) {
+      if (responseText.trim()) {
+        log.info('Handoff completed — discarding LLM text', { discarded: responseText.substring(0, 100) })
+      }
       responseText = ''
     } else if (!responseText.trim()) {
       log.warn('Empty LLM response — using fallback message')

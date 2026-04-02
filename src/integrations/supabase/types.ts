@@ -339,6 +339,16 @@ export type Database = {
           voice_max_text_length: number
           voice_name: string | null
           voice_reply_to_audio: boolean | null
+          prompt_sections: Json | null
+          carousel_text: string | null
+          carousel_button_1: string | null
+          carousel_button_2: string | null
+          handoff_message_outside_hours: string | null
+          max_pre_search_questions: number
+          validator_enabled: boolean
+          validator_model: string | null
+          validator_rigor: string | null
+          tts_fallback_providers: Json | null
         }
         Insert: {
           blocked_numbers?: string[] | null
@@ -381,6 +391,16 @@ export type Database = {
           voice_max_text_length?: number
           voice_name?: string | null
           voice_reply_to_audio?: boolean | null
+          prompt_sections?: Json | null
+          carousel_text?: string | null
+          carousel_button_1?: string | null
+          carousel_button_2?: string | null
+          handoff_message_outside_hours?: string | null
+          max_pre_search_questions?: number
+          validator_enabled?: boolean
+          validator_model?: string | null
+          validator_rigor?: string | null
+          tts_fallback_providers?: Json | null
         }
         Update: {
           blocked_numbers?: string[] | null
@@ -423,6 +443,16 @@ export type Database = {
           voice_max_text_length?: number
           voice_name?: string | null
           voice_reply_to_audio?: boolean | null
+          prompt_sections?: Json | null
+          carousel_text?: string | null
+          carousel_button_1?: string | null
+          carousel_button_2?: string | null
+          handoff_message_outside_hours?: string | null
+          max_pre_search_questions?: number
+          validator_enabled?: boolean
+          validator_model?: string | null
+          validator_rigor?: string | null
+          tts_fallback_providers?: Json | null
         }
         Relationships: [
           {
@@ -430,6 +460,72 @@ export type Database = {
             columns: ["instance_id"]
             isOneToOne: true
             referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_validations: {
+        Row: {
+          id: string
+          agent_id: string
+          conversation_id: string
+          original_text: string
+          score: number
+          verdict: string
+          violations: Json | null
+          bonuses: Json | null
+          rewritten_text: string | null
+          suggestion: string | null
+          block_action: string | null
+          model: string | null
+          latency_ms: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          agent_id: string
+          conversation_id: string
+          original_text: string
+          score: number
+          verdict: string
+          violations?: Json | null
+          bonuses?: Json | null
+          rewritten_text?: string | null
+          suggestion?: string | null
+          block_action?: string | null
+          model?: string | null
+          latency_ms?: number | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          agent_id?: string
+          conversation_id?: string
+          original_text?: string
+          score?: number
+          verdict?: string
+          violations?: Json | null
+          bonuses?: Json | null
+          rewritten_text?: string | null
+          suggestion?: string | null
+          block_action?: string | null
+          model?: string | null
+          latency_ms?: number | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_validations_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agent_validations_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
             referencedColumns: ["id"]
           },
         ]
@@ -2707,6 +2803,20 @@ export type Database = {
           card_count: number
           column_count: number
           member_count: number
+        }[]
+      }
+      search_products_fuzzy: {
+        Args: { _agent_id: string; _query: string; _threshold?: number; _limit?: number }
+        Returns: {
+          id: string
+          title: string
+          category: string
+          subcategory: string
+          description: string
+          price: number
+          images: string[]
+          in_stock: boolean
+          sim: number
         }[]
       }
       global_search_conversations: {

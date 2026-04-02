@@ -58,6 +58,16 @@ const ALLOWED_FIELDS = [
   'returning_greeting_message',
   'max_lead_messages',
   'max_qualification_retries',
+  'prompt_sections',
+  'carousel_text',
+  'carousel_button_1',
+  'carousel_button_2',
+  'handoff_message_outside_hours',
+  'max_pre_search_questions',
+  'validator_enabled',
+  'validator_model',
+  'validator_rigor',
+  'tts_fallback_providers',
 ];
 
 export default function AIAgentTab() {
