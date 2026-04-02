@@ -881,6 +881,23 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
             }
           }
 
+          // POST-SEARCH FILTER: if query has multiple words, keep only products matching ALL words
+          // This prevents "tinta iquine branco" from returning Coral products (which match "tinta" + "branco" but not "iquine")
+          if (products && products.length > 1 && searchText && searchText.includes(' ')) {
+            const queryWords = searchText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2)
+            if (queryWords.length > 1) {
+              const strictFiltered = products.filter((p: any) => {
+                const haystack = `${p.title} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''}`.toLowerCase()
+                return queryWords.every(w => haystack.includes(w))
+              })
+              if (strictFiltered.length > 0) {
+                log.info('Post-search AND filter applied', { before: products.length, after: strictFiltered.length, query: searchText })
+                products = strictFiltered
+              }
+              // If strict filter removes everything, keep original results (better than 0)
+            }
+          }
+
           // #6: Fallback 2 — fuzzy search (pg_trgm word-level) for typos like "cooral" → "coral"
           if ((!products || products.length === 0) && searchText) {
             const { data: fuzzyProducts } = await supabase
