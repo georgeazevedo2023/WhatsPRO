@@ -603,20 +603,19 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       })
     }
 
-    // 9.5 Race condition guard: if another concurrent call just sent greeting (within 30s), stop
-    if (!hasInteracted) {
-      const { count: recentGreetings } = await supabase
-        .from('ai_agent_logs')
-        .select('*', { count: 'exact', head: true })
-        .eq('conversation_id', conversation_id)
-        .eq('event', 'greeting_sent')
-        .gte('created_at', new Date(Date.now() - 30000).toISOString())
-      if ((recentGreetings || 0) > 0) {
-        log.info('Race condition: greeting just sent by concurrent call — stopping')
-        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_race_guard' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
+    // 9.5 Duplicate response guard: if AI already responded in last 15s, stop
+    // Prevents duplicate messages from debounce calling ai-agent multiple times
+    const { count: recentOutgoing } = await supabase
+      .from('conversation_messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('conversation_id', conversation_id)
+      .eq('direction', 'outgoing')
+      .gte('created_at', new Date(Date.now() - 15000).toISOString())
+    if ((recentOutgoing || 0) > 0) {
+      log.info('Duplicate guard: outgoing message sent in last 15s — stopping', { recentOutgoing })
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate_response_guard' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     // 10. Build extraction fields + sub-agents instructions
