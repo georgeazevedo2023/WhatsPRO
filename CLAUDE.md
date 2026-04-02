@@ -115,3 +115,17 @@ npx supabase functions deploy <name>  # Deploy edge function
 - Date dividers: getDateLabel() uses toZonedTime(BRAZIL_TZ) for timezone-correct day boundaries
 - Agent Performance: AgentPerformanceCard on DashboardHome — ranked agents with resolution rate, response time, msgs
 - Bulk actions: Set<string> selectedIds + handleBulkAction (read/resolve/archive) — selection clears on inbox/status change
+- Validator Agent: _shared/validatorAgent.ts — audits each AI response (score 0-10, PASS/REWRITE/BLOCK). Checks: forbidden phrases, blocked topics, discount limit, multiple questions, name frequency, invented info. Persists to ai_agent_validations table.
+- Prompt Studio: ai_agents.prompt_sections JSONB — 9 editable sections (identity, sdr_flow, product_rules, handoff_rules, tags_labels, absolute_rules, objections, additional) + auto-generated business_context. Template vars: {agent_name}, {personality}, {max_pre_search_questions}, {max_qualification_retries}, {max_discount_percent}. Defaults in system_settings.default_prompt_sections.
+- Greeting race guard: after greeting block, checks if greeting_sent was logged in last 30s by concurrent call — prevents duplicate messages when debounce fires multiple ai-agent calls simultaneously
+- TTS fallback chain: _shared/ttsProviders.ts — Gemini → Cartesia → Murf → Speechify → text. Provider chain configurable via ai_agents.tts_fallback_providers JSONB. API keys: CARTESIA_API_KEY, MURF_API_KEY, SPEECHIFY_API_KEY env vars.
+- Audio split for long responses: splitAudioAndText() sends first sentence as TTS audio + full text as follow-up message (when response > voice_max_text_length and lead sent audio)
+- Fuzzy product search: search_products_fuzzy() RPC — pg_trgm word-level similarity. Fallback after ILIKE exact + word-by-word. Threshold 0.3. Catches typos like "cooral"→"coral".
+- Carousel config: ai_agents.carousel_text + carousel_button_1 + carousel_button_2 — customizable text and 2 buttons per card (second button optional, empty = hidden)
+- Carousel fallback: when all 4 UAZAPI payload variants fail, sends up to 3 individual photos before falling back to text
+- Handoff → SHADOW: all handoff types (tool, trigger, implicit) set status_ia='shadow' (not 'desligada'). AI continues extracting data silently. Only Clear Context uses 'desligada'.
+- Handoff text discard: when handoff_to_human tool executes, any LLM-generated text is discarded — lead receives only the configured handoff_message
+- Handoff by hours: ai_agents.handoff_message_outside_hours — separate message for outside business hours. Business hours use weekly schedule: ai_agents.business_hours JSONB {"mon":{"open":true,"start":"08:00","end":"18:00"}, ...}
+- Sub-agent routing by tags: motivo:compra→sales, motivo:suporte→support, motivo:financeiro→handoff. Only injects relevant sub-agent prompt instead of all 5.
+- Tag taxonomy (3 levels): motivo (intent), interesse (category from catalog), produto (specific product). Enforcement: VALID_KEYS whitelist, VALID_MOTIVOS set, VALID_OBJECOES set. Auto-extracts interesse from search_products results.
+- ValidatorMetrics component: score avg, PASS/REWRITE/BLOCK rates, score distribution, top violations with severity, AI suggestions
