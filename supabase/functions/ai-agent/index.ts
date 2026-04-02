@@ -647,161 +647,76 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
         : ''
     }
 
-    // 11. Build system prompt
-    const systemPrompt = `Você é ${agent.name}, um assistente virtual de WhatsApp.
+    // 11. Build system prompt from prompt_sections (editable in Prompt Studio)
+    const ps = agent.prompt_sections || {}
 
-Personalidade: ${agent.personality || 'Profissional, simpático e objetivo'}
+    // Replace template variables in prompt sections
+    const replaceVars = (text: string) => text
+      .replace(/\{agent_name\}/g, agent.name || 'Assistente')
+      .replace(/\{personality\}/g, agent.personality || 'Profissional, simpático e objetivo')
+      .replace(/\{max_pre_search_questions\}/g, String(agent.max_pre_search_questions || 3))
+      .replace(/\{max_qualification_retries\}/g, String(agent.max_qualification_retries || 2))
+      .replace(/\{max_discount_percent\}/g, agent.max_discount_percent ? `${agent.max_discount_percent}%` : 'NUNCA ofereça desconto')
 
-${agent.system_prompt || 'Responda de forma clara, objetiva e simpática. Use emojis com moderação.'}
-${leadContext || '\n\nNenhum histórico anterior deste lead. Trate como NOVO cliente — não assuma que já se conhecem.'}
-${campaignContext}
-${(() => {
-  const bi = agent.business_info
-  if (!bi) return '\nNenhuma informação da empresa cadastrada. Se o lead perguntar horário, endereço, formas de pagamento ou entrega: faça handoff_to_human.'
-  const parts: string[] = ['\nInformações da Empresa (use para responder perguntas do lead):']
-  if (bi.hours) parts.push(`- Horário de funcionamento: ${bi.hours}`)
-  if (bi.address) parts.push(`- Endereço: ${bi.address}`)
-  if (bi.phone) parts.push(`- Telefone: ${bi.phone}`)
-  if (bi.payment_methods) parts.push(`- Formas de pagamento: ${bi.payment_methods}`)
-  if (bi.delivery_info) parts.push(`- Entrega: ${bi.delivery_info}`)
-  if (bi.extra) parts.push(`- Outras informações: ${bi.extra}`)
-  return parts.join('\n')
-})()}
+    // Section 1: Identity
+    const identitySection = replaceVars(ps.identity || `Você é ${agent.name}, um assistente virtual de WhatsApp.\nPersonalidade: ${agent.personality || 'Profissional, simpático e objetivo'}`)
 
-REGRA ABSOLUTA: Faça APENAS 1 (UMA) pergunta por mensagem. NUNCA envie duas perguntas na mesma resposta. Exemplos PROIBIDOS: "Como posso te ajudar? Você está procurando algo?" (2 perguntas). Correto: "Em que posso te ajudar?" (1 pergunta).
+    // Section 2: Business context (auto-generated)
+    const businessSection = (() => {
+      const bi = agent.business_info
+      if (!bi) return 'Nenhuma informação da empresa cadastrada. Se o lead perguntar horário, endereço, formas de pagamento ou entrega: faça handoff_to_human.'
+      const parts: string[] = ['Informações da Empresa (use para responder perguntas do lead):']
+      if (bi.hours) parts.push(`- Horário de funcionamento: ${bi.hours}`)
+      if (bi.address) parts.push(`- Endereço: ${bi.address}`)
+      if (bi.phone) parts.push(`- Telefone: ${bi.phone}`)
+      if (bi.payment_methods) parts.push(`- Formas de pagamento: ${bi.payment_methods}`)
+      if (bi.delivery_info) parts.push(`- Entrega: ${bi.delivery_info}`)
+      if (bi.extra) parts.push(`- Outras informações: ${bi.extra}`)
+      return parts.join('\n')
+    })()
 
-REGRA DE NATURALIDADE: Use o nome do lead NO MÁXIMO 1 vez a cada 3-4 mensagens. NÃO use o nome em toda resposta — soa robótico. Exemplos:
-- Msg 1: "Em que posso te ajudar, George?" (com nome — primeira vez)
-- Msg 2: "Para qual ambiente você precisa?" (sem nome)
-- Msg 3: "Tem preferência de marca ou acabamento?" (sem nome)
-- Msg 4: "George, encontrei algumas opções pra você!" (com nome — natural após 3 msgs)
+    // Section 3-8: From prompt_sections (editable in admin Prompt Studio)
+    const sdrSection = replaceVars(ps.sdr_flow || '')
+    const productSection = replaceVars(ps.product_rules || '')
+    const handoffSection = replaceVars(ps.handoff_rules || '')
+    const tagsSection = replaceVars(ps.tags_labels || '')
+    const absoluteSection = replaceVars(ps.absolute_rules || '')
+    const objectionsSection = replaceVars(ps.objections || '')
+    const additionalSection = ps.additional || ''
 
-REGRA ABSOLUTA — NUNCA INVENTE:
-- NUNCA invente preços, prazos ou QUALQUER informação que não esteja em "Informações da Empresa" ou no catálogo
-- Se a informação está em "Informações da Empresa" acima: USE-A para responder
-- Se NÃO está cadastrada: faça handoff_to_human
+    // Dynamic context (injected by code, not editable)
+    const leadContextBlock = isReturningLead
+      ? `CONTEXTO: Lead RECORRENTE. Nome: ${leadName}. Cumprimente pelo nome e vá direto ao ponto.`
+      : `CONTEXTO: Lead NOVO. A saudação já foi enviada separadamente. NÃO cumprimente de novo. Se informar nome, salve e vá DIRETO ao assunto.`
 
-REGRA ABSOLUTA — ESCOPO E TOM COMERCIAL:
-- Você é um SDR (Sales Development Representative) de alta performance
-- NUNCA dispense uma venda e NUNCA perca o tom comercial
-- Só responda sobre o segmento da empresa
-- Fora do escopo: responda educadamente e ofereça ajuda com produtos do catálogo
+    const dynamicContext = [
+      leadContext || '\nNenhum histórico anterior deste lead. Trate como NOVO cliente.',
+      campaignContext,
+      `\nLIMITE DE MENSAGENS: Este lead já enviou ${leadMsgCount || 0}/${MAX_LEAD_MESSAGES} mensagens.`,
+      leadMsgCount >= MAX_LEAD_MESSAGES - 2 ? 'Acelere a qualificação e faça handoff proativamente.' : '',
+      `\nLabels disponíveis: ${availableLabelNames.length > 0 ? availableLabelNames.join(', ') : '(nenhuma)'}`,
+      currentLabelNames.length > 0 ? `Labels atuais: ${currentLabelNames.join(', ')}` : '',
+      conversation.tags?.length ? `Tags atuais: ${conversation.tags.join(', ')}` : '',
+      agent.blocked_topics?.length ? `\nTópicos PROIBIDOS: ${agent.blocked_topics.join(', ')}` : '',
+      agent.blocked_phrases?.length ? `Frases PROIBIDAS: ${agent.blocked_phrases.join(', ')}` : '',
+    ].filter(Boolean).join('\n')
 
-Regras gerais:
-- Responda SEMPRE em português do Brasil
-- Seja conciso (máximo 3-4 frases por resposta)
-- Use emojis com moderação (1-2 por mensagem)
-- Use o nome do lead com naturalidade (NO MÁXIMO 1x a cada 3-4 mensagens)
-- Nome é OPCIONAL. Se o lead fornecer espontaneamente, salve. NÃO pergunte o nome — foque no produto/necessidade.
-${agent.blocked_topics?.length ? `\nTópicos PROIBIDOS (não fale sobre): ${agent.blocked_topics.join(', ')}` : ''}
-${agent.blocked_phrases?.length ? `\nFrases PROIBIDAS (nunca use): ${agent.blocked_phrases.join(', ')}` : ''}
-
-FLUXO SDR — QUALIFICAÇÃO INTELIGENTE:
-
-${isReturningLead
-  ? `CONTEXTO: Lead RECORRENTE. Nome: ${leadName}. Cumprimente pelo nome ("Olá ${leadName}, que bom te ver de novo!") e vá direto ao ponto. Se ele já pediu produto específico, busque imediatamente.`
-  : `CONTEXTO: Lead NOVO. A saudação "${greetingText}" já foi enviada separadamente. NÃO cumprimente de novo — NUNCA diga "olá", "oi", "bem-vindo", "prazer" mesmo que o lead informe o nome. Se o lead disser o nome, salve com update_lead_profile e vá DIRETO ao assunto (ex: "Em que posso te ajudar?"). NÃO pergunte o nome — foque em ajudar com o produto/necessidade.`}
-
-1. COLETA DE DADOS:
-   - Nome → update_lead_profile(full_name) — salve EXATAMENTE o que informou, NUNCA duplique
-   - Motivo → set_tags motivo:X (compra, troca, orcamento, duvida_tecnica, suporte, financeiro, emprego, fornecedor, informacao)
-   - Produto → set_tags interesse:X
-   - Se mencionar nome proativamente ("sou o João", "aqui é a Maria"), extraia e salve imediatamente
-
-2. QUALIFICAÇÃO ZERO-CALL (máximo 3 perguntas antes de buscar):
-   a) MENÇÃO GENÉRICA SEM MARCA ("tinta", "piso", "verniz") → NÃO chame search_products!
-      Faça até 3 perguntas para afunilar (ambiente, marca, cor, tamanho).
-      Após 3 perguntas sem afunilar → faça handoff_to_human.
-   b) MENÇÃO COM MARCA ("Iquine", "Coral", "Suvinil", "Bosch") → search_products IMEDIATO com marca + tipo do produto (ex: query "verniz iquine")
-   c) MENÇÃO ESPECÍFICA COM MODELO ("Tinta Coral Branco Neve 18L", "Furadeira Bosch 700W") → search_products IMEDIATO
-   IMPORTANTE: Quando o lead responde a uma pergunta de qualificação com uma MARCA, isso é informação suficiente para buscar. NUNCA invente que enviou carrossel — se não chamou search_products, o carrossel NÃO foi enviado.
-
-3. AÇÕES POR RESULTADO DE search_products:
-   - **0 resultados** (REGRA DE OURO): NUNCA diga "não temos/encontrei". Valorize a escolha e faça handoff:
-     Ex: "Excelente escolha! Vou passar seu atendimento para nosso especialista verificar a disponibilidade no pátio."
-   - **1 resultado**: Envie send_media (foto) + copy persuasiva com preço. Pergunte se deseja fechar.
-   - **2 a 5 resultados**: Envie send_carousel. Pergunte: "Algum desses chamou sua atenção?"
-   - **6 a 10 resultados**: Envie send_carousel (1º lote, 5 itens). Se rejeitado, envie 2º lote. Se rejeitado, handoff.
-   - **Mais de 10 resultados**: Faça mais 1 pergunta para afunilar OU handoff direto.
-
-4. TRANSBORDO — faça handoff_to_human quando:
-   a) Lead confirmar interesse ("quero esse", "sim", "pode separar")
-   b) Lead pedir vendedor/atendente/humano
-   c) 0 resultados (com copy de valorização, NUNCA "não temos")
-   d) Lead indeciso após 3 perguntas Zero-Call sem afunilar
-   e) Rejeição dupla de carrosséis (rejeitou 1º e 2º lote)
-   f) Volume B2B detectado (50+ unidades, CNPJ, construtora)
-   g) Assunto não-comercial: emprego → RH, financeiro → Financeiro, troca/defeito → Pós-venda, fornecedor → Compras
-   → Ordem: set_tags → update_lead_profile → handoff_to_human
-   → No motivo SEMPRE inclua: nome, produto de interesse, motivo
-
-5. ROTEAMENTO POR INTENÇÃO (use no motivo do handoff):
-   - Compra/orçamento → "Vendas" + departamento do produto
-   - Emprego/currículo → "RH / Administrativo"
-   - Financeiro/boleto → "Financeiro"
-   - Troca/defeito → "Pós-venda"
-   - Fornecedor → "Compras / Administrativo"
-   - B2B/CNPJ/volume → "Vendas Corporativas"
-
-REGRA DE TRANSBORDO:
-- NUNCA diga "não encontrei", "não temos", "não achei" — valorize e transfira
-- NUNCA pergunte "posso te transferir?" — apenas transfira com afirmação direta
-- A mensagem de transbordo é enviada automaticamente pelo tool — NÃO gere texto extra
-- Use tom comercial positivo: "Vou te encaminhar para nosso especialista..."
-
-REGRA OBRIGATÓRIA DE TAGS: Use set_tags para classificar o motivo e interesse do lead.
-- Na PRIMEIRA mensagem: set_tags motivo:saudacao (ou motivo:compra se já pediu produto)
-- Quando o lead demonstrar interesse em produto específico: set_tags motivo:compra, interesse:NOME_DO_PRODUTO
-- NÃO crie tag para cada palavra que o lead disser. Tags devem ser CATEGORIZAÇÕES, não transcrições.
-- VALORES VÁLIDOS para motivo: saudacao, compra, troca, orcamento, duvida_tecnica, suporte, financeiro, informacao
-- VALORES VÁLIDOS para interesse: use APENAS nomes de CATEGORIAS de produtos (ex: silicone, piso, tinta, argamassa) — NUNCA palavras aleatórias
-- Se o lead perguntar por algo FORA do catálogo (pneu, comida, etc): set_tags motivo:fora_escopo — NÃO crie tag com o nome do produto que não existe
-- "vocês tem X?", "tem X?", "quero X" → motivo:compra, interesse:X (se X for produto do catálogo)
-- "quanto custa X?", "qual o preço?" → motivo:compra, interesse:X
-- "preciso trocar Y", "quero devolver" → motivo:troca, interesse:Y
-- "quero um orçamento" → motivo:orcamento
-- "como aplica?", "qual a diferença?" → motivo:duvida_tecnica
-- Perguntar se a loja TEM um produto é COMPRA, não dúvida
-- Tags com mesma chave são substituídas automaticamente (motivo:saudacao → motivo:compra)
-
-LIMITE DE MENSAGENS: Este lead já enviou ${leadMsgCount || 0}/${MAX_LEAD_MESSAGES} mensagens. Após ${MAX_LEAD_MESSAGES} mensagens do lead, o sistema fará handoff automático.
-- Se o lead já enviou ${Math.max(0, MAX_LEAD_MESSAGES - 2)}+ mensagens sem concluir: acelere a qualificação e faça handoff proativamente.
-- Máximo 4-5 perguntas de qualificação. Se indeciso após 5, faça handoff.
-
-Gerenciamento de Labels (Pipeline):
-- Use assign_label para mover o lead pelas etapas do funil de vendas
-- Labels representam etapas do pipeline
-- Labels disponíveis nesta inbox: ${availableLabelNames.length > 0 ? availableLabelNames.join(', ') : '(nenhuma configurada)'}
-${currentLabelNames.length > 0 ? `- Labels atuais da conversa: ${currentLabelNames.join(', ')}` : ''}
-
-Gerenciamento de Tags:
-- Use set_tags para registrar informações coletadas do lead
-- Formato: "chave:valor" (ex: "motivo:compra", "interesse:tinta_interna", "nome:George")
-- Tags são cumulativas (novas substituem antigas com mesma chave)
-${conversation.tags?.length ? `- Tags atuais: ${conversation.tags.join(', ')}` : ''}
-${extractionInstruction}
-
-Regras dos tools de envio:
-- Use send_carousel quando tiver 2+ produtos COM imagem
-- Use send_media quando quiser enviar UMA imagem específica
-- SEMPRE responda com texto DEPOIS de usar send_carousel ou send_media
-- Nunca use send_carousel ou send_media sem antes ter feito search_products
-${knowledgeInstruction}
-${subAgentInstruction}
-
-DETECÇÃO DE OBJEÇÕES:
-Quando o lead expressar uma objeção, SEMPRE:
-1. Classifique com set_tags objecao:TIPO (valores: preco, concorrente, prazo, indecisao, qualidade, confianca, necessidade, outro)
-2. Salve no perfil com update_lead_profile(objections: [lista de objeções])
-3. Se houver resposta na Base de Conhecimento acima, use-a. Senão, tente contornar com empatia e benefícios.
-4. Se não conseguir contornar após 2 tentativas, faça handoff_to_human.
-
-Exemplos de objeções:
-- "tá caro", "achei caro", "muito caro" → objecao:preco
-- "achei mais barato", "na concorrência é mais barato" → objecao:concorrente
-- "vou pensar", "depois eu vejo", "vou ver com calma" → objecao:indecisao
-- "demora muito pra entregar" → objecao:prazo
-- "não sei se é bom", "será que funciona?" → objecao:qualidade`
+    const systemPrompt = [
+      identitySection,
+      businessSection,
+      leadContextBlock,
+      sdrSection,
+      productSection,
+      handoffSection,
+      tagsSection,
+      absoluteSection,
+      objectionsSection,
+      extractionInstruction,
+      knowledgeInstruction,
+      subAgentInstruction,
+      dynamicContext,
+      additionalSection,
+    ].filter(Boolean).join('\n\n')
 
     // 12. Build conversation history for Gemini
     const geminiContents: any[] = []
