@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Bot, BrainCircuit, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle } from 'lucide-react';
+import { Bot, BrainCircuit, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { GeneralConfig } from './ai-agent/GeneralConfig';
@@ -26,6 +26,7 @@ import { SubAgentsConfig } from './ai-agent/SubAgentsConfig';
 import { BlockedNumbersConfig } from './ai-agent/BlockedNumbersConfig';
 import { FollowUpConfig } from './ai-agent/FollowUpConfig';
 import { BusinessInfoConfig } from './ai-agent/BusinessInfoConfig';
+import { PromptStudio } from './ai-agent/PromptStudio';
 import { NICHE_TEMPLATES } from '@/data/nicheTemplates';
 
 interface AIAgent {
@@ -38,6 +39,7 @@ interface AIAgent {
 
 const TABS = [
   { id: 'setup', label: 'Setup', icon: Store },
+  { id: 'prompt', label: 'Prompt Studio', icon: FileText },
   { id: 'intelligence', label: 'Inteligencia', icon: BrainCircuit },
   { id: 'catalog', label: 'Catalogo', icon: Package },
   { id: 'knowledge', label: 'Conhecimento', icon: BookOpen },
@@ -498,6 +500,11 @@ export default function AIAgentTab() {
                     <GeneralConfig config={config} onChange={handleChange} instances={instances || []} />
                     <BusinessInfoConfig config={config} onChange={handleChange} />
                   </div>
+                )}
+
+                {/* PROMPT STUDIO */}
+                {activeTab === 'prompt' && (
+                  <PromptStudio config={config} onChange={handleChange} />
                 )}
 
                 {/* INTELIGENCIA: Cerebro + Sub-agentes + Extracao */}

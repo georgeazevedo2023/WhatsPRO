@@ -30,7 +30,18 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
             placeholder="Só um instante que vou te encaminhar para nosso consultor de vendas."
             className="min-h-[60px] resize-none"
           />
-          <p className="text-[11px] text-muted-foreground mt-2">Deixe vazio para usar a mensagem padrão.</p>
+          <p className="text-[11px] text-muted-foreground mt-2">Enviada dentro do horario comercial. Deixe vazio para usar a mensagem padrao.</p>
+
+          <div className="mt-4 space-y-1.5">
+            <Label className="text-xs">Mensagem fora do horario comercial</Label>
+            <Textarea
+              value={config.handoff_message_outside_hours || ''}
+              onChange={(e) => onChange({ handoff_message_outside_hours: e.target.value })}
+              placeholder="Sua mensagem foi recebida e retornaremos assim que possivel!"
+              className="min-h-[60px] resize-none"
+            />
+            <p className="text-[11px] text-muted-foreground">Enviada fora do horario ou em dias fechados.</p>
+          </div>
         </CardContent>
       </Card>
 

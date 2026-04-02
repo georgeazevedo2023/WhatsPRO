@@ -5,7 +5,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { BrainCircuit, Settings2, Key, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Zap } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { BrainCircuit, Settings2, Key, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Zap, Brain } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -275,7 +276,7 @@ Informações da empresa:
               <p className="text-[11px] text-muted-foreground">Tempo de espera para agrupar mensagens (3-30s)</p>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Contexto (mensagens)</Label>
+              <Label className="text-xs">Historico da Conversa Atual</Label>
               <Input
                 type="number"
                 value={config.context_short_messages || 10}
@@ -283,8 +284,30 @@ Informações da empresa:
                 min={3}
                 max={50}
               />
-              <p className="text-[11px] text-muted-foreground">Últimas N mensagens enviadas ao modelo</p>
+              <p className="text-[11px] text-muted-foreground">Quantas mensagens recentes o agente consegue "ver" da conversa atual</p>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+      {/* Memoria do Lead */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Brain className="w-4 h-4 text-primary" />
+            Memoria do Lead
+          </CardTitle>
+          <CardDescription>Quando ativo, o agente lembra nome, cidade, interesses, historico de compras e objecoes de conversas anteriores.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-xs">Lembrar informacoes de conversas anteriores</Label>
+              <p className="text-[11px] text-muted-foreground">Quando desativado, cada conversa comeca do zero.</p>
+            </div>
+            <Switch
+              checked={config.context_long_enabled !== false}
+              onCheckedChange={(v) => onChange({ context_long_enabled: v })}
+            />
           </div>
         </CardContent>
       </Card>
