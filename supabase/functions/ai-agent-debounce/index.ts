@@ -185,22 +185,11 @@ Deno.serve(async (req) => {
           }),
         })
 
-        // Retry once on 5xx (ai-agent might be cold-starting)
+        // DO NOT retry on 5xx — the 500 is usually a Supabase gateway timeout, NOT a crash.
+        // The ai-agent function continues running in the background and will complete successfully.
+        // Retrying creates a SECOND execution that sends duplicate messages to the lead.
         if (agentResp.status >= 500 && agentResp.status < 600) {
-          log.warn('ai-agent returned error, retrying', { status: agentResp.status })
-          await new Promise(r => setTimeout(r, 2000))
-          const retryResp = await fetchWithTimeout(`${SUPABASE_URL}/functions/v1/ai-agent`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON_KEY}` },
-            body: JSON.stringify({
-              conversation_id, instance_id,
-              messages: claimedMessages,
-              agent_id: agent.id,
-              request_id,  // Same correlation ID on retry
-            }),
-          })
-          const retryResult = await retryResp.json()
-          log.info('ai-agent retry response', { status: retryResp.status, result_summary: JSON.stringify(retryResult).substring(0, 200) })
+          log.warn('ai-agent returned 5xx (likely gateway timeout, function still running) — NOT retrying to avoid duplicates', { status: agentResp.status })
           return
         }
 

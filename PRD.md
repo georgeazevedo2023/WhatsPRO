@@ -33,6 +33,26 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v5.1.0 (2026-04-02) — AI Agent qualification fixes + tab focus refresh
+
+**3 bug fixes (cenário Livia) + 3 melhorias de qualificação + fix UX tab stale:**
+
+**AI Agent — Bug Fixes:**
+- leadName vem APENAS de lead_profiles.full_name (nunca contact.name/pushName do WhatsApp)
+- brandNotFound: marca não disponível no catálogo → NÃO envia carousel de outras marcas
+- Ordem de qualificação tintas: ambiente → cor/acabamento → marca (nunca marca antes de cor)
+
+**AI Agent — Qualification Improvements:**
+- brandNotFound + recusa = handoff rápido: search_fail pula para maxRetries-1 (1 tentativa a mais = handoff)
+- Tag `marca_indisponivel:X` auto-setada para tracking de demanda por marcas não vendidas
+- Auto-tag `interesse:X` mesmo quando busca retorna 0 produtos (detecta categoria da query)
+- Regra no prompt: lead recusa alternativa para marca indisponível → handoff imediato
+
+**Frontend — Tab Focus Refresh:**
+- Fix: página ficava em loading infinito ao voltar para aba após inatividade (Chrome suspende tabs)
+- useTabFocusRefresh(): revalida sessão Supabase + invalida caches React Query + refetch useInstances
+- Threshold 30s para evitar re-fetches desnecessários em alt-tab rápido
+
 ### v5.0.0 (2026-04-01) — AI Agent v2: Validator Agent + Prompt Studio + 30 melhorias
 
 **Sprint completo com 30 perguntas de validação. 5 fases implementadas.**

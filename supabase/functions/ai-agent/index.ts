@@ -204,22 +204,50 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4.8 Business hours check — send out-of-hours message and stop
-    if (agent.business_hours?.start && agent.business_hours?.end) {
+    // 4.8 Business hours check — supports weekly format AND legacy (start/end)
+    // Weekly: {"mon":{"open":true,"start":"08:00","end":"18:00"}, "tue":{...}, ...}
+    // Legacy: {"start":"08:00", "end":"18:00"}
+    const bh = agent.business_hours
+    if (bh && typeof bh === 'object') {
       const nowBR = new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })
       const brDate = new Date(nowBR)
       const currentMinutes = brDate.getHours() * 60 + brDate.getMinutes()
-      const [sh, sm] = agent.business_hours.start.split(':').map(Number)
-      const [eh, em] = agent.business_hours.end.split(':').map(Number)
-      const startMin = sh * 60 + sm
-      const endMin = eh * 60 + em
 
-      const isOutsideHours = startMin < endMin
-        ? (currentMinutes < startMin || currentMinutes >= endMin)
-        : (currentMinutes < startMin && currentMinutes >= endMin)
+      const checkTimeRange = (start: string, end: string): boolean => {
+        const [sh, sm] = start.split(':').map(Number)
+        const [eh, em] = end.split(':').map(Number)
+        const startMin = sh * 60 + sm
+        const endMin = eh * 60 + em
+        return startMin < endMin
+          ? (currentMinutes < startMin || currentMinutes >= endMin)
+          : (currentMinutes < startMin && currentMinutes >= endMin)
+      }
+
+      let isOutsideHours = false
+      let bhSource = ''
+
+      // Try weekly format first
+      const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+      const todayKey = dayNames[brDate.getDay()]
+      const todaySchedule = bh[todayKey]
+
+      if (todaySchedule && typeof todaySchedule === 'object') {
+        // Weekly format detected
+        if (!todaySchedule.open) {
+          isOutsideHours = true
+          bhSource = `${todayKey}:closed`
+        } else if (todaySchedule.start && todaySchedule.end) {
+          isOutsideHours = checkTimeRange(todaySchedule.start, todaySchedule.end)
+          bhSource = `${todayKey}:${todaySchedule.start}-${todaySchedule.end}`
+        }
+      } else if (bh.start && bh.end) {
+        // Legacy format: {"start":"08:00", "end":"18:00"}
+        isOutsideHours = checkTimeRange(bh.start, bh.end)
+        bhSource = `legacy:${bh.start}-${bh.end}`
+      }
 
       if (isOutsideHours) {
-        log.info('Outside business hours', { start: agent.business_hours.start, end: agent.business_hours.end, hour: brDate.getHours(), minute: brDate.getMinutes() })
+        log.info('Outside business hours', { source: bhSource, hour: brDate.getHours(), minute: brDate.getMinutes() })
         if (agent.out_of_hours_message) {
           await sendTextMsg(agent.out_of_hours_message)
           await supabase.from('conversation_messages').insert({
@@ -271,36 +299,100 @@ Deno.serve(async (req) => {
     const hasInteracted = (recentLogCount || 0) >= 1
     const hasEverInteracted = (totalLogCount || 0) >= 1
 
-    if (triggers.length > 0 && hasInteracted) {
-      const textLower = incomingText.toLowerCase()
-      const matchedTrigger = triggers.find((t: string) => textLower.includes(t.toLowerCase()))
+    // 5.5 Handoff triggers — check ONLY the last message in grouped batch
+    // When debounce groups "Aceita pix?\nMe passa o vendedor", the trigger should NOT
+    // short-circuit — the LLM needs to answer "Aceita pix?" first, then handoff.
+    // Solution: only check the LAST message for triggers. Earlier msgs go to LLM.
+    let pendingHandoffTrigger: string | null = null
+    // Skip triggers if already in shadow (handoff already happened — prevents duplicate)
+    if (triggers.length > 0 && hasInteracted && conversation.status_ia !== STATUS_IA.SHADOW) {
+      // Use only the last incoming message for trigger detection
+      const lastMsg = incomingMessages.length > 0
+        ? (incomingMessages[incomingMessages.length - 1].content || '').toLowerCase().trim()
+        : incomingText.toLowerCase().trim()
+      const hasPriorQuestions = incomingMessages.length > 1
+
+      // Info terms the agent can answer — skip handoff when lead is ASKING about these
+      const INFO_TERMS = new Set(['horario', 'horário', 'funcionamento', 'preco', 'preço', 'valor',
+        'endereco', 'endereço', 'entrega', 'pagamento', 'pagar', 'localizacao', 'localização',
+        'telefone', 'contato', 'aberto', 'abre', 'fecha', 'fechado',
+        'desconto', 'parcelar', 'parcela', 'parcelas', 'parcelamento', 'pix',
+        'frete', 'negociar', 'prazo', 'garantia', 'troca', 'devolucao', 'devolução'])
+      const questionPrefixes = /(?:^|\n)\s*(?:qual|quais|como|quando|onde|quanto|que\s|vocês|voces|vcs|tem|têm|posso|existe|é possível|da pra|dá pra|faz|fazem|aceita|aceitam)/im
+      const isQuestion = questionPrefixes.test(lastMsg) || /\?\s*$/.test(lastMsg)
+
+      const matchedTrigger = triggers.find((t: string) => {
+        const tLower = t.toLowerCase().trim()
+        if (!lastMsg.includes(tLower)) return false
+        if (INFO_TERMS.has(tLower) && isQuestion) {
+          log.info('Handoff trigger skipped — info question in last msg', { trigger: tLower })
+          return false
+        }
+        return true
+      })
+
       if (matchedTrigger) {
-        log.info('Handoff trigger matched', { trigger: matchedTrigger, textPreview: incomingText.substring(0, 80) })
-        const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+        if (hasPriorQuestions) {
+          // Multiple msgs grouped — let LLM answer the prior questions, then handoff at the end
+          // Store the trigger; handoff will execute AFTER LLM response
+          pendingHandoffTrigger = matchedTrigger
+          // Remove the trigger message from the queue so LLM only sees the questions
+          incomingMessages.splice(-1, 1)
+          log.info('Handoff trigger deferred — answering prior questions first', { trigger: matchedTrigger, priorMsgs: incomingMessages.length })
+        } else {
+          // Single message with trigger — immediate handoff (original behavior)
+          log.info('Handoff trigger matched', { trigger: matchedTrigger, textPreview: lastMsg.substring(0, 80) })
+          const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
 
-        // Send handoff message
-        await sendTextMsg(handoffMsg)
-        await supabase.from('conversation_messages').insert({
-          conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
-        })
+          // Check if recent messages show frustration — send empathy before handoff
+          // BUT skip if empathy was already sent recently (within 60s) to avoid duplicates
+          const { data: recentMsgsForSentiment } = await supabase
+            .from('conversation_messages').select('content, direction')
+            .eq('conversation_id', conversation_id)
+            .order('created_at', { ascending: false }).limit(10)
+          const recentIncoming = (recentMsgsForSentiment || []).filter((m: any) => m.direction === 'incoming').map((m: any) => (m.content || '').toLowerCase())
+          const recentOutgoing = (recentMsgsForSentiment || []).filter((m: any) => m.direction === 'outgoing').map((m: any) => (m.content || '').toLowerCase())
+          const negativeWords = ['absurdo', 'demora', 'pessimo', 'péssimo', 'ridiculo', 'ridículo', 'descaso', 'falta de respeito', 'irritado', 'frustrado', 'reclamar', 'reclamacao', 'reclamação']
+          const hasNegativeSentiment = [...recentIncoming, lastMsg].some(t => negativeWords.some(w => t.includes(w)))
+          const empathyAlreadySent = recentOutgoing.some(t => t.includes('peço desculpas') || t.includes('entendo sua frustração'))
 
-        // Switch to shadow mode (AI listens, extracts tags/labels, but doesn't respond)
-        await supabase.from('conversations').update({
-          status_ia: STATUS_IA.SHADOW,
-          tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
-        }).eq('id', conversation_id)
+          // Get lead name from profile (more reliable than contact.name which may be "E2E Test")
+          const { data: lpForName } = await supabase.from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+          const leadNameForEmpathy = lpForName?.full_name || contact?.name || null
 
-        // Log + Broadcast
-        await supabase.from('ai_agent_logs').insert({
-          agent_id, conversation_id, event: 'handoff_trigger',
-          latency_ms: Date.now() - startTime,
-          metadata: { trigger: matchedTrigger, incoming_text: incomingText.substring(0, 300) },
-        })
-        broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+          if (hasNegativeSentiment && leadNameForEmpathy && !empathyAlreadySent) {
+            const empathyMsg = `Peço desculpas pela experiência, ${leadNameForEmpathy}. Entendo sua frustração e vou resolver isso agora.`
+            await sendTextMsg(empathyMsg)
+            await supabase.from('conversation_messages').insert({
+              conversation_id, direction: 'outgoing', content: empathyMsg, media_type: 'text',
+            })
+            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: empathyMsg, media_type: 'text' })
+            log.info('Empathy sent before trigger handoff', { sentiment: 'negative' })
+          } else if (empathyAlreadySent) {
+            log.info('Empathy already sent recently — skipping duplicate')
+          }
 
-        return new Response(JSON.stringify({ ok: true, handoff: true, trigger: matchedTrigger }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+          await sendTextMsg(handoffMsg)
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+          })
+
+          await supabase.from('conversations').update({
+            status_ia: STATUS_IA.SHADOW,
+            tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+          }).eq('id', conversation_id)
+
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'handoff_trigger',
+            latency_ms: Date.now() - startTime,
+            metadata: { trigger: matchedTrigger, incoming_text: incomingText.substring(0, 300) },
+          })
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+
+          return new Response(JSON.stringify({ ok: true, handoff: true, trigger: matchedTrigger }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
       }
     }
 
@@ -325,11 +417,12 @@ Deno.serve(async (req) => {
       await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
       })
+      // All handoffs → SHADOW (AI continues extracting data silently)
       await supabase.from('conversations').update({
-        status_ia: STATUS_IA.DESLIGADA,
-        tags: mergeTags(conversation.tags || [], { ia: 'handoff_limit' }),
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
       }).eq('id', conversation_id)
-      broadcastEvent({ conversation_id, status_ia: STATUS_IA.DESLIGADA })
+      broadcastEvent({ conversation_id, status_ia: STATUS_IA.SHADOW })
       return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'message_limit' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -421,11 +514,14 @@ Deno.serve(async (req) => {
     if (conversation.status_ia === STATUS_IA.SHADOW) {
       log.info('Shadow mode', { conversationId: conversation_id })
 
-      const shadowPrompt = `Você é um extrator de dados. Analise a mensagem do lead e extraia informações relevantes.
-Use set_tags para registrar dados no formato "chave:valor".
-Use update_lead_profile para salvar nome, cidade e interesses.
-NÃO gere resposta para o usuário. Apenas extraia dados.
-${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_fields.filter((f: any) => f.enabled).map((f: any) => f.label).join(', ')}` : ''}`
+      const existingName = leadProfile?.full_name || contact?.name || null
+      const shadowPrompt = `Você é um extrator de dados silencioso. Analise a mensagem do lead e extraia TODAS as informações relevantes.
+Use set_tags para registrar dados no formato "chave:valor" (ex: "cidade:Olinda", "quantidade:2 latas 16L").
+Use update_lead_profile para salvar cidade, interesses, ticket médio e observações.
+EXTRAIA TUDO: endereços, cidades, quantidades, orçamentos, preferências de entrega, prazos.
+${existingName ? `IMPORTANTE: O nome do lead é "${existingName}". NÃO atualize full_name. Se a mensagem mencionar outro nome (vendedor, consultor), IGNORE — é o nome de quem está atendendo, não do lead.` : 'Se o lead informar seu nome, salve em full_name.'}
+NÃO gere resposta para o usuário. Apenas extraia dados usando as ferramentas.
+${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_fields.filter((f: any) => f.enabled).map((f: any) => f.label).join(', ')}` : ''}`
 
       const shadowToolDefs: LLMToolDef[] = [
         {
@@ -434,22 +530,24 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
           parameters: {
             type: 'object',
             properties: {
-              tags: { type: 'array', items: { type: 'string' }, description: 'Tags formato chave:valor' },
+              tags: { type: 'array', items: { type: 'string' }, description: 'Tags formato chave:valor (ex: cidade:Olinda, quantidade:2_latas_16L, orcamento:1000)' },
             },
             required: ['tags'],
           },
         },
         {
           name: 'update_lead_profile',
-          description: 'Atualiza perfil do lead com dados coletados',
+          description: 'Atualiza perfil do lead com dados coletados da conversa',
           parameters: {
             type: 'object',
             properties: {
-              full_name: { type: 'string' },
-              city: { type: 'string' },
-              interests: { type: 'array', items: { type: 'string' } },
-              notes: { type: 'string' },
-              objections: { type: 'array', items: { type: 'string' } },
+              full_name: { type: 'string', description: 'Nome completo do lead' },
+              city: { type: 'string', description: 'Cidade do lead' },
+              interests: { type: 'array', items: { type: 'string' }, description: 'Produtos/categorias de interesse' },
+              notes: { type: 'string', description: 'Observações gerais (endereço, quantidade, prazo)' },
+              reason: { type: 'string', description: 'Motivo do contato (compra, suporte, informacao)' },
+              average_ticket: { type: 'string', description: 'Orçamento/ticket médio informado pelo lead (ex: 1000)' },
+              objections: { type: 'array', items: { type: 'string' }, description: 'Objeções do lead (preco, prazo, etc)' },
             },
           },
         },
@@ -496,7 +594,8 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       }
       if (name === 'update_lead_profile') {
         const updates: Record<string, any> = { last_contact_at: new Date().toISOString() }
-        if (args.full_name) updates.full_name = args.full_name
+        // Protect: never overwrite existing name in shadow mode (prevents "Obrigado Pedro!" from replacing lead name)
+        if (args.full_name && !leadProfile?.full_name) updates.full_name = args.full_name
         if (args.city) updates.city = args.city
         if (args.interests?.length) updates.interests = args.interests
         if (args.notes) updates.notes = args.notes
@@ -512,10 +611,15 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     const shouldGreet = !hasInteracted && !!agent.greeting_message
 
     // Returning lead: has confirmed name AND has ever interacted (any time, not just 24h)
-    const leadName = leadProfile?.full_name || contact?.name || null
+    // IMPORTANT: never use contact.name (WhatsApp pushName like "E2E Test") as leadName —
+    // only use lead_profiles.full_name which is confirmed by the lead in conversation.
+    const leadFullName = leadProfile?.full_name || null
+    // Always use FIRST NAME for responses — avoids LLM truncating compound names
+    const leadName = leadFullName?.split(' ')[0] || null
     const isReturningLead = !!leadProfile?.full_name && hasEverInteracted && !hasInteracted
 
     let greetingText = agent.greeting_message || ''
+    let isJustGreeting = false // will be set inside greeting block if applicable
 
     // Returning lead gets personalized welcome-back message instead of generic greeting
     if (isReturningLead) {
@@ -592,30 +696,42 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       const textDedup = textNorm.replace(/(.)\1+/g, '$1')
       // Remove all greeting tokens — if nothing remains, it's just a greeting
       const remaining = textDedup.split(/\s+/).filter(word => !greetingTokens.includes(word.replace(/(.)\1+/g, '$1')))
-      const isJustGreeting = remaining.length === 0 && textNorm.length > 0
+      isJustGreeting = remaining.length === 0 && textNorm.length > 0
 
-      // ALWAYS stop after greeting on first interaction — wait for lead to respond with their name.
-      // The greeting asks "com quem eu falo?" — we need the name before continuing.
-      // Any substantive content in the first message will be answered in the NEXT interaction.
-      log.info('First interaction — greeting sent, stopping', { isJustGreeting, isAudio: incomingHasAudio, textPreview: incomingText.substring(0, 50) })
-      return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      // Only stop when the lead sent JUST a greeting ("oi", "olá", "bom dia").
+      // When the lead asked a real question (e.g., "Qual o horário?"), continue to LLM after greeting.
+      if (isJustGreeting) {
+        log.info('First interaction — greeting sent, pure greeting detected, stopping', { textPreview: incomingText.substring(0, 50) })
+        return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+      // Lead asked a real question — greeting was sent, now continue to LLM to answer
+      log.info('First interaction — greeting sent + real question, continuing to LLM', { textPreview: incomingText.substring(0, 80) })
     }
 
-    // 9.5 Duplicate response guard: if AI already responded in last 15s, stop
-    // Prevents duplicate messages from debounce calling ai-agent multiple times
-    const { count: recentOutgoing } = await supabase
-      .from('conversation_messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('conversation_id', conversation_id)
-      .eq('direction', 'outgoing')
-      .gte('created_at', new Date(Date.now() - 15000).toISOString())
-    if ((recentOutgoing || 0) > 0) {
-      log.info('Duplicate guard: outgoing message sent in last 15s — stopping', { recentOutgoing })
-      return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate_response_guard' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+    // 9.5 Duplicate response guard — prevents debounce retry from sending duplicate LLM responses
+    // Only checks NON-greeting outgoing messages in last 15s (greeting external_id starts with "ai_greeting_")
+    // Greetings are excluded because they should NOT block the next real message from being processed
+    const greetingBlockEntered = (shouldGreet && !isReturningLead) || isReturningLead
+    const justSentGreetingContinuing = greetingBlockEntered && !isJustGreeting
+    if (!justSentGreetingContinuing) {
+      const { data: recentOutMsgs } = await supabase
+        .from('conversation_messages')
+        .select('id, external_id')
+        .eq('conversation_id', conversation_id)
+        .eq('direction', 'outgoing')
+        .gte('created_at', new Date(Date.now() - 15000).toISOString())
+        .limit(5)
+      // Filter out greetings and out-of-hours messages — only count real AI responses
+      const realResponses = (recentOutMsgs || []).filter(m =>
+        !m.external_id?.startsWith('ai_greeting_') && !m.external_id?.startsWith('ai_oof_'))
+      if (realResponses.length > 0) {
+        log.info('Duplicate guard: AI response sent in last 15s — stopping', { count: realResponses.length })
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate_response_guard' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
     }
 
     // 10. Build extraction fields + sub-agents instructions
@@ -680,13 +796,23 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
     const businessSection = (() => {
       const bi = agent.business_info
       if (!bi) return 'Nenhuma informação da empresa cadastrada. Se o lead perguntar horário, endereço, formas de pagamento ou entrega: faça handoff_to_human.'
-      const parts: string[] = ['Informações da Empresa (use para responder perguntas do lead):']
+      const parts: string[] = ['Informações da Empresa (SOMENTE estas informações foram cadastradas pelo admin):']
       if (bi.hours) parts.push(`- Horário de funcionamento: ${bi.hours}`)
       if (bi.address) parts.push(`- Endereço: ${bi.address}`)
       if (bi.phone) parts.push(`- Telefone: ${bi.phone}`)
       if (bi.payment_methods) parts.push(`- Formas de pagamento: ${bi.payment_methods}`)
       if (bi.delivery_info) parts.push(`- Entrega: ${bi.delivery_info}`)
       if (bi.extra) parts.push(`- Outras informações: ${bi.extra}`)
+      // List what's NOT configured so agent knows to handoff
+      const missing: string[] = []
+      if (!bi.hours) missing.push('horário')
+      if (!bi.address) missing.push('endereço')
+      if (!bi.payment_methods) missing.push('formas de pagamento')
+      if (!bi.delivery_info) missing.push('entrega/frete')
+      if (missing.length > 0) {
+        parts.push(`\nINFORMAÇÕES NÃO CADASTRADAS: ${missing.join(', ')}. Se o lead perguntar sobre esses temas, diga "Vou verificar com nosso consultor" e faça handoff_to_human. NUNCA invente informações sobre ${missing.join('/')}.`)
+      }
+      parts.push('\nREGRA ABSOLUTA: responda SOMENTE com as informações listadas acima. Se a informação NÃO está aqui, NÃO invente. Transfira para consultor.')
       return parts.join('\n')
     })()
 
@@ -701,8 +827,8 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 
     // Dynamic context (injected by code, not editable)
     const leadContextBlock = isReturningLead
-      ? `CONTEXTO: Lead RECORRENTE. Nome: ${leadName}. Cumprimente pelo nome e vá direto ao ponto.`
-      : `CONTEXTO: Lead NOVO. A saudação já foi enviada separadamente. NÃO cumprimente de novo. Se informar nome, salve e vá DIRETO ao assunto.`
+      ? `CONTEXTO: Lead RECORRENTE. Nome COMPLETO do lead: "${leadName}" — use EXATAMENTE assim, nunca encurte. Cumprimente pelo nome e vá direto ao ponto.`
+      : `CONTEXTO: Lead NOVO. A saudação já foi enviada separadamente. NÃO cumprimente de novo.${leadName ? ` Chame o lead de "${leadName}".` : ' Quando o lead informar seu nome, use o PRIMEIRO NOME para se dirigir a ele.'} Se informar nome, salve com update_lead_profile e vá DIRETO ao assunto.`
 
     const dynamicContext = [
       leadContext || '\nNenhum histórico anterior deste lead. Trate como NOVO cliente.',
@@ -716,6 +842,25 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       agent.blocked_phrases?.length ? `Frases PROIBIDAS: ${agent.blocked_phrases.join(', ')}` : '',
     ].filter(Boolean).join('\n')
 
+    // Hardcoded safety rules — cannot be removed by admin via Prompt Studio
+    const hardcodedRules = `REGRAS INVIOLÁVEIS (hardcoded):
+- NUNCA diga "não encontrei", "não temos", "sem estoque", "não encontrei opções", "não temos esse produto". O lead NUNCA deve saber que a busca falhou. Em vez disso, faça mais perguntas de qualificação ou transfira para consultor.
+- NUNCA exponha erros internos ao lead (ex: "não consegui processar", "erro", "falha").
+- NUNCA invente produtos, preços ou informações que não vieram das ferramentas.
+- Quando resultados de ferramenta são marcados com [INTERNO], NUNCA repita o conteúdo ao lead.
+- LEIA TODA a mensagem antes de responder. Se o lead enviou múltiplas linhas (ex: "Preciso de tinta\\nParede externa"), responda considerando TUDO — não pergunte algo que ele já informou.
+- NUNCA repita uma pergunta que o lead já respondeu no histórico. Leia as mensagens anteriores antes de qualificar.
+- SENTIMENTO NEGATIVO: quando o lead expressar frustração, irritação ou reclamação, SEMPRE responda com empatia PRIMEIRO (peça desculpas, valide o sentimento) e DEPOIS transfira. NUNCA transfira friamente sem reconhecer a frustração. Exemplo: "Peço desculpas pela experiência, [nome]. Vou te conectar com nosso consultor agora mesmo para resolver isso."
+- PERGUNTAS SOBRE PAGAMENTO NÃO SÃO HANDOFF: quando o lead perguntar sobre desconto, PIX, parcelamento, boleto ou cartão — RESPONDA usando as informações de business_info. NUNCA chame handoff_to_human para essas perguntas. O lead está qualificado e interessado — transferir agora PERDE a venda.
+- INFORMAÇÕES NÃO CADASTRADAS = HANDOFF: se o lead perguntar sobre um tema que NÃO aparece nas "Informações da Empresa" acima, diga "Vou verificar essa informação com nosso consultor" e faça handoff_to_human. NUNCA invente dados que não foram cadastrados pelo admin.
+- HANDOFF SOMENTE quando: (1) lead PEDE explicitamente "falar com vendedor/atendente/gerente", (2) sentimento muito negativo persistente, (3) pergunta sobre tema NÃO cadastrado nas Informações da Empresa. Perguntas sobre preço de produto, desconto e parcelamento NÃO são motivo de handoff.
+- PREÇO OBRIGATÓRIO: quando o lead perguntar "quanto custa?" ou pedir preço, SEMPRE inclua o valor numérico exato (R$XX,XX) do catálogo. Nunca responda sobre preço sem citar o valor.
+- SEARCH ANTES DE FALAR DE PRODUTO: NUNCA fale sobre preço, qualidade, custo-benefício ou características de produto sem ter chamado search_products PRIMEIRO. Se o lead falar "achei caro" ou "tem mais barato?" e você ainda NÃO buscou, chame search_products ANTES de responder. Sem dados do catálogo = sem opinião sobre produto.
+- NOME DO LEAD: sempre use o PRIMEIRO NOME. "Paulo Roberto" → chame de "Paulo". "Ana Clara" → chame de "Ana". Se o lead informou apenas um nome, use esse. NUNCA use o pushName do WhatsApp (ex: "E2E Test") como nome — só use o nome que o lead informou na conversa.
+- QUALIFICAÇÃO DE TINTAS: quando o lead quer tinta/verniz/impermeabilizante, qualifique NESTA ORDEM: (1) ambiente (interno/externo), (2) cor ou acabamento (fosco/acetinado/esmalte), (3) marca se relevante. NUNCA pergunte marca antes da cor — a cor é mais determinante para a busca.
+- MARCA NÃO DISPONÍVEL: se a busca retornar [INTERNO] informando que a marca pedida não está no catálogo, NÃO chame send_carousel com produtos de outras marcas. Informe o lead empaticamente que não trabalhamos com aquela marca no momento e pergunte se aceita uma alternativa. Se o lead RECUSAR a alternativa ou INSISTIR na marca indisponível, chame handoff_to_human IMEDIATAMENTE — não tente convencê-lo novamente.
+- QUALIFICAÇÃO + OBJEÇÃO NA MESMA MSG: se o lead enviou cor + objeção na mesma mensagem (ex: "Branco\\nAchei caro"), PRIMEIRO chame search_products com a cor, DEPOIS responda a objeção com dados reais do catálogo.`
+
     const systemPrompt = [
       identitySection,
       businessSection,
@@ -725,6 +870,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       handoffSection,
       tagsSection,
       absoluteSection,
+      hardcodedRules,
       objectionsSection,
       extractionInstruction,
       knowledgeInstruction,
@@ -732,8 +878,12 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       dynamicContext,
       additionalSection,
     ].filter(Boolean).join('\n\n')
+      // Solution 5: Recency bias — compound name rule as LAST line of system prompt
+      + (leadName
+        ? `\n\n⚠️ REGRA FINAL: Chame o lead de "${leadName}".`
+        : '')
 
-    // 12. Build conversation history for Gemini
+    // 12. Build conversation history for LLM
     const geminiContents: any[] = []
 
     // If greeting was just sent in this same call, inject it as context
@@ -744,15 +894,46 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
       // Now add the actual user message again so Gemini responds to it
       geminiContents.push({ role: 'user', parts: [{ text: `O lead disse: "${incomingText}". Você já enviou a saudação. Agora responda à pergunta/pedido do lead SEM repetir a saudação.` }] })
     } else {
+      // Build set of queued message contents to avoid duplicating them
+      // (they may already be in contextMessages if webhook saved them before debounce claimed)
+      const queuedContents = new Set(
+        incomingMessages.map((m: any) => (m.content || '').trim()).filter(Boolean)
+      )
+
       for (const msg of contextMessages) {
         if (msg.content) {
+          // Skip incoming messages that are already in the queued batch (prevents duplication)
+          if (msg.direction === 'incoming' && queuedContents.has(msg.content.trim())) {
+            queuedContents.delete(msg.content.trim()) // only skip once per match
+            continue
+          }
           geminiContents.push({
             role: msg.direction === 'incoming' ? 'user' : 'model',
             parts: [{ text: msg.content }],
           })
         }
       }
-      geminiContents.push({ role: 'user', parts: [{ text: incomingText }] })
+
+      // When multiple msgs are grouped by debounce, separate them into:
+      // 1. The PRIMARY message (first one with substance — usually the product request)
+      // 2. PENDING QUESTIONS (follow-up questions that must also be answered)
+      // This prevents the LLM from forgetting questions when it calls search_products
+      if (incomingMessages.length > 1) {
+        // Send only the first substantive message as the user turn
+        // Store the rest as pending questions to inject into tool returns
+        const allMsgs = incomingMessages.map((m: any) => (m.content || '').trim()).filter(Boolean)
+        geminiContents.push({ role: 'user', parts: [{ text: allMsgs[0] }] })
+
+        // Extract follow-up questions/statements (everything after the first msg)
+        if (allMsgs.length > 1) {
+          const followUps = allMsgs.slice(1)
+          // Store as pendingLeadQuestions — will be injected into tool returns
+          ;(geminiContents as any).__pendingQuestions = followUps
+          log.info('Grouped msgs split', { primary: allMsgs[0].substring(0, 50), pending: followUps })
+        }
+      } else {
+        geminiContents.push({ role: 'user', parts: [{ text: incomingText }] })
+      }
     }
 
     // 13. Define tools for function calling (8 tools) — OpenAI JSON Schema format
@@ -858,6 +1039,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
           let { data: products } = await query.limit(10)
 
           // Fallback: if no results and query has multiple words, search each word with AND logic
+          let wordByWordBroadProducts: any[] | null = null  // kept for brand-detection below
           if ((!products || products.length === 0) && searchText && searchText.includes(' ')) {
             const words = searchText.split(/\s+/).filter((w: string) => w.length > 2)
             if (words.length > 1) {
@@ -869,37 +1051,83 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
               if (args.max_price) fallback = fallback.lte('price', args.max_price)
               fallback = fallback.or(broadTerms)
               const { data: broadProducts } = await fallback.limit(50)
+              wordByWordBroadProducts = broadProducts || []
               // Filter: keep only products that match ALL words (AND)
-              const filtered = (broadProducts || []).filter((p: any) => {
+              const filtered = wordByWordBroadProducts.filter((p: any) => {
                 const haystack = `${p.title} ${p.description || ''} ${p.category || ''}`.toLowerCase()
                 return words.every(w => haystack.includes(w.toLowerCase()))
               })
               if (filtered.length > 0) {
                 products = filtered.slice(0, 10)
                 log.info('search_products AND-fallback found results', { count: products.length, words: words.join(', ') })
+              } else {
+                // AND returned 0 — detect which words don't appear in ANY catalog product (brand not in catalog)
+                const missingFromCatalog = words.filter((w: string) =>
+                  !wordByWordBroadProducts!.some((p: any) => {
+                    const h = `${p.title} ${p.description || ''}`.toLowerCase()
+                    return h.includes(w.toLowerCase())
+                  })
+                )
+                if (missingFromCatalog.length > 0) {
+                  log.info('search_products AND-fallback: term(s) not in catalog at all', { missingFromCatalog, query: searchText })
+                  // Will be detected again in post-filter, but flag early to skip fuzzy
+                  // (wordByWordBroadProducts is empty for these terms → no fuzzy should run)
+                }
               }
             }
           }
 
-          // POST-SEARCH FILTER: if query has multiple words, keep only products matching ALL words
-          // This prevents "tinta iquine branco" from returning Coral products (which match "tinta" + "branco" but not "iquine")
-          if (products && products.length > 1 && searchText && searchText.includes(' ')) {
+          // POST-SEARCH FILTER: keep only products matching ALL query words.
+          // Also detects when a word (brand like "suvinil") is in query but NOT in any catalog product → brand not in catalog.
+          // When brand is not in catalog: set products=[] and brandNotFound=term so fuzzy is also skipped.
+          let brandNotFound: string | null = null
+          if (searchText) {
             const queryWords = searchText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2)
-            if (queryWords.length > 1) {
+            if (queryWords.length > 0 && products && products.length > 0) {
+              // Case A: primary search returned some products — apply strict AND filter
               const strictFiltered = products.filter((p: any) => {
                 const haystack = `${p.title} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''}`.toLowerCase()
                 return queryWords.every(w => haystack.includes(w))
               })
               if (strictFiltered.length > 0) {
-                log.info('Post-search AND filter applied', { before: products.length, after: strictFiltered.length, query: searchText })
+                if (strictFiltered.length < products.length) {
+                  log.info('Post-search AND filter applied', { before: products.length, after: strictFiltered.length, query: searchText })
+                }
                 products = strictFiltered
+              } else {
+                // AND removed everything — find which words appear in NO product → those are the missing brand/model terms
+                const missingTerms = queryWords.filter((w: string) =>
+                  !products.some((p: any) => {
+                    const h = `${p.title} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''}`.toLowerCase()
+                    return h.includes(w)
+                  })
+                )
+                if (missingTerms.length > 0) {
+                  brandNotFound = missingTerms.join(', ')
+                  products = []
+                  log.info('Post-search AND filter: brand/term not in catalog → zero results, skip fuzzy', { missingTerms, query: searchText })
+                }
+                // else: all words exist somewhere but not together → keep originals (better than 0 for soft match)
               }
-              // If strict filter removes everything, keep original results (better than 0)
+            } else if (queryWords.length > 0 && (!products || products.length === 0) && wordByWordBroadProducts !== null) {
+              // Case B: primary AND word-by-word both returned 0. Use wordByWordBroadProducts (OR results) to detect missing brand.
+              // If a query word doesn't appear in broadProducts (OR results), it's definitively not in catalog → skip fuzzy.
+              const missingFromBroad = queryWords.filter((w: string) =>
+                !wordByWordBroadProducts!.some((p: any) => {
+                  const h = `${p.title} ${p.description || ''}`.toLowerCase()
+                  return h.includes(w)
+                })
+              )
+              if (missingFromBroad.length > 0) {
+                brandNotFound = missingFromBroad.join(', ')
+                log.info('Post-search brand detection (from broad results): term not in catalog → skip fuzzy', { missingFromBroad, query: searchText })
+              }
             }
           }
 
           // #6: Fallback 2 — fuzzy search (pg_trgm word-level) for typos like "cooral" → "coral"
-          if ((!products || products.length === 0) && searchText) {
+          // Skip fuzzy when brand was explicitly detected as NOT in catalog — fuzzy would return wrong-brand products
+          if ((!products || products.length === 0) && searchText && !brandNotFound) {
             const { data: fuzzyProducts } = await supabase
               .rpc('search_products_fuzzy', { _agent_id: agent_id, _query: searchText, _threshold: 0.3, _limit: 10 })
             if (fuzzyProducts && fuzzyProducts.length > 0) {
@@ -913,19 +1141,48 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
             const maxRetries = (agent.max_qualification_retries as number) ?? 2
             const searchFailTag = (conversation.tags || []).find((t: string) => t.startsWith('search_fail:'))
             const searchFailCount = searchFailTag ? (parseInt(searchFailTag.split(':')[1]) || 0) : 0
-            const newCount = searchFailCount + 1
 
-            await supabase.from('conversations').update({
-              tags: mergeTags(conversation.tags || [], { search_fail: String(newCount) }),
-            }).eq('id', conversation_id)
+            // brandNotFound = brand explicitly not in catalog → jump to maxRetries-1 so ONE more attempt = handoff
+            const newCount = brandNotFound
+              ? Math.max(searchFailCount + 1, maxRetries - 1)
+              : searchFailCount + 1
 
-            log.info('search_products: no results', { query: searchText, attempt: newCount, max: maxRetries })
-
-            if (newCount >= maxRetries) {
-              return `Nenhum produto encontrado para "${searchText}" mesmo após ${newCount} tentativas de qualificação. Agora você DEVE chamar handoff_to_human — informe ao consultor o que o lead está procurando. NÃO faça mais perguntas de qualificação.`
+            // Build tags: search_fail + marca_indisponivel (demand tracking) + interesse from query
+            const failTags: Record<string, string> = { search_fail: String(newCount) }
+            if (brandNotFound) {
+              failTags.marca_indisponivel = brandNotFound.toLowerCase().replace(/\s+/g, '_')
+            }
+            // Auto-tag interesse even on 0 results — detect category from query words
+            const categoryKeywords: Record<string, string> = {
+              tinta: 'tintas', verniz: 'seladores_e_vernizes', manta: 'impermeabilizantes',
+              impermeabilizante: 'impermeabilizantes', selador: 'seladores_e_vernizes',
+              esmalte: 'tintas', acrilica: 'tintas', acrilico: 'tintas',
+            }
+            if (searchText) {
+              const queryLower = searchText.toLowerCase()
+              for (const [kw, cat] of Object.entries(categoryKeywords)) {
+                if (queryLower.includes(kw)) {
+                  failTags.interesse = cat
+                  break
+                }
+              }
             }
 
-            return `Nenhum produto encontrado para "${searchText}" (tentativa ${newCount} de ${maxRetries}). OBRIGATÓRIO: faça UMA pergunta de qualificação ao lead para refinar a busca — por exemplo: marca preferida, especificação técnica, finalidade de uso, tamanho ou potência. NÃO faça handoff ainda.`
+            await supabase.from('conversations').update({
+              tags: mergeTags(conversation.tags || [], failTags),
+            }).eq('id', conversation_id)
+
+            log.info('search_products: no results', { query: searchText, attempt: newCount, max: maxRetries, brandNotFound })
+
+            const brandHint = brandNotFound
+              ? ` A marca/produto "${brandNotFound}" NÃO está no catálogo. Informe o lead de forma empática que não trabalhamos com essa marca no momento e pergunte se aceita uma alternativa. Ex: "Não trabalhamos com ${brandNotFound} no momento, mas temos ótimas opções de outras marcas. Qual a finalidade da tinta?" NUNCA chame send_carousel com produtos de marca diferente da pedida. Se o lead RECUSAR a alternativa ou INSISTIR na marca, chame handoff_to_human IMEDIATAMENTE.`
+              : ' AÇÃO: faça UMA pergunta para refinar — cor, acabamento, marca alternativa ou tamanho.'
+
+            if (newCount >= maxRetries) {
+              return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" sem resultados após ${newCount} tentativas.${brandNotFound ? ` Marca "${brandNotFound}" não disponível.` : ''} AÇÃO: chame handoff_to_human AGORA informando o que o lead procura. PROIBIDO: dizer "não encontrei", "não temos", "sem estoque". Diga algo como "Vou te conectar com nosso consultor que pode te ajudar melhor com isso!"`
+            }
+
+            return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" retornou 0 produtos (tentativa ${newCount}/${maxRetries}).${brandHint} PROIBIDO: dizer "não encontrei", "não temos", "sem estoque", "não encontrei opções". O lead NUNCA deve saber que a busca falhou. Pergunte naturalmente como se estivesse oferecendo alternativas.`
           }
 
           // Products found — reset qualification retry counter
@@ -951,8 +1208,13 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
           // Rules: 1 product + 2+ photos → carousel (1 photo per card)
           //         1 product + 1 photo  → send/media (photo + clean caption)
           //         2+ products           → carousel (1 card per product)
+          // Guard: skip if carousel/media already sent in this request (prevents duplicates from grouped msgs)
           const withImages = products.filter((p: any) => p.images?.[0])
           let mediaSent = false
+          if (carouselSentInThisCall) {
+            log.info('Skipping auto-media — already sent in this call')
+            mediaSent = true // skip all send blocks below, go straight to return text
+          }
 
           if (withImages.length === 1 && (withImages[0].images as string[])?.length >= 2) {
             // Single product with multiple photos → carousel (1 photo per card with AI copy)
@@ -988,7 +1250,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
                 }, 10000)
                 const resBody = await res.text()
                 log.info('Auto-carousel attempt', { variant: Object.keys(payload)[0], status: res.status, body: resBody.substring(0, 120) })
-                if (res.ok && !resBody.toLowerCase().includes('missing')) { mediaSent = true; break }
+                if (res.ok && !resBody.toLowerCase().includes('missing')) { mediaSent = true; carouselSentInThisCall = true; break }
               } catch (err) { log.error('Carousel attempt failed', { error: (err as Error).message }) }
             }
             if (mediaSent) {
@@ -1036,7 +1298,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
                 body: JSON.stringify({ number: contact.jid, type: 'image', file: p.images[0], text: caption }),
               }, 10000)
               if (res.ok) {
-                mediaSent = true
+                mediaSent = true; carouselSentInThisCall = true
                 log.info('Auto-media: single product single photo', { title: p.title })
                 await supabase.from('conversation_messages').insert({
                   conversation_id, direction: 'outgoing',
@@ -1080,7 +1342,7 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
                 const resBody = await res.text()
                 log.info('Auto-carousel attempt', { productCount: withImages.length, variant: Object.keys(payload)[0], status: res.status, body: resBody.substring(0, 120) })
                 if (res.ok && !resBody.toLowerCase().includes('missing')) {
-                  mediaSent = true
+                  mediaSent = true; carouselSentInThisCall = true
                   break
                 }
               } catch (err) {
@@ -1136,13 +1398,17 @@ ${agent.extraction_fields?.length ? `\nCampos para extrair: ${agent.extraction_f
 
             return `${mediaType === 'foto' ? 'Foto' : 'Carrossel'} com ${productCount} produto(s) JÁ FOI ENVIADO ao lead: ${productNames}.
 
+DADOS DOS PRODUTOS (use para responder perguntas do lead):
+${resultText}
+
 INSTRUÇÕES PARA SUA RESPOSTA (NÍVEL 2 — QUALIFICAÇÃO CONTÍNUA):
 - O ${mediaType} já foi enviado. NÃO use send_carousel nem send_media novamente.
-- NÃO repita nome completo, preço ou descrição (já está no ${mediaType}).
+- OBRIGATÓRIO: SEMPRE inclua o preço (R$XX,XX) do produto na sua PRIMEIRA resposta após o ${mediaType}. O lead quer saber o preço — informe proativamente.
+- Se o lead perguntar preço de um produto específico, RESPONDA com o valor EXATO da lista acima.
 - NÃO pergunte "qual produto busca?" ou "em que posso ajudar?" — o lead JÁ DISSE o que quer.
 - NÃO pergunte "alguma te interessa?" de forma genérica.
 
-SEU OBJETIVO: continuar qualificando para fechar a venda. Faça copy de vendas + 1 pergunta de qualificação.
+SEU OBJETIVO: informar o preço + destacar um benefício + fazer 1 pergunta para fechar a venda.
 
 ${hasMultiple ? `MÚLTIPLOS PRODUTOS (${productCount}): Destaque um diferencial do produto principal e pergunte qual atende melhor.
 Exemplo: "A linha Dialine é super versátil e tem ótimo rendimento! Qual dessas opções combina mais com seu projeto?"`
@@ -1300,7 +1566,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           if (rawTags.length === 0) return 'Nenhuma tag informada.'
 
           // #25: Enforcement — validate tag keys and motivo values
-          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento'])
+          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel'])
           const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
           const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro'])
 
@@ -1444,6 +1710,12 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
 
           const saved = Object.entries(updates).filter(([k]) => k !== 'last_contact_at')
             .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join(', ')
+
+          // If name was just saved, instruct LLM to use it in this response
+          if (args.full_name && updates.full_name) {
+            const firstName = updates.full_name.split(' ')[0]
+            return `Perfil atualizado: ${saved}. IMPORTANTE: o lead acaba de informar o nome "${firstName}". Use "${firstName}" para se dirigir a ele nesta resposta.`
+          }
           return `Perfil atualizado: ${saved}`
         }
 
@@ -1471,6 +1743,19 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
                 handoffMsg = agent.handoff_message_outside_hours || 'Sua mensagem foi recebida e retornaremos assim que possível! 😊'
               }
             }
+          }
+
+          // If reason indicates frustration/negative sentiment, send empathy BEFORE handoff
+          const negativeReasons = ['frustração', 'frustracao', 'irritação', 'irritacao', 'reclamação', 'reclamacao', 'insatisfação', 'insatisfacao', 'negativo', 'absurdo']
+          const isNegative = args.reason && negativeReasons.some((r: string) => args.reason.toLowerCase().includes(r))
+          if (isNegative) {
+            const empathyName = leadName ? `, ${leadName}` : ''
+            const empathyMsg = `Peço desculpas pela experiência${empathyName}. Entendo sua frustração e vou resolver isso agora.`
+            await sendTextMsg(empathyMsg)
+            await supabase.from('conversation_messages').insert({
+              conversation_id, direction: 'outgoing', content: empathyMsg, media_type: 'text',
+            })
+            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: empathyMsg, media_type: 'text' })
           }
 
           // Send handoff message directly (don't rely on LLM generating it)
@@ -1536,6 +1821,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
     let inputTokens = 0
     let outputTokens = 0
     const toolCallsLog: any[] = []
+    let carouselSentInThisCall = false  // prevents duplicate carousel when LLM calls search_products 2x
     let attempts = 0
     const maxAttempts = 5
     const MAX_TOOL_ROUNDS = 3
@@ -1611,6 +1897,17 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             break
           }
 
+          // Inject pending questions from grouped messages into the LAST tool result
+          // so LLM sees them right before generating the response
+          const pendingQs = (geminiContents as any).__pendingQuestions as string[] | undefined
+          if (pendingQs?.length && toolResultEntries.length > 0) {
+            const lastEntry = toolResultEntries[toolResultEntries.length - 1]
+            const questionsBlock = pendingQs.map((q, i) => `${i + 1}. "${q}"`).join('\n')
+            lastEntry.result += `\n\nPERGUNTAS PENDENTES DO LEAD (responda TODAS na sua mensagem):\n${questionsBlock}\nIMPORTANTE: sua resposta DEVE abordar cada pergunta acima. Se não tem info cadastrada sobre o tema, diga "Vou verificar com nosso consultor" e faça handoff_to_human.`
+            // Clear so they're not injected again on next tool round
+            ;(geminiContents as any).__pendingQuestions = undefined
+          }
+
           // Append tool results to conversation for next LLM call
           llmMessages = appendToolResults(llmMessages, llmResult.toolCalls, toolResultEntries)
           toolRounds++
@@ -1647,6 +1944,27 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
         }
 
         responseText = llmResult.text
+
+        // If there are pending questions from grouped msgs that weren't answered by tool flow,
+        // make one more LLM call with the pending questions appended
+        const remainingQs = (geminiContents as any).__pendingQuestions as string[] | undefined
+        if (remainingQs?.length && responseText.trim()) {
+          log.info('Pending questions remain after text response — making follow-up call', { questions: remainingQs })
+          try {
+            const followUpMsgs: LLMMessage[] = [
+              ...llmMessages,
+              { role: 'assistant' as const, content: responseText },
+              { role: 'user' as const, content: `O lead também perguntou:\n${remainingQs.map((q, i) => `${i + 1}. "${q}"`).join('\n')}\nResponda essas perguntas. Se não tem informação cadastrada sobre o tema, diga "Vou verificar com nosso consultor".` },
+            ]
+            const followUp = await callLLM({ systemPrompt, messages: followUpMsgs, tools: [], temperature: agent.temperature || 0.7, maxTokens: 512, model: agent.model || 'gemini-2.5-flash' })
+            if (followUp.text?.trim()) {
+              responseText += '\n\n' + followUp.text.trim()
+              inputTokens += followUp.inputTokens
+              outputTokens += followUp.outputTokens
+            }
+          } catch (e) { log.warn('Follow-up for pending questions failed', { error: (e as Error).message }) }
+          ;(geminiContents as any).__pendingQuestions = undefined
+        }
       } catch (err) {
         const errMsg = (err as Error).message || 'LLM error'
         log.error('LLM error', { attempt: attempts, error: errMsg })
@@ -1692,6 +2010,19 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           .map((m: any) => m.content)
         const msgsSinceName = countMsgsSinceNameUse(leadName, recentOutgoing)
 
+        // Collect lead questions from this turn for validator
+        const leadQuestionsThisTurn = incomingMessages
+          .map((m: any) => (m.content || '').trim())
+          .filter((t: string) => t.length > 3 && (/\?/.test(t) || /^(qual|como|quando|onde|quanto|aceita|faz|tem|voces)/i.test(t)))
+
+        // Collect known catalog prices from tool calls
+        const catalogPrices = toolCallsLog
+          .filter(t => t.name === 'search_products' && t.result)
+          .flatMap(t => {
+            const matches = t.result.match(/R\$[\d.,]+/g)
+            return matches || []
+          })
+
         const validatorConfig: ValidatorConfig = {
           enabled: true,
           model: agent.validator_model || 'gpt-4.1-nano',
@@ -1704,6 +2035,8 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           businessInfo: agent.business_info || null,
           leadName,
           msgsSinceLastNameUse: msgsSinceName,
+          leadQuestions: leadQuestionsThisTurn,
+          catalogPrices,
         }
 
         const validation = await validateResponse(responseText, validatorConfig, agent_id, conversation_id)
@@ -1746,11 +2079,15 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       }
       responseText = ''
     } else if (!responseText.trim()) {
-      log.warn('Empty LLM response — using fallback message')
-      responseText = 'Desculpe, não consegui processar sua mensagem. Pode repetir?'
+      // NEVER send an error/fallback message to the lead — it exposes internal failures.
+      // Just log it and return silently. The lead sees nothing; better than "Desculpe, não consegui".
+      log.warn('Empty LLM response — suppressing (no message sent to lead)')
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'empty_response', model: usedModel,
         latency_ms: Date.now() - startTime,
+      })
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'empty_llm_response' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
@@ -1838,21 +2175,31 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       savedMsg = data
     }
 
-    // 18. Update conversation (DON'T reset status_ia if handoff happened — already set above)
-    // If handoff_to_human tool was called, it already set status_ia='desligada' — don't overwrite
-    const newStatusIa = hadExplicitHandoff ? STATUS_IA.DESLIGADA : (textLooksLikeHandoff ? STATUS_IA.SHADOW : STATUS_IA.LIGADA)
+    // 18. Update conversation — DON'T touch status_ia if handoff already set it to SHADOW
+    // handoff_to_human tool sets SHADOW at line ~1890. Implicit handoff sets SHADOW at line ~1836.
+    // We only set status_ia here for non-handoff responses (keep LIGADA).
+    const conversationUpdate: Record<string, any> = {
+      last_message_at: new Date().toISOString(),
+      last_message: responseText.substring(0, 200),
+    }
+    if (!hadExplicitHandoff && !textLooksLikeHandoff) {
+      // Normal response — keep IA active
+      conversationUpdate.status_ia = STATUS_IA.LIGADA
+    }
+    // If handoff happened (explicit or implicit), status_ia was already set to SHADOW above — don't overwrite
     await supabase
       .from('conversations')
-      .update({ last_message_at: new Date().toISOString(), last_message: responseText.substring(0, 200), status_ia: newStatusIa })
+      .update(conversationUpdate)
       .eq('id', conversation_id)
 
     // 19. Broadcast to helpdesk realtime
+    const effectiveStatusIa = hadExplicitHandoff || textLooksLikeHandoff ? STATUS_IA.SHADOW : STATUS_IA.LIGADA
     const broadcastPayload = {
       conversation_id, inbox_id: conversation.inbox_id,
       message_id: savedMsg?.id, direction: 'outgoing',
       content: responseText, media_type: sentMediaType,
       created_at: savedMsg?.created_at || new Date().toISOString(),
-      status_ia: newStatusIa,
+      status_ia: effectiveStatusIa,
     }
 
     broadcastEvent(broadcastPayload)
@@ -1910,13 +2257,33 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
         total_interactions: newCount,
         last_contact_at: new Date().toISOString(),
       }
-      if (!leadProfile) profileUpdate.full_name = contact.name || null
+      // Don't set full_name from contact.name (WhatsApp pushName) — only from lead_profiles confirmed by lead
 
       await supabase.from('lead_profiles').upsert(profileUpdate, { onConflict: 'contact_id' })
 
       log.info('Profile updated', { summaries: updatedSummaries.length, interactions: newCount })
     } catch (sumErr) {
       log.error('Profile update error', { error: (sumErr as Error).message })
+    }
+
+    // 22. Execute deferred handoff trigger (when grouped msgs had questions before the trigger)
+    if (pendingHandoffTrigger && !hadExplicitHandoff && !textLooksLikeHandoff) {
+      log.info('Executing deferred handoff trigger after LLM response', { trigger: pendingHandoffTrigger })
+      const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+      await sendTextMsg(handoffMsg)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+      })
+      await supabase.from('conversations').update({
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+      }).eq('id', conversation_id)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'handoff_trigger',
+        latency_ms: Date.now() - startTime,
+        metadata: { trigger: pendingHandoffTrigger, deferred: true, incoming_text: incomingText.substring(0, 300) },
+      })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
     }
 
     log.info('Done', { latency_ms: Date.now() - startTime, inputTokens, outputTokens, toolCount: toolCallsLog.length })

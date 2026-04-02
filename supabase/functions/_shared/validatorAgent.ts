@@ -29,6 +29,8 @@ export interface ValidatorConfig {
   businessInfo: Record<string, string> | null
   leadName: string | null
   msgsSinceLastNameUse: number
+  leadQuestions?: string[]      // questions the lead asked in this turn
+  catalogPrices?: string[]      // known prices from catalog (e.g. ["R$56,90", "R$427,90"])
 }
 
 export interface ValidatorResult {
@@ -92,6 +94,11 @@ LEVE (-1 ponto cada):
 - Emoji excessivo (mais de 2)
 - Repetir informação já dita na conversa
 - Resposta genérica sem personalização
+
+REGRAS ADICIONAIS CRÍTICAS:
+${config.leadName ? `- Nome do lead é "${config.leadName}" (completo). Se a resposta usa versão encurtada (ex: "${config.leadName.split(' ')[0]}" quando deveria ser "${config.leadName}"), isso é GRAVE (-3 pontos). O nome DEVE ser usado EXATAMENTE como informado.` : ''}
+${config.leadQuestions?.length ? `- O lead perguntou: ${config.leadQuestions.map(q => `"${q}"`).join(', ')}. Se a resposta NÃO aborda alguma dessas perguntas, é GRAVE (-3 pontos por pergunta ignorada). TODA pergunta do lead DEVE ser respondida.` : ''}
+${config.catalogPrices?.length ? `- Preços reais do catálogo: ${config.catalogPrices.join(', ')}. Se a resposta menciona um desses preços, NÃO é "inventar preço" — é dado REAL do catálogo. Só marque "inventar preço" para valores que NÃO estão nesta lista.` : ''}
 
 BÔNUS (+1 ponto cada, max 10):
 - Pergunta de qualificação precisa e contextual

@@ -1,11 +1,12 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -65,6 +66,39 @@ const PageLoader = () => (
     <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
   </div>
 );
+
+/**
+ * Refreshes stale data when user returns to the tab after being away.
+ * Fixes: useInstances (legacy hook) + Supabase session going stale on inactive tabs.
+ */
+function useTabFocusRefresh() {
+  const qc = useQueryClient();
+  const hiddenAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      // Tab became visible — check how long it was hidden
+      const awayMs = Date.now() - hiddenAtRef.current;
+      if (awayMs < 30_000) return; // less than 30s, skip
+
+      // Refresh Supabase session (may have expired while tab was suspended)
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) return; // logged out, auth context will handle redirect
+        // Invalidate all React Query caches so they refetch with fresh token
+        qc.invalidateQueries();
+        // Trigger refetch for legacy hooks (useInstances listens for this)
+        window.dispatchEvent(new Event('instances-updated'));
+      });
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [qc]);
+}
 
 // Protected route wrapper
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -145,6 +179,7 @@ const CrmRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 const AppRoutes = () => {
+  useTabFocusRefresh();
   return (
     <Routes>
       <Route path="/" element={<Index />} />

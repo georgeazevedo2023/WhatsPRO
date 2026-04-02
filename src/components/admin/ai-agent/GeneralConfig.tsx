@@ -81,9 +81,10 @@ export function GeneralConfig({ config, onChange, instances }: GeneralConfigProp
             <Textarea
               value={config.greeting_message || ''}
               onChange={(e) => onChange({ greeting_message: e.target.value })}
-              placeholder="Olá! 👋 Sou o assistente virtual da [Empresa]. Como posso ajudá-lo?"
+              placeholder="Olá! Bem-vindo a [Empresa], com quem eu falo?"
               className="min-h-[80px] resize-none"
             />
+            <p className="text-[11px] text-muted-foreground">Dica: incluir "com quem eu falo?" ajuda o agente a coletar o nome do lead para personalizar o atendimento.</p>
           </div>
 
           <div className="space-y-1.5">

@@ -74,6 +74,26 @@ npm run build        # Production build
 npx supabase functions deploy <name>  # Deploy edge function
 ```
 
+## Regras de Integridade de Dados e Comunicação
+
+### NUNCA reportar dados falsos ou inconsistentes
+- NUNCA dar nota/score parcial e depois mudar para pior — avaliar somente com dados completos
+- NUNCA dizer que algo funciona baseado em teste parcial — só confirmar após teste E2E completo
+- NUNCA quebrar código em produção — testar localmente antes de deploy quando possível
+- Se um resultado contradiz resultado anterior, explicar POR QUE mudou antes de dar novo resultado
+- Auditorias e notas devem ser baseadas no cenário mais completo e realista, não em testes isolados
+
+## Sequência de Correção de Erros do AI Agent (OBRIGATÓRIA — 4 NÍVEIS)
+Quando um teste E2E detectar erro no comportamento do agente, corrigir NESTA ORDEM:
+1. **Código + Prompt hardcoded** — bug no fluxo, lógica errada, guard faltando. Fix no index.ts ou _shared/.
+2. **Instrução no Validator Agent** — validator não detectou o erro? Adicionar regra no validatorAgent.ts (leadQuestions, catalogPrices, nome exato). Validator REWRITE corrige antes de enviar.
+3. **FAQ/Q&A na Knowledge Base** — para textos genéricos, perguntas cotidianas, ou respostas que o LLM erra repetidamente. Inserir na ai_agent_knowledge como FAQ. O LLM consulta antes de responder.
+4. **Fallback: Mensagem de transbordo + Handoff** — quando NENHUMA das 3 camadas anteriores resolve, o agente envia mensagem empática e faz handoff_to_human. ÚLTIMO recurso. Lead nunca fica sem resposta.
+
+Regra especial: **frustração + handoff no mesmo batch = handoff direto.** Quando msgs agrupadas contêm frustração ("absurdo", "demora") E trigger de handoff ("gerente", "atendente"), vai direto pro handoff sem tentar processar. Não tenta responder empatia + produto — transfere imediatamente.
+
+NUNCA pular etapas. Se o erro é de código, não resolver com FAQ. Se o validator deveria ter pegado, corrigir o validator ANTES de criar FAQ. Handoff é o ÚLTIMO recurso — só quando o agente genuinamente não consegue ajudar. Lead NUNCA fica sem resposta.
+
 ## Regra de Consistencia Obrigatoria (SYNC RULE)
 Toda alteracao em campo configuravel, regra do agente, ou comportamento DEVE ser sincronizada automaticamente em TODOS os 6 locais abaixo. NAO esperar o usuario pedir. NAO fazer parcialmente.
 
@@ -124,6 +144,7 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Playground v2: tool inspector, thumbs up/down, overrides (model/temp/tools), buffer simulation, personas, guardrail tester
 - Playground greeting fix: greeting injected as model message in geminiContents (not system prompt instruction)
 - TicketResolutionDrawer: bottom sheet (vaul) com 4 categorias, move kanban card, aplica tags, atualiza lead_profile
+- Tab focus refresh: useTabFocusRefresh() in AppRoutes — when tab hidden 30s+, revalidates Supabase session + invalidates all React Query caches + dispatches instances-updated event. Fixes stale data on tab return (Chrome suspends inactive tabs).
 - Dashboard performance: fetchData() parallelized, fetchGroupsStats() deferred, HelpdeskMetricsCharts .limit(500)
 - Typing indicator: broadcastTyping() fire-and-forget via helpdesk-realtime, throttle 3s, self-exclusion, auto-clear 4s
 - Quick reply templates: "/" prefix in ChatInput triggers dropdown, loads message_templates, keyboard navigation
@@ -133,6 +154,16 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Validator Agent: _shared/validatorAgent.ts — audits each AI response (score 0-10, PASS/REWRITE/BLOCK). Checks: forbidden phrases, blocked topics, discount limit, multiple questions, name frequency, invented info. Persists to ai_agent_validations table.
 - Prompt Studio: ai_agents.prompt_sections JSONB — 9 editable sections (identity, sdr_flow, product_rules, handoff_rules, tags_labels, absolute_rules, objections, additional) + auto-generated business_context. Template vars: {agent_name}, {personality}, {max_pre_search_questions}, {max_qualification_retries}, {max_discount_percent}. Defaults in system_settings.default_prompt_sections.
 - Greeting race guard: after greeting block, checks if greeting_sent was logged in last 30s by concurrent call — prevents duplicate messages when debounce fires multiple ai-agent calls simultaneously
+- Greeting + question: when lead's first msg is a real question (not just "oi"), greeting is sent AND function continues to LLM to answer. Only pure greetings stop after greeting. This prevents losing substantive questions on first contact.
+- Question-aware handoff triggers: INFO_TERMS set (horario, preco, endereco, etc.) are NOT matched as handoff triggers when the lead is asking a question ("Qual o horário?"). Pure handoff triggers ("atendente", "humano") always match.
+- Business hours weekly format: supports both legacy {"start":"08:00","end":"18:00"} and weekly {"mon":{"open":true,"start":"08:00","end":"18:00"},...} formats. Day keys: sun/mon/tue/wed/thu/fri/sat.
+- Duplicate guard 15s (excludes greetings): checks NON-greeting outgoing msgs in last 15s. Greetings (external_id `ai_greeting_*`) are excluded because they should NOT block the next real LLM response from being processed.
+- Debounce NO RETRY on 500: the 500 from ai-agent is gateway timeout (Supabase ~25s limit), NOT a crash — function keeps running in background. Retry was creating duplicate executions. Removed entirely.
+- Empty LLM response = silent: when LLM returns empty text, NEVER send fallback to lead. Return silently with log. "Desculpe não consegui processar" must NEVER reach the lead.
+- Hardcoded safety rules in system prompt: NUNCA dizer "não encontrei/não temos/sem estoque" — lead never sees search failures. Tool returns marked [INTERNO] when search fails.
+- Question-aware triggers expanded: INFO_TERMS includes desconto, parcelar, parcela, frete, negociar, prazo, garantia, troca, devolução, pix. Prefixes: faz, fazem, aceita, aceitam. Lead asking "Faz desconto no pix?" does NOT trigger handoff.
+- Negative sentiment empathy: when handoff_to_human is called with a negative sentiment reason, an empathy message is sent BEFORE the handoff message. Lead never receives cold handoff on frustration.
+- Hardcoded prompt: LLM must read ALL lines of grouped messages and NEVER re-ask something lead already said. NEVER repeat questions from history.
 - TTS fallback chain: _shared/ttsProviders.ts — Gemini → Cartesia → Murf → Speechify → text. Provider chain configurable via ai_agents.tts_fallback_providers JSONB. API keys: CARTESIA_API_KEY, MURF_API_KEY, SPEECHIFY_API_KEY env vars.
 - Audio split for long responses: splitAudioAndText() sends first sentence as TTS audio + full text as follow-up message (when response > voice_max_text_length and lead sent audio)
 - Fuzzy product search: search_products_fuzzy() RPC — pg_trgm word-level similarity. Fallback after ILIKE exact + word-by-word. Threshold 0.3. Catches typos like "cooral"→"coral".
@@ -140,7 +171,15 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Search pipeline order: 1) ILIKE exact phrase → 2) word-by-word AND → 3) fuzzy pg_trgm → post-filter AND on ALL results. NEVER return products that don't match the brand/keyword the lead specified.
 - Carousel config: ai_agents.carousel_text + carousel_button_1 + carousel_button_2 — customizable text and 2 buttons per card (second button optional, empty = hidden)
 - Carousel fallback: when all 4 UAZAPI payload variants fail, sends up to 3 individual photos before falling back to text
-- Handoff → SHADOW: all handoff types (tool, trigger, implicit) set status_ia='shadow' (not 'desligada'). AI continues extracting data silently. Only Clear Context uses 'desligada'.
+- Handoff → SHADOW: all handoff types (tool, trigger, implicit, max_lead_messages) set status_ia='shadow' (not 'desligada'). Final conversation update SKIPS status_ia when handoff happened (won't overwrite SHADOW). Only Clear Context uses 'desligada'.
+- Handoff only on explicit request: handoff_to_human is ONLY for (1) lead explicitly asks "vendedor/atendente/gerente", (2) persistent negative sentiment, (3) unanswerable questions. Price/discount/payment/delivery questions are NEVER handoff — agent answers from business_info.
+- Shadow extraction fields: in SHADOW mode, LLM extracts via update_lead_profile (full_name, city, interests, reason, average_ticket, objections, notes) + set_tags (cidade:X, quantidade:Y, orcamento:Z). Prompt instructs to extract EVERYTHING.
+- Grouped messages structured format: when debounce combines 2+ messages, they are formatted as "[Mensagem 1]: text\n[Mensagem 2]: text" so LLM addresses each statement. Dedup filter removes incoming msgs already in contextMessages to prevent duplication.
+- Price in tool return: when search_products sends carousel, the tool return includes product list with prices (resultText) so LLM can answer "Quanto custa?" with exact values. Instruction: "Se o lead PERGUNTAR preço → RESPONDA com valor exato".
+- Shadow name protection: shadow mode NEVER overwrites existing full_name in lead_profile. Prevents "Obrigado Pedro!" from replacing lead name with seller name. Shadow prompt explicitly says to ignore non-lead names when name already exists.
+- Agent only uses admin data: business_info section lists ONLY what admin configured. Missing fields are explicitly flagged in prompt ("INFORMAÇÕES NÃO CADASTRADAS: X, Y"). Agent MUST handoff on unconfigured topics — NEVER invent info. Rule: "Se NÃO está aqui, NÃO invente." Test scenarios MUST match real admin config — never assume data that isn't in the DB.
+- Price always numeric: when search_products returns products after carousel, tool return includes resultText with prices. Hardcoded rule forces LLM to ALWAYS include R$XX,XX in response. "Nunca responda sobre preço sem citar o valor."
+- TTS preview no admin: botão de teste de voz funciona quando GEMINI_API_KEY está na system_settings (SecretsTab). Edge Functions leem dos secrets do Supabase (Deno.env), admin frontend lê de system_settings. Ambos precisam estar configurados.
 - Handoff text discard: when handoff_to_human tool executes, any LLM-generated text is discarded — lead receives only the configured handoff_message
 - Handoff by hours: ai_agents.handoff_message_outside_hours — separate message for outside business hours. Business hours use weekly schedule: ai_agents.business_hours JSONB {"mon":{"open":true,"start":"08:00","end":"18:00"}, ...}
 - Sub-agent routing by tags: motivo:compra→sales, motivo:suporte→support, motivo:financeiro→handoff. Only injects relevant sub-agent prompt instead of all 5.
@@ -148,7 +187,11 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - ValidatorMetrics component: score avg, PASS/REWRITE/BLOCK rates, score distribution, top violations with severity, AI suggestions
 - Validator rigor levels: moderado (score>=8 PASS), rigoroso (>=9), maximo (only 10). Config: ai_agents.validator_enabled, validator_model, validator_rigor
 - AI Agent Tools (8): search_products, send_carousel, send_media, handoff_to_human, assign_label, set_tags, move_kanban, update_lead_profile
-- Qualification retries: max_qualification_retries (default 2) — search_fail:N tag tracks failed searches. N >= max → force handoff. Resets on product found.
+- Qualification retries: max_qualification_retries (default 2) — search_fail:N tag tracks failed searches. N >= max → force handoff. Resets on product found. When brandNotFound detected, search_fail jumps to maxRetries-1 (one more failure = handoff). Lead refusing alternative for unavailable brand → immediate handoff.
+- Brand demand tracking: tag marca_indisponivel:X auto-set when brand not in catalog. VALID_KEYS includes marca_indisponivel. Analytics can track demand for brands not carried.
+- Auto-tag interesse on 0 results: category detected from query keywords (tinta→tintas, verniz→seladores_e_vernizes, manta→impermeabilizantes) even when search returns 0 products. Lead interest is always tracked.
+- Paint qualification order: hardcoded prompt rule — (1) ambiente interno/externo, (2) cor/acabamento, (3) marca. NEVER ask marca before cor.
+- leadName from lead_profiles ONLY: never use contact.name (WhatsApp pushName like "E2E Test"). leadFullName = leadProfile?.full_name || null. update_lead_profile tool instructs LLM to use newly saved name immediately.
 - max_pre_search_questions: max perguntas de qualificacao antes de search_products para termos genericos (default 3)
 - max_lead_messages: auto-handoff apos N msgs do lead (default 8). Atomic counter via increment_lead_msg_count RPC.
 - Campaign context: tag campanha:NAME on conversation → loads utm_campaigns.ai_template + ai_custom_text into system prompt
