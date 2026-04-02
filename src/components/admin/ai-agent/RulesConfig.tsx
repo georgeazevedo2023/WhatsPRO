@@ -116,20 +116,31 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <SearchX className="w-4 h-4 text-primary" />
-            Qualificação quando Produto não Encontrado
+            Qualificacao de Produtos
           </CardTitle>
-          <CardDescription>Quantas perguntas de qualificação a IA pode fazer antes de transferir ao consultor quando o produto não está no catálogo</CardDescription>
+          <CardDescription>Controle quantas perguntas o agente faz antes e depois de buscar produtos no catalogo.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           <div className="space-y-1.5">
-            <Label className="text-xs">Tentativas de qualificação</Label>
+            <Label className="text-xs">Perguntas antes de buscar (termos genericos)</Label>
+            <Input
+              type="number" min={0} max={5}
+              value={config.max_pre_search_questions ?? 3}
+              onChange={(e) => onChange({ max_pre_search_questions: parseInt(e.target.value) || 0 })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Quando o lead pede algo generico ("tinta", "piso"), o agente qualifica na ordem: ambiente → marca → cor/especificacao. 0 = busca imediata sem qualificar. Recomendado: 3.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Tentativas quando produto nao encontrado</Label>
             <Input
               type="number" min={0} max={5}
               value={config.max_qualification_retries ?? 2}
               onChange={(e) => onChange({ max_qualification_retries: parseInt(e.target.value) || 0 })}
             />
             <p className="text-[11px] text-muted-foreground">
-              0 = transfere imediatamente. 1-5 = a IA pergunta marca, especificação, uso etc. antes de transbordar. Recomendado: 2.
+              Quando a busca retorna 0 resultados, o agente faz perguntas adicionais antes de transferir. 0 = transfere imediatamente. Recomendado: 2.
             </p>
           </div>
         </CardContent>

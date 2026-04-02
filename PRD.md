@@ -37,6 +37,13 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 **Sprint completo com 30 perguntas de validação. 5 fases implementadas.**
 
+**Qualificação Nível 2 — Ordem de Perguntas:**
+- Fluxo: ambiente (interno/externo) → marca (Iquine/Coral) → cor/especificação (branco/fosco) → search_products
+- `max_pre_search_questions` (default 3): perguntas antes de buscar para termos genéricos
+- `max_qualification_retries` (default 2): tentativas adicionais quando busca retorna 0
+- Copy pós-carousel: destaca benefício do produto + pergunta de fechamento (cor, quantidade, "posso separar?")
+- Busca word-by-word corrigida: AND logic (antes era OR, misturava marcas)
+
 **Validator Agent (auditor de qualidade):**
 - Segundo agente IA audita cada resposta antes de enviar ao lead (score 0-10)
 - PASS (envia), REWRITE (corrige), BLOCK (handoff)
