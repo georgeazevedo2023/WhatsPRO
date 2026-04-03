@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { Phone, ArrowLeft, Tags, Settings2, UserCheck, Sparkles, RefreshCw, Clock, Target, CheckCircle2, AlertCircle, History, ChevronDown, ChevronUp, MessageSquare, Wand2 } from 'lucide-react';
+import { Phone, ArrowLeft, Tags, Settings2, UserCheck, Sparkles, RefreshCw, Clock, Target, CheckCircle2, AlertCircle, History, ChevronDown, ChevronUp, MessageSquare, Wand2, Bot, ArrowRightLeft, User, MapPin, ShoppingCart } from 'lucide-react';
 import type { Conversation, AiSummary, Label } from '@/types';
 import { ConversationLabels } from './ConversationLabels';
 import { LabelPicker } from './LabelPicker';
@@ -86,6 +86,10 @@ export const ContactInfoPanel = ({
   const [totalHistoryCount, setTotalHistoryCount] = useState(0);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
 
+  // AI Context state — lead profile + handoff info for seller
+  const [leadProfile, setLeadProfile] = useState<Record<string, any> | null>(null);
+  const [handoffLog, setHandoffLog] = useState<Record<string, any> | null>(null);
+
   const contactPic = useContactProfilePic(
     contact?.id, contact?.jid, conversation.inbox?.instance_id, contact?.profile_pic_url
   );
@@ -94,6 +98,31 @@ export const ContactInfoPanel = ({
   useEffect(() => {
     setAiSummary(conversation.ai_summary || null);
   }, [conversation.id, conversation.ai_summary]);
+
+  // Fetch AI context: lead_profiles + last handoff log
+  useEffect(() => {
+    if (!conversation.contact_id) return;
+    let cancelled = false;
+
+    // Lead profile
+    supabase.from('lead_profiles')
+      .select('full_name, city, interests, reason, average_ticket, objections, notes')
+      .eq('contact_id', conversation.contact_id)
+      .maybeSingle()
+      .then(({ data }) => { if (!cancelled) setLeadProfile(data) });
+
+    // Last handoff log for this conversation
+    supabase.from('ai_agent_logs')
+      .select('metadata, created_at')
+      .eq('conversation_id', conversation.id)
+      .eq('event', 'handoff')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => { if (!cancelled) setHandoffLog(data) });
+
+    return () => { cancelled = true };
+  }, [conversation.id, conversation.contact_id]);
 
   // Fetch past conversations for this contact
   useEffect(() => {
@@ -516,6 +545,92 @@ export const ContactInfoPanel = ({
           </div>
         )}
       </div>
+
+      {/* AI Context for Seller — shows lead profile + qualification chain + tags */}
+      {(leadProfile || handoffLog || ((conversation as any).tags?.length > 0)) && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Bot className="w-3.5 h-3.5 text-primary" />
+            Contexto IA
+          </div>
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-3 text-xs">
+            {/* Qualification Chain from handoff */}
+            {handoffLog?.metadata?.qualification_chain && (
+              <div className="space-y-1">
+                <div className="flex items-center gap-1 text-primary font-medium">
+                  <ArrowRightLeft className="w-3 h-3" />
+                  Transbordo
+                </div>
+                <p className="text-foreground font-medium leading-relaxed">
+                  {handoffLog.metadata.qualification_chain}
+                </p>
+                {handoffLog.metadata.reason && handoffLog.metadata.reason !== handoffLog.metadata.qualification_chain && (
+                  <p className="text-muted-foreground">{handoffLog.metadata.reason}</p>
+                )}
+              </div>
+            )}
+
+            {/* Lead Profile Data */}
+            {leadProfile && (
+              <div className="space-y-1.5">
+                {leadProfile.full_name && (
+                  <div className="flex items-center gap-1.5">
+                    <User className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-foreground font-medium">{leadProfile.full_name}</span>
+                  </div>
+                )}
+                {leadProfile.city && (
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3 text-muted-foreground" />
+                    <span>{leadProfile.city}</span>
+                  </div>
+                )}
+                {leadProfile.interests?.length > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <ShoppingCart className="w-3 h-3 text-muted-foreground" />
+                    <span>{leadProfile.interests.join(', ')}</span>
+                  </div>
+                )}
+                {leadProfile.reason && (
+                  <div className="flex items-center gap-1.5">
+                    <Target className="w-3 h-3 text-muted-foreground" />
+                    <span>{leadProfile.reason}</span>
+                  </div>
+                )}
+                {leadProfile.notes && (
+                  <p className="text-muted-foreground italic border-t border-border/30 pt-1.5 mt-1">
+                    {leadProfile.notes}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Conversation Tags — formatted as pills */}
+            {(conversation as any).tags?.length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1 border-t border-border/30">
+                {((conversation as any).tags as string[])
+                  .filter((t: string) => !t.startsWith('ia:') && !t.startsWith('ia_cleared:') && !t.startsWith('search_fail:') && !t.startsWith('enrich_count:'))
+                  .map((t: string) => {
+                    const [key, ...rest] = t.split(':');
+                    const val = rest.join(':') || key;
+                    const color = key === 'motivo' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                      : key === 'interesse' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : key === 'produto' ? 'bg-purple-500/15 text-purple-400 border-purple-500/30'
+                      : key === 'acabamento' || key === 'marca_preferida' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                      : key === 'objecao' ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                      : key === 'sentimento' ? 'bg-pink-500/15 text-pink-400 border-pink-500/30'
+                      : 'bg-muted text-muted-foreground';
+                    return (
+                      <Badge key={t} variant="outline" className={`text-[10px] px-1.5 py-0 ${color}`} title={`${key}: ${val}`}>
+                        {val.replace(/_/g, ' ')}
+                      </Badge>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Contact History Timeline */}
       <div className="space-y-2">
