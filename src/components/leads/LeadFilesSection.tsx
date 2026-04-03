@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Paperclip, Image, FileText, Music, Video, Download, Inbox, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useSignedUrl } from '@/hooks/useSignedUrl';
 import type { MediaFile } from './types';
 
 interface LeadFilesSectionProps {
@@ -73,13 +74,7 @@ function FileList({ files }: { files: MediaFile[] }) {
           </p>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
             {images.slice(0, 12).map(f => (
-              <a key={f.id} href={f.media_url} target="_blank" rel="noopener noreferrer" className="block group">
-                <img
-                  src={f.media_url}
-                  alt=""
-                  className="w-full h-24 object-cover rounded-lg border group-hover:opacity-80 transition-opacity"
-                />
-              </a>
+              <SignedImage key={f.id} url={f.media_url} />
             ))}
           </div>
         </div>
@@ -155,9 +150,7 @@ function AudioList({ audios }: { audios: MediaFile[] }) {
                 {new Date(f.created_at).toLocaleDateString('pt-BR')} {new Date(f.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
-            <audio controls preload="none" className="w-full h-8" style={{ minHeight: 32 }}>
-              <source src={f.media_url} />
-            </audio>
+            <SignedAudio url={f.media_url} />
             {f.transcription && (
               <p className="text-xs text-muted-foreground italic">"{f.transcription}"</p>
             )}
@@ -176,5 +169,29 @@ function AudioList({ audios }: { audios: MediaFile[] }) {
         </Button>
       )}
     </div>
+  );
+}
+
+/** Wraps native audio with signed URL resolution for private Supabase Storage buckets */
+function SignedAudio({ url }: { url: string }) {
+  const signedUrl = useSignedUrl(url);
+  if (!signedUrl) return <div className="w-full h-8 bg-muted rounded animate-pulse" />;
+  return (
+    <audio controls preload="metadata" className="w-full h-8" style={{ minHeight: 32 }}>
+      <source src={signedUrl} />
+    </audio>
+  );
+}
+
+function SignedImage({ url }: { url: string }) {
+  const signedUrl = useSignedUrl(url);
+  return (
+    <a href={signedUrl || url} target="_blank" rel="noopener noreferrer" className="block group">
+      <img
+        src={signedUrl || url}
+        alt=""
+        className="w-full h-24 object-cover rounded-lg border group-hover:opacity-80 transition-opacity"
+      />
+    </a>
   );
 }
