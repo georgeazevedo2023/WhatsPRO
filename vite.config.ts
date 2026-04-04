@@ -35,7 +35,6 @@ export default defineConfig(({ mode }) => ({
           'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
           'vendor-date': ['date-fns'],
           'vendor-icons': ['lucide-react'],
-          'vendor-xlsx': ['xlsx'],
         },
       },
     },
