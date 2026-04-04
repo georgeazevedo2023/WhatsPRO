@@ -48,7 +48,7 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - **CI/CD**: GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
 - **Portainer**: Stack "whatspro" on Hetzner CX42 (65.108.51.109)
 
-## Edge Functions (26 total)
+## Edge Functions (27 total)
 Located in `supabase/functions/`. Each uses Deno runtime.
 - JWT verification: `verify_jwt = true` on 20 functions, `false` only on webhooks (whatsapp-webhook, fire-outgoing-webhook, go, health-check)
 - Shared CORS config in `supabase/functions/_shared/cors.ts`
@@ -58,6 +58,7 @@ Located in `supabase/functions/`. Each uses Deno runtime.
 - UTM Tracking: `go` (redirect endpoint for campaign links)
 - Monitoring: `health-check` (DB + MV + env verification → 200/503)
 - Background: `process-jobs` (SKIP LOCKED job queue processor for lead_auto_add, profile_pic_fetch)
+- WhatsApp Forms: `form-bot` (processador de sessões de formulário WhatsApp — initiation FORM:slug + continuation + validações + webhook externo)
 
 ## Commands
 - `/prd` - Consultar PRD completo do projeto (módulos, tasks, roadmap, changelog)
@@ -232,3 +233,6 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Batch history: e2e_test_batches (UUID PK) → e2e_test_runs.batch_uuid FK. runAllE2e() creates batch row at start, completes it after loop. useE2eBatchHistory/useE2eBatchRuns/useCreateBatch/useCompleteBatch in src/hooks/useE2eBatchHistory.ts
 - BatchHistoryTab: 5th tab in AIAgentPlayground, shows last 30 batches per agent, expandable run detail, score bar (green>=80%, yellow>=60%, red<60%)
 - M2 F1 composite_score formula (simple): Math.round((passed/total)*100) — full weighted formula comes in F3
+- Admin pages: `WhatsappFormsPage` — `/dashboard/forms`
+- WhatsApp Forms (M12): forms scoped por agent_id. Trigger via FORM:<slug>. form-bot intercepta no webhook antes do AI agent. Validações: CPF (dígito verificador), email (regex), CEP (8 dígitos), scale (range), select (número ou texto), yes_no (sim/não), signature (exact match). Max 3 retries por campo. Webhook externo POST ao completar.
+- Forms templates: FORM_TEMPLATES em src/types/forms.ts — 12 templates built-in. Novos forms criados com createForm() geram slug único (name→kebab-case + timestamp36).

@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 6.4.0 | **Última atualização**: 2026-04-04 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 27 Edge Functions + 44 Tabelas + M2 Agent QA Framework (F1+F2+F3+F4 concluídos)
+> **Versão**: 7.0.0 | **Última atualização**: 2026-04-05 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 27 Edge Functions + 44 Tabelas + M2 Agent QA Framework (F1+F2+F3+F4 concluídos) + M12 Formulários WhatsApp
 
 ## Visão Geral
 
@@ -32,6 +32,21 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.0.0 (2026-04-05) — M12 WhatsApp Forms
+
+**WhatsApp Forms — Formulários via Conversa:**
+- `supabase/migrations/20260405000001_m12_whatsapp_forms.sql` — 4 tabelas (whatsapp_forms, form_fields, form_sessions, form_submissions) + RLS + 2 RPCs
+- `supabase/functions/form-bot/index.ts` — edge function com initiation (FORM:<slug>) + continuation + 11 tipos de validação (CPF, email, CEP, scale, select, yes_no, signature, number, phone, date, time) + max 3 retries + webhook externo
+- Webhook interception: `whatsapp-webhook/index.ts` redireciona para form-bot antes do AI agent quando FORM: detectado ou sessão ativa
+- `src/types/forms.ts` — FieldType (16 tipos), 12 interfaces, FORM_TEMPLATES (12 templates built-in)
+- `src/hooks/useForms.ts` — 6 hooks React Query (useFormsForAgent, useFormWithFields, useCreateForm, useUpdateForm, useDeleteForm, useUpsertFormFields)
+- `src/hooks/useFormSubmissions.ts` — useFormSubmissions + useFormStats
+- `src/components/admin/forms/` — FieldEditor, FormBuilder, FormPreview, TemplateGallery, FormsTab, SubmissionsTable
+- `/dashboard/forms` — página com select de agente + nav item no sidebar
+- 40 testes novos (373 total) — commit 60dc77f
+
+---
 
 ### v6.4.0 — 2026-04-04
 **F4: Ciclo Automatizado Teste → Ajuste → Re-teste**
@@ -2088,16 +2103,16 @@ Bot: "🛒 Resumo do pedido:
 
 | Task | Status | Descrição |
 |------|--------|-----------|
-| T12.1 Builder de formulários | 📋 | Campos: texto, número, data, select, múltipla escolha, arquivo |
-| T12.2 Bot sequencial WhatsApp | 📋 | Faz perguntas uma a uma, valida resposta, salva |
+| T12.1 Builder de formulários | ✅ | Campos: texto, número, data, select, múltipla escolha, arquivo |
+| T12.2 Bot sequencial WhatsApp | ✅ | Faz perguntas uma a uma, valida resposta, salva |
 | T12.3 Field sets (grupos de campos) | 📋 | Agrupar campos logicamente (dados pessoais, endereço, etc.) |
-| T12.4 Banco de submissions | 📋 | Respostas consultáveis, filtráveis e exportáveis (CSV/Excel) |
+| T12.4 Banco de submissions | ✅ | Respostas consultáveis, filtráveis e exportáveis (CSV/Excel) |
 | T12.5 Landing page de captura | 📋 | Página simples que redireciona para WhatsApp com funil |
 | T12.6 Integração com funis (M10) | 📋 | Formulário como step do funil conversacional |
-| T12.7 Webhook de submission | 📋 | Disparar webhook ao completar formulário |
+| T12.7 Webhook de submission | ✅ | Disparar webhook ao completar formulário |
 | T12.8 Lógica condicional entre campos | 📋 | Mostrar/pular campo baseado em resposta anterior |
-| T12.9 Validação de respostas | 📋 | CPF, email, telefone, CEP, regex customizado |
-| T12.10 Auto-preencher dados conhecidos | 📋 | Se contato já tem nome/email, não perguntar novamente |
+| T12.9 Validação de respostas | ✅ | CPF, email, telefone, CEP, regex customizado |
+| T12.10 Auto-preencher dados conhecidos | ✅ | Se contato já tem nome/email, não perguntar novamente |
 
 ##### T12.1 — Builder de Formulários
 **Descrição completa**: Interface visual para criar formulários com diferentes tipos de campos.
