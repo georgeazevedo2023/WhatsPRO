@@ -94,6 +94,33 @@ Regra especial: **frustração + handoff no mesmo batch = handoff direto.** Quan
 
 NUNCA pular etapas. Se o erro é de código, não resolver com FAQ. Se o validator deveria ter pegado, corrigir o validator ANTES de criar FAQ. Handoff é o ÚLTIMO recurso — só quando o agente genuinamente não consegue ajudar. Lead NUNCA fica sem resposta.
 
+## Protocolo Obrigatório de Entrega (NUNCA PULAR)
+Toda feature implementada DEVE seguir esta sequência completa antes de ser considerada pronta:
+
+1. **Implementar** — código funcional, sem `as any`, sem magic strings
+2. **TypeScript** — `npx tsc --noEmit` deve retornar 0 erros
+3. **Testes** — escrever testes para o novo código. `npx vitest run` deve passar 100%
+4. **Auditoria** — verificar: nenhum arquivo proibido tocado, dados legados preservados, RLS correto
+5. **Commit** — mensagem descritiva com escopo (feat/fix/chore + módulo)
+6. **Documentar** — atualizar CLAUDE.md + PRD.md + memory/MEMORY.md
+
+NUNCA reportar feature como concluída sem todos os 6 passos verificados.
+
+## Sistema de Contexto — Roadmap M2 (Agent QA Framework)
+
+Estado atual (atualizar após cada feature):
+- [x] Pré-requisitos: bug fix activeSubAgents, 38 migrations, types.ts, e2e_test_batches
+- [x] F1: Histórico Persistente de Batches — BatchHistoryTab + hooks (commit 4fe98ad)
+- [ ] F2: Fluxo de Aprovação Admin — plano em .planning/phases/M2-F2-approval-flow/PLAN.md
+- [ ] F3: Barra de Evolução (Score Composto) — plano em .planning/phases/M2-F3-score-bar/PLAN.md
+- [ ] F4: Ciclo Automatizado Teste → Ajuste → Re-teste — plano em .planning/phases/M2-F4-automated-cycle/PLAN.md
+
+Arquivos HIGH RISK — nunca tocar sem aprovação explícita:
+- supabase/functions/ai-agent/index.ts (2458 linhas, zero testes de integração)
+- supabase/functions/ai-agent-playground/index.ts
+- supabase/functions/e2e-test/index.ts
+- src/integrations/supabase/types.ts (só via `npx supabase gen types`, nunca editar manual)
+
 ## Regra de Consistencia Obrigatoria (SYNC RULE)
 Toda alteracao em campo configuravel, regra do agente, ou comportamento DEVE ser sincronizada automaticamente em TODOS os 6 locais abaixo. NAO esperar o usuario pedir. NAO fazer parcialmente.
 
@@ -202,3 +229,6 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Shared modules (15): cors.ts, fetchWithTimeout.ts, circuitBreaker.ts, llmProvider.ts, constants.ts, logger.ts, agentHelpers.ts, auth.ts, supabaseClient.ts, carousel.ts, rateLimit.ts, validatorAgent.ts, ttsProviders.ts, response.ts, aiRuntime.ts
 - Admin AI Agent components (19): GeneralConfig, BrainConfig, CatalogConfig, CatalogTable, CatalogProductForm, CsvProductImport, BatchScrapeImport, KnowledgeConfig, RulesConfig, GuardrailsConfig, VoiceConfig, ExtractionConfig, MetricsConfig, ValidatorMetrics, SubAgentsConfig, BlockedNumbersConfig, FollowUpConfig, BusinessInfoConfig, PromptStudio
 - Admin AI Agent tabs: Setup (GeneralConfig+BusinessInfo), Prompt Studio, Inteligencia (Brain+SubAgents+Extraction), Catalogo, Conhecimento, Seguranca (Rules+Guardrails+BlockedNumbers), Canais (Voice+FollowUp), Metricas (Metrics+ValidatorMetrics)
+- Batch history: e2e_test_batches (UUID PK) → e2e_test_runs.batch_uuid FK. runAllE2e() creates batch row at start, completes it after loop. useE2eBatchHistory/useE2eBatchRuns/useCreateBatch/useCompleteBatch in src/hooks/useE2eBatchHistory.ts
+- BatchHistoryTab: 5th tab in AIAgentPlayground, shows last 30 batches per agent, expandable run detail, score bar (green>=80%, yellow>=60%, red<60%)
+- M2 F1 composite_score formula (simple): Math.round((passed/total)*100) — full weighted formula comes in F3

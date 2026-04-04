@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 4.6.0 | **Última atualização**: 2026-03-27 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 26 Edge Functions + 44 Tabelas
+> **Versão**: 6.0.0 | **Última atualização**: 2026-04-04 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 26 Edge Functions + 44 Tabelas + M2 Agent QA Framework (F1 concluído)
 
 ## Visão Geral
 
@@ -32,6 +32,34 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v6.0.0 (2026-04-04) — M2 Agent QA Framework: Pre-requisitos + F1 Histórico de Batches
+
+**Pré-requisitos do sprint:**
+- Fix bug `activeSubAgents→activeSub` em `ai-agent/index.ts:2353` (sub-agentes não injetavam prompts corretos)
+- 38 migrations históricas commitadas (schema completo no repositório)
+- Tabela `e2e_test_batches` criada com FK não-destrutiva para `ai_agent_test_suites`
+- `src/integrations/supabase/types.ts` regenerado com schema completo (e2e_test_batches incluída)
+
+**F1: Histórico Persistente de Batches (commit 4fe98ad):**
+- `useE2eBatchHistory` — lista paginada de batches com filtros (passed/failed/running)
+- `useE2eBatchRuns` — detalhes expandíveis de cada run dentro do batch
+- `useCreateBatch` — cria row em `e2e_test_batches` ao iniciar runAllE2e
+- `useCompleteBatch` — atualiza status/scores ao finalizar batch
+- `BatchHistoryTab` — 5ª aba no Playground com lista expansível, score bar e badges de status
+- `runAllE2e` em `AIAgentPlayground.tsx` integrado: cria batch → executa cenários → finaliza batch com métricas
+- Interfaces TypeScript: `E2eBatchSummary`, `E2eBatchDetail`, `E2eBatchRun` em `src/types/playground.ts`
+
+**Testes:**
+- 44 novos testes, 242 total passando, tsc clean
+
+**Arquivos criados/modificados:**
+- `src/hooks/useE2eBatchHistory.ts` — 4 hooks de histórico
+- `src/components/admin/ai-agent/playground/BatchHistoryTab.tsx` — componente da aba
+- `src/pages/dashboard/AIAgentPlayground.tsx` — integração runAllE2e com batch DB
+- `src/types/playground.ts` — interfaces E2eBatch*
+- `src/integrations/supabase/types.ts` — schema e2e_test_batches
+- `supabase/migrations/` — tabela e2e_test_batches
 
 ### v5.2.0 (2026-04-02) — Enrichment Qualification Flow + validator guard
 
@@ -1251,8 +1279,17 @@ Todas com autenticação (JWT manual, cron/service, ou super_admin):
 | S5.4 Integração lead_profiles ↔ CRM | ✅ | contact_id FK em kanban_cards, auto-create card, avatar no card, estágio no Leads |
 | S5.5 Duplicar config de agente | 📋 | Copiar entre instâncias |
 
+**Sprint 6 — Agent QA Framework (M2)**
+| Task | Status | Descrição |
+|------|--------|-----------|
+| S6.0 Pre-requisitos | ✅ | Fix activeSubAgents→activeSub, 38 migrations, tabela e2e_test_batches, types.ts regenerado |
+| S6.1 Histórico Persistente de Batches | ✅ | useE2eBatchHistory/Runs/CreateBatch/CompleteBatch hooks + BatchHistoryTab (5ª aba Playground) — commit 4fe98ad |
+| S6.2 Fluxo de Aprovação Admin | 📋 | useE2eApproval + ApprovalQueue + ReviewDrawer + badge de pendentes no header |
+| S6.3 Barra de Evolução (Score Composto) | 📋 | agentScoring.ts (E2E 40%+Validator 30%+Tools 20%+Latência 10%) + AgentScoreBar com trend Recharts |
+| S6.4 Ciclo Automatizado Teste → Ajuste → Re-teste | 📋 | Migration regressão + pg_cron + e2e-scheduled edge function + E2eSchedulePanel + RegressionBadge |
+
 **Edge Functions**: `ai-agent`, `ai-agent-debounce`, `ai-agent-playground`
-**Tabelas**: `ai_agents`, `ai_agent_products`, `ai_agent_knowledge`, `ai_agent_media`, `ai_agent_logs`, `lead_profiles`, `ai_debounce_queue`
+**Tabelas**: `ai_agents`, `ai_agent_products`, `ai_agent_knowledge`, `ai_agent_media`, `ai_agent_logs`, `lead_profiles`, `ai_debounce_queue`, `e2e_test_batches`
 **Skill**: `/ai-agent` — Roadmap detalhado com exemplos de fluxo por sprint
 
 ##### T10.1 — Builder Visual Drag-and-Drop
