@@ -391,6 +391,40 @@ export const TEST_SCENARIOS: TestScenario[] = [
   },
 ];
 
+// Batch history types (F1 — persistent history)
+export interface E2eBatchSummary {
+  id: string
+  agent_id: string
+  created_at: string
+  run_type: 'manual' | 'scheduled' | 'regression'
+  total: number
+  passed: number
+  failed: number
+  composite_score: number | null
+  status: 'running' | 'complete' | 'approved' | 'rejected'
+  prompt_hash: string | null
+  created_by: string | null
+}
+
+export interface E2eBatchDetail extends E2eBatchSummary {
+  runs: E2eBatchRun[]
+}
+
+export interface E2eBatchRun {
+  id: string
+  scenario_id: string | null
+  scenario_name: string | null
+  category: string | null
+  passed: boolean
+  tools_used: string[] | null
+  tools_missing: string[] | null
+  latency_ms: number | null
+  error: string | null
+  results: unknown
+  created_at: string
+  approval: string | null
+}
+
 /* ═══════════════════════════════════════════════════════════ */
 /*  Pure utility functions                                     */
 /* ═══════════════════════════════════════════════════════════ */

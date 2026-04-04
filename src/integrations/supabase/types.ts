@@ -889,49 +889,52 @@ export type Database = {
       }
       e2e_test_batches: {
         Row: {
-          agent_id: string
-          batch_id: string
-          completed_at: string | null
-          composite_score: number | null
-          created_by: string | null
-          failed: number
           id: string
-          metadata: Json | null
-          passed: number
+          agent_id: string | null
+          created_at: string
           run_type: string
-          started_at: string
-          status: string
           total: number
+          passed: number
+          failed: number
+          composite_score: number | null
+          status: string
+          approved_by: string | null
+          approved_at: string | null
+          reviewer_notes: string | null
+          created_by: string | null
+          prompt_hash: string | null
         }
         Insert: {
-          agent_id: string
-          batch_id: string
-          completed_at?: string | null
-          composite_score?: number | null
-          created_by?: string | null
-          failed?: number
           id?: string
-          metadata?: Json | null
-          passed?: number
+          agent_id?: string | null
+          created_at?: string
           run_type?: string
-          started_at?: string
-          status?: string
           total?: number
+          passed?: number
+          failed?: number
+          composite_score?: number | null
+          status?: string
+          approved_by?: string | null
+          approved_at?: string | null
+          reviewer_notes?: string | null
+          created_by?: string | null
+          prompt_hash?: string | null
         }
         Update: {
-          agent_id?: string
-          batch_id?: string
-          completed_at?: string | null
-          composite_score?: number | null
-          created_by?: string | null
-          failed?: number
           id?: string
-          metadata?: Json | null
-          passed?: number
+          agent_id?: string | null
+          created_at?: string
           run_type?: string
-          started_at?: string
-          status?: string
           total?: number
+          passed?: number
+          failed?: number
+          composite_score?: number | null
+          status?: string
+          approved_by?: string | null
+          approved_at?: string | null
+          reviewer_notes?: string | null
+          created_by?: string | null
+          prompt_hash?: string | null
         }
         Relationships: [
           {
@@ -941,6 +944,20 @@ export type Database = {
             referencedRelation: "ai_agents"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "e2e_test_batches_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "e2e_test_batches_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
         ]
       }
       e2e_test_runs: {
