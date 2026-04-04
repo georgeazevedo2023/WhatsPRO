@@ -1,7 +1,7 @@
 import { memo, useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FlaskConical, CheckCircle2, XCircle, SkipForward, Clock } from 'lucide-react';
+import { FlaskConical, CheckCircle2, XCircle, SkipForward, Clock, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
@@ -20,6 +20,7 @@ const E2eStatusCard = () => {
   const navigate = useNavigate();
   const [summary, setSummary] = useState<E2eRunSummary>({ total: 0, passed: 0, failed: 0, skipped: 0, lastRun: null });
   const [loading, setLoading] = useState(true);
+  const [isLastBatchRegression, setIsLastBatchRegression] = useState(false);
 
   useEffect(() => {
     loadLatestRuns();
@@ -57,6 +58,15 @@ const E2eStatusCard = () => {
           lastRun: runs[0].created_at,
         });
       }
+
+      // Check last batch for regression flag
+      const { data: lastBatchData } = await supabase
+        .from('e2e_test_batches')
+        .select('is_regression, composite_score, regression_context')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setIsLastBatchRegression(lastBatchData?.is_regression ?? false);
     } catch (err) {
       console.error('[E2eStatusCard] Error:', err);
     } finally {
@@ -97,6 +107,11 @@ const E2eStatusCard = () => {
                 <Clock className="w-3 h-3" />
                 {formatDistanceToNow(new Date(summary.lastRun), { locale: ptBR, addSuffix: true })}
               </span>
+              {isLastBatchRegression && (
+                <span className="flex items-center gap-0.5 text-red-500 text-[10px]">
+                  <AlertTriangle className="w-3 h-3" /> Regressão
+                </span>
+              )}
             </div>
           </div>
           <div className={cn('w-8 h-8 md:w-10 md:h-10 rounded-lg border flex items-center justify-center shrink-0', statusBg)}>

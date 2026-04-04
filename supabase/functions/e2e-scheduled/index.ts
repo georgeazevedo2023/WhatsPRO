@@ -223,10 +223,54 @@ Deno.serve(async (req) => {
       || '5581985749970'
     const testNumber = (body.test_number as string) || alertNumber
 
+    // ─── Guard: intervalo dinâmico ────────────────────────────────────────
+    const { data: intervalSetting } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'e2e_schedule_interval_hours')
+      .maybeSingle()
+    const intervalHours = parseInt(intervalSetting?.value || '6', 10)
+
+    const { data: lastBatch } = await supabase
+      .from('e2e_test_batches')
+      .select('created_at')
+      .eq('agent_id', agent.id)
+      .eq('status', 'complete')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const isManualTrigger = (body.force === true)
+    if (lastBatch && !isManualTrigger) {
+      const hoursSinceLast = (Date.now() - new Date(lastBatch.created_at).getTime()) / 3600000
+      if (hoursSinceLast < intervalHours) {
+        log.info('Skipping: too soon since last run', { hoursSinceLast, intervalHours })
+        return successResponse(corsHeaders, { skipped: true, reason: `Last run ${hoursSinceLast.toFixed(1)}h ago, interval=${intervalHours}h` })
+      }
+    }
+
     log.info('Starting scenarios', { count: SCENARIOS.length, agentId: agent.id })
 
     const runResults: Array<Record<string, unknown>> = []
     const startTime = Date.now()
+
+    // ─── Criar batch row (estado inicial: running) ────────────────────────
+    const batchTimestamp = Date.now()
+    const batchIdText = `batch_cron_${batchTimestamp}`
+    const { data: batchRow } = await supabase
+      .from('e2e_test_batches')
+      .insert({
+        agent_id: agent.id,
+        run_type: 'scheduled',
+        status: 'running',
+        total: SCENARIOS.length,
+        passed: 0,
+        failed: 0,
+        batch_id_text: batchIdText,
+      })
+      .select('id')
+      .single()
+    const batchUuid: string | null = batchRow?.id || null
 
     for (const scenario of SCENARIOS) {
       const scenarioStart = Date.now()
@@ -259,6 +303,8 @@ Deno.serve(async (req) => {
           skip_reason: precheck.reason,
           results: [],
           latency_ms: 0,
+          batch_uuid: batchUuid,
+          batch_id: batchIdText,
         })
         continue
       }
@@ -311,6 +357,8 @@ Deno.serve(async (req) => {
           results: [],
           latency_ms: latency,
           error: e2eResult?.error || 'E2E function error',
+          batch_uuid: batchUuid,
+          batch_id: batchIdText,
         })
         continue
       }
@@ -342,6 +390,8 @@ Deno.serve(async (req) => {
         results: e2eResult.results || [],
         latency_ms: latency,
         error: evaluation.reason || null,
+        batch_uuid: batchUuid,
+        batch_id: batchIdText,
       })
 
       log.info('Scenario result', { scenarioId: scenario.id, passed: evaluation.passed, latency_ms: latency })
@@ -355,31 +405,122 @@ Deno.serve(async (req) => {
     const failed = runResults.filter(r => !r.passed && !r.skipped)
     const skipped = runResults.filter(r => r.skipped)
 
-    // Send WhatsApp alert if any failures
-    if (failed.length > 0) {
-      const lines: string[] = [
-        `⚠️ *E2E Alerta* — ${failed.length}/${SCENARIOS.length} falharam`,
-        '',
-      ]
+    // ─── Calcular composite_score do batch atual ────────────────────────
+    const passCount_final = passed.length
+    const totalRan = passed.length + failed.length
+    const compositeScore = totalRan > 0
+      ? Math.round((passCount_final / totalRan) * 100)
+      : null
 
-      for (const r of failed) {
-        lines.push(`❌ ${r.scenario_name}: ${r.error || r.reason || 'erro desconhecido'}`)
+    // ─── Regressão: comparar com batch anterior ──────────────────────────
+    let isRegression = false
+    let regressionContext: Record<string, unknown> | null = null
+
+    if (batchUuid && compositeScore !== null) {
+      const { data: previousBatch } = await supabase
+        .rpc('get_previous_e2e_batch', {
+          p_agent_id: agent.id,
+          p_exclude_batch_uuid: batchUuid,
+        })
+        .maybeSingle()
+
+      const [{ data: thresholdSetting }, { data: consecutiveSetting }, { data: healthySetting }] = await Promise.all([
+        supabase.from('system_settings').select('value').eq('key', 'e2e_regression_threshold').maybeSingle(),
+        supabase.from('system_settings').select('value').eq('key', 'e2e_consecutive_below_threshold').maybeSingle(),
+        supabase.from('system_settings').select('value').eq('key', 'e2e_healthy_pass_rate').maybeSingle(),
+      ])
+
+      const threshold = parseFloat(thresholdSetting?.value || '10')
+      const healthyRate = parseFloat(healthySetting?.value || '80')
+      let consecutiveCount = parseInt(consecutiveSetting?.value || '0', 10)
+
+      if (previousBatch?.composite_score !== undefined && previousBatch.composite_score !== null) {
+        const delta = compositeScore - Number(previousBatch.composite_score)
+        const isBelowHealthy = compositeScore < healthyRate
+
+        if (isBelowHealthy) {
+          consecutiveCount++
+        } else {
+          consecutiveCount = 0
+        }
+
+        if (delta < -threshold || consecutiveCount >= 2) {
+          isRegression = true
+          regressionContext = {
+            delta,
+            current_score: compositeScore,
+            previous_score: Number(previousBatch.composite_score),
+            previous_batch_uuid: previousBatch.batch_uuid,
+            consecutive_below_threshold: consecutiveCount,
+            failed_scenarios: failed.map((r: Record<string, unknown>) => ({
+              id: r.scenario_id,
+              name: r.scenario_name,
+              reason: r.reason || r.error,
+            })),
+          }
+        }
+
+        await supabase
+          .from('system_settings')
+          .update({ value: String(consecutiveCount) })
+          .eq('key', 'e2e_consecutive_below_threshold')
       }
-      for (const r of passed) {
-        lines.push(`✅ ${r.scenario_name}: OK (${((r.latency_ms as number) / 1000).toFixed(1)}s)`)
+    }
+
+    // ─── Atualizar batch row com resultados finais ────────────────────────
+    if (batchUuid) {
+      await supabase
+        .from('e2e_test_batches')
+        .update({
+          status: 'complete',
+          passed: passed.length,
+          failed: failed.length,
+          total: SCENARIOS.length,
+          composite_score: compositeScore,
+          is_regression: isRegression,
+          regression_context: regressionContext,
+        })
+        .eq('id', batchUuid)
+    }
+
+    // Send WhatsApp alert if any failures or regression detected
+    if ((failed.length > 0 || isRegression) && alertNumber) {
+      const { data: alertEnabledSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'e2e_alert_whatsapp_enabled')
+        .maybeSingle()
+      const alertEnabled = alertEnabledSetting?.value !== 'false'
+
+      if (alertEnabled) {
+        const lines: string[] = []
+
+        if (isRegression) {
+          const ctx = regressionContext as Record<string, unknown>
+          lines.push(`🚨 *REGRESSÃO DETECTADA* — Score: ${compositeScore} (era ${ctx.previous_score}, delta: ${(ctx.delta as number).toFixed(0)}pts)`)
+        } else {
+          lines.push(`⚠️ *E2E Alerta* — ${failed.length}/${SCENARIOS.length} falharam`)
+        }
+        lines.push('')
+
+        for (const r of failed) {
+          lines.push(`❌ ${r.scenario_name}: ${r.error || r.reason || 'erro desconhecido'}`)
+        }
+        for (const r of passed) {
+          lines.push(`✅ ${r.scenario_name}: OK`)
+        }
+        for (const r of skipped) {
+          lines.push(`⏭️ ${r.scenario_name}: SKIP`)
+        }
+
+        lines.push('')
+        lines.push(`📊 Score: ${compositeScore ?? '?'}/100`)
+        if (isRegression) {
+          lines.push(`⚙️ Revise o Prompt Studio → aba E2E Real → Histórico`)
+        }
+
+        await sendWhatsAppAlert(instance.token, alertNumber, lines.join('\n'))
       }
-      for (const r of skipped) {
-        lines.push(`⏭️ ${r.scenario_name}: SKIP (${r.skip_reason})`)
-      }
-
-      const totalTokens = runResults
-        .flatMap(r => (r.results as Array<Record<string, unknown>>) || [])
-        .reduce((sum: number, r) => sum + ((r.tokens as Record<string, number>)?.input || 0) + ((r.tokens as Record<string, number>)?.output || 0), 0)
-
-      lines.push('')
-      lines.push(`🕐 Total: ${(totalLatency / 1000).toFixed(1)}s | Tokens: ${(totalTokens / 1000).toFixed(1)}k`)
-
-      await sendWhatsAppAlert(instance.token, alertNumber, lines.join('\n'))
     }
 
     log.info('Done', { passed: passed.length, failed: failed.length, skipped: skipped.length, total_ms: totalLatency })
@@ -390,6 +531,9 @@ Deno.serve(async (req) => {
       failed: failed.length,
       skipped: skipped.length,
       total_latency_ms: totalLatency,
+      composite_score: compositeScore,
+      is_regression: isRegression,
+      batch_uuid: batchUuid,
       results: runResults,
     })
 

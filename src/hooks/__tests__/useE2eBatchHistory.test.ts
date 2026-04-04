@@ -12,6 +12,7 @@ import {
   useE2eBatchRuns,
   useCreateBatch,
   useCompleteBatch,
+  useE2eTrend,
 } from '../useE2eBatchHistory'
 
 // ─── Supabase mock chain builders ────────────────────────────────────────────
@@ -304,5 +305,90 @@ describe('useCompleteBatch', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error).toBe(dbErr)
+  })
+})
+
+// ─── useE2eTrend ──────────────────────────────────────────────────────────────
+
+describe('useE2eTrend', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockReturnValue({ select: mockSelect })
+    mockSelect.mockReturnValue({ eq: mockEq })
+    // chain: eq('agent_id') → eq('status') → order → limit
+    mockEq.mockReturnValue({ eq: mockEq, order: mockOrder })
+    mockOrder.mockReturnValue({ limit: mockLimit })
+  })
+
+  it('query desabilitado quando agentId=null', () => {
+    const wrapper = makeWrapper()
+    const { result } = renderHook(() => useE2eTrend(null), { wrapper })
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('retorna dados em ordem crescente (reversed para gráfico)', async () => {
+    // DB returns desc order; hook reverses them for ascending chart display
+    const dbRows = [
+      { created_at: '2026-04-04T12:00:00Z', composite_score: 90, passed: 9, total: 10, is_regression: false },
+      { created_at: '2026-04-03T12:00:00Z', composite_score: 70, passed: 7, total: 10, is_regression: false },
+      { created_at: '2026-04-02T12:00:00Z', composite_score: 50, passed: 5, total: 10, is_regression: true  },
+    ]
+    mockLimit.mockResolvedValue({ data: dbRows, error: null })
+
+    const wrapper = makeWrapper()
+    const { result } = renderHook(() => useE2eTrend('agent-1'), { wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const data = result.current.data!
+    // After reverse(), oldest entry must come first
+    expect(data[0].created_at).toBe('2026-04-02T12:00:00Z')
+    expect(data[1].created_at).toBe('2026-04-03T12:00:00Z')
+    expect(data[2].created_at).toBe('2026-04-04T12:00:00Z')
+  })
+
+  it('filtra por status=complete', async () => {
+    mockLimit.mockResolvedValue({ data: [], error: null })
+    const wrapper = makeWrapper()
+    renderHook(() => useE2eTrend('agent-1'), { wrapper })
+
+    await waitFor(() => expect(mockEq).toHaveBeenCalledWith('status', 'complete'))
+  })
+
+  it('limita ao count passado (padrão 10)', async () => {
+    mockLimit.mockResolvedValue({ data: [], error: null })
+    const wrapper = makeWrapper()
+    renderHook(() => useE2eTrend('agent-1'), { wrapper })
+
+    await waitFor(() => expect(mockLimit).toHaveBeenCalledWith(10))
+  })
+
+  it('limita ao count personalizado quando passado', async () => {
+    mockLimit.mockResolvedValue({ data: [], error: null })
+    const wrapper = makeWrapper()
+    renderHook(() => useE2eTrend('agent-1', 20), { wrapper })
+
+    await waitFor(() => expect(mockLimit).toHaveBeenCalledWith(20))
+  })
+
+  it('retorna array vazio quando DB retorna null', async () => {
+    mockLimit.mockResolvedValue({ data: null, error: null })
+    const wrapper = makeWrapper()
+    const { result } = renderHook(() => useE2eTrend('agent-1'), { wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual([])
+  })
+
+  it('consulta a tabela e2e_test_batches com os campos corretos', async () => {
+    mockLimit.mockResolvedValue({ data: [], error: null })
+    const wrapper = makeWrapper()
+    renderHook(() => useE2eTrend('agent-xyz'), { wrapper })
+
+    await waitFor(() => expect(mockFrom).toHaveBeenCalledWith('e2e_test_batches'))
+    expect(mockSelect).toHaveBeenCalledWith(
+      'created_at, composite_score, passed, total, is_regression',
+    )
+    expect(mockEq).toHaveBeenCalledWith('agent_id', 'agent-xyz')
   })
 })

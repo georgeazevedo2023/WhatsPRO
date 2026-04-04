@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 6.2.0 | **Última atualização**: 2026-04-04 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 26 Edge Functions + 44 Tabelas + M2 Agent QA Framework (F1+F2+F3 concluídos)
+> **Versão**: 6.4.0 | **Última atualização**: 2026-04-04 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 27 Edge Functions + 44 Tabelas + M2 Agent QA Framework (F1+F2+F3+F4 concluídos)
 
 ## Visão Geral
 
@@ -32,6 +32,15 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v6.4.0 — 2026-04-04
+**F4: Ciclo Automatizado Teste → Ajuste → Re-teste**
+- Migration: `e2e_test_batches` + colunas `is_regression`, `regression_context`, `batch_id_text`
+- Backend: `e2e-scheduled` com guard de intervalo dinâmico (system_settings), detecção de regressão (2 batches consecutivos OU delta > threshold), alerta WhatsApp com contexto de regressão
+- Frontend: `E2eSchedulePanel` (config de frequência/threshold), `RegressionBadge` (badge vermelho + tooltip), `BatchHistoryPanel` (histórico com delta ▲▼ + re-testar falhas)
+- pg_cron ativo: executa a cada 6h com guard interno configurável
+
+---
 
 ### v6.2.0 (2026-04-04) — M2 Agent QA Framework: F2 Fluxo de Aprovação + F3 Score Composto
 
@@ -1303,7 +1312,7 @@ Todas com autenticação (JWT manual, cron/service, ou super_admin):
 | S6.1 Histórico Persistente de Batches | ✅ | useE2eBatchHistory/Runs/CreateBatch/CompleteBatch hooks + BatchHistoryTab (5ª aba Playground) — commit 4fe98ad |
 | S6.2 Fluxo de Aprovação Admin | ✅ | useE2eApproval + ApprovalQueue + ReviewDrawer + badge de pendentes no header — commit 95ad466 |
 | S6.3 Barra de Evolução (Score Composto) | ✅ | agentScoring.ts (E2E 40%+Validator 30%+Tools 20%+Latência 10%) + AgentScoreBar com trend — commit 95ad466 |
-| S6.4 Ciclo Automatizado Teste → Ajuste → Re-teste | 📋 | Migration regressão + pg_cron + e2e-scheduled edge function + E2eSchedulePanel + RegressionBadge |
+| S6.4 Ciclo Automatizado Teste → Ajuste → Re-teste | ✅ | Migration regressão + pg_cron + e2e-scheduled edge function + E2eSchedulePanel + RegressionBadge + BatchHistoryPanel |
 
 **Edge Functions**: `ai-agent`, `ai-agent-debounce`, `ai-agent-playground`
 **Tabelas**: `ai_agents`, `ai_agent_products`, `ai_agent_knowledge`, `ai_agent_media`, `ai_agent_logs`, `lead_profiles`, `ai_debounce_queue`, `e2e_test_batches`

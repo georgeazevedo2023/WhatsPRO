@@ -5,6 +5,7 @@ import {
   TEST_SCENARIOS, computeResults,
 } from '@/types/playground';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -62,6 +63,7 @@ const AIAgentPlayground = () => {
   const [runHistory, setRunHistory] = useState<ScenarioRun[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]); messagesRef.current = messages;
   const overridesRef = useRef(overrides); overridesRef.current = overrides;
+  const queryClient = useQueryClient()
   const createBatch = useCreateBatch()
   const completeBatch = useCompleteBatch()
   const { pendingCount } = useE2eApproval(selectedAgentId, user?.id);
@@ -273,6 +275,51 @@ const AIAgentPlayground = () => {
 
   const stopBatch = () => { batchAbortRef.current = true; };
 
+  const retestBatchFailures = async (batchUuid: string, batchIdText: string) => {
+    if (e2eRunning || batchRunning || !selectedAgentId) return
+
+    const { data: failures } = await supabase
+      .from('e2e_test_runs')
+      .select('scenario_id')
+      .eq('batch_uuid', batchUuid)
+      .eq('passed', false)
+      .eq('skipped', false)
+
+    if (!failures?.length) {
+      toast.info('Nenhuma falha encontrada neste batch')
+      return
+    }
+
+    const failedIds = new Set(failures.map(f => f.scenario_id))
+    const scenariosToRetest = TEST_SCENARIOS.filter(s => failedIds.has(s.id))
+
+    if (!scenariosToRetest.length) {
+      toast.info('Cenários não encontrados nos fixtures locais')
+      return
+    }
+
+    const retestBatchId = `retest_${batchUuid.substring(0, 8)}_${Date.now()}`
+
+    setBatchRunning(true)
+    batchAbortRef.current = false
+    setBatchProgress({ current: 0, total: scenariosToRetest.length })
+    setE2eResults([])
+    setActiveTab('e2e')
+
+    toast.info(`Re-testando ${scenariosToRetest.length} cenário(s) que falharam`)
+
+    for (let i = 0; i < scenariosToRetest.length; i++) {
+      if (batchAbortRef.current) break
+      setBatchProgress({ current: i + 1, total: scenariosToRetest.length })
+      await runE2eScenario(scenariosToRetest[i], 'batch', retestBatchId)
+      if (i < scenariosToRetest.length - 1) await new Promise(r => setTimeout(r, 2000))
+    }
+
+    setBatchRunning(false)
+    queryClient.invalidateQueries({ queryKey: ['e2e-batch-history'] })
+    toast.success(`Re-teste concluído: ${scenariosToRetest.length} cenário(s)`)
+  }
+
   const runScenario = async (scenario: TestScenario) => {
     if (sending || !selectedAgentId) return;
     isPausedRef.current = false; isStoppedRef.current = false;
@@ -398,7 +445,7 @@ const AIAgentPlayground = () => {
           </ErrorBoundary>
           <PlaygroundResultsTab runHistory={runHistory} onClearHistory={() => setRunHistory([])} />
           <ErrorBoundary section="Playground E2E">
-            <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} batchRunning={batchRunning} batchProgress={batchProgress} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onRunAll={runAllE2e} onStopBatch={stopBatch} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} pendingCount={pendingCount} showApprovalQueue={showApprovalQueue} onToggleApprovalQueue={() => setShowApprovalQueue(p => !p)} agentId={selectedAgentId} userId={user?.id} />
+            <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} batchRunning={batchRunning} batchProgress={batchProgress} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onRunAll={runAllE2e} onStopBatch={stopBatch} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} pendingCount={pendingCount} showApprovalQueue={showApprovalQueue} onToggleApprovalQueue={() => setShowApprovalQueue(p => !p)} agentId={selectedAgentId} userId={user?.id} onRetestBatch={retestBatchFailures} selectedAgentId={selectedAgentId} />
           </ErrorBoundary>
           <TabsContent value="history">
             <BatchHistoryTab agentId={selectedAgentId ?? null} />

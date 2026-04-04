@@ -404,6 +404,15 @@ export interface E2eBatchSummary {
   status: 'running' | 'complete' | 'approved' | 'rejected'
   prompt_hash: string | null
   created_by: string | null
+  // F4 — regression detection fields
+  is_regression: boolean
+  regression_context: {
+    delta: number
+    current_score: number
+    previous_score: number
+    consecutive_below_threshold: number
+    failed_scenarios: Array<{ id: string; name: string; reason: string }>
+  } | null
 }
 
 export interface E2eBatchDetail extends E2eBatchSummary {

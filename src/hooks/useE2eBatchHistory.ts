@@ -10,7 +10,7 @@ export function useE2eBatchHistory(agentId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('e2e_test_batches')
-        .select('id, agent_id, created_at, run_type, total, passed, failed, composite_score, status, prompt_hash, created_by')
+        .select('id, agent_id, created_at, run_type, total, passed, failed, composite_score, status, prompt_hash, created_by, is_regression, regression_context')
         .eq('agent_id', agentId!)
         .order('created_at', { ascending: false })
         .limit(30)
@@ -95,5 +95,31 @@ export function useCompleteBatch() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['e2e-batch-history', variables.agentId] })
     },
+  })
+}
+
+// F4 — trend data for score evolution chart
+export function useE2eTrend(agentId: string | null, count = 10) {
+  return useQuery({
+    queryKey: ['e2e-trend', agentId, count],
+    queryFn: async () => {
+      if (!agentId) return []
+      const { data } = await supabase
+        .from('e2e_test_batches')
+        .select('created_at, composite_score, passed, total, is_regression')
+        .eq('agent_id', agentId)
+        .eq('status', 'complete')
+        .order('created_at', { ascending: false })
+        .limit(count)
+      return ((data || []) as Array<{
+        created_at: string
+        composite_score: number | null
+        passed: number
+        total: number
+        is_regression: boolean
+      }>).reverse()
+    },
+    enabled: !!agentId,
+    staleTime: 60_000,
   })
 }

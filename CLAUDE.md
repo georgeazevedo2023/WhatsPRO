@@ -113,7 +113,7 @@ Estado atual (atualizar após cada feature):
 - [x] F1: Histórico Persistente de Batches — BatchHistoryTab + hooks (commit 4fe98ad)
 - [x] F2: Fluxo de Aprovação Admin — useE2eApproval + ApprovalQueue + ReviewDrawer (commit 95ad466)
 - [x] F3: Barra de Evolução (Score Composto) — agentScoring + useAgentScore + AgentScoreBar (commit 95ad466)
-- [ ] F4: Ciclo Automatizado Teste → Ajuste → Re-teste — plano em .planning/phases/M2-F4-automated-cycle/PLAN.md
+- [x] F4: Ciclo Automatizado Teste → Ajuste → Re-teste — migration + e2e-scheduled + UI (E2eSchedulePanel + RegressionBadge + BatchHistoryPanel)
 
 Arquivos HIGH RISK — nunca tocar sem aprovação explícita:
 - supabase/functions/ai-agent/index.ts (2458 linhas, zero testes de integração)
