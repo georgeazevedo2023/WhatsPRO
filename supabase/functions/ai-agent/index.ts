@@ -2350,7 +2350,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       event: 'response_sent',
       input_tokens: inputTokens, output_tokens: outputTokens,
       model: usedModel, latency_ms: Date.now() - startTime,
-      sub_agent: activeSubAgents.length > 0 ? 'multi' : 'orchestrator',
+      sub_agent: activeSub ? 'multi' : 'orchestrator',
       tool_calls: toolCallsLog.length > 0 ? toolCallsLog : null,
       metadata: {
         incoming_text: incomingText.substring(0, 500),
