@@ -95,6 +95,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
   const navItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
     { icon: Clock, label: 'Agendamentos', path: '/dashboard/scheduled' },
+    { icon: FileText, label: 'Formulários', path: '/dashboard/forms' },
   ];
 
   const isActive = (path: string) => location.pathname === path;

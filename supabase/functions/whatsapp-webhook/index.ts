@@ -853,6 +853,43 @@ Deno.serve(async (req) => {
         .then(() => {})
     }
 
+    // ── Form-bot interception: handle FORM: trigger or active form session ────
+    if (direction === 'incoming' && !fromMe && conversation?.id) {
+      const isFormInit = content?.startsWith('FORM:') || content?.toUpperCase().startsWith('FORM:')
+      let hasActiveSession = false
+
+      if (!isFormInit) {
+        const { data: activeSession } = await supabase
+          .from('form_sessions')
+          .select('id')
+          .eq('conversation_id', conversation.id)
+          .eq('status', 'in_progress')
+          .maybeSingle()
+        hasActiveSession = !!activeSession
+      }
+
+      if (isFormInit || hasActiveSession) {
+        log.info('Routing to form-bot', { conversationId: conversation.id, isFormInit })
+        backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/form-bot`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            conversation_id: conversation.id,
+            message_text: content ?? '',
+            instance_id: instance.id,
+          }),
+        }).catch(err => log.error('Form-bot call failed', { error: (err as Error).message })))
+
+        return new Response(JSON.stringify({ ok: true, processed: 'form_bot', conversation_id: conversation.id }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+    // ── End form-bot interception ─────────────────────────────────────────────
+
     // Trigger AI Agent for incoming messages (if enabled for this instance)
     // Skip audio messages — transcribe-audio will trigger the agent after transcription
     if (shouldTriggerAiAgentFromWebhook({
