@@ -35,6 +35,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -280,21 +285,13 @@ export function FormsTab({ agentId }: FormsTabProps) {
         </div>
       </div>
 
-      {/* Template gallery */}
-      {showTemplateGallery && (
-        <div className="rounded-lg border border-border bg-card p-4">
+      {/* Modal: escolha de template */}
+      <Dialog open={showTemplateGallery} onOpenChange={setShowTemplateGallery}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[88vh] overflow-y-auto">
+          <DialogTitle className="sr-only">Escolha um Template</DialogTitle>
           <TemplateGallery onSelect={handleSelectTemplate} onBlank={handleBlank} />
-          <div className="mt-3 flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowTemplateGallery(false)}
-            >
-              Cancelar
-            </Button>
-          </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Loading skeletons */}
       {isLoading && !showTemplateGallery && (
@@ -350,25 +347,23 @@ export function FormsTab({ agentId }: FormsTabProps) {
         </div>
       )}
 
-      {/* Sheet de edição (FormBuilder) */}
-      <Sheet
+      {/* Modal: editor de formulário (FormBuilder) */}
+      <Dialog
         open={!!editFormId}
         onOpenChange={(open) => {
           if (!open) setEditFormId(null)
         }}
       >
-        <SheetContent
-          side="right"
-          className="w-[90vw] max-w-4xl overflow-y-auto p-0"
-        >
+        <DialogContent className="max-w-6xl w-[95vw] h-[90vh] p-0 flex flex-col gap-0 overflow-hidden [&>button:first-of-type]:hidden">
+          <DialogTitle className="sr-only">Editar Formulário</DialogTitle>
           {editFormId && (
             <EditSheetContent
               formId={editFormId}
               onClose={() => setEditFormId(null)}
             />
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       {/* Sheet de submissões */}
       <Sheet

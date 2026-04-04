@@ -67,6 +67,8 @@ export function useCreateForm() {
         .replace(/^-|-$/g, '')
         .slice(0, 50) + '-' + Date.now().toString(36)
 
+      const { data: { session } } = await supabase.auth.getSession()
+
       const { data: form, error: formErr } = await supabase
         .from('whatsapp_forms')
         .insert({
@@ -77,6 +79,7 @@ export function useCreateForm() {
           template_type: input.templateType ?? null,
           welcome_message: input.welcomeMessage ?? 'Olá! Vou te fazer algumas perguntas rápidas. 😊',
           completion_message: input.completionMessage ?? 'Obrigado pelas suas respostas! Entraremos em contato em breve. ✅',
+          created_by: session?.user?.id ?? null,
         })
         .select()
         .single()

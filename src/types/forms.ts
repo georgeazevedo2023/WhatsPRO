@@ -114,6 +114,7 @@ export interface FormTemplate {
   description: string
   icon: string
   color: string
+  thumbnail?: string
   welcome_message: string
   completion_message: string
   fields: Array<Omit<FormField, 'id' | 'form_id' | 'created_at'>>
@@ -128,6 +129,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Meça a probabilidade de recomendação da sua empresa em 2 perguntas.',
     icon: 'Star',
     color: 'text-yellow-400',
+    thumbnail: '/templates/nps.png',
     welcome_message: 'Olá! Em menos de 1 minuto, preciso da sua opinião sobre a nossa empresa. 🙏',
     completion_message: 'Obrigado pela avaliação! Seu feedback é muito importante para nós. 💛',
     fields: [
@@ -159,6 +161,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Colete dados para participação em sorteio com aceite de termos.',
     icon: 'Gift',
     color: 'text-purple-400',
+    thumbnail: '/templates/sorteio.png',
     welcome_message: 'Participe do nosso sorteio! Preencha seus dados abaixo para se inscrever. 🍀',
     completion_message: 'Você está inscrito no sorteio! O resultado será divulgado em nosso canal. Boa sorte! 🎉',
     fields: [
@@ -210,6 +213,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Avalie atendimento, produto e probabilidade de recomendação.',
     icon: 'ThumbsUp',
     color: 'text-green-400',
+    thumbnail: '/templates/satisfacao.png',
     welcome_message: 'Olá! Adoraríamos saber sua opinião sobre nossa loja. São só 4 perguntas rápidas:',
     completion_message: 'Muito obrigado! Seu feedback nos ajuda a melhorar sempre. 😊',
     fields: [
@@ -261,6 +265,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Colete dados básicos para cadastro de novos clientes.',
     icon: 'UserPlus',
     color: 'text-blue-400',
+    thumbnail: '/templates/cadastro.png',
     welcome_message: 'Olá! Vou realizar seu pré-cadastro em nosso sistema. São só 5 informações:',
     completion_message: 'Cadastro realizado com sucesso! Nossa equipe entrará em contato em breve. ✅',
     fields: [
@@ -322,6 +327,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Solicite informações para agendar uma consulta médica ou serviço.',
     icon: 'Calendar',
     color: 'text-teal-400',
+    thumbnail: '/templates/consulta.png',
     welcome_message: 'Olá! Vamos agendar sua consulta. Preciso de algumas informações:',
     completion_message: 'Agendamento solicitado! Nossa equipe confirmará o horário em até 24h. 📅',
     fields: [
@@ -383,6 +389,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Solicite informações para gerar um orçamento de obra ou serviço.',
     icon: 'HardHat',
     color: 'text-orange-400',
+    thumbnail: '/templates/orcamento.png',
     welcome_message: 'Olá! Para preparar seu orçamento, preciso de algumas informações:',
     completion_message: 'Orçamento solicitado! Nossa equipe retornará em até 48h com os valores. 🏗️',
     fields: [
@@ -444,6 +451,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Colete dados para inscrição de participantes em eventos.',
     icon: 'CalendarCheck',
     color: 'text-pink-400',
+    thumbnail: '/templates/evento.png',
     welcome_message: 'Olá! Vamos fazer sua inscrição no evento. Preciso de algumas informações:',
     completion_message: 'Inscrição confirmada! Você receberá as instruções de acesso por aqui. 🎉',
     fields: [
@@ -505,6 +513,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Qualifique leads com interesse em produto, budget e prazo de compra.',
     icon: 'BarChart3',
     color: 'text-indigo-400',
+    thumbnail: '/templates/pesquisa_produto.png',
     welcome_message: 'Olá! Queremos entender melhor suas necessidades para oferecer a melhor solução. Pode me ajudar?',
     completion_message: 'Perfeito! Nossa equipe comercial entrará em contato com as melhores opções para você. 📊',
     fields: [
@@ -556,6 +565,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Pré-consulta com dados do paciente, queixas e histórico médico.',
     icon: 'Stethoscope',
     color: 'text-red-400',
+    thumbnail: '/templates/anamnese.png',
     welcome_message: 'Olá! Vou preencher sua ficha de anamnese antes da consulta. O médico já terá seus dados ao chegar:',
     completion_message: 'Ficha preenchida com sucesso! O médico já terá seus dados ao chegar. ✅',
     fields: [
@@ -617,6 +627,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Triagem inicial de candidatos com dados profissionais básicos.',
     icon: 'Briefcase',
     color: 'text-cyan-400',
+    thumbnail: '/templates/vaga.png',
     welcome_message: 'Olá! Para se candidatar à vaga, preciso de algumas informações profissionais:',
     completion_message: 'Candidatura recebida! Entraremos em contato se o perfil for compatível com a vaga. 💼',
     fields: [
@@ -678,6 +689,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Registre problemas técnicos com tipo, descrição e urgência.',
     icon: 'Ticket',
     color: 'text-amber-400',
+    thumbnail: '/templates/chamado.png',
     welcome_message: 'Olá! Vou registrar seu chamado de suporte. Me conta o que aconteceu:',
     completion_message: 'Chamado registrado com sucesso! Nossa equipe entrará em contato em breve. 🎫',
     fields: [
@@ -729,6 +741,7 @@ export const FORM_TEMPLATES: FormTemplate[] = [
     description: 'Avalie o atendimento recebido com nota, tempo de espera e resolução.',
     icon: 'MessageSquareHeart',
     color: 'text-rose-400',
+    thumbnail: '/templates/feedback.png',
     welcome_message: 'Olá! Seu atendimento foi finalizado. Pode nos dar um feedback rápido? São só 4 perguntas:',
     completion_message: 'Muito obrigado pelo seu feedback! Vamos usar isso para melhorar cada vez mais. 😊',
     fields: [
