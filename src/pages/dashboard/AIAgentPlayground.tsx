@@ -259,7 +259,7 @@ const AIAgentPlayground = () => {
           .select('passed')
           .eq('batch_uuid', batchUuid)
         const total = runs?.length ?? 0
-        const passedCount = runs?.filter(r => r.passed).length ?? 0
+        const passedCount = (runs?.filter(r => r.passed) ?? []).length
         await completeBatch.mutateAsync({
           batchUuid,
           total,
