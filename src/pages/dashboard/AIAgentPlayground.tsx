@@ -174,7 +174,7 @@ const AIAgentPlayground = () => {
     } catch { /* silent — DB save is best-effort */ }
   };
 
-  const runE2eScenario = async (scenario: TestScenario, runType: 'single' | 'batch' = 'single', batchId?: string, batchUuid?: string) => {
+  const runE2eScenario = async (scenario: TestScenario, runType: 'single' | 'batch' = 'single', batchId?: string, batchUuid?: string): Promise<boolean> => {
     if (e2eRunning || !selectedAgentId || !selectedAgent?.instance_id) return;
     setE2eRunning(true); setE2eCurrentScenario(scenario.id); setE2eSelectedScenario(scenario);
     setE2eLiveSteps(scenario.steps.map((s, i): E2eLiveStep => ({ step: i + 1, input: s.content, media_type: s.media_type || 'text', status: 'sending', agent_response: null, agent_raw: null, tools_used: [], tags: [], status_ia: undefined, latency_ms: 0, tokens: { input: 0, output: 0 } })));
@@ -195,6 +195,7 @@ const AIAgentPlayground = () => {
       setE2eResults(prev => [runResult, ...prev]);
       await saveE2eResult(runResult, runType, batchId, batchUuid);
       if (runType === 'single') toast.success(pass ? `E2E PASSOU: ${scenario.name}` : `E2E FALHOU: ${scenario.name}`, { duration: 5000 });
+      return pass;
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'falha na execucao';
       if (runType === 'single') toast.error(`E2E erro: ${errMsg}`);
@@ -202,6 +203,7 @@ const AIAgentPlayground = () => {
       const failResult: E2eRunResult = { id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass: false, error: errMsg, steps: [], total_latency_ms: 0 };
       setE2eResults(prev => [failResult, ...prev]);
       await saveE2eResult(failResult, runType, batchId, batchUuid);
+      return false;
     } finally { setE2eRunning(false); setE2eCurrentScenario(null); }
   };
 
@@ -243,10 +245,8 @@ const AIAgentPlayground = () => {
     for (let i = 0; i < scenarios.length; i++) {
       if (batchAbortRef.current) break;
       setBatchProgress({ current: i + 1, total: scenarios.length });
-      await runE2eScenario(scenarios[i], 'batch', batchId, batchUuid);
-      // Check last result
-      const lastResult = e2eResults[0]; // will be stale, check via state update
-      if (lastResult?.pass) passed++; else failed++;
+      const scenarioPassed = await runE2eScenario(scenarios[i], 'batch', batchId, batchUuid);
+      if (scenarioPassed) passed++; else failed++;
       // Small delay between scenarios to avoid rate limiting
       if (i < scenarios.length - 1) await new Promise(r => setTimeout(r, 2000));
     }
@@ -443,7 +443,9 @@ const AIAgentPlayground = () => {
           <ErrorBoundary section="Playground Cenarios">
             <PlaygroundScenariosTab filteredScenarios={filteredScenarios} selectedCategory={selectedCategory} scenarioSearch={scenarioSearch} selectedScenario={selectedScenario} scenarioRun={scenarioRun} watchSpeed={watchSpeed} messages={messages} sending={sending} onCategoryChange={setSelectedCategory} onSearchChange={setScenarioSearch} onSelectScenario={(s) => { setSelectedScenario(s); setMessages([]); setScenarioRun(null); }} onRunScenario={runScenario} onPause={pauseScenario} onResume={resumeScenario} onStop={stopScenario} onWatchSpeedChange={(v) => { setWatchSpeed(v); watchSpeedRef.current = v; }} onClearMessages={handleClear} />
           </ErrorBoundary>
-          <PlaygroundResultsTab runHistory={runHistory} onClearHistory={() => setRunHistory([])} />
+          <ErrorBoundary section="Playground Resultados">
+            <PlaygroundResultsTab runHistory={runHistory} onClearHistory={() => setRunHistory([])} />
+          </ErrorBoundary>
           <ErrorBoundary section="Playground E2E">
             <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} batchRunning={batchRunning} batchProgress={batchProgress} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onRunAll={runAllE2e} onStopBatch={stopBatch} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} pendingCount={pendingCount} showApprovalQueue={showApprovalQueue} onToggleApprovalQueue={() => setShowApprovalQueue(p => !p)} agentId={selectedAgentId} userId={user?.id} onRetestBatch={retestBatchFailures} selectedAgentId={selectedAgentId} />
           </ErrorBoundary>
