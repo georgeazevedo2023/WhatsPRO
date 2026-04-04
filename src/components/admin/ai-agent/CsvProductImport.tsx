@@ -9,7 +9,6 @@ import { Progress } from '@/components/ui/progress';
 import { Upload, Loader2, ArrowLeft, Check, AlertCircle, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import * as XLSX from 'xlsx';
 
 interface CsvProductImportProps {
   agentId: string;
@@ -88,18 +87,10 @@ export function CsvProductImport({ agentId, existingProducts, onImported }: CsvP
       let rows: string[][] = [];
       let headers: string[] = [];
 
-      if (file.name.endsWith('.csv')) {
-        const text = await file.text();
-        const lines = text.split(/\r?\n/).filter(l => l.trim());
-        const delimiter = detectDelimiter(lines[0]);
-        rows = lines.map(l => parseCsvLine(l, delimiter));
-      } else {
-        const buffer = await file.arrayBuffer();
-        const wb = XLSX.read(buffer, { type: 'array' });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '' });
-        rows = data.map(r => r.map(String));
-      }
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      const delimiter = detectDelimiter(lines[0]);
+      rows = lines.map(l => parseCsvLine(l, delimiter));
 
       if (rows.length < 2) { toast.error('Arquivo deve ter pelo menos 2 linhas (cabeçalho + dados)'); return; }
       if (rows.length > 5001) { toast.error('Máximo 5000 produtos por importação'); return; }
@@ -201,13 +192,13 @@ export function CsvProductImport({ agentId, existingProducts, onImported }: CsvP
   // Step: Upload
   if (step === 'upload') return (
     <div className="space-y-3">
-      <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
+      <input ref={fileRef} type="file" accept=".csv" className="hidden"
         onChange={(e) => { if (e.target.files?.[0]) handleFile(e.target.files[0]); e.target.value = ''; }} />
       <Button variant="outline" className="w-full gap-2" onClick={() => fileRef.current?.click()}>
-        <FileSpreadsheet className="w-4 h-4" /> Selecionar arquivo CSV ou Excel
+        <FileSpreadsheet className="w-4 h-4" /> Selecionar arquivo CSV
       </Button>
       <p className="text-[11px] text-muted-foreground text-center">
-        Formatos: .csv, .xlsx, .xls (máx 10MB, 5000 produtos). Primeira linha = cabeçalho.
+        Formato: .csv (máx 10MB, 5000 produtos). Exporte do Excel como CSV. Primeira linha = cabeçalho.
       </p>
     </div>
   );

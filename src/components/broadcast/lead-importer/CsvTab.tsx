@@ -10,7 +10,6 @@ import { Upload, Loader2, ArrowLeft, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { parsePhoneToJid, formatPhoneDisplay } from '@/lib/phoneUtils';
-import * as XLSX from 'xlsx';
 import type { Lead } from '@/pages/dashboard/LeadsBroadcaster';
 
 interface ParsedFileData {
@@ -74,7 +73,7 @@ const MAX_ROWS = 50000;
 
 const isValidFileType = (fileName: string): boolean => {
   const ext = fileName.toLowerCase();
-  return ext.endsWith('.csv') || ext.endsWith('.xlsx') || ext.endsWith('.xls');
+  return ext.endsWith('.csv');
 };
 
 /** Sanitize cell value to prevent CSV injection (formulas starting with =, +, -, @) */
@@ -87,13 +86,6 @@ const sanitizeCell = (value: string): string => {
   return trimmed;
 };
 
-const processExcelFile = async (file: File): Promise<string[][]> => {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array' });
-  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  const data = XLSX.utils.sheet_to_json<string[]>(firstSheet, { header: 1, defval: '' });
-  return data.filter(row => row.some(cell => cell?.toString().trim()));
-};
 
 // ── Component ────────────────────────────────────────────────────────
 
@@ -119,18 +111,13 @@ const CsvTab = ({ onLeadsImported }: CsvTabProps) => {
   const parseFileForMapping = async (file: File) => {
     setIsProcessingCsv(true);
     try {
-      const isExcel = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls');
       let dataRows: string[][];
 
-      if (isExcel) {
-        dataRows = await processExcelFile(file);
-      } else {
-        const text = await file.text();
-        const lines = text.split(/\r?\n/).filter(line => line.trim());
-        if (lines.length === 0) { toast.error('Arquivo vazio'); setIsProcessingCsv(false); return; }
-        const delimiter = detectDelimiter(lines[0]);
-        dataRows = lines.map(line => parseCsvLine(line, delimiter));
-      }
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(line => line.trim());
+      if (lines.length === 0) { toast.error('Arquivo vazio'); setIsProcessingCsv(false); return; }
+      const delimiter = detectDelimiter(lines[0]);
+      dataRows = lines.map(line => parseCsvLine(line, delimiter));
 
       if (dataRows.length === 0) { toast.error('Arquivo vazio'); setIsProcessingCsv(false); return; }
 
@@ -175,7 +162,7 @@ const CsvTab = ({ onLeadsImported }: CsvTabProps) => {
 
   const validateAndProcessFile = async (file: File) => {
     if (!isValidFileType(file.name)) {
-      toast.error('Por favor, selecione um arquivo .csv, .xlsx ou .xls');
+      toast.error('Por favor, selecione um arquivo .csv');
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
@@ -251,7 +238,7 @@ const CsvTab = ({ onLeadsImported }: CsvTabProps) => {
           onDrop={handleDrop}
           onClick={() => csvInputRef.current?.click()}
         >
-          <input ref={csvInputRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
+          <input ref={csvInputRef} type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
           {isProcessingCsv ? (
             <>
               <Loader2 className="w-10 h-10 mx-auto mb-3 text-muted-foreground animate-spin" />
@@ -262,7 +249,7 @@ const CsvTab = ({ onLeadsImported }: CsvTabProps) => {
               <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
               <p className="font-medium">Clique para selecionar</p>
               <p className="text-xs text-muted-foreground mt-1">ou arraste o arquivo aqui</p>
-              <p className="text-xs text-muted-foreground mt-3">Formatos: .csv, .xlsx, .xls</p>
+              <p className="text-xs text-muted-foreground mt-3">Formato: .csv (exporte do Excel como CSV)</p>
             </>
           )}
         </div>
