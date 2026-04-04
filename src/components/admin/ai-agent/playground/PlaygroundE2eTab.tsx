@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TabsContent } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { Bot, Loader2, Zap, PlayCircle, StopCircle } from 'lucide-react';
+import { Bot, Loader2, Zap, PlayCircle, StopCircle, Clock } from 'lucide-react';
+import { ApprovalQueue } from './ApprovalQueue';
 
 export interface PlaygroundE2eTabProps {
   e2eNumber: string;
@@ -27,6 +28,11 @@ export interface PlaygroundE2eTabProps {
   onStopBatch: () => void;
   onSelectE2eScenario: (scenario: TestScenario) => void;
   onClearResults: () => void;
+  pendingCount: number;
+  showApprovalQueue: boolean;
+  onToggleApprovalQueue: () => void;
+  agentId: string | null;
+  userId: string | undefined;
 }
 
 export const PlaygroundE2eTab = ({
@@ -34,14 +40,26 @@ export const PlaygroundE2eTab = ({
   e2eSelectedScenario, selectedAgent,
   onNumberChange, onRunE2e, onRunAll, onStopBatch, onSelectE2eScenario, onClearResults,
   batchRunning, batchProgress,
+  pendingCount, showApprovalQueue, onToggleApprovalQueue, agentId, userId,
 }: PlaygroundE2eTabProps) => {
   const batchPct = batchProgress.total > 0 ? Math.round((batchProgress.current / batchProgress.total) * 100) : 0;
   const passCount = e2eResults.filter(r => r.pass).length;
   const failCount = e2eResults.filter(r => !r.pass).length;
   return (
     <TabsContent value="e2e" className="flex-1 min-h-0">
-      {/* Config bar */}
-      <div className="flex items-center gap-3 flex-wrap mb-2 flex-shrink-0">
+      <div className="relative flex flex-col h-full">
+        {/* Overlay de aprovação */}
+        {showApprovalQueue && agentId && userId && (
+          <div className="absolute inset-0 z-10 bg-background/95 backdrop-blur-sm rounded-lg">
+            <ApprovalQueue
+              agentId={agentId}
+              userId={userId}
+              onClose={onToggleApprovalQueue}
+            />
+          </div>
+        )}
+        {/* Config bar */}
+        <div className="flex items-center gap-3 flex-wrap mb-2 flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">Numero:</span>
           <Input value={e2eNumber} onChange={e => onNumberChange(e.target.value)} className="w-[170px] h-8 text-sm font-mono" placeholder="5581999999999" />
@@ -52,6 +70,17 @@ export const PlaygroundE2eTab = ({
           <span className="text-[11px]">Mensagens REAIS via WhatsApp + Gemini</span>
         </div>
         <div className="flex-1" />
+        {pendingCount > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs h-7 gap-1.5 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+            onClick={onToggleApprovalQueue}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            {pendingCount} pendente{pendingCount > 1 ? 's' : ''}
+          </Button>
+        )}
         {batchRunning ? (
           <Button size="sm" variant="destructive" className="text-xs h-7 gap-1.5" onClick={onStopBatch}>
             <StopCircle className="w-3.5 h-3.5" />Parar Batch
@@ -191,6 +220,7 @@ export const PlaygroundE2eTab = ({
             </div>
           )}
         </div>
+      </div>
       </div>
     </TabsContent>
   );

@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { Bot, Loader2, Zap, RotateCcw, Sparkles, MessageSquare, Layers, BarChart3, Settings2, Download, Play, AlertTriangle } from 'lucide-react';
+import { Bot, Loader2, Zap, RotateCcw, Sparkles, MessageSquare, Layers, BarChart3, Settings2, Download, Play, AlertTriangle, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlaygroundManualTab } from '@/components/admin/ai-agent/playground/PlaygroundManualTab';
 import { PlaygroundScenariosTab } from '@/components/admin/ai-agent/playground/PlaygroundScenariosTab';
@@ -24,9 +24,11 @@ import { PlaygroundE2eTab } from '@/components/admin/ai-agent/playground/Playgro
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useCreateBatch, useCompleteBatch } from '@/hooks/useE2eBatchHistory'
 import { BatchHistoryTab } from '@/components/admin/ai-agent/playground/BatchHistoryTab'
+import { useE2eApproval } from '@/hooks/useE2eApproval';
+import { AgentScoreBar } from '@/components/admin/ai-agent/AgentScoreBar';
 
 const AIAgentPlayground = () => {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, user } = useAuth();
   const [agents, setAgents] = useState<AIAgent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,6 +64,7 @@ const AIAgentPlayground = () => {
   const overridesRef = useRef(overrides); overridesRef.current = overrides;
   const createBatch = useCreateBatch()
   const completeBatch = useCompleteBatch()
+  const { pendingCount } = useE2eApproval(selectedAgentId, user?.id);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -203,6 +206,7 @@ const AIAgentPlayground = () => {
   // Batch: run ALL scenarios sequentially
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+  const [showApprovalQueue, setShowApprovalQueue] = useState(false);
   const batchAbortRef = useRef(false);
 
   const runAllE2e = async () => {
@@ -344,6 +348,19 @@ const AIAgentPlayground = () => {
             <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-primary" /></div>
             <div><h1 className="text-xl font-bold">Playground IA</h1><p className="text-xs text-muted-foreground">8 tools · debug · cenarios · sessao {sessionId}</p></div>
           </div>
+          {selectedAgentId && (
+            <AgentScoreBar agentId={selectedAgentId} compact={true} />
+          )}
+          {pendingCount > 0 && (
+            <Badge
+              variant="outline"
+              className="cursor-pointer border-amber-500/40 text-amber-400 text-[10px] gap-1"
+              onClick={() => { setActiveTab('e2e'); setShowApprovalQueue(true); }}
+            >
+              <Clock className="w-3 h-3" />
+              {pendingCount} para revisar
+            </Badge>
+          )}
           <div className="flex items-center gap-1.5">
             {agents.length > 1 && (
               <Select value={selectedAgentId || ''} onValueChange={(v) => { setSelectedAgentId(v); setMessages([]); }}>
@@ -381,7 +398,7 @@ const AIAgentPlayground = () => {
           </ErrorBoundary>
           <PlaygroundResultsTab runHistory={runHistory} onClearHistory={() => setRunHistory([])} />
           <ErrorBoundary section="Playground E2E">
-            <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} batchRunning={batchRunning} batchProgress={batchProgress} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onRunAll={runAllE2e} onStopBatch={stopBatch} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} />
+            <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} batchRunning={batchRunning} batchProgress={batchProgress} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onRunAll={runAllE2e} onStopBatch={stopBatch} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} pendingCount={pendingCount} showApprovalQueue={showApprovalQueue} onToggleApprovalQueue={() => setShowApprovalQueue(p => !p)} agentId={selectedAgentId} userId={user?.id} />
           </ErrorBoundary>
           <TabsContent value="history">
             <BatchHistoryTab agentId={selectedAgentId ?? null} />
