@@ -49,6 +49,14 @@ describe('computeScenarioResults — PASS/FAIL logic', () => {
     expect(r.blocked_occurred).toBe(true)
   })
 
+  it('4b. PASS on guardrail block with accented Portuguese', () => {
+    const expected: ScenarioExpected = { tools_must_use: [], tools_must_not_use: [], should_handoff: false, should_block: true }
+    const msgs = [mk('user', 'tem vaga?'), mk('assistant', 'Desculpe, não posso ajudar com vagas de emprego.')]
+    const r = computeScenarioResults(expected, msgs)
+    expect(r.pass).toBe(true)
+    expect(r.blocked_occurred).toBe(true)
+  })
+
   it('5. deduplicates tools from system msgs only', () => {
     const expected: ScenarioExpected = { tools_must_use: ['search_products'], tools_must_not_use: [], should_handoff: false, should_block: false }
     const tc = [{ name: 'search_products' }]

@@ -3,6 +3,12 @@
  */
 import { computeScenarioResults, type ScenarioExpected } from '../../../../supabase/functions/_shared/agentHelpers.ts'
 
+interface TestStep { content: string; media_type?: 'text' | 'image' | 'audio'; }
+interface TestScenario {
+  id: string; name: string; category: string; description: string; difficulty: string;
+  steps: TestStep[]; expected: ScenarioExpected;
+}
+
 interface ChatMessage { id: string; role: string; content: string; timestamp: Date; tool_calls?: { name: string; args: Record<string, unknown> }[]; tokens?: { input: number; output: number }; latency_ms?: number; }
 
 function computeResults(scenario: { expected: ScenarioExpected }, msgs: ChatMessage[]) {

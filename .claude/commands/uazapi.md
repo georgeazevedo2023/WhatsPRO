@@ -1104,3 +1104,171 @@ A resposta de `/group/list` pode vir em 3 formatos:
 9. Adicionar audit logging em admin functions
 10. Wrap sync-conversations em transaction
 11. Substituir URL hardcoded em activate-ia por env var
+
+---
+
+## 10. NOVOS ENDPOINTS v2 (uazapiGO) — Descobertos 2026-03-28
+
+> Pesquisa via n8n-nodes-uazapi v1.0.4, docs.uazapi.com URL structure, e uazapi.dev marketing.
+> **Atenção**: Estes endpoints existem na API mas NÃO estão implementados no proxy ainda.
+> Docs oficiais em https://docs.uazapi.com/ são um React SPA — não scrapável (retorna só JS polyfill).
+
+### 10.1 Novos Endpoints de Mensagens
+
+#### `POST /send/pix-button` — Enviar botão PIX (confirmado)
+```
+Headers: { token: "<instance_token>" }
+Body: {
+  "number": "5511999999999",
+  "pixKey": "chave-pix@email.com",
+  "type": "CPF" | "CNPJ" | "PHONE" | "EMAIL" | "EVP",
+  "merchantName": "Empresa XYZ"   // opcional
+}
+```
+**Uso**: M11 (E-commerce) — pagamento via PIX no WhatsApp
+
+#### `POST /send/poll` — Enquete interativa (provável)
+```
+Headers: { token: "<instance_token>" }
+Body: {
+  "number": "5511999999999",
+  "question": "Qual produto prefere?",
+  "options": ["Opção A", "Opção B", "Opção C"],
+  "selectableCount": 1   // 1 = única escolha, 0 = múltipla
+}
+```
+**Uso**: M10 (Funis) — qualificação com enquetes, M12 (Formulários)
+
+#### `POST /send/status` (ou `/send/story`) — Postar status/story (provável)
+```
+Headers: { token: "<instance_token>" }
+Body: {
+  "type": "text" | "image" | "video",
+  "content": "Promoção hoje! 20% off",
+  "backgroundColor": "#128C7E",  // para type=text
+  "file": "https://..."          // para image/video
+}
+```
+
+### 10.2 Novos Endpoints de Mensagens (Edição/Leitura)
+
+#### `POST /message/edit` — Editar mensagem enviada (provável)
+```
+Headers: { token: "<instance_token>" }
+Body: {
+  "number": "5511999999999@s.whatsapp.net",
+  "messageId": "3EB0ABC123...",
+  "newText": "Texto corrigido"
+}
+```
+
+#### `POST /chat/read` (ou `/message/read`) — Marcar como lido (provável)
+```
+Headers: { token: "<instance_token>" }
+Body: {
+  "jid": "5511999999999@s.whatsapp.net",
+  "messageId": "3EB0ABC123..."   // opcional — marca todos se omitido
+}
+```
+**Uso**: M2 (Helpdesk) — marcar conversa como lida ao abrir
+
+### 10.3 Novos Endpoints de Chat
+
+#### `POST /chat/archive` — Arquivar conversa (provável)
+```
+Headers: { token: "<instance_token>" }
+Body: { "jid": "5511999999999@s.whatsapp.net", "archive": true }
+```
+
+#### `POST /chat/pin` — Fixar conversa (provável)
+```
+Headers: { token: "<instance_token>" }
+Body: { "jid": "5511999999999@s.whatsapp.net", "pin": true }
+```
+
+#### `POST /chat/mute` — Silenciar conversa (provável)
+```
+Headers: { token: "<instance_token>" }
+Body: {
+  "jid": "5511999999999@s.whatsapp.net",
+  "mute": true,
+  "duration": 3600   // segundos (0 = permanente)
+}
+```
+
+### 10.4 Gestão de Campanhas (provável — n8n node v1.0.4)
+
+#### `POST /campaign/create` — Criar campanha de disparo em massa
+```
+Headers: { token: "<instance_token>" }
+Body: {
+  "name": "Black Friday 2026",
+  "numbers": ["5511999999999", "5511888888888"],
+  "message": "Promoção especial!",
+  "delay": 5000,   // ms entre mensagens (anti-ban)
+  "type": "text" | "media"
+}
+```
+
+#### `POST /campaign/pause` / `/campaign/resume` / `/campaign/stop`
+```
+Headers: { token: "<instance_token>" }
+Body: { "campaignId": "uuid" }
+```
+
+#### `GET /campaign/report` — Relatório de envio
+```
+Headers: { token: "<instance_token>" }
+Query: ?campaignId=uuid
+Response: { "sent": 150, "failed": 3, "pending": 47, "total": 200 }
+```
+**Uso**: M3 (Broadcast) — substituir lógica atual de bulk send manual
+
+### 10.5 Gestão de Labels (provável — n8n node v1.0.4)
+
+#### `POST /label/create` — Criar label
+```
+Headers: { token: "<instance_token>" }
+Body: { "name": "Cliente VIP", "color": "#FF6B6B" }
+```
+
+#### `GET /label/list` — Listar labels da instância
+```
+Headers: { token: "<instance_token>" }
+Response: [{ "id": "...", "name": "Cliente VIP", "color": "#FF6B6B" }]
+```
+
+#### `POST /label/add` — Adicionar label a chat
+```
+Headers: { token: "<instance_token>" }
+Body: { "jid": "5511999999999@s.whatsapp.net", "labelId": "..." }
+```
+
+### 10.6 Arquitetura v1 → v2 (histórico)
+| | v1 (Baileys) | v2 (uazapiGO) — ATUAL |
+|---|---|---|
+| **Linguagem** | Node.js | Go |
+| **WA Client** | Baileys (não-oficial) | API comercial |
+| **Anti-ban** | Não incluso | Residential proxies built-in |
+| **Lançamento** | ~2022 | Setembro 2024 |
+| **Status** | ❌ Deprecated | ✅ Ativo |
+| **Endpoints** | ~30 | 90+ |
+
+### 10.7 Pricing Atual (2026)
+| Plano | Preço | Dispositivos |
+|---|---|---|
+| Basic | R$ 38/mês | 2 |
+| Lite | R$ 138/mês | 100 |
+| Pro | R$ 195/mês | 300 |
+
+Todos incluem: mensagens ilimitadas, webhooks, proxies residenciais, 90+ endpoints.
+
+### 10.8 Actions a Adicionar ao Proxy (priorizadas)
+| Action | Endpoint | Módulo | Prioridade |
+|---|---|---|---|
+| `send-pix-button` | `POST /send/pix-button` | M11 | 🔴 Crítico |
+| `send-poll` | `POST /send/poll` | M10, M12 | 🔴 Crítico |
+| `chat-read` | `POST /chat/read` | M2 | 🟡 Médio |
+| `message-edit` | `POST /message/edit` | M2 | 🟡 Médio |
+| `campaign-create` | `POST /campaign/create` | M3 | 🟡 Médio |
+| `label-list` | `GET /label/list` | M2 | 🟢 Baixo |

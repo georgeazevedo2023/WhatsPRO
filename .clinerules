@@ -1,0 +1,15 @@
+# GSD FRAMEWORK: OPERATING RULES
+## REGRA ZERO: BOOT SEQUENCE
+Sempre que o VS Code abrir ou uma nova sessão iniciar, você está PROIBIDO de codar antes de ler silenciosamente:
+1. docs/PROJECT.md (Visão do projeto)
+2. .planning/ROADMAP.md (Fases e progresso)
+3. .planning/STATE.md (Onde paramos, bugs atuais)
+4. .planning/REQUIREMENTS.md (Regras de negócio extraídas do código)
+5. .planning/PLAN.md (A tarefa atômica atual — quando existir)
+
+## FASES (GATILHOS)
+- /gsd:discuss-phase: Debater arquitetura, gerar CONTEXT.md.
+- /gsd:plan-phase: Criar 2-3 planos atômicos (em XML) baseados no ROADMAP. Atualizar PLAN.md.
+- /gsd:execute-phase: Codificar EXATAMENTE o plano aprovado. Commits atômicos.
+- /gsd:verify-ship: Testar, debugar, e atualizar o STATE.md.
+NUNCA inicie a execute-phase sem a plan-phase estar concluída.
