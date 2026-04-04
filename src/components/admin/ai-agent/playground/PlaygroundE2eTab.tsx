@@ -42,7 +42,7 @@ export interface PlaygroundE2eTabProps {
 
 export const PlaygroundE2eTab = ({
   e2eNumber, e2eRunning, e2eResults, e2eCurrentScenario, e2eLiveSteps,
-  e2eSelectedScenario, selectedAgent,
+  e2eSelectedScenario, filteredScenarios, selectedAgent,
   onNumberChange, onRunE2e, onRunAll, onStopBatch, onSelectE2eScenario, onClearResults,
   batchRunning, batchProgress,
   pendingCount, showApprovalQueue, onToggleApprovalQueue, agentId, userId,
