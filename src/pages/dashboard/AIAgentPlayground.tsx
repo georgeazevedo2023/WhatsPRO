@@ -13,7 +13,7 @@ import { handleError } from '@/lib/errorUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Bot, Loader2, Zap, RotateCcw, Sparkles, MessageSquare, Layers, BarChart3, Settings2, Download, Play, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -22,6 +22,8 @@ import { PlaygroundScenariosTab } from '@/components/admin/ai-agent/playground/P
 import { PlaygroundResultsTab } from '@/components/admin/ai-agent/playground/PlaygroundResultsTab';
 import { PlaygroundE2eTab } from '@/components/admin/ai-agent/playground/PlaygroundE2eTab';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { useCreateBatch, useCompleteBatch } from '@/hooks/useE2eBatchHistory'
+import { BatchHistoryTab } from '@/components/admin/ai-agent/playground/BatchHistoryTab'
 
 const AIAgentPlayground = () => {
   const { isSuperAdmin } = useAuth();
@@ -40,7 +42,7 @@ const AIAgentPlayground = () => {
   const [_bufferedMsgs, setBufferedMsgs] = useState<string[]>([]);  // eslint-disable-line
   const bufferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [bufferCountdown, setBufferCountdown] = useState(0);  // eslint-disable-line
-  const [activeTab, setActiveTab] = useState<'manual' | 'scenarios' | 'results' | 'e2e'>('manual');
+  const [activeTab, setActiveTab] = useState<'manual' | 'scenarios' | 'results' | 'e2e' | 'history'>('manual');
   const [e2eNumber, setE2eNumber] = useState('5581985749970');
   const [e2eRunning, setE2eRunning] = useState(false);
   const [e2eResults, setE2eResults] = useState<E2eRunResult[]>([]);
@@ -58,6 +60,8 @@ const AIAgentPlayground = () => {
   const [runHistory, setRunHistory] = useState<ScenarioRun[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]); messagesRef.current = messages;
   const overridesRef = useRef(overrides); overridesRef.current = overrides;
+  const createBatch = useCreateBatch()
+  const completeBatch = useCompleteBatch()
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -140,7 +144,7 @@ const AIAgentPlayground = () => {
   };
 
   // Save E2E result to database for persistence + approval workflow
-  const saveE2eResult = async (result: E2eRunResult, runType: 'single' | 'batch', batchId?: string) => {
+  const saveE2eResult = async (result: E2eRunResult, runType: 'single' | 'batch', batchId?: string, batchUuid?: string) => {
     if (!selectedAgentId || !selectedAgent?.instance_id) return;
     try {
       await supabase.from('e2e_test_runs').insert({
@@ -156,6 +160,7 @@ const AIAgentPlayground = () => {
         error: result.error || null,
         run_type: runType,
         batch_id: batchId || null,
+        batch_uuid: batchUuid || null,
         category: result.category,
         tools_used: result.tools_used || [],
         tools_missing: result.tools_missing || [],
@@ -164,7 +169,7 @@ const AIAgentPlayground = () => {
     } catch { /* silent — DB save is best-effort */ }
   };
 
-  const runE2eScenario = async (scenario: TestScenario, runType: 'single' | 'batch' = 'single', batchId?: string) => {
+  const runE2eScenario = async (scenario: TestScenario, runType: 'single' | 'batch' = 'single', batchId?: string, batchUuid?: string) => {
     if (e2eRunning || !selectedAgentId || !selectedAgent?.instance_id) return;
     setE2eRunning(true); setE2eCurrentScenario(scenario.id); setE2eSelectedScenario(scenario);
     setE2eLiveSteps(scenario.steps.map((s, i): E2eLiveStep => ({ step: i + 1, input: s.content, media_type: s.media_type || 'text', status: 'sending', agent_response: null, agent_raw: null, tools_used: [], tags: [], status_ia: undefined, latency_ms: 0, tokens: { input: 0, output: 0 } })));
@@ -183,7 +188,7 @@ const AIAgentPlayground = () => {
       const pass = !tools_missing.length && !tools_unexpected.length && (should_handoff ? handoff : true);
       const runResult: E2eRunResult = { id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass, tools_used: uniqueTools, tools_missing, tools_unexpected, handoff, steps: results, total_latency_ms: d.total_latency_ms || 0, conversation_id: d.conversation_id };
       setE2eResults(prev => [runResult, ...prev]);
-      await saveE2eResult(runResult, runType, batchId);
+      await saveE2eResult(runResult, runType, batchId, batchUuid);
       if (runType === 'single') toast.success(pass ? `E2E PASSOU: ${scenario.name}` : `E2E FALHOU: ${scenario.name}`, { duration: 5000 });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'falha na execucao';
@@ -191,7 +196,7 @@ const AIAgentPlayground = () => {
       setE2eLiveSteps(prev => prev.map(s => ({ ...s, status: 'error' as const })));
       const failResult: E2eRunResult = { id: crypto.randomUUID().substring(0, 8), scenario_id: scenario.id, scenario_name: scenario.name, category: scenario.category, timestamp: new Date(), pass: false, error: errMsg, steps: [], total_latency_ms: 0 };
       setE2eResults(prev => [failResult, ...prev]);
-      await saveE2eResult(failResult, runType, batchId);
+      await saveE2eResult(failResult, runType, batchId, batchUuid);
     } finally { setE2eRunning(false); setE2eCurrentScenario(null); }
   };
 
@@ -207,18 +212,56 @@ const AIAgentPlayground = () => {
     setBatchRunning(true);
     batchAbortRef.current = false;
     const batchId = `batch_${Date.now()}`;
+    // F1: create row in e2e_test_batches
+    let batchUuid: string | undefined
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user && selectedAgentId) {
+        const rawPrompt = selectedAgent?.name || ''
+        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawPrompt))
+        const promptHash = [...new Uint8Array(hashBuffer)]
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('')
+          .substring(0, 12)
+        batchUuid = await createBatch.mutateAsync({
+          agentId: selectedAgentId,
+          runType: 'manual',
+          createdBy: user.id,
+          promptHash,
+        })
+      }
+    } catch { /* best-effort — continues without UUID */ }
     setBatchProgress({ current: 0, total: scenarios.length });
     setE2eResults([]);
     let passed = 0; let failed = 0;
     for (let i = 0; i < scenarios.length; i++) {
       if (batchAbortRef.current) break;
       setBatchProgress({ current: i + 1, total: scenarios.length });
-      await runE2eScenario(scenarios[i], 'batch', batchId);
+      await runE2eScenario(scenarios[i], 'batch', batchId, batchUuid);
       // Check last result
       const lastResult = e2eResults[0]; // will be stale, check via state update
       if (lastResult?.pass) passed++; else failed++;
       // Small delay between scenarios to avoid rate limiting
       if (i < scenarios.length - 1) await new Promise(r => setTimeout(r, 2000));
+    }
+    // F1: finalize batch with counts from DB
+    if (batchUuid && selectedAgentId) {
+      try {
+        await new Promise(r => setTimeout(r, 800))
+        const { data: runs } = await supabase
+          .from('e2e_test_runs')
+          .select('passed')
+          .eq('batch_uuid', batchUuid)
+        const total = runs?.length ?? 0
+        const passedCount = runs?.filter(r => r.passed).length ?? 0
+        await completeBatch.mutateAsync({
+          batchUuid,
+          total,
+          passed: passedCount,
+          failed: total - passedCount,
+          agentId: selectedAgentId,
+        })
+      } catch { /* best-effort */ }
     }
     setBatchRunning(false);
     toast.success(`Batch completo: ${passed} passou, ${failed} falhou de ${scenarios.length} cenários`, { duration: 8000 });
@@ -328,6 +371,7 @@ const AIAgentPlayground = () => {
             <TabsTrigger value="scenarios" className="gap-1.5 text-xs"><Layers className="w-3.5 h-3.5" />Cenarios<Badge variant="secondary" className="ml-1 text-[9px] px-1">{TEST_SCENARIOS.length}</Badge></TabsTrigger>
             <TabsTrigger value="results" className="gap-1.5 text-xs"><BarChart3 className="w-3.5 h-3.5" />Resultados{runHistory.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] px-1">{runHistory.length}</Badge>}</TabsTrigger>
             <TabsTrigger value="e2e" className="gap-1.5 text-xs"><Zap className="w-3.5 h-3.5 text-amber-400" />E2E Real{e2eResults.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] px-1">{e2eResults.length}</Badge>}</TabsTrigger>
+            <TabsTrigger value="history">Histórico</TabsTrigger>
           </TabsList>
           <ErrorBoundary section="Playground Manual">
             <PlaygroundManualTab messages={messages} sending={sending} input={input} attachedImage={attachedImage} bufferMode={bufferMode} bufferSec={bufferSec} bufferCountdown={bufferCountdown} showOverrides={showOverrides} overrides={overrides} selectedAgent={selectedAgent} totalTokens={totalTokens} avgLatency={avgLatency} onInputChange={setInput} onSend={handleSend} onClear={handleClear} onAttachImage={setAttachedImage} onBufferModeChange={setBufferMode} onBufferSecChange={setBufferSec} onOverridesChange={setOverrides} onShowOverridesToggle={() => setShowOverrides(!showOverrides)} onRateMessage={rateMessage} onReplayMessage={replayMessage} onRunPersona={runPersona} onKeyDown={handleKeyDown} onExportConversation={exportConversation} />
@@ -339,6 +383,9 @@ const AIAgentPlayground = () => {
           <ErrorBoundary section="Playground E2E">
             <PlaygroundE2eTab e2eNumber={e2eNumber} e2eRunning={e2eRunning} e2eResults={e2eResults} e2eCurrentScenario={e2eCurrentScenario} e2eLiveSteps={e2eLiveSteps} e2eSelectedScenario={e2eSelectedScenario} filteredScenarios={filteredScenarios} selectedAgent={selectedAgent} batchRunning={batchRunning} batchProgress={batchProgress} onNumberChange={setE2eNumber} onRunE2e={runE2eScenario} onRunAll={runAllE2e} onStopBatch={stopBatch} onSelectE2eScenario={(s) => { setE2eSelectedScenario(s); if (!e2eRunning) setE2eLiveSteps([]); }} onClearResults={() => setE2eResults([])} />
           </ErrorBoundary>
+          <TabsContent value="history">
+            <BatchHistoryTab agentId={selectedAgentId ?? null} />
+          </TabsContent>
         </Tabs>
       </div>
     </TooltipProvider>
