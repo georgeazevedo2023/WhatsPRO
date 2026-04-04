@@ -52,8 +52,8 @@ export interface RoadmapConfig {
 }
 
 export const DEFAULT_ROADMAP_CONFIG: RoadmapConfig = {
-  version: '4.2.0',
-  updatedAt: '2026-03-27',
+  version: '6.2.0',
+  updatedAt: '2026-04-04',
   infra: { tables: 44, edgeFunctions: 26, storageBuckets: 3 },
   modules: [
     { id: 'M1', name: 'WhatsApp', icon: 'MonitorSmartphone', color: 'text-emerald-500', tasks: [
@@ -118,6 +118,9 @@ export const DEFAULT_ROADMAP_CONFIG: RoadmapConfig = {
     ]},
   ],
   roadmapItems: [
+    { id: 'S6.3', feature: 'M2-F3: Barra de Evolução do Agente', description: 'Score composto 0-100 (E2E 40%+Validator 30%+Tools 20%+Latência 10%) com tendência no header do Playground', priority: 'alta', module: 'M10', done: true },
+    { id: 'S6.2', feature: 'M2-F2: Fluxo de Aprovação Admin', description: 'ApprovalQueue + ReviewDrawer + badge âmbar de pendentes + optimistic approve/reject', priority: 'alta', module: 'M10', done: true },
+    { id: 'S6.1', feature: 'M2-F1: Histórico Persistente de Batches', description: 'BatchHistoryTab + useE2eBatchHistory hooks + e2e_test_batches table', priority: 'alta', module: 'M10', done: true },
     { id: 'R2', feature: 'Métricas por agente (tempo resposta, CSAT)', description: 'Dashboard individual de performance com ranking e filtros', priority: 'alta', module: 'M6' },
     { id: 'R3', feature: 'Webhook signature validation (HMAC)', description: 'WEBHOOK_SECRET obrigatório (fail closed) implementado v4.0', priority: 'alta', module: 'Infra', done: true },
     { id: 'R4', feature: 'Rate limiting atômico via RPC', description: 'check_rate_limit() transactional + global limit, sem race condition', priority: 'alta', module: 'Infra', done: true },
@@ -132,6 +135,12 @@ export const DEFAULT_ROADMAP_CONFIG: RoadmapConfig = {
     { id: 'R37', feature: 'Gerador de links UTM com métricas', description: 'Links rastreáveis por instância para tracking de origem', priority: 'media', module: 'M11' },
   ],
   changelog: [
+    { version: 'v6.2.0', date: '2026-04-04', title: 'M2-F3: Barra de Evolução do Agente (Score Composto)',
+      changes: ['agentScoring.ts: fórmula E2E 40% + Validator 30% + Tools 20% + Latência 10%', 'useAgentScore: 2 queries TanStack, memoização, staleTime 5min', 'AgentScoreBar: barra colorida + tooltip breakdown + seta de tendência no header do Playground', 'Score composto 0-100 visível em tempo real'] },
+    { version: 'v6.1.0', date: '2026-04-04', title: 'M2-F2: Fluxo de Aprovação Admin',
+      changes: ['useE2eApproval: hook TanStack Query com optimistic updates (approve/reject)', 'ApprovalQueue: fila de runs com approval=null ou failed, filtros e ações rápidas', 'ReviewDrawer: sheet com steps detalhados, tools usados e notas do revisor', 'Badge âmbar no header do Playground com contagem de pendentes', 'Aprovar → human_approved / Rejeitar → human_rejected'] },
+    { version: 'v6.0.0', date: '2026-04-04', title: 'M2-F1: Histórico Persistente de Batches + Pré-requisitos',
+      changes: ['Fix bug activeSubAgents→activeSub em ai-agent (sub-agentes injetavam prompts errados)', 'Tabela e2e_test_batches com FK para ai_agent_test_suites', 'useE2eBatchHistory/Runs/CreateBatch/CompleteBatch hooks', 'BatchHistoryTab: 5ª aba no Playground com lista expansível e score bar', 'runAllE2e integrado: cria batch → executa → finaliza com métricas'] },
     { version: 'v4.6.0', date: '2026-03-27', title: 'Sprint E Completo: Agent Performance + Bulk Actions',
       changes: ['AgentPerformanceCard: ranking de agentes por conversas, resolução, response time', 'Bulk actions: seleção múltipla + marcar lidas/resolver/arquivar', 'Selection auto-clear ao trocar inbox ou status', 'Weighted resolution rate (não média simples)', 'Double-click guard no handleBulkAction'] },
     { version: 'v4.5.0', date: '2026-03-27', title: 'Sprint E: New Features',

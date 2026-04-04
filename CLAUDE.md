@@ -111,8 +111,8 @@ NUNCA reportar feature como concluída sem todos os 6 passos verificados.
 Estado atual (atualizar após cada feature):
 - [x] Pré-requisitos: bug fix activeSubAgents, 38 migrations, types.ts, e2e_test_batches
 - [x] F1: Histórico Persistente de Batches — BatchHistoryTab + hooks (commit 4fe98ad)
-- [ ] F2: Fluxo de Aprovação Admin — plano em .planning/phases/M2-F2-approval-flow/PLAN.md
-- [ ] F3: Barra de Evolução (Score Composto) — plano em .planning/phases/M2-F3-score-bar/PLAN.md
+- [x] F2: Fluxo de Aprovação Admin — useE2eApproval + ApprovalQueue + ReviewDrawer (commit 95ad466)
+- [x] F3: Barra de Evolução (Score Composto) — agentScoring + useAgentScore + AgentScoreBar (commit 95ad466)
 - [ ] F4: Ciclo Automatizado Teste → Ajuste → Re-teste — plano em .planning/phases/M2-F4-automated-cycle/PLAN.md
 
 Arquivos HIGH RISK — nunca tocar sem aprovação explícita:

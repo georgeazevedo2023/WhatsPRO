@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 6.0.0 | **Última atualização**: 2026-04-04 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 26 Edge Functions + 44 Tabelas + M2 Agent QA Framework (F1 concluído)
+> **Versão**: 6.2.0 | **Última atualização**: 2026-04-04 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 26 Edge Functions + 44 Tabelas + M2 Agent QA Framework (F1+F2+F3 concluídos)
 
 ## Visão Geral
 
@@ -32,6 +32,23 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v6.2.0 (2026-04-04) — M2 Agent QA Framework: F2 Fluxo de Aprovação + F3 Score Composto
+
+**F2: Fluxo de Aprovação Admin (commit 95ad466):**
+- `src/hooks/useE2eApproval.ts` — hook TanStack Query com optimistic updates (approve/reject)
+- `src/components/admin/ai-agent/playground/ApprovalQueue.tsx` — fila de runs com `approval=null` ou `failed`
+- `src/components/admin/ai-agent/playground/ReviewDrawer.tsx` — sheet com steps, tools usados e notas do revisor
+- Badge âmbar no header do Playground exibindo contagem de runs pendentes de aprovação
+- Aprovar → `approval='human_approved'` / Rejeitar → `approval='human_rejected'` (optimistic update)
+
+**F3: Barra de Evolução do Agente (commit 95ad466):**
+- `src/lib/agentScoring.ts` — funções puras: E2E 40% + Validator 30% + Tools 20% + Latência 10%
+- `src/hooks/useAgentScore.ts` — 2 queries TanStack + memoização, staleTime 5min
+- `src/components/admin/ai-agent/AgentScoreBar.tsx` — barra colorida + tooltip breakdown + seta de tendência
+- Score composto 0-100 visível no header do Playground
+
+---
 
 ### v6.0.0 (2026-04-04) — M2 Agent QA Framework: Pre-requisitos + F1 Histórico de Batches
 
@@ -1284,8 +1301,8 @@ Todas com autenticação (JWT manual, cron/service, ou super_admin):
 |------|--------|-----------|
 | S6.0 Pre-requisitos | ✅ | Fix activeSubAgents→activeSub, 38 migrations, tabela e2e_test_batches, types.ts regenerado |
 | S6.1 Histórico Persistente de Batches | ✅ | useE2eBatchHistory/Runs/CreateBatch/CompleteBatch hooks + BatchHistoryTab (5ª aba Playground) — commit 4fe98ad |
-| S6.2 Fluxo de Aprovação Admin | 📋 | useE2eApproval + ApprovalQueue + ReviewDrawer + badge de pendentes no header |
-| S6.3 Barra de Evolução (Score Composto) | 📋 | agentScoring.ts (E2E 40%+Validator 30%+Tools 20%+Latência 10%) + AgentScoreBar com trend Recharts |
+| S6.2 Fluxo de Aprovação Admin | ✅ | useE2eApproval + ApprovalQueue + ReviewDrawer + badge de pendentes no header — commit 95ad466 |
+| S6.3 Barra de Evolução (Score Composto) | ✅ | agentScoring.ts (E2E 40%+Validator 30%+Tools 20%+Latência 10%) + AgentScoreBar com trend — commit 95ad466 |
 | S6.4 Ciclo Automatizado Teste → Ajuste → Re-teste | 📋 | Migration regressão + pg_cron + e2e-scheduled edge function + E2eSchedulePanel + RegressionBadge |
 
 **Edge Functions**: `ai-agent`, `ai-agent-debounce`, `ai-agent-playground`
