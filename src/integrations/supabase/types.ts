@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       admin_audit_log: {
@@ -297,224 +272,54 @@ export type Database = {
           },
         ]
       }
-      ai_agents: {
-        Row: {
-          blocked_numbers: string[] | null
-          blocked_phrases: string[] | null
-          blocked_topics: string[] | null
-          business_hours: Json | null
-          business_info: Json | null
-          context_long_enabled: boolean
-          context_short_messages: number
-          created_at: string
-          debounce_seconds: number
-          enabled: boolean
-          extraction_address_enabled: boolean | null
-          extraction_fields: Json | null
-          follow_up_enabled: boolean | null
-          follow_up_rules: Json | null
-          greeting_message: string
-          handoff_cooldown_minutes: number
-          handoff_max_conversation_minutes: number
-          handoff_message: string | null
-          handoff_negative_sentiment: boolean
-          handoff_triggers: string[] | null
-          id: string
-          instance_id: string
-          max_discount_percent: number | null
-          max_lead_messages: number
-          max_qualification_retries: number
-          max_enrichment_questions: number
-          max_tokens: number
-          model: string
-          name: string
-          openai_api_key: string | null
-          out_of_hours_message: string | null
-          personality: string | null
-          returning_greeting_message: string | null
-          sub_agents: Json | null
-          system_prompt: string | null
-          temperature: number
-          updated_at: string
-          voice_enabled: boolean
-          voice_max_text_length: number
-          voice_name: string | null
-          voice_reply_to_audio: boolean | null
-          prompt_sections: Json | null
-          carousel_text: string | null
-          carousel_button_1: string | null
-          carousel_button_2: string | null
-          handoff_message_outside_hours: string | null
-          max_pre_search_questions: number
-          validator_enabled: boolean
-          validator_model: string | null
-          validator_rigor: string | null
-          tts_fallback_providers: Json | null
-        }
-        Insert: {
-          blocked_numbers?: string[] | null
-          blocked_phrases?: string[] | null
-          blocked_topics?: string[] | null
-          business_hours?: Json | null
-          business_info?: Json | null
-          context_long_enabled?: boolean
-          context_short_messages?: number
-          created_at?: string
-          debounce_seconds?: number
-          enabled?: boolean
-          extraction_address_enabled?: boolean | null
-          extraction_fields?: Json | null
-          follow_up_enabled?: boolean | null
-          follow_up_rules?: Json | null
-          greeting_message?: string
-          handoff_cooldown_minutes?: number
-          handoff_max_conversation_minutes?: number
-          handoff_message?: string | null
-          handoff_negative_sentiment?: boolean
-          handoff_triggers?: string[] | null
-          id?: string
-          instance_id: string
-          max_discount_percent?: number | null
-          max_lead_messages?: number
-          max_qualification_retries?: number
-          max_enrichment_questions?: number
-          max_tokens?: number
-          model?: string
-          name?: string
-          openai_api_key?: string | null
-          out_of_hours_message?: string | null
-          personality?: string | null
-          returning_greeting_message?: string | null
-          sub_agents?: Json | null
-          system_prompt?: string | null
-          temperature?: number
-          updated_at?: string
-          voice_enabled?: boolean
-          voice_max_text_length?: number
-          voice_name?: string | null
-          voice_reply_to_audio?: boolean | null
-          prompt_sections?: Json | null
-          carousel_text?: string | null
-          carousel_button_1?: string | null
-          carousel_button_2?: string | null
-          handoff_message_outside_hours?: string | null
-          max_pre_search_questions?: number
-          validator_enabled?: boolean
-          validator_model?: string | null
-          validator_rigor?: string | null
-          tts_fallback_providers?: Json | null
-        }
-        Update: {
-          blocked_numbers?: string[] | null
-          blocked_phrases?: string[] | null
-          blocked_topics?: string[] | null
-          business_hours?: Json | null
-          business_info?: Json | null
-          context_long_enabled?: boolean
-          context_short_messages?: number
-          created_at?: string
-          debounce_seconds?: number
-          enabled?: boolean
-          extraction_address_enabled?: boolean | null
-          extraction_fields?: Json | null
-          follow_up_enabled?: boolean | null
-          follow_up_rules?: Json | null
-          greeting_message?: string
-          handoff_cooldown_minutes?: number
-          handoff_max_conversation_minutes?: number
-          handoff_message?: string | null
-          handoff_negative_sentiment?: boolean
-          handoff_triggers?: string[] | null
-          id?: string
-          instance_id?: string
-          max_discount_percent?: number | null
-          max_lead_messages?: number
-          max_qualification_retries?: number
-          max_enrichment_questions?: number
-          max_tokens?: number
-          model?: string
-          name?: string
-          openai_api_key?: string | null
-          out_of_hours_message?: string | null
-          personality?: string | null
-          returning_greeting_message?: string | null
-          sub_agents?: Json | null
-          system_prompt?: string | null
-          temperature?: number
-          updated_at?: string
-          voice_enabled?: boolean
-          voice_max_text_length?: number
-          voice_name?: string | null
-          voice_reply_to_audio?: boolean | null
-          prompt_sections?: Json | null
-          carousel_text?: string | null
-          carousel_button_1?: string | null
-          carousel_button_2?: string | null
-          handoff_message_outside_hours?: string | null
-          max_pre_search_questions?: number
-          validator_enabled?: boolean
-          validator_model?: string | null
-          validator_rigor?: string | null
-          tts_fallback_providers?: Json | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ai_agents_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: true
-            referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       ai_agent_validations: {
         Row: {
-          id: string
           agent_id: string
+          block_action: string | null
+          bonuses: Json | null
           conversation_id: string
+          created_at: string | null
+          id: string
+          latency_ms: number | null
+          model: string | null
           original_text: string
+          rewritten_text: string | null
           score: number
+          suggestion: string | null
           verdict: string
           violations: Json | null
-          bonuses: Json | null
-          rewritten_text: string | null
-          suggestion: string | null
-          block_action: string | null
-          model: string | null
-          latency_ms: number | null
-          created_at: string
         }
         Insert: {
-          id?: string
           agent_id: string
+          block_action?: string | null
+          bonuses?: Json | null
           conversation_id: string
+          created_at?: string | null
+          id?: string
+          latency_ms?: number | null
+          model?: string | null
           original_text: string
+          rewritten_text?: string | null
           score: number
+          suggestion?: string | null
           verdict: string
           violations?: Json | null
-          bonuses?: Json | null
-          rewritten_text?: string | null
-          suggestion?: string | null
-          block_action?: string | null
-          model?: string | null
-          latency_ms?: number | null
-          created_at?: string
         }
         Update: {
-          id?: string
           agent_id?: string
+          block_action?: string | null
+          bonuses?: Json | null
           conversation_id?: string
+          created_at?: string | null
+          id?: string
+          latency_ms?: number | null
+          model?: string | null
           original_text?: string
+          rewritten_text?: string | null
           score?: number
+          suggestion?: string | null
           verdict?: string
           violations?: Json | null
-          bonuses?: Json | null
-          rewritten_text?: string | null
-          suggestion?: string | null
-          block_action?: string | null
-          model?: string | null
-          latency_ms?: number | null
-          created_at?: string
         }
         Relationships: [
           {
@@ -529,6 +334,173 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agents: {
+        Row: {
+          blocked_numbers: string[] | null
+          blocked_phrases: string[] | null
+          blocked_topics: string[] | null
+          business_hours: Json | null
+          business_info: Json | null
+          carousel_button_1: string | null
+          carousel_button_2: string | null
+          carousel_text: string | null
+          context_long_enabled: boolean
+          context_short_messages: number
+          created_at: string
+          debounce_seconds: number
+          enabled: boolean
+          extraction_address_enabled: boolean | null
+          extraction_fields: Json | null
+          follow_up_enabled: boolean | null
+          follow_up_rules: Json | null
+          greeting_message: string
+          handoff_cooldown_minutes: number
+          handoff_max_conversation_minutes: number
+          handoff_message: string | null
+          handoff_message_outside_hours: string | null
+          handoff_negative_sentiment: boolean
+          handoff_triggers: string[] | null
+          id: string
+          instance_id: string
+          max_discount_percent: number | null
+          max_enrichment_questions: number
+          max_pre_search_questions: number
+          max_qualification_retries: number
+          max_tokens: number
+          model: string
+          name: string
+          openai_api_key: string | null
+          out_of_hours_message: string | null
+          personality: string | null
+          prompt_sections: Json | null
+          returning_greeting_message: string | null
+          sub_agents: Json | null
+          system_prompt: string | null
+          temperature: number
+          tts_fallback_providers: Json | null
+          updated_at: string
+          validator_enabled: boolean | null
+          validator_model: string | null
+          validator_rigor: string | null
+          voice_enabled: boolean
+          voice_max_text_length: number
+          voice_name: string | null
+          voice_reply_to_audio: boolean | null
+        }
+        Insert: {
+          blocked_numbers?: string[] | null
+          blocked_phrases?: string[] | null
+          blocked_topics?: string[] | null
+          business_hours?: Json | null
+          business_info?: Json | null
+          carousel_button_1?: string | null
+          carousel_button_2?: string | null
+          carousel_text?: string | null
+          context_long_enabled?: boolean
+          context_short_messages?: number
+          created_at?: string
+          debounce_seconds?: number
+          enabled?: boolean
+          extraction_address_enabled?: boolean | null
+          extraction_fields?: Json | null
+          follow_up_enabled?: boolean | null
+          follow_up_rules?: Json | null
+          greeting_message?: string
+          handoff_cooldown_minutes?: number
+          handoff_max_conversation_minutes?: number
+          handoff_message?: string | null
+          handoff_message_outside_hours?: string | null
+          handoff_negative_sentiment?: boolean
+          handoff_triggers?: string[] | null
+          id?: string
+          instance_id: string
+          max_discount_percent?: number | null
+          max_enrichment_questions?: number
+          max_pre_search_questions?: number
+          max_qualification_retries?: number
+          max_tokens?: number
+          model?: string
+          name?: string
+          openai_api_key?: string | null
+          out_of_hours_message?: string | null
+          personality?: string | null
+          prompt_sections?: Json | null
+          returning_greeting_message?: string | null
+          sub_agents?: Json | null
+          system_prompt?: string | null
+          temperature?: number
+          tts_fallback_providers?: Json | null
+          updated_at?: string
+          validator_enabled?: boolean | null
+          validator_model?: string | null
+          validator_rigor?: string | null
+          voice_enabled?: boolean
+          voice_max_text_length?: number
+          voice_name?: string | null
+          voice_reply_to_audio?: boolean | null
+        }
+        Update: {
+          blocked_numbers?: string[] | null
+          blocked_phrases?: string[] | null
+          blocked_topics?: string[] | null
+          business_hours?: Json | null
+          business_info?: Json | null
+          carousel_button_1?: string | null
+          carousel_button_2?: string | null
+          carousel_text?: string | null
+          context_long_enabled?: boolean
+          context_short_messages?: number
+          created_at?: string
+          debounce_seconds?: number
+          enabled?: boolean
+          extraction_address_enabled?: boolean | null
+          extraction_fields?: Json | null
+          follow_up_enabled?: boolean | null
+          follow_up_rules?: Json | null
+          greeting_message?: string
+          handoff_cooldown_minutes?: number
+          handoff_max_conversation_minutes?: number
+          handoff_message?: string | null
+          handoff_message_outside_hours?: string | null
+          handoff_negative_sentiment?: boolean
+          handoff_triggers?: string[] | null
+          id?: string
+          instance_id?: string
+          max_discount_percent?: number | null
+          max_enrichment_questions?: number
+          max_pre_search_questions?: number
+          max_qualification_retries?: number
+          max_tokens?: number
+          model?: string
+          name?: string
+          openai_api_key?: string | null
+          out_of_hours_message?: string | null
+          personality?: string | null
+          prompt_sections?: Json | null
+          returning_greeting_message?: string | null
+          sub_agents?: Json | null
+          system_prompt?: string | null
+          temperature?: number
+          tts_fallback_providers?: Json | null
+          updated_at?: string
+          validator_enabled?: boolean | null
+          validator_model?: string | null
+          validator_rigor?: string | null
+          voice_enabled?: boolean
+          voice_max_text_length?: number
+          voice_name?: string | null
+          voice_reply_to_audio?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agents_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: true
+            referencedRelation: "instances"
             referencedColumns: ["id"]
           },
         ]
@@ -653,84 +625,6 @@ export type Database = {
         }
         Relationships: []
       }
-      ai_agent_logs: {
-        Row: {
-          conversation_id: string
-          created_at: string
-          event: string
-          id: string
-          instance_id: string | null
-          metadata: Json | null
-          tool_calls: Json | null
-        }
-        Insert: {
-          conversation_id: string
-          created_at?: string
-          event: string
-          id?: string
-          instance_id?: string | null
-          metadata?: Json | null
-          tool_calls?: Json | null
-        }
-        Update: {
-          conversation_id?: string
-          created_at?: string
-          event?: string
-          id?: string
-          instance_id?: string | null
-          metadata?: Json | null
-          tool_calls?: Json | null
-        }
-        Relationships: []
-      }
-      ai_agents: {
-        Row: {
-          business_hours: Json | null
-          created_at: string
-          extraction_fields: Json | null
-          follow_up_rules: Json | null
-          id: string
-          instance_id: string
-          model: string | null
-          name: string | null
-          prompt: string | null
-          sub_agents: Json | null
-          temperature: number | null
-          updated_at: string
-          voice_enabled: boolean | null
-        }
-        Insert: {
-          business_hours?: Json | null
-          created_at?: string
-          extraction_fields?: Json | null
-          follow_up_rules?: Json | null
-          id?: string
-          instance_id: string
-          model?: string | null
-          name?: string | null
-          prompt?: string | null
-          sub_agents?: Json | null
-          temperature?: number | null
-          updated_at?: string
-          voice_enabled?: boolean | null
-        }
-        Update: {
-          business_hours?: Json | null
-          created_at?: string
-          extraction_fields?: Json | null
-          follow_up_rules?: Json | null
-          id?: string
-          instance_id?: string
-          model?: string | null
-          name?: string | null
-          prompt?: string | null
-          sub_agents?: Json | null
-          temperature?: number | null
-          updated_at?: string
-          voice_enabled?: boolean | null
-        }
-        Relationships: []
-      }
       contacts: {
         Row: {
           created_at: string
@@ -758,69 +652,6 @@ export type Database = {
           name?: string | null
           phone?: string
           profile_pic_url?: string | null
-        }
-        Relationships: []
-      }
-      lead_profiles: {
-        Row: {
-          address: Json | null
-          average_ticket: number | null
-          birth_date: string | null
-          city: string | null
-          contact_id: string
-          conversation_summaries: Json | null
-          created_at: string
-          custom_fields: Json | null
-          document: string | null
-          email: string | null
-          full_name: string | null
-          id: string
-          interests: string[] | null
-          last_contact_at: string | null
-          notes: string | null
-          origin: string | null
-          reason: string | null
-          updated_at: string
-        }
-        Insert: {
-          address?: Json | null
-          average_ticket?: number | null
-          birth_date?: string | null
-          city?: string | null
-          contact_id: string
-          conversation_summaries?: Json | null
-          created_at?: string
-          custom_fields?: Json | null
-          document?: string | null
-          email?: string | null
-          full_name?: string | null
-          id?: string
-          interests?: string[] | null
-          last_contact_at?: string | null
-          notes?: string | null
-          origin?: string | null
-          reason?: string | null
-          updated_at?: string
-        }
-        Update: {
-          address?: Json | null
-          average_ticket?: number | null
-          birth_date?: string | null
-          city?: string | null
-          contact_id?: string
-          conversation_summaries?: Json | null
-          created_at?: string
-          custom_fields?: Json | null
-          document?: string | null
-          email?: string | null
-          full_name?: string | null
-          id?: string
-          interests?: string[] | null
-          last_contact_at?: string | null
-          notes?: string | null
-          origin?: string | null
-          reason?: string | null
-          updated_at?: string
         }
         Relationships: []
       }
@@ -918,6 +749,7 @@ export type Database = {
           is_read: boolean
           last_message: string | null
           last_message_at: string | null
+          lead_msg_count: number
           priority: string
           status: string
           status_ia: string | null
@@ -937,6 +769,7 @@ export type Database = {
           is_read?: boolean
           last_message?: string | null
           last_message_at?: string | null
+          lead_msg_count?: number
           priority?: string
           status?: string
           status_ia?: string | null
@@ -956,6 +789,7 @@ export type Database = {
           is_read?: boolean
           last_message?: string | null
           last_message_at?: string | null
+          lead_msg_count?: number
           priority?: string
           status?: string
           status_ia?: string | null
@@ -1053,53 +887,142 @@ export type Database = {
           },
         ]
       }
+      e2e_test_batches: {
+        Row: {
+          agent_id: string
+          batch_id: string
+          completed_at: string | null
+          composite_score: number | null
+          created_by: string | null
+          failed: number
+          id: string
+          metadata: Json | null
+          passed: number
+          run_type: string
+          started_at: string
+          status: string
+          total: number
+        }
+        Insert: {
+          agent_id: string
+          batch_id: string
+          completed_at?: string | null
+          composite_score?: number | null
+          created_by?: string | null
+          failed?: number
+          id?: string
+          metadata?: Json | null
+          passed?: number
+          run_type?: string
+          started_at?: string
+          status?: string
+          total?: number
+        }
+        Update: {
+          agent_id?: string
+          batch_id?: string
+          completed_at?: string | null
+          composite_score?: number | null
+          created_by?: string | null
+          failed?: number
+          id?: string
+          metadata?: Json | null
+          passed?: number
+          run_type?: string
+          started_at?: string
+          status?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "e2e_test_batches_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       e2e_test_runs: {
         Row: {
           agent_id: string
+          approval: string | null
+          approved_at: string | null
+          approved_by: string | null
+          batch_id: string | null
+          batch_uuid: string | null
+          category: string | null
           created_at: string
           error: string | null
           id: string
           instance_id: string
           latency_ms: number | null
           passed: boolean
+          prompt_hash: string | null
           results: Json
+          reviewer_notes: string | null
+          run_type: string
           scenario_id: string
           scenario_name: string
           skip_reason: string | null
           skipped: boolean
           test_number: string
+          tools_missing: string[] | null
+          tools_used: string[] | null
           total_steps: number
         }
         Insert: {
           agent_id: string
+          approval?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          batch_id?: string | null
+          batch_uuid?: string | null
+          category?: string | null
           created_at?: string
           error?: string | null
           id?: string
           instance_id: string
           latency_ms?: number | null
           passed: boolean
+          prompt_hash?: string | null
           results?: Json
+          reviewer_notes?: string | null
+          run_type?: string
           scenario_id: string
           scenario_name: string
           skip_reason?: string | null
           skipped?: boolean
           test_number: string
+          tools_missing?: string[] | null
+          tools_used?: string[] | null
           total_steps: number
         }
         Update: {
           agent_id?: string
+          approval?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          batch_id?: string | null
+          batch_uuid?: string | null
+          category?: string | null
           created_at?: string
           error?: string | null
           id?: string
           instance_id?: string
           latency_ms?: number | null
           passed?: boolean
+          prompt_hash?: string | null
           results?: Json
+          reviewer_notes?: string | null
+          run_type?: string
           scenario_id?: string
           scenario_name?: string
           skip_reason?: string | null
           skipped?: boolean
           test_number?: string
+          tools_missing?: string[] | null
+          tools_used?: string[] | null
           total_steps?: number
         }
         Relationships: [
@@ -1108,6 +1031,13 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "e2e_test_runs_batch_uuid_fkey"
+            columns: ["batch_uuid"]
+            isOneToOne: false
+            referencedRelation: "e2e_test_batches"
             referencedColumns: ["id"]
           },
         ]
@@ -2795,6 +2725,7 @@ export type Database = {
       }
       dblink_is_busy: { Args: { "": string }; Returns: number }
       delete_inbox: { Args: { _inbox_id: string }; Returns: undefined }
+      get_e2e_results: { Args: never; Returns: Json }
       get_inbox_role: {
         Args: { _inbox_id: string; _user_id: string }
         Returns: Database["public"]["Enums"]["inbox_role"]
@@ -2806,20 +2737,6 @@ export type Database = {
           card_count: number
           column_count: number
           member_count: number
-        }[]
-      }
-      search_products_fuzzy: {
-        Args: { _agent_id: string; _query: string; _threshold?: number; _limit?: number }
-        Returns: {
-          id: string
-          title: string
-          category: string
-          subcategory: string
-          description: string
-          price: number
-          images: string[]
-          in_stock: boolean
-          sim: number
         }[]
       }
       global_search_conversations: {
@@ -2856,6 +2773,12 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_lead_msg_count: {
+        Args: { p_conversation_id: string }
+        Returns: {
+          lead_msg_count: number
+        }[]
+      }
       is_gerente: { Args: { _user_id: string }; Returns: boolean }
       is_inbox_member: {
         Args: { _inbox_id: string; _user_id: string }
@@ -2884,6 +2807,26 @@ export type Database = {
         Returns: number
       }
       refresh_inbox_roles_cache: { Args: never; Returns: undefined }
+      reset_e2e_conversation: { Args: never; Returns: Json }
+      search_products_fuzzy: {
+        Args: {
+          _agent_id: string
+          _limit?: number
+          _query: string
+          _threshold?: number
+        }
+        Returns: {
+          category: string
+          description: string
+          id: string
+          images: string[]
+          in_stock: boolean
+          price: number
+          sim: number
+          subcategory: string
+          title: string
+        }[]
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       try_insert_greeting: {
@@ -3040,9 +2983,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["super_admin", "user", "gerente"],
