@@ -418,7 +418,7 @@ const Leads = () => {
 
       {/* KPIs */}
       {!loading && leads.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatsCard title="Total de Leads" value={kpis.total} icon={Contact2} />
           <StatsCard
             title="Novos esta semana"
@@ -594,7 +594,7 @@ const Leads = () => {
       <Card>
         <CardContent className="py-3 px-4">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 min-w-[200px]">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 value={search}
@@ -604,7 +604,7 @@ const Leads = () => {
               />
             </div>
             <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-full sm:w-[140px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -616,7 +616,7 @@ const Leads = () => {
             </Select>
             {filterOptions.origins.length > 0 && (
               <Select value={originFilter} onValueChange={setOriginFilter}>
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-full sm:w-[160px]">
                   <SelectValue placeholder="Origem" />
                 </SelectTrigger>
                 <SelectContent>
@@ -629,7 +629,7 @@ const Leads = () => {
             )}
             {filterOptions.stages.length > 0 && (
               <Select value={stageFilter} onValueChange={setStageFilter}>
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-full sm:w-[160px]">
                   <SelectValue placeholder="Estagio" />
                 </SelectTrigger>
                 <SelectContent>
@@ -665,7 +665,7 @@ const Leads = () => {
           <p className="text-base">{search ? 'Nenhum lead encontrado para esta busca' : 'Nenhum lead nesta instancia'}</p>
         </div>
       ) : (
-        <div className="border rounded-xl overflow-hidden">
+        <div className="border rounded-xl overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
