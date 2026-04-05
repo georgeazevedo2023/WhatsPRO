@@ -574,14 +574,20 @@ Antes do handoff automático, a IA agora tenta qualificar a busca com o lead (ma
 - Tag classification melhorada: "Vocês tem X?" = compra (não dúvida)
 - Import paths corrigidos: `../_shared/` (antes `./_shared/` causava falha de deploy)
 
-**UTM Campaigns (completo):**
+**UTM Campaigns v2 (completo):**
 - CRUD completo: criar, editar, listar, detalhar campanhas
 - 6 tipos: venda, suporte, promoção, evento, recall, fidelização
 - QR Code gerado automaticamente por campanha
-- Edge Function `go`: redirect instantâneo → wa.me com ref_code
-- Atribuição automática: webhook detecta `ref_` e vincula à campanha
+- Edge Function `go`: landing page rica com countdown 3s + spinner + captura client-side (screen, timezone, language)
+- Deep link WhatsApp (`whatsapp://`) com fallback wa.me + botão manual
+- Dados client-side salvos em utm_visits.metadata JSONB via POST async
+- Atribuição automática: webhook detecta `ref_` e vincula à campanha (com guards de expiração + status)
 - Dashboard de métricas: visitas, conversões, taxa, gráfico temporal
 - AI contextual: prompt do agente recebe contexto da campanha ativa
+- Agendamento: campo `starts_at` + validação no `go` (410 antes do início)
+- Controle de status: toggle active/paused/archived no form
+- Clonar campanha: duplica com status pausado e slug novo
+- Paginação de visitas: 50/página com navegação anterior/próxima
 
 **Infra & Deploy:**
 - Dockerfile multi-stage + nginx SPA + gzip + cache

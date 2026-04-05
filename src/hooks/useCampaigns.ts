@@ -66,21 +66,26 @@ export function useCampaign(id: string | undefined) {
   });
 }
 
-// ── Campaign visits ─────────────────────────────────────────────────
-export function useCampaignVisits(campaignId: string | undefined) {
+// ── Campaign visits (paginated) ─────────────────────────────────────
+const VISITS_PAGE_SIZE = 50;
+
+export function useCampaignVisits(campaignId: string | undefined, page = 0) {
   return useQuery({
-    queryKey: ['utm-visits', campaignId],
+    queryKey: ['utm-visits', campaignId, page],
     enabled: !!campaignId,
     queryFn: async () => {
-      if (!campaignId) return [];
+      if (!campaignId) return { rows: [], hasMore: false };
+      const from = page * VISITS_PAGE_SIZE;
+      const to = from + VISITS_PAGE_SIZE;
       const { data, error } = await (supabase as any)
         .from('utm_visits')
         .select('*, contacts(name, phone, profile_pic_url)')
         .eq('campaign_id', campaignId)
         .order('visited_at', { ascending: false })
-        .limit(200);
+        .range(from, to);
       if (error) throw error;
-      return data || [];
+      const rows = data || [];
+      return { rows: rows.slice(0, VISITS_PAGE_SIZE), hasMore: rows.length > VISITS_PAGE_SIZE };
     },
   });
 }

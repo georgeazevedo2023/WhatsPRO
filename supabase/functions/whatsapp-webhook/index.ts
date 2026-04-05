@@ -734,11 +734,17 @@ Deno.serve(async (req) => {
 
             const { data: campaign } = await supabase
               .from('utm_campaigns')
-              .select('id, name, utm_source, utm_medium, campaign_type')
+              .select('id, name, status, expires_at, utm_source, utm_medium, campaign_type')
               .eq('id', visit.campaign_id)
+              .eq('status', 'active')
               .maybeSingle()
 
-            if (campaign) {
+            const campaignExpired = campaign?.expires_at && new Date(campaign.expires_at) < new Date()
+            if (campaignExpired) {
+              log.info('UTM skip: campaign expired', { expires_at: campaign!.expires_at, refCode })
+            }
+
+            if (campaign && !campaignExpired) {
               const campaignTags = [
                 `campanha:${campaign.name}`,
                 `utm_source:${campaign.utm_source}`,

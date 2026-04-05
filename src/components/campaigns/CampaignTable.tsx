@@ -16,8 +16,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Eye, Pencil, Trash2, Pause, Play } from 'lucide-react';
-import { useUpdateCampaign, useDeleteCampaign } from '@/hooks/useCampaigns';
+import { MoreHorizontal, Eye, Pencil, Trash2, Pause, Play, Copy } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useUpdateCampaign, useDeleteCampaign, useCreateCampaign, generateSlug } from '@/hooks/useCampaigns';
 
 interface CampaignTableProps {
   campaigns: UtmCampaignWithMetrics[];
@@ -42,12 +43,36 @@ const typeBadge = (type: string) => {
 };
 
 export function CampaignTable({ campaigns }: CampaignTableProps) {
+  const navigate = useNavigate();
   const updateMutation = useUpdateCampaign();
   const deleteMutation = useDeleteCampaign();
+  const cloneMutation = useCreateCampaign();
 
   const toggleStatus = (c: UtmCampaignWithMetrics) => {
     const newStatus = c.status === 'active' ? 'paused' : 'active';
     updateMutation.mutate({ id: c.id, status: newStatus });
+  };
+
+  const cloneCampaign = async (c: UtmCampaignWithMetrics) => {
+    const clone = {
+      name: `${c.name} (copia)`,
+      slug: generateSlug(`${c.name} copia`),
+      instance_id: c.instance_id,
+      created_by: c.created_by,
+      utm_source: c.utm_source,
+      utm_medium: c.utm_medium,
+      utm_campaign: c.utm_campaign,
+      destination_phone: c.destination_phone,
+      welcome_message: c.welcome_message,
+      campaign_type: c.campaign_type,
+      ai_template: c.ai_template,
+      ai_custom_text: c.ai_custom_text,
+      status: 'paused' as const,
+      starts_at: null,
+      expires_at: null,
+    };
+    const result = await cloneMutation.mutateAsync(clone);
+    if (result?.id) navigate(`/dashboard/campaigns/${result.id}/edit`);
   };
 
   return (
@@ -117,6 +142,9 @@ export function CampaignTable({ campaigns }: CampaignTableProps) {
                       ) : (
                         <><Play className="w-4 h-4 mr-2" /> Ativar</>
                       )}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => cloneCampaign(c)}>
+                      <Copy className="w-4 h-4 mr-2" /> Clonar
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive"

@@ -54,7 +54,9 @@ export function CampaignForm({ campaign }: CampaignFormProps) {
   const [campaignType, setCampaignType] = useState<CampaignType>(campaign?.campaign_type || 'venda');
   const [aiTemplate, setAiTemplate] = useState(campaign?.ai_template || getCampaignTemplate('venda')?.template || '');
   const [aiCustomText, setAiCustomText] = useState(campaign?.ai_custom_text || '');
+  const [startsAt, setStartsAt] = useState(campaign?.starts_at?.substring(0, 10) || '');
   const [expiresAt, setExpiresAt] = useState(campaign?.expires_at?.substring(0, 10) || '');
+  const [status, setStatus] = useState<'active' | 'paused' | 'archived'>(campaign?.status || 'active');
   const [slugManual, setSlugManual] = useState(false);
 
   useEffect(() => {
@@ -101,7 +103,8 @@ export function CampaignForm({ campaign }: CampaignFormProps) {
       campaign_type: campaignType,
       ai_template: aiTemplate,
       ai_custom_text: aiCustomText,
-      status: 'active' as const,
+      status,
+      starts_at: startsAt ? new Date(startsAt).toISOString() : null,
       expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
     };
 
@@ -179,9 +182,28 @@ export function CampaignForm({ campaign }: CampaignFormProps) {
             <p className="text-xs text-muted-foreground">Texto pre-preenchido no WhatsApp do lead (antes do codigo de rastreamento).</p>
           </div>
 
-          <div className="space-y-2">
-            <Label>Validade</Label>
-            <Input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={status} onValueChange={(v: 'active' | 'paused' | 'archived') => setStatus(v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Ativa</SelectItem>
+                  <SelectItem value="paused">Pausada</SelectItem>
+                  <SelectItem value="archived">Arquivada</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Inicio programado</Label>
+              <Input type="date" value={startsAt} onChange={e => setStartsAt(e.target.value)} />
+              <p className="text-xs text-muted-foreground">Link so funciona a partir desta data.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Validade</Label>
+              <Input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
+              <p className="text-xs text-muted-foreground">Link para de funcionar nesta data.</p>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -37,7 +37,7 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - Intelligence/analytics dashboard
 - Quick Product Import: paste URL → scrape → auto-fill catalog form (S6)
 - Global cross-inbox search (Ctrl+K) with command palette
-- UTM Campaign tracking: links, QR codes, metrics, AI contextual
+- UTM Campaign tracking: links, QR codes, metrics, AI contextual, landing page with countdown + client-side capture
 - TTS: AI Agent responds with audio (Gemini 2.5 Flash Preview TTS)
 - Auto-carousel: multi-photo product carousel (up to 5 photos) with AI sales copy per card
 - Handoff triggers: auto-transfer to human when keywords detected
@@ -55,7 +55,7 @@ Located in `supabase/functions/`. Each uses Deno runtime.
 - Shared utilities: `fetchWithTimeout.ts` (30s timeout), `rateLimit.ts` (atomic RPC-based), `circuitBreaker.ts` (Gemini/Groq/Mistral), `logger.ts` (JSON structured), `response.ts` (standard format)
 - AI Agent: `ai-agent` (brain, SDR+handoff+shadow, circuit breaker, parallel tools), `ai-agent-debounce` (10s atomic grouping, retry), `ai-agent-playground` (testing)
 - Product Import: `scrape-product` (URL → title, price, description, images, category via JSON-LD/NEXT_DATA/OG)
-- UTM Tracking: `go` (redirect endpoint for campaign links)
+- UTM Tracking: `go` (landing page with countdown + client-side capture + WhatsApp deep link fallback)
 - Monitoring: `health-check` (DB + MV + env verification → 200/503)
 - Background: `process-jobs` (SKIP LOCKED job queue processor for lead_auto_add, profile_pic_fetch)
 - WhatsApp Forms: `form-bot` (processador de sessões de formulário WhatsApp — initiation FORM:slug + continuation + validações + webhook externo)
@@ -236,3 +236,9 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Admin pages: `WhatsappFormsPage` — `/dashboard/forms`
 - WhatsApp Forms (M12): forms scoped por agent_id. Trigger via FORM:<slug>. form-bot intercepta no webhook antes do AI agent. Validações: CPF (dígito verificador), email (regex), CEP (8 dígitos), scale (range), select (número ou texto), yes_no (sim/não), signature (exact match). Max 3 retries por campo. Webhook externo POST ao completar.
 - Forms templates: FORM_TEMPLATES em src/types/forms.ts — 12 templates built-in. Novos forms criados com createForm() geram slug único (name→kebab-case + timestamp36).
+- UTM Campaign v2: `go` edge function retorna landing page rica (logo WhatsApp + countdown 3s + spinner) ao invés de redirect instantâneo. Captura dados client-side (screen, timezone, language) via POST async antes do redirect. Deep link `whatsapp://` tenta abrir app nativo, fallback pra wa.me, botão manual após 2s.
+- UTM visits metadata: coluna `metadata` JSONB em utm_visits armazena dados client-side (screen_width, screen_height, language, timezone, has_whatsapp).
+- Campaign starts_at: validação no `go` — retorna 410 se campanha ainda não começou. UI no CampaignForm permite agendar início.
+- Campaign attribution guards: webhook checa `status='active'` E `expires_at` antes de tagar conversa com `campanha:NOME`. Campanhas pausadas/arquivadas/expiradas não geram attribution.
+- Campaign clone: botão "Clonar" no CampaignTable cria cópia com status='paused', slug novo, sem datas. Redireciona pra edit.
+- Campaign visits pagination: useCampaignVisits paginado (50/página com range query). CampaignDetail mostra anterior/próxima.

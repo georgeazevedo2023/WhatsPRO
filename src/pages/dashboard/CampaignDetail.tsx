@@ -17,13 +17,17 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ArrowLeft, Pencil, Loader2, UserCheck, Clock, Globe } from 'lucide-react';
+import { useState } from 'react';
 
 const CampaignDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [visitsPage, setVisitsPage] = useState(0);
   const { data: campaign, isLoading } = useCampaign(id);
   const { data: metrics, isLoading: metricsLoading } = useCampaignMetrics(id);
-  const { data: visits } = useCampaignVisits(id);
+  const { data: visitsData } = useCampaignVisits(id, visitsPage);
+  const visits = visitsData?.rows;
+  const hasMoreVisits = visitsData?.hasMore ?? false;
 
   if (isLoading) {
     return (
@@ -116,7 +120,7 @@ const CampaignDetail = () => {
                   </TableCell>
                 </TableRow>
               )}
-              {(visits || []).slice(0, 50).map((v: any) => (
+              {(visits || []).map((v: any) => (
                 <TableRow key={v.id}>
                   <TableCell>{statusBadge(v.status)}</TableCell>
                   <TableCell>
@@ -144,6 +148,27 @@ const CampaignDetail = () => {
               ))}
             </TableBody>
           </Table>
+          {((visits || []).length > 0 || visitsPage > 0) && (
+            <div className="flex items-center justify-between pt-3 border-t mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={visitsPage === 0}
+                onClick={() => setVisitsPage(p => p - 1)}
+              >
+                Anterior
+              </Button>
+              <span className="text-xs text-muted-foreground">Pagina {visitsPage + 1}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasMoreVisits}
+                onClick={() => setVisitsPage(p => p + 1)}
+              >
+                Proxima
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
