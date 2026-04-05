@@ -12,6 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { LeadProfileSection } from '@/components/leads/LeadProfileSection';
 import { LeadHistorySection } from '@/components/leads/LeadHistorySection';
 import { LeadTimelineSection } from '@/components/leads/LeadTimelineSection';
+import { LeadFormsSection } from '@/components/leads/LeadFormsSection';
 import { LeadFilesSection } from '@/components/leads/LeadFilesSection';
 import { ConversationModal } from '@/components/leads/ConversationModal';
 import { ArrowLeft, MapPin, Settings2, Trash2, Loader2, Save, Contact2, ExternalLink, Activity } from 'lucide-react';
@@ -537,6 +538,9 @@ const LeadDetail = () => {
             interests={lp?.interests}
             onOpenConversation={openConversation}
           />
+
+          {/* Forms Section */}
+          {lead?.contact_id && <LeadFormsSection contactId={lead.contact_id} />}
 
           {/* Timeline Section */}
           <LeadTimelineSection events={actionEvents} />

@@ -355,6 +355,56 @@ Deno.serve(async (req) => {
           }).catch(() => {})
         }
 
+        // ── Auto-tag conversation with formulario:SLUG ──────────────
+        try {
+          const formSlug = (form as { slug: string }).slug
+          const { data: convData } = await supabase
+            .from('conversations')
+            .select('tags')
+            .eq('id', conversation_id)
+            .single()
+          const existing: string[] = convData?.tags || []
+          const tagMap = new Map<string, string>()
+          for (const t of existing) tagMap.set(t.split(':')[0], t)
+          tagMap.set('formulario', `formulario:${formSlug}`)
+          tagMap.set('origem', 'origem:formulario')
+          await supabase.from('conversations')
+            .update({ tags: Array.from(tagMap.values()) })
+            .eq('id', conversation_id)
+        } catch (err) {
+          log.error('Auto-tag error (non-critical)', { error: (err as Error).message })
+        }
+
+        // ── Auto-upsert lead_profile from form data ─────────────────
+        if (session.contact_id) {
+          try {
+            const FIELD_MAP: Record<string, string> = {
+              nome: 'full_name', nome_completo: 'full_name', full_name: 'full_name',
+              email: 'email', cpf: 'cpf',
+              cidade: 'city', city: 'city',
+              estado: 'state', state: 'state',
+              empresa: 'company', company: 'company',
+              cargo: 'role', role: 'role',
+            }
+            const leadData: Record<string, unknown> = { contact_id: session.contact_id }
+            const customFields: Record<string, unknown> = {}
+            for (const [key, value] of Object.entries(newData)) {
+              const col = FIELD_MAP[key.toLowerCase()]
+              if (col) {
+                leadData[col] = value
+              } else if (!['telefone', 'phone', 'whatsapp'].includes(key.toLowerCase())) {
+                customFields[key] = value
+              }
+            }
+            if (Object.keys(customFields).length > 0) leadData.custom_fields = customFields
+            leadData.first_contact_at = new Date().toISOString()
+            await supabase.from('lead_profiles').upsert(leadData, { onConflict: 'contact_id' })
+            log.info('Lead profile upserted from form', { contact_id: session.contact_id })
+          } catch (err) {
+            log.error('Lead upsert error (non-critical)', { error: (err as Error).message })
+          }
+        }
+
         log.info('Form completed', { formId: session.form_id, sessionId: session.id })
         return new Response(JSON.stringify({ ok: true, completed: true }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

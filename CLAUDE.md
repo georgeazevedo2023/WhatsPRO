@@ -250,3 +250,6 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - LandingForm component: renderiza campos dinâmicos do formulário na landing page com validação client-side (CPF checksum, email regex, phone 10+ digitos, CEP 8 digitos). Submit via form-public → redirect wa.me.
 - CampaignRedirect modes: mode=redirect mostra countdown (existente). mode=form&fs=SLUG carrega form via form-public GET e renderiza LandingForm. Após submit, redirect pra WhatsApp.
 - Lead auto-creation from form: FIELD_MAP mapeia field_key → lead_profiles columns (nome→full_name, email→email, cpf→cpf, cidade→city). Campos extras → custom_fields JSONB. Upsert ON CONFLICT contact_id.
+- Form-bot auto-tag: após completion, taga conversa com `formulario:SLUG` + `origem:formulario` via mergeTags. Também faz upsert lead_profile com dados coletados (mesmo FIELD_MAP do form-public).
+- AI Agent form context: detecta tag `formulario:SLUG` na conversa, carrega submission do form_submissions, injeta dados no prompt como `<form_data>`. Instrui LLM a NÃO perguntar informações já coletadas.
+- LeadFormsSection: componente no LeadDetail mostra "Formulários respondidos" com badge de contagem, template_type, data, preview dos 2 primeiros campos. Clique expande pra ver todos os dados coletados.

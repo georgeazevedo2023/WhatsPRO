@@ -509,6 +509,31 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 8.6 Load form data context (if conversation has formulario: tag)
+    const formTag = (conversation.tags || []).find((t: string) => t.startsWith('formulario:'))
+    if (formTag) {
+      const formSlug = formTag.split(':').slice(1).join(':')
+      try {
+        const { data: submissions } = await supabase
+          .from('form_submissions')
+          .select('data, submitted_at, whatsapp_forms(name)')
+          .eq('whatsapp_forms.slug', formSlug)
+          .eq('contact_id', contact?.id)
+          .order('submitted_at', { ascending: false })
+          .limit(1)
+        const sub = submissions?.[0]
+        if (sub?.data) {
+          const formName = (sub as any).whatsapp_forms?.name || formSlug
+          const entries = Object.entries(sub.data as Record<string, unknown>)
+            .map(([k, v]) => `  - ${k}: ${v}`)
+            .join('\n')
+          campaignContext += `\n\n<form_data>\nEste lead preencheu o formulário "${formName}":\n${entries}\nNÃO pergunte novamente informações que já foram coletadas acima.\n</form_data>`
+        }
+      } catch (err) {
+        log.warn('Form data load error (non-critical)', { error: (err as Error).message })
+      }
+    }
+
     // ── SHADOW MODE ──────────────────────────────────────────────────────
     // AI listens without responding, only extracts info via tools
     if (conversation.status_ia === STATUS_IA.SHADOW) {
