@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TabsContent } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { Bot, Loader2, Zap, PlayCircle, StopCircle, Clock } from 'lucide-react';
+import { Bot, Loader2, Zap, PlayCircle, StopCircle, Clock, Search, RefreshCw } from 'lucide-react';
 import { ApprovalQueue } from './ApprovalQueue';
 import { E2eSchedulePanel } from './E2eSchedulePanel';
 import { BatchHistoryPanel } from './BatchHistoryPanel';
@@ -49,9 +49,31 @@ export const PlaygroundE2eTab = ({
   onRetestBatch, selectedAgentId,
 }: PlaygroundE2eTabProps) => {
   const [e2eSubTab, setE2eSubTab] = useState<'run' | 'history'>('run');
+  const [searchE2e, setSearchE2e] = useState('');
+  const [categoryE2e, setCategoryE2e] = useState<ScenarioCategory | 'all'>('all');
+
   const batchPct = batchProgress.total > 0 ? Math.round((batchProgress.current / batchProgress.total) * 100) : 0;
   const passCount = e2eResults.filter(r => r.pass).length;
   const failCount = e2eResults.filter(r => !r.pass).length;
+
+  // F5-A: local filter sobre TEST_SCENARIOS
+  const displayScenarios = TEST_SCENARIOS.filter(s => {
+    const q = searchE2e.toLowerCase();
+    const matchSearch = q === '' || s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
+    const matchCategory = categoryE2e === 'all' || s.category === categoryE2e;
+    return matchSearch && matchCategory;
+  });
+
+  const presentCategories = (Object.keys(CATEGORY_META) as ScenarioCategory[]).filter(cat =>
+    TEST_SCENARIOS.some(s => s.category === cat),
+  );
+
+  // F5-C: score por categoria
+  const resultsByCategory = (Object.keys(CATEGORY_META) as ScenarioCategory[]).reduce<Record<string, { pass: number; total: number }>>((acc, cat) => {
+    const catResults = e2eResults.filter(r => TEST_SCENARIOS.find(s => s.id === r.scenario_id)?.category === cat);
+    if (catResults.length > 0) acc[cat] = { pass: catResults.filter(r => r.pass).length, total: catResults.length };
+    return acc;
+  }, {});
   return (
     <TabsContent value="e2e" className="flex-1 min-h-0">
       <div className="relative flex flex-col h-full">
@@ -117,7 +139,7 @@ export const PlaygroundE2eTab = ({
               </Button>
             ) : (
               <Button size="sm" variant="default" className="text-xs h-7 gap-1.5" onClick={onRunAll} disabled={e2eRunning}>
-                <PlayCircle className="w-3.5 h-3.5" />Rodar Todos ({filteredScenarios.length})
+                <PlayCircle className="w-3.5 h-3.5" />Rodar Todos ({displayScenarios.length})
               </Button>
             )}
             {e2eResults.length > 0 && (
@@ -141,15 +163,49 @@ export const PlaygroundE2eTab = ({
             </div>
           )}
 
+          {/* F5-C: scorecard por categoria */}
+          {e2eResults.length > 0 && Object.keys(resultsByCategory).length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {(Object.entries(resultsByCategory) as [ScenarioCategory, { pass: number; total: number }][]).map(([cat, { pass, total }]) => {
+                const meta = CATEGORY_META[cat];
+                const pct = Math.round((pass / total) * 100);
+                return (
+                  <div key={cat} title={`${meta.label}: ${pass}/${total}`}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border cursor-default select-none ${pct >= 80 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : pct >= 60 ? 'border-amber-500/30 bg-amber-500/10 text-amber-400' : 'border-red-500/30 bg-red-500/10 text-red-400'}`}>
+                    <span>{meta.emoji}</span><span>{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* 2-column layout: scenarios (left) + live execution (right) */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-3 flex-1 min-h-0">
 
             {/* Left: Scenario gallery */}
             <div className="border border-border/50 rounded-xl bg-card/50 overflow-hidden flex flex-col min-h-0">
+              {/* F5-A: filter bar */}
+              <div className="p-2 border-b border-border/30 flex flex-col gap-1.5 flex-shrink-0">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                  <Input value={searchE2e} onChange={e => setSearchE2e(e.target.value)} className="pl-6 h-7 text-xs" placeholder="Buscar cenário..." />
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  <button onClick={() => setCategoryE2e('all')} className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${categoryE2e === 'all' ? 'bg-primary text-primary-foreground border-primary' : 'border-border/40 hover:bg-accent/50'}`}>Todos ({TEST_SCENARIOS.length})</button>
+                  {presentCategories.map(cat => (
+                    <button key={cat} onClick={() => setCategoryE2e(cat)} className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${categoryE2e === cat ? 'bg-primary text-primary-foreground border-primary' : 'border-border/40 hover:bg-accent/50'}`}>
+                      {CATEGORY_META[cat].emoji} {CATEGORY_META[cat].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <ScrollArea className="flex-1">
                 <div className="p-3 space-y-4">
+                  {displayScenarios.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-6">Nenhum cenário encontrado.</p>
+                  )}
                   {(Object.entries(CATEGORY_META) as [ScenarioCategory, typeof CATEGORY_META[ScenarioCategory]][]).map(([catKey, catMeta]) => {
-                    const catScenarios = TEST_SCENARIOS.filter(s => s.category === catKey);
+                    const catScenarios = displayScenarios.filter(s => s.category === catKey);
                     if (catScenarios.length === 0) return null;
                     return (
                       <div key={catKey}>
@@ -168,6 +224,16 @@ export const PlaygroundE2eTab = ({
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm font-medium flex-1 truncate">{scenario.name}</span>
                                   {result && <Badge className={`text-[8px] px-1 ${result.pass ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{result.pass ? 'PASS' : 'FAIL'}</Badge>}
+                                  {result && (
+                                    <button
+                                      onClick={e => { e.stopPropagation(); onRunE2e(scenario); }}
+                                      disabled={e2eRunning}
+                                      title="Re-executar"
+                                      className="text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
+                                    >
+                                      <RefreshCw className="w-3 h-3" />
+                                    </button>
+                                  )}
                                   <Badge className={`text-[8px] px-1 ${DIFFICULTY_COLORS[scenario.difficulty]}`}>{scenario.difficulty}</Badge>
                                 </div>
                                 <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{scenario.steps.length} steps · {scenario.description}</p>
@@ -194,7 +260,11 @@ export const PlaygroundE2eTab = ({
                     </div>
                     <p className="text-xs text-muted-foreground mb-2">{e2eSelectedScenario.description}</p>
                     <Button size="sm" className="gap-1.5 w-full" disabled={e2eRunning} onClick={() => onRunE2e(e2eSelectedScenario)}>
-                      {e2eRunning && e2eCurrentScenario === e2eSelectedScenario.id ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Executando...</> : <><Zap className="w-3.5 h-3.5" />Executar E2E Real</>}
+                      {e2eRunning && e2eCurrentScenario === e2eSelectedScenario.id
+                        ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Executando...</>
+                        : e2eLiveSteps.length > 0
+                          ? <><RefreshCw className="w-3.5 h-3.5" />Re-executar</>
+                          : <><Zap className="w-3.5 h-3.5" />Executar E2E Real</>}
                     </Button>
                   </div>
 
