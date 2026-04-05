@@ -50,6 +50,7 @@ const KanbanBoard = lazy(() => import("./pages/dashboard/KanbanBoard"));
 const Leads = lazy(() => import("./pages/dashboard/Leads"));
 const LeadDetail = lazy(() => import("./pages/dashboard/LeadDetail"));
 const WhatsappFormsPage = lazy(() => import("./pages/dashboard/WhatsappFormsPage"));
+const CampaignRedirect = lazy(() => import("./pages/CampaignRedirect"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -184,6 +185,7 @@ const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/" element={<Index />} />
+      <Route path="/r" element={<Suspense fallback={null}><CampaignRedirect /></Suspense>} />
       <Route
         path="/login"
         element={
