@@ -236,8 +236,9 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Admin pages: `WhatsappFormsPage` — `/dashboard/forms`
 - WhatsApp Forms (M12): forms scoped por agent_id. Trigger via FORM:<slug>. form-bot intercepta no webhook antes do AI agent. Validações: CPF (dígito verificador), email (regex), CEP (8 dígitos), scale (range), select (número ou texto), yes_no (sim/não), signature (exact match). Max 3 retries por campo. Webhook externo POST ao completar.
 - Forms templates: FORM_TEMPLATES em src/types/forms.ts — 12 templates built-in. Novos forms criados com createForm() geram slug único (name→kebab-case + timestamp36).
-- UTM Campaign v2: `go` edge function retorna landing page rica (logo WhatsApp + countdown 3s + spinner) ao invés de redirect instantâneo. Captura dados client-side (screen, timezone, language) via POST async antes do redirect. Deep link `whatsapp://` tenta abrir app nativo, fallback pra wa.me, botão manual após 2s.
-- UTM visits metadata: coluna `metadata` JSONB em utm_visits armazena dados client-side (screen_width, screen_height, language, timezone, has_whatsapp).
+- UTM Campaign v2: `go` edge function faz 302 → React landing page `/r` (Supabase sandboxiza JS em edge functions). React page mostra logo WhatsApp + countdown 3s + spinner, captura dados client-side (screen, timezone, language) via POST async ao `go`, e redireciona pra wa.me após countdown.
+- UTM visits metadata: coluna `metadata` JSONB em utm_visits armazena dados client-side (screen_width, screen_height, language, timezone).
+- Campaign redirect flow: Link → go (grava visita + ref_code) → 302 → crm.wsmart.com.br/r?n=&wa=&ref=&p= → React countdown → wa.me. Rota `/r` é pública (sem auth).
 - Campaign starts_at: validação no `go` — retorna 410 se campanha ainda não começou. UI no CampaignForm permite agendar início.
 - Campaign attribution guards: webhook checa `status='active'` E `expires_at` antes de tagar conversa com `campanha:NOME`. Campanhas pausadas/arquivadas/expiradas não geram attribution.
 - Campaign clone: botão "Clonar" no CampaignTable cria cópia com status='paused', slug novo, sem datas. Redireciona pra edit.

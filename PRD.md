@@ -578,9 +578,10 @@ Antes do handoff automático, a IA agora tenta qualificar a busca com o lead (ma
 - CRUD completo: criar, editar, listar, detalhar campanhas
 - 6 tipos: venda, suporte, promoção, evento, recall, fidelização
 - QR Code gerado automaticamente por campanha
-- Edge Function `go`: landing page rica com countdown 3s + spinner + captura client-side (screen, timezone, language)
-- Deep link WhatsApp (`whatsapp://`) com fallback wa.me + botão manual
-- Dados client-side salvos em utm_visits.metadata JSONB via POST async
+- Edge Function `go`: 302 redirect → React landing page `/r` (rota pública sem auth)
+- Landing page React: logo WhatsApp + countdown 3..2..1 + spinner + botão fallback manual
+- Captura client-side (screen, timezone, language) via POST async ao `go`, salva em utm_visits.metadata JSONB
+- Supabase sandboxiza JS em edge functions — por isso landing page é React, não HTML inline
 - Atribuição automática: webhook detecta `ref_` e vincula à campanha (com guards de expiração + status)
 - Dashboard de métricas: visitas, conversões, taxa, gráfico temporal
 - AI contextual: prompt do agente recebe contexto da campanha ativa
