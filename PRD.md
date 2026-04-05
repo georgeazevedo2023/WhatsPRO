@@ -33,6 +33,27 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.1.0 (2026-04-05) — M13 Campanhas + Formulários + Funil Conversacional
+
+**M13 — Campanhas + Formulários + Funil (completo):**
+- Landing page com 2 modos: redirect (countdown → wa.me) ou formulário (campos dinâmicos → submit → wa.me)
+- Migration: `landing_mode` ('redirect'|'form'), `form_slug`, `kanban_board_id` em utm_campaigns
+- CampaignForm: toggle visual redirect vs formulário, dropdown de forms ativos por instância, selector de funil CRM
+- Edge Function `go`: passa `mode=form&fs=SLUG` no 302 redirect quando campanha é form mode
+- Edge Function `form-public` (verify_jwt=false): GET carrega form definition, POST cria contact + lead_profile + form_submission + match utm_visit + auto-cria kanban card
+- CampaignRedirect: renderização condicional — modo redirect (countdown) ou modo form (carrega campos, renderiza LandingForm)
+- LandingForm: campos dinâmicos com validação client-side (CPF checksum, email regex, phone 10+, CEP 8 dígitos)
+- Auto-criação de lead_profile com FIELD_MAP (nome→full_name, email, cpf, cidade→city, extras→custom_fields)
+- Auto-tag `formulario:SLUG` + `origem:formulario` na conversa após completion (form-bot e landing page)
+- AI Agent form context: detecta tag `formulario:`, carrega dados do form_submissions, injeta no prompt como `<form_data>` para não repetir perguntas já coletadas
+- Auto-criar kanban card na primeira coluna do board vinculado à campanha
+- LeadFormsSection no LeadDetail: timeline de formulários respondidos com dados expandíveis
+- Abandono inteligente: tracking de `form_started` em utm_visits.metadata
+
+**Edge Functions**: 30 total (+ form-public, e2e-scheduled)
+
+---
+
 ### v7.0.0 (2026-04-05) — M12 WhatsApp Forms
 
 **WhatsApp Forms — Formulários via Conversa:**
@@ -589,6 +610,17 @@ Antes do handoff automático, a IA agora tenta qualificar a busca com o lead (ma
 - Controle de status: toggle active/paused/archived no form
 - Clonar campanha: duplica com status pausado e slug novo
 - Paginação de visitas: 50/página com navegação anterior/próxima
+
+**M13 — Campanhas + Formulários + Funil (completo):**
+- Landing page com 2 modos: redirect (countdown → wa.me) ou formulário (campos dinâmicos → submit → wa.me)
+- form-public edge function: carrega form definition (GET) e processa submission (POST) sem JWT
+- LandingForm: campos dinâmicos com validação client-side (CPF, email, phone, CEP, required)
+- Auto-criação de lead_profile com FIELD_MAP (nome→full_name, email, cpf, cidade→city, extras→custom_fields)
+- Auto-tag formulario:SLUG + origem:formulario na conversa após completion (form-bot e landing page)
+- AI Agent form context: detecta tag formulario:, carrega dados do form, injeta no prompt para não repetir perguntas
+- Auto-criar kanban card na primeira coluna do board vinculado à campanha
+- LeadFormsSection no LeadDetail: timeline de formulários respondidos com dados expandíveis
+- Abandono inteligente: tracking de form_started em utm_visits.metadata
 
 **Infra & Deploy:**
 - Dockerfile multi-stage + nginx SPA + gzip + cache

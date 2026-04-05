@@ -17,6 +17,8 @@ interface LandingFormProps {
   welcomeMessage?: string;
   fields: FormField[];
   onSubmit: (data: Record<string, string>) => Promise<void>;
+  /** Called once on first field interaction (for abandonment tracking) */
+  onFieldInteraction?: () => void;
 }
 
 // ── Validators ──────────────────────────────────────────────────────
@@ -76,15 +78,21 @@ function getPlaceholder(fieldType: string): string {
   }
 }
 
-export function LandingForm({ formName, welcomeMessage, fields, onSubmit }: LandingFormProps) {
+export function LandingForm({ formName, welcomeMessage, fields, onSubmit, onFieldInteraction }: LandingFormProps) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [interacted, setInteracted] = useState(false);
 
   const handleChange = (key: string, value: string) => {
     setValues(prev => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
+    // Fire once on first interaction
+    if (!interacted) {
+      setInteracted(true);
+      onFieldInteraction?.();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

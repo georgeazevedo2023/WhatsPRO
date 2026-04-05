@@ -28,12 +28,35 @@ Deno.serve(async (req) => {
   if (req.method === 'POST') {
     try {
       const body = await req.json()
-      const { ref_code, screen_width, screen_height, language, timezone } = body
+      const { ref_code, event, screen_width, screen_height, language, timezone } = body
       if (!ref_code) return new Response('Missing ref_code', { status: 400, headers: corsHeaders })
 
+      // Build metadata to merge
+      let newMetadata: Record<string, unknown> = {}
+
+      if (event === 'form_started') {
+        // Form abandonment tracking — merge form_started flag into existing metadata
+        const { data: existing } = await supabase
+          .from('utm_visits')
+          .select('metadata')
+          .eq('ref_code', ref_code)
+          .maybeSingle()
+        const prev = (existing?.metadata as Record<string, unknown>) || {}
+        newMetadata = { ...prev, form_started: true, form_started_at: new Date().toISOString() }
+      } else {
+        // Standard client-side enrichment (screen, language, timezone)
+        const { data: existing } = await supabase
+          .from('utm_visits')
+          .select('metadata')
+          .eq('ref_code', ref_code)
+          .maybeSingle()
+        const prev = (existing?.metadata as Record<string, unknown>) || {}
+        newMetadata = { ...prev, screen_width, screen_height, language, timezone }
+      }
+
       await supabase.from('utm_visits').update({
-        metadata: { screen_width, screen_height, language, timezone },
-      }).eq('ref_code', ref_code).eq('status', 'visited')
+        metadata: newMetadata,
+      }).eq('ref_code', ref_code)
 
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

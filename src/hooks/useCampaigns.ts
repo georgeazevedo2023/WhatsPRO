@@ -99,7 +99,7 @@ export function useCampaignMetrics(campaignId: string | undefined) {
       if (!campaignId) return null;
       const { data: visits, error } = await (supabase as any)
         .from('utm_visits')
-        .select('status, visited_at, matched_at')
+        .select('status, visited_at, matched_at, metadata')
         .eq('campaign_id', campaignId);
       if (error) throw error;
 
@@ -107,6 +107,17 @@ export function useCampaignMetrics(campaignId: string | undefined) {
       const total = all.length;
       const matched = all.filter((v: any) => v.status === 'matched').length;
       const expired = all.filter((v: any) => v.status === 'expired').length;
+
+      // Form metrics: count visits where metadata.form_started=true
+      const formStarted = all.filter((v: any) => v.metadata?.form_started === true).length;
+      // Form completed = started AND matched (submitted the form then proceeded)
+      const formCompleted = all.filter(
+        (v: any) => v.metadata?.form_started === true && v.status === 'matched'
+      ).length;
+      const formCompletionRate = formStarted > 0
+        ? Math.round((formCompleted / formStarted) * 100)
+        : 0;
+      const formAbandoned = formStarted - formCompleted;
 
       // Visits per day (last 30 days)
       const dailyMap = new Map<string, { visits: number; conversions: number }>();
@@ -128,6 +139,11 @@ export function useCampaignMetrics(campaignId: string | undefined) {
         total_expired: expired,
         conversion_rate: total > 0 ? Math.round((matched / total) * 100) : 0,
         daily,
+        // Form abandonment metrics
+        form_started: formStarted,
+        form_completed: formCompleted,
+        form_abandoned: formAbandoned,
+        form_completion_rate: formCompletionRate,
       };
     },
   });

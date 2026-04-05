@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Eye, UserCheck, Percent, Clock } from 'lucide-react';
+import { Eye, UserCheck, Percent, Clock, FileText, FileCheck, FileX, Activity } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface MetricsData {
@@ -8,6 +8,11 @@ interface MetricsData {
   total_expired: number;
   conversion_rate: number;
   daily: { date: string; visits: number; conversions: number }[];
+  // Form abandonment metrics
+  form_started?: number;
+  form_completed?: number;
+  form_abandoned?: number;
+  form_completion_rate?: number;
 }
 
 interface CampaignMetricsProps {
@@ -56,6 +61,34 @@ export function CampaignMetrics({ data, loading }: CampaignMetricsProps) {
           </Card>
         ))}
       </div>
+
+      {(data.form_started ?? 0) > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Formulario</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: 'Iniciaram', value: data.form_started ?? 0, icon: FileText, color: 'text-blue-500' },
+                { label: 'Completaram', value: data.form_completed ?? 0, icon: FileCheck, color: 'text-emerald-500' },
+                { label: 'Abandonaram', value: data.form_abandoned ?? 0, icon: FileX, color: 'text-orange-500' },
+                { label: 'Taxa conclusao', value: `${data.form_completion_rate ?? 0}%`, icon: Activity, color: 'text-purple-500' },
+              ].map(k => (
+                <div key={k.label} className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg bg-muted/50 ${k.color}`}>
+                    <k.icon className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold">{k.value}</p>
+                    <p className="text-xs text-muted-foreground">{k.label}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {data.daily.length > 1 && (
         <Card>

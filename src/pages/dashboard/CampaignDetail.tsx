@@ -80,6 +80,26 @@ const CampaignDetail = () => {
       {/* Metrics */}
       <CampaignMetrics data={metrics} loading={metricsLoading} />
 
+      {/* Form abandonment metrics */}
+      {metrics?.form_started > 0 && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs">
+            <span className="font-semibold">{metrics.form_started}</span> abriram form
+          </div>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
+            <span className="font-semibold">{metrics.form_completed}</span> completaram
+          </div>
+          {metrics.form_abandoned > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
+              <span className="font-semibold">{metrics.form_abandoned}</span> abandonaram
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border/30 text-xs">
+            Taxa: <span className="font-semibold text-foreground">{metrics.form_completion_rate}%</span>
+          </div>
+        </div>
+      )}
+
       {/* Link + QR */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>

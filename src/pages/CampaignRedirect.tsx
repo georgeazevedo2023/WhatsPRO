@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LandingForm } from '@/components/campaigns/LandingForm';
 
@@ -77,11 +77,12 @@ function RedirectView({ name, waUrl, refCode, postUrl }: { name: string; waUrl: 
 }
 
 // ── Form Mode (fields → submit → redirect) ──────────────────────────
-function FormView({ name, waUrl, refCode, formSlug }: { name: string; waUrl: string; refCode: string; formSlug: string }) {
+function FormView({ name, waUrl, refCode, formSlug, postUrl }: { name: string; waUrl: string; refCode: string; formSlug: string; postUrl: string }) {
   const [fields, setFields] = useState<FormField[]>([]);
   const [welcomeMsg, setWelcomeMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const formStartedSent = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -97,6 +98,17 @@ function FormView({ name, waUrl, refCode, formSlug }: { name: string; waUrl: str
       setLoading(false);
     })();
   }, [formSlug]);
+
+  /** Fire once on first field interaction — tracks form abandonment */
+  const handleFieldInteraction = useCallback(() => {
+    if (formStartedSent.current || !postUrl || !refCode) return;
+    formStartedSent.current = true;
+    fetch(postUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref_code: refCode, event: 'form_started' }),
+    }).catch(() => {});
+  }, [postUrl, refCode]);
 
   const handleSubmit = useCallback(async (formData: Record<string, string>) => {
     // Find phone field
@@ -144,7 +156,7 @@ function FormView({ name, waUrl, refCode, formSlug }: { name: string; waUrl: str
   return (
     <>
       <h1 className="text-lg font-semibold text-white mb-4">{name}</h1>
-      <LandingForm formName={name} welcomeMessage={welcomeMsg} fields={fields} onSubmit={handleSubmit} />
+      <LandingForm formName={name} welcomeMessage={welcomeMsg} fields={fields} onSubmit={handleSubmit} onFieldInteraction={handleFieldInteraction} />
     </>
   );
 }
@@ -175,7 +187,7 @@ export default function CampaignRedirect() {
         </div>
 
         {mode === 'form' && formSlug ? (
-          <FormView name={name} waUrl={waUrl} refCode={refCode} formSlug={formSlug} />
+          <FormView name={name} waUrl={waUrl} refCode={refCode} formSlug={formSlug} postUrl={postUrl} />
         ) : (
           <RedirectView name={name} waUrl={waUrl} refCode={refCode} postUrl={postUrl} />
         )}
