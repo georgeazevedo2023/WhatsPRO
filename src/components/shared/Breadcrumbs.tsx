@@ -47,7 +47,7 @@ const Breadcrumbs = () => {
   if (crumbs.length <= 1) return null;
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-xs text-muted-foreground mb-3 px-1">
+    <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground mb-3 px-1">
       <Link to="/dashboard" className="hover:text-foreground transition-colors">
         <Home className="w-3.5 h-3.5" />
       </Link>
@@ -55,9 +55,9 @@ const Breadcrumbs = () => {
         <span key={crumb!.path} className="flex items-center gap-1">
           <ChevronRight className="w-3 h-3 opacity-40" />
           {crumb!.isLast ? (
-            <span className="text-foreground font-medium">{crumb!.label}</span>
+            <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">{crumb!.label}</span>
           ) : (
-            <Link to={crumb!.path} className="hover:text-foreground transition-colors">
+            <Link to={crumb!.path} className="hover:text-foreground transition-colors truncate max-w-[120px] sm:max-w-none">
               {crumb!.label}
             </Link>
           )}

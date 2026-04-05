@@ -63,7 +63,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
         value={query}
         onValueChange={setQuery}
       />
-      <CommandList className="max-h-[400px]">
+      <CommandList className="max-h-[60dvh] sm:max-h-[400px]">
         {loading && (
           <div className="flex items-center justify-center py-6 gap-2">
             <Loader2 className="w-4 h-4 animate-spin text-primary" />

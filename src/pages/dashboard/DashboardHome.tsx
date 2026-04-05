@@ -235,7 +235,7 @@ const DashboardHome = () => {
       <div className="space-y-4 max-w-7xl mx-auto px-1">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-10 w-full rounded-xl" />
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
         </div>
         <Skeleton className="h-[280px] rounded-xl" />
@@ -267,7 +267,7 @@ const DashboardHome = () => {
 
       <ErrorBoundary section="Estatisticas">
         {/* KPI Cards - Compact mobile grid */}
-        <div className="grid gap-2 md:gap-3 grid-cols-2 lg:grid-cols-4 animate-fade-in" style={{ animationDelay: '100ms' }}>
+        <div className="grid gap-2 md:gap-3 grid-cols-2 md:grid-cols-4 animate-fade-in" style={{ animationDelay: '100ms' }}>
           <StatsCard title="Instâncias" value={instances.length} icon={Server} className="min-h-0" />
           <StatsCard title="Online" value={connectedInstances.length} icon={Wifi} className="min-h-0" />
           <StatsCard title="Grupos" value={loadingStats ? '...' : totalGroups} icon={MessageSquare} className="min-h-0" />
@@ -297,7 +297,7 @@ const DashboardHome = () => {
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2">
-            <div className="grid gap-2 md:gap-3 grid-cols-2 lg:grid-cols-4 animate-fade-in">
+            <div className="grid gap-2 md:gap-3 grid-cols-2 md:grid-cols-4 animate-fade-in">
               <StatsCard title="Offline" value={disconnectedInstances.length} icon={WifiOff} className="min-h-0" />
               <StatsCard title="Participantes" value={loadingStats ? '...' : totalParticipants.toLocaleString('pt-BR')} icon={UsersRound} className="min-h-0" />
               {isSuperAdmin && <StatsCard title="Usuários" value={totalUsers} icon={Users} className="min-h-0" />}
