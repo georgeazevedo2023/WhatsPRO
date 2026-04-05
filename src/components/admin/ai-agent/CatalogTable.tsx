@@ -146,16 +146,16 @@ export function CatalogTable({
               </label>
               {selectedIds.size > 0 && (
                 <>
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onBulkAction('enable')}>
+                  <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => onBulkAction('enable')}>
                     Ativar
                   </Button>
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onBulkAction('disable')}>
+                  <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => onBulkAction('disable')}>
                     Desativar
                   </Button>
                   <Button
                     size="sm"
                     variant="destructive"
-                    className="h-7 text-xs gap-1"
+                    className="h-8 text-xs gap-1"
                     onClick={() => { if (confirm(`Excluir ${selectedIds.size} produto(s)?`)) onBulkAction('delete'); }}
                   >
                     Excluir

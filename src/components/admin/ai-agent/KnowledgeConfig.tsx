@@ -202,7 +202,7 @@ export function KnowledgeConfig({ agentId }: KnowledgeConfigProps) {
                 <p className="text-xs font-semibold text-primary">
                   {showTemplates === 'faq' ? '💡 Templates de Perguntas Frequentes' : '🛡️ Templates de Objeções e Respostas'}
                 </p>
-                <Button size="sm" variant="ghost" className="h-6 text-[10px] gap-1 text-primary" disabled={saving}
+                <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 text-primary" disabled={saving}
                   onClick={() => addAllTemplates(showTemplates === 'faq' ? FAQ_TEMPLATES : OBJECTION_TEMPLATES)}>
                   {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
                   Adicionar todos
@@ -249,7 +249,7 @@ export function KnowledgeConfig({ agentId }: KnowledgeConfigProps) {
                     <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.content}</p>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}><Pencil className="w-3 h-3" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(item)}><Pencil className="w-3 h-3" /></Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="w-3 h-3" /></Button>
                   </div>
                 </CardContent>
@@ -294,11 +294,11 @@ export function KnowledgeConfig({ agentId }: KnowledgeConfigProps) {
                   </div>
                   <div className="flex gap-1 shrink-0">
                     {item.media_url && (
-                      <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
                         <a href={item.media_url} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-3 h-3" /></a>
                       </Button>
                     )}
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}><Pencil className="w-3 h-3" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(item)}><Pencil className="w-3 h-3" /></Button>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="w-3 h-3" /></Button>
                   </div>
                 </CardContent>

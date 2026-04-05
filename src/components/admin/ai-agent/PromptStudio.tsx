@@ -190,7 +190,7 @@ export function PromptStudio({ config, onChange }: PromptStudioProps) {
       {/* Header */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-start sm:items-center justify-between gap-3 flex-wrap">
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <FileText className="w-4 h-4 text-primary" />
@@ -201,7 +201,7 @@ export function PromptStudio({ config, onChange }: PromptStudioProps) {
               </CardDescription>
             </div>
             <div className="flex items-center gap-3">
-              <div className="text-right">
+              <div className="hidden sm:block text-right">
                 <div className="text-sm font-medium">{totalTokens} tokens</div>
                 <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
                   <div
@@ -292,7 +292,7 @@ export function PromptStudio({ config, onChange }: PromptStudioProps) {
 
       {/* Preview Dialog */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
+        <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <span>Preview do Prompt Final</span>

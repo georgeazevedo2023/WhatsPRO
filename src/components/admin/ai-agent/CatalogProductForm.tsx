@@ -191,7 +191,7 @@ A descrição deve ser persuasiva, destacar benefícios e ser em português do B
     <>
       {/* Product Dialog */}
       <Dialog open={dialogOpen} onOpenChange={onDialogOpenChange}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar Produto' : 'Novo Produto'}</DialogTitle>
           </DialogHeader>
@@ -246,7 +246,7 @@ A descrição deve ser persuasiva, destacar benefícios e ser em português do B
             )}
 
             {/* Basic info */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2 space-y-1.5">
                 <Label className="text-xs">Título *</Label>
                 <Input

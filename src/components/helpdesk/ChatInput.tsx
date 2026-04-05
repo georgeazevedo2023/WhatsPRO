@@ -576,7 +576,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
                         Enviar Emojis
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent side="right" align="start" className="w-[320px] p-0 z-[100]">
+                    <PopoverContent side="top" align="start" className="w-[320px] p-0 z-[100]">
                       <EmojiPickerContent onEmojiSelect={(emoji) => setText(prev => prev + emoji)} />
                     </PopoverContent>
                   </Popover>
