@@ -230,6 +230,8 @@ export interface GlobalSearchResult {
 export type CampaignType = 'venda' | 'suporte' | 'promocao' | 'evento' | 'recall' | 'fidelizacao';
 export type CampaignStatus = 'active' | 'paused' | 'archived';
 
+export type LandingMode = 'redirect' | 'form';
+
 export interface UtmCampaign {
   id: string;
   instance_id: string;
@@ -247,6 +249,9 @@ export interface UtmCampaign {
   campaign_type: CampaignType;
   ai_template: string;
   ai_custom_text: string;
+  landing_mode: LandingMode;
+  form_slug?: string | null;
+  kanban_board_id?: string | null;
   starts_at?: string | null;
   expires_at?: string | null;
   created_at: string;

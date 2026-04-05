@@ -1,5 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { LandingForm } from '@/components/campaigns/LandingForm';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://euljumeflwtljegknawy.supabase.co';
+
+interface FormField {
+  id: string;
+  position: number;
+  field_type: string;
+  label: string;
+  required: boolean;
+  validation_rules: Record<string, unknown> | null;
+  error_message: string | null;
+  field_key: string;
+}
 
 const WA_ICON = (
   <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white">
@@ -8,34 +22,26 @@ const WA_ICON = (
   </svg>
 );
 
-export default function CampaignRedirect() {
-  const [params] = useSearchParams();
-  const name = params.get('n') || '';
-  const waUrl = params.get('wa') || '';
-  const refCode = params.get('ref') || '';
-  const postUrl = params.get('p') || '';
-
+// ── Redirect Mode (countdown → WhatsApp) ────────────────────────────
+function RedirectView({ name, waUrl, refCode, postUrl }: { name: string; waUrl: string; refCode: string; postUrl: string }) {
   const [count, setCount] = useState(3);
   const [redirected, setRedirected] = useState(false);
 
-  // Send client-side data async
   useEffect(() => {
     if (!refCode || !postUrl) return;
-    const data = {
-      ref_code: refCode,
-      screen_width: screen.width,
-      screen_height: screen.height,
-      language: navigator.language,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    };
     fetch(postUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        ref_code: refCode,
+        screen_width: screen.width,
+        screen_height: screen.height,
+        language: navigator.language,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
     }).catch(() => {});
   }, [refCode, postUrl]);
 
-  // Countdown + redirect
   useEffect(() => {
     if (!waUrl) return;
     const iv = setInterval(() => {
@@ -52,6 +58,107 @@ export default function CampaignRedirect() {
     return () => clearInterval(iv);
   }, [waUrl]);
 
+  return (
+    <>
+      <h1 className="text-lg font-semibold text-white mb-1">{name}</h1>
+      <p className="text-sm text-[#a3a3a3] mb-8">Redirecionando para WhatsApp...</p>
+      {!redirected && (
+        <div className="w-9 h-9 border-[3px] border-[#262626] border-t-[#25D366] rounded-full animate-spin mx-auto mb-5" />
+      )}
+      <div className="text-4xl font-bold text-[#25D366] mb-2">{redirected ? '✓' : count}</div>
+      <p className="text-xs text-[#737373] mb-8">
+        {redirected ? 'Redirecionado!' : `Abrindo WhatsApp em ${count} segundo${count !== 1 ? 's' : ''}`}
+      </p>
+      <a href={waUrl} className="inline-block px-6 py-3 bg-[#25D366] text-white rounded-xl text-sm font-semibold no-underline hover:bg-[#1da851] transition-colors">
+        Abrir WhatsApp manualmente
+      </a>
+    </>
+  );
+}
+
+// ── Form Mode (fields → submit → redirect) ──────────────────────────
+function FormView({ name, waUrl, refCode, formSlug }: { name: string; waUrl: string; refCode: string; formSlug: string }) {
+  const [fields, setFields] = useState<FormField[]>([]);
+  const [welcomeMsg, setWelcomeMsg] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/form-public?slug=${formSlug}`);
+        if (!res.ok) { setError('Formulario nao encontrado'); setLoading(false); return; }
+        const data = await res.json();
+        setFields(data.fields || []);
+        setWelcomeMsg(data.form?.welcome_message || '');
+      } catch {
+        setError('Erro ao carregar formulario');
+      }
+      setLoading(false);
+    })();
+  }, [formSlug]);
+
+  const handleSubmit = useCallback(async (formData: Record<string, string>) => {
+    // Find phone field
+    const phoneKey = fields.find(f => f.field_type === 'phone')?.field_key || 'telefone';
+    const phone = formData[phoneKey] || '';
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/form-public`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slug: formSlug,
+        ref_code: refCode,
+        phone,
+        data: formData,
+      }),
+    });
+
+    if (!res.ok) throw new Error('Submit failed');
+
+    // Redirect to WhatsApp after brief delay
+    setTimeout(() => { window.location.href = waUrl; }, 1500);
+  }, [formSlug, refCode, waUrl, fields]);
+
+  if (loading) {
+    return (
+      <>
+        <h1 className="text-lg font-semibold text-white mb-4">{name}</h1>
+        <div className="w-8 h-8 border-[3px] border-[#262626] border-t-[#25D366] rounded-full animate-spin mx-auto" />
+      </>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <h1 className="text-lg font-semibold text-white mb-4">{name}</h1>
+        <p className="text-sm text-red-400">{error}</p>
+        <a href={waUrl} className="inline-block mt-6 px-6 py-3 bg-[#25D366] text-white rounded-xl text-sm font-semibold no-underline hover:bg-[#1da851] transition-colors">
+          Ir para WhatsApp
+        </a>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h1 className="text-lg font-semibold text-white mb-4">{name}</h1>
+      <LandingForm formName={name} welcomeMessage={welcomeMsg} fields={fields} onSubmit={handleSubmit} />
+    </>
+  );
+}
+
+// ── Main Component ──────────────────────────────────────────────────
+export default function CampaignRedirect() {
+  const [params] = useSearchParams();
+  const name = params.get('n') || '';
+  const waUrl = params.get('wa') || '';
+  const refCode = params.get('ref') || '';
+  const postUrl = params.get('p') || '';
+  const mode = params.get('mode') || 'redirect';
+  const formSlug = params.get('fs') || '';
+
   if (!waUrl) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] text-white">
@@ -62,36 +169,16 @@ export default function CampaignRedirect() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] text-[#e5e5e5]">
-      <div className="text-center px-8 py-10 max-w-[380px] w-[90%]">
-        {/* WhatsApp logo */}
+      <div className="text-center px-8 py-10 max-w-[420px] w-[90%]">
         <div className="w-14 h-14 mx-auto mb-6 bg-gradient-to-br from-[#25D366] to-[#128C7E] rounded-2xl flex items-center justify-center">
           {WA_ICON}
         </div>
 
-        {/* Campaign name */}
-        <h1 className="text-lg font-semibold text-white mb-1">{name}</h1>
-        <p className="text-sm text-[#a3a3a3] mb-8">Redirecionando para WhatsApp...</p>
-
-        {/* Spinner */}
-        {!redirected && (
-          <div className="w-9 h-9 border-[3px] border-[#262626] border-t-[#25D366] rounded-full animate-spin mx-auto mb-5" />
+        {mode === 'form' && formSlug ? (
+          <FormView name={name} waUrl={waUrl} refCode={refCode} formSlug={formSlug} />
+        ) : (
+          <RedirectView name={name} waUrl={waUrl} refCode={refCode} postUrl={postUrl} />
         )}
-
-        {/* Countdown */}
-        <div className="text-4xl font-bold text-[#25D366] mb-2">
-          {redirected ? '✓' : count}
-        </div>
-        <p className="text-xs text-[#737373] mb-8">
-          {redirected ? 'Redirecionado!' : `Abrindo WhatsApp em ${count} segundo${count !== 1 ? 's' : ''}`}
-        </p>
-
-        {/* Fallback button */}
-        <a
-          href={waUrl}
-          className="inline-block px-6 py-3 bg-[#25D366] text-white rounded-xl text-sm font-semibold no-underline hover:bg-[#1da851] transition-colors"
-        >
-          Abrir WhatsApp manualmente
-        </a>
       </div>
     </div>
   );

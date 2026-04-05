@@ -20,8 +20,8 @@ import { CampaignLinkPreview } from './CampaignLinkPreview';
 import { CampaignQrCode } from './CampaignQrCode';
 import { useCreateCampaign, useUpdateCampaign, generateSlug, buildTrackingUrl } from '@/hooks/useCampaigns';
 import { getCampaignTemplate } from '@/data/campaignTemplates';
-import type { UtmCampaign, CampaignType } from '@/types';
-import { Loader2, Save, ArrowLeft } from 'lucide-react';
+import type { UtmCampaign, CampaignType, LandingMode } from '@/types';
+import { Loader2, Save, ArrowLeft, MousePointerClick, FileText } from 'lucide-react';
 
 interface Instance {
   id: string;
@@ -57,7 +57,12 @@ export function CampaignForm({ campaign }: CampaignFormProps) {
   const [startsAt, setStartsAt] = useState(campaign?.starts_at?.substring(0, 10) || '');
   const [expiresAt, setExpiresAt] = useState(campaign?.expires_at?.substring(0, 10) || '');
   const [status, setStatus] = useState<'active' | 'paused' | 'archived'>(campaign?.status || 'active');
+  const [landingMode, setLandingMode] = useState<LandingMode>(campaign?.landing_mode || 'redirect');
+  const [formSlug, setFormSlug] = useState(campaign?.form_slug || '');
+  const [kanbanBoardId, setKanbanBoardId] = useState(campaign?.kanban_board_id || '');
   const [slugManual, setSlugManual] = useState(false);
+  const [forms, setForms] = useState<{ slug: string; name: string }[]>([]);
+  const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -65,7 +70,24 @@ export function CampaignForm({ campaign }: CampaignFormProps) {
       setInstances(data || []);
       setLoadingInstances(false);
     })();
+    // Load kanban boards
+    (async () => {
+      const { data } = await (supabase as any).from('kanban_boards').select('id, name').order('name');
+      setBoards(data || []);
+    })();
   }, []);
+
+  // Load forms when instance changes (find agent_id for instance)
+  useEffect(() => {
+    if (!instanceId) { setForms([]); return; }
+    (async () => {
+      const { data: agents } = await (supabase as any).from('ai_agents').select('id').eq('instance_id', instanceId).limit(1);
+      const agentId = agents?.[0]?.id;
+      if (!agentId) { setForms([]); return; }
+      const { data } = await (supabase as any).from('whatsapp_forms').select('slug, name').eq('agent_id', agentId).eq('status', 'active').order('name');
+      setForms(data || []);
+    })();
+  }, [instanceId]);
 
   // Auto-generate slug from name
   useEffect(() => {
@@ -103,6 +125,9 @@ export function CampaignForm({ campaign }: CampaignFormProps) {
       campaign_type: campaignType,
       ai_template: aiTemplate,
       ai_custom_text: aiCustomText,
+      landing_mode: landingMode,
+      form_slug: landingMode === 'form' ? formSlug || null : null,
+      kanban_board_id: kanbanBoardId || null,
       status,
       starts_at: startsAt ? new Date(startsAt).toISOString() : null,
       expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
@@ -225,6 +250,69 @@ export function CampaignForm({ campaign }: CampaignFormProps) {
               <Label>utm_campaign</Label>
               <Input value={utmCampaign} onChange={e => setUtmCampaign(e.target.value)} placeholder="black_friday, dia_pais" />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Landing Mode */}
+      <Card>
+        <CardHeader><CardTitle className="text-lg">Modo da Landing Page</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setLandingMode('redirect')}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${landingMode === 'redirect' ? 'border-primary bg-primary/5' : 'border-border/40 hover:border-border'}`}
+            >
+              <MousePointerClick className={`w-6 h-6 mb-2 ${landingMode === 'redirect' ? 'text-primary' : 'text-muted-foreground'}`} />
+              <div className="font-medium text-sm">Redirect direto</div>
+              <p className="text-xs text-muted-foreground mt-1">Countdown 3s e redireciona para WhatsApp. Rapido, sem atrito.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLandingMode('form')}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${landingMode === 'form' ? 'border-primary bg-primary/5' : 'border-border/40 hover:border-border'}`}
+            >
+              <FileText className={`w-6 h-6 mb-2 ${landingMode === 'form' ? 'text-primary' : 'text-muted-foreground'}`} />
+              <div className="font-medium text-sm">Formulario primeiro</div>
+              <p className="text-xs text-muted-foreground mt-1">Lead preenche dados antes de ir pro WhatsApp. Captura nome e telefone.</p>
+            </button>
+          </div>
+
+          {landingMode === 'form' && (
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>Formulario *</Label>
+                {forms.length > 0 ? (
+                  <Select value={formSlug} onValueChange={setFormSlug}>
+                    <SelectTrigger><SelectValue placeholder="Selecione um formulario..." /></SelectTrigger>
+                    <SelectContent>
+                      {forms.map(f => (
+                        <SelectItem key={f.slug} value={f.slug}>{f.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-xs text-muted-foreground py-2">
+                    {instanceId ? 'Nenhum formulario ativo nesta instancia. Crie um em Formularios.' : 'Selecione uma instancia primeiro.'}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Funil CRM (opcional)</Label>
+            <Select value={kanbanBoardId} onValueChange={setKanbanBoardId}>
+              <SelectTrigger><SelectValue placeholder="Nenhum — nao criar card automatico" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Nenhum</SelectItem>
+                {boards.map(b => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Lead que entrar por esta campanha sera adicionado automaticamente ao funil selecionado.</p>
           </div>
         </CardContent>
       </Card>

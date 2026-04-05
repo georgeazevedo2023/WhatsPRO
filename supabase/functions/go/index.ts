@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
     // Look up campaign
     const { data: campaign, error } = await supabase
       .from('utm_campaigns')
-      .select('id, name, status, destination_phone, welcome_message, starts_at, expires_at')
+      .select('id, name, status, destination_phone, welcome_message, starts_at, expires_at, landing_mode, form_slug')
       .eq('slug', slug)
       .maybeSingle()
 
@@ -113,12 +113,22 @@ Deno.serve(async (req) => {
     const text = encodeURIComponent(msgParts.join(' '))
     const waUrl = `https://wa.me/${phone}?text=${text}`
 
-    log.info('Campaign redirect', { slug, campaign_id: campaign.id, ref_code: refCode })
+    log.info('Campaign redirect', { slug, campaign_id: campaign.id, ref_code: refCode, mode: campaign.landing_mode })
 
     // Redirect to React landing page (Supabase sandboxes JS/HTML in edge functions)
     const CRM_URL = Deno.env.get('CRM_URL') || 'https://crm.wsmart.com.br'
     const postUrl = encodeURIComponent(url.origin + url.pathname)
-    const redirectUrl = `${CRM_URL}/r?n=${encodeURIComponent(campaign.name)}&wa=${encodeURIComponent(waUrl)}&ref=${refCode}&p=${postUrl}`
+    const params = new URLSearchParams({
+      n: campaign.name,
+      wa: waUrl,
+      ref: refCode,
+      p: url.origin + url.pathname,
+    })
+    if (campaign.landing_mode === 'form' && campaign.form_slug) {
+      params.set('mode', 'form')
+      params.set('fs', campaign.form_slug)
+    }
+    const redirectUrl = `${CRM_URL}/r?${params.toString()}`
 
     return new Response(null, {
       status: 302,

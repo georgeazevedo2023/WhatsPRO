@@ -48,7 +48,7 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - **CI/CD**: GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
 - **Portainer**: Stack "whatspro" on Hetzner CX42 (65.108.51.109)
 
-## Edge Functions (27 total)
+## Edge Functions (28 total)
 Located in `supabase/functions/`. Each uses Deno runtime.
 - JWT verification: `verify_jwt = true` on 20 functions, `false` only on webhooks (whatsapp-webhook, fire-outgoing-webhook, go, health-check)
 - Shared CORS config in `supabase/functions/_shared/cors.ts`
@@ -59,6 +59,7 @@ Located in `supabase/functions/`. Each uses Deno runtime.
 - Monitoring: `health-check` (DB + MV + env verification → 200/503)
 - Background: `process-jobs` (SKIP LOCKED job queue processor for lead_auto_add, profile_pic_fetch)
 - WhatsApp Forms: `form-bot` (processador de sessões de formulário WhatsApp — initiation FORM:slug + continuation + validações + webhook externo)
+- Landing Forms: `form-public` (public GET form definition + POST submit → contact + lead_profile + form_submission + utm match + kanban card)
 
 ## Commands
 - `/prd` - Consultar PRD completo do projeto (módulos, tasks, roadmap, changelog)
@@ -243,3 +244,9 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Campaign attribution guards: webhook checa `status='active'` E `expires_at` antes de tagar conversa com `campanha:NOME`. Campanhas pausadas/arquivadas/expiradas não geram attribution.
 - Campaign clone: botão "Clonar" no CampaignTable cria cópia com status='paused', slug novo, sem datas. Redireciona pra edit.
 - Campaign visits pagination: useCampaignVisits paginado (50/página com range query). CampaignDetail mostra anterior/próxima.
+- Campaign landing_mode: 'redirect' (countdown → wa.me) ou 'form' (formulário na landing page). Admin escolhe no CampaignForm com toggle visual. form_slug aponta pra whatsapp_forms.slug.
+- Campaign kanban_board_id: auto-criar card na primeira coluna do board selecionado quando lead submete form ou utm_visit é matched.
+- form-public edge function: GET ?slug= retorna form definition (sem JWT). POST { slug, ref_code, phone, data } cria contact + lead_profile + form_submission + match utm_visit + auto-create kanban card.
+- LandingForm component: renderiza campos dinâmicos do formulário na landing page com validação client-side (CPF checksum, email regex, phone 10+ digitos, CEP 8 digitos). Submit via form-public → redirect wa.me.
+- CampaignRedirect modes: mode=redirect mostra countdown (existente). mode=form&fs=SLUG carrega form via form-public GET e renderiza LandingForm. Após submit, redirect pra WhatsApp.
+- Lead auto-creation from form: FIELD_MAP mapeia field_key → lead_profiles columns (nome→full_name, email→email, cpf→cpf, cidade→city). Campos extras → custom_fields JSONB. Upsert ON CONFLICT contact_id.
