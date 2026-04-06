@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client'
 import type {
   BioPage,
   BioButton,
+  BioCatalogProduct,
   CreateBioPageInput,
   CreateBioButtonInput,
 } from '@/types/bio'
@@ -208,6 +209,44 @@ export function useReorderBioButtons() {
     onSuccess: (pageId) => {
       queryClient.invalidateQueries({ queryKey: ['bio-page', pageId] })
     },
+  })
+}
+
+// ─── Catalog products for Bio button editor ───────────────────────────────────
+
+export function useCatalogProductsForBio(instanceId: string | null) {
+  return useQuery({
+    queryKey: ['bio-catalog-products', instanceId],
+    queryFn: async (): Promise<BioCatalogProduct[]> => {
+      if (!instanceId) return []
+      // Busca o agente ativo da instância
+      const { data: agents } = await supabase
+        .from('ai_agents')
+        .select('id')
+        .eq('instance_id', instanceId)
+        .eq('enabled', true)
+        .limit(1)
+      const agentId = agents?.[0]?.id
+      if (!agentId) return []
+      // Busca produtos do agente
+      const { data, error } = await supabase
+        .from('ai_agent_products')
+        .select('id, title, price, currency, images')
+        .eq('agent_id', agentId)
+        .eq('enabled', true)
+        .order('position', { ascending: true })
+        .limit(100)
+      if (error) throw error
+      return (data ?? []).map((p) => ({
+        id: p.id as string,
+        title: p.title as string,
+        price: p.price as number | null,
+        currency: p.currency as string | null,
+        image_url: ((p.images as string[]) ?? [])[0] ?? null,
+      }))
+    },
+    enabled: !!instanceId,
+    staleTime: 60_000,
   })
 }
 

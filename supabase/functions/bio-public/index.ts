@@ -84,14 +84,51 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Database error' }, { status: 500, headers: cors })
     }
 
+    // Filter buttons by scheduling window
+    const now = new Date().toISOString()
+    const activeButtons = (buttons ?? []).filter(btn => {
+      if (btn.starts_at && btn.starts_at > now) return false
+      if (btn.ends_at && btn.ends_at < now) return false
+      return true
+    })
+
+    // Resolve catalog products for buttons of type 'catalog'
+    const catalogIds = activeButtons
+      .filter(b => b.type === 'catalog' && b.catalog_product_id)
+      .map(b => b.catalog_product_id as string)
+
+    let catalogMap: Record<string, { id: string; title: string; price: number | null; currency: string | null; image_url: string | null }> = {}
+
+    if (catalogIds.length > 0) {
+      const { data: products } = await supabase
+        .from('ai_agent_products')
+        .select('id, title, price, currency, images')
+        .in('id', catalogIds)
+
+      for (const p of (products ?? [])) {
+        catalogMap[p.id] = {
+          id: p.id,
+          title: p.title,
+          price: p.price ?? null,
+          currency: p.currency ?? null,
+          image_url: (p.images as string[])?.[0] ?? null,
+        }
+      }
+    }
+
+    const buttonsWithCatalog = activeButtons.map(btn => ({
+      ...btn,
+      catalog_product: btn.catalog_product_id ? (catalogMap[btn.catalog_product_id] ?? null) : null,
+    }))
+
     // Increment view count (fire-and-forget — don't block response)
     supabase.rpc('increment_bio_view', { p_bio_page_id: page.id }).then(({ error }) => {
       if (error) log.warn('Failed to increment view', { pageId: page.id, error: error.message })
     })
 
-    log.info('Bio page loaded', { slug, buttonCount: (buttons ?? []).length })
+    log.info('Bio page loaded', { slug, buttonCount: buttonsWithCatalog.length })
 
-    return Response.json({ page, buttons: buttons ?? [] }, { headers: cors })
+    return Response.json({ page, buttons: buttonsWithCatalog }, { headers: cors })
   }
 
   return Response.json({ error: 'Method not allowed' }, { status: 405, headers: cors })

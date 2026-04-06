@@ -28,6 +28,8 @@ import type {
   BioButtonStyle,
   BioButtonRadius,
   BioBgType,
+  BioFontFamily,
+  BioButtonSpacing,
   CreateBioButtonInput,
 } from '@/types/bio'
 import { TEMPLATE_DEFAULTS } from '@/types/bio'
@@ -63,6 +65,12 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
   const [buttonRadius, setButtonRadius] = useState<BioButtonRadius>(existingPage?.button_radius ?? 'full')
   const [buttonColor, setButtonColor] = useState(existingPage?.button_color ?? '#25D366')
   const [textColor, setTextColor] = useState(existingPage?.text_color ?? '#ffffff')
+
+  // Fase 2: novos estados visuais
+  const [coverUrl, setCoverUrl] = useState(existingPage?.cover_url ?? '')
+  const [fontFamily, setFontFamily] = useState<BioFontFamily>(existingPage?.font_family ?? 'default')
+  const [buttonSpacing, setButtonSpacing] = useState<BioButtonSpacing>(existingPage?.button_spacing ?? 'normal')
+  const [uploadingCover, setUploadingCover] = useState(false)
 
   // Button editing state
   const [editingButtonId, setEditingButtonId] = useState<string | null>(null)
@@ -120,6 +128,10 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
       button_color: buttonColor,
       text_color: textColor,
       template,
+      // Fase 2
+      cover_url: coverUrl || undefined,
+      font_family: fontFamily,
+      button_spacing: buttonSpacing,
     }
     try {
       if (isEditing && editPageId) {
@@ -194,6 +206,18 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
     }
   }
 
+  async function handleCoverUpload(file: File) {
+    setUploadingCover(true)
+    try {
+      const url = await uploadBioImage(file)
+      setCoverUrl(url)
+    } catch (e) {
+      toast({ variant: 'destructive', description: `Erro no upload: ${(e as Error).message}` })
+    } finally {
+      setUploadingCover(false)
+    }
+  }
+
   const previewPage: Partial<BioPage> = {
     title,
     description: description || null,
@@ -206,6 +230,10 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
     button_color: buttonColor,
     text_color: textColor,
     template,
+    // Fase 2
+    cover_url: coverUrl || null,
+    font_family: fontFamily,
+    button_spacing: buttonSpacing,
   }
 
   const isSaving = createPage.isPending || updatePage.isPending
@@ -388,6 +416,67 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
               )}
             </div>
 
+            {/* Capa / Banner */}
+            <div className="space-y-1.5">
+              <Label>Capa / Banner (opcional)</Label>
+              <p className="text-xs text-muted-foreground">Imagem exibida no topo da página (antes do avatar)</p>
+              {coverUrl ? (
+                <div className="flex flex-col gap-2">
+                  <img src={coverUrl} alt="cover" className="w-full aspect-[3/1] rounded-xl object-cover" />
+                  <Button variant="ghost" size="sm" className="text-destructive self-start" type="button"
+                    onClick={() => setCoverUrl('')}>
+                    <Trash2 size={14} className="mr-1" /> Remover
+                  </Button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 w-fit cursor-pointer">
+                  <Button variant="outline" size="sm" type="button" disabled={uploadingCover} asChild>
+                    <span>
+                      {uploadingCover ? <Loader2 size={14} className="animate-spin mr-1" /> : <ImageIcon size={14} className="mr-1" />}
+                      Enviar capa
+                    </span>
+                  </Button>
+                  <input type="file" accept="image/*" className="hidden"
+                    onChange={(e) => { const file = e.target.files?.[0]; if (file) handleCoverUpload(file) }} />
+                </label>
+              )}
+            </div>
+
+            {/* Fonte */}
+            <div className="space-y-1.5">
+              <Label>Fonte</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {(['default', 'serif', 'mono'] as const).map((val) => {
+                  const labels: Record<typeof val, string> = { default: 'Padrão', serif: 'Serifada', mono: 'Mono' }
+                  const classes: Record<typeof val, string> = { default: 'font-sans', serif: 'font-serif', mono: 'font-mono' }
+                  return (
+                    <button key={val} type="button"
+                      onClick={() => setFontFamily(val)}
+                      className={`px-3 py-2 rounded-lg border text-sm transition-all ${classes[val]} ${fontFamily === val ? 'border-primary bg-primary/5 text-primary' : 'border-border'}`}>
+                      {labels[val]}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Espaçamento */}
+            <div className="space-y-1.5">
+              <Label>Espaçamento entre botões</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {(['compact', 'normal', 'loose'] as const).map((val) => {
+                  const labels: Record<typeof val, string> = { compact: 'Compacto', normal: 'Normal', loose: 'Espaçado' }
+                  return (
+                    <button key={val} type="button"
+                      onClick={() => setButtonSpacing(val)}
+                      className={`px-3 py-2 rounded-lg border text-sm transition-all ${buttonSpacing === val ? 'border-primary bg-primary/5 text-primary' : 'border-border'}`}>
+                      {labels[val]}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             {/* Save button */}
             <Button onClick={handleSavePage} disabled={isSaving} className="w-full mt-2">
               {isSaving && <Loader2 size={14} className="animate-spin mr-1" />}
@@ -417,6 +506,7 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
                             onSave={(data) => handleUpdateButton(btn.id, data)}
                             onCancel={() => setEditingButtonId(null)}
                             saving={updateButton.isPending}
+                            instanceId={instanceId}
                           />
                         </div>
                       ) : (
@@ -480,6 +570,7 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
                       onSave={handleAddButton}
                       onCancel={() => setAddingButton(false)}
                       saving={createButton.isPending}
+                      instanceId={instanceId}
                     />
                   </div>
                 ) : (

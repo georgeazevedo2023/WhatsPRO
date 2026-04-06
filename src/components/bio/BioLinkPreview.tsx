@@ -1,4 +1,5 @@
 import type { BioPage, BioButton, SocialPlatform } from '@/types/bio'
+import { FONT_FAMILY_CLASS, BUTTON_SPACING_GAP } from '@/types/bio'
 
 interface BioLinkPreviewProps {
   page: Partial<BioPage>
@@ -22,6 +23,10 @@ export function BioLinkPreview({ page, buttons }: BioLinkPreviewProps) {
   const template = page.template || 'simples'
   const bgType = page.bg_type || 'solid'
   const bgGradientTo = page.bg_gradient_to || ''
+  // Fase 2
+  const coverUrl = page.cover_url || null
+  const fontFamily = page.font_family ?? 'default'
+  const buttonSpacing = page.button_spacing ?? 'normal'
 
   const bgStyle =
     bgType === 'gradient' && bgGradientTo
@@ -32,6 +37,8 @@ export function BioLinkPreview({ page, buttons }: BioLinkPreviewProps) {
 
   const radiusCls = buttonRadius === 'full' ? 'rounded-full' : buttonRadius === 'lg' ? 'rounded-2xl' : 'rounded-xl'
   const avatarCls = template === 'negocio' ? 'rounded-xl' : 'rounded-full'
+  const fontCls = FONT_FAMILY_CLASS[fontFamily]
+  const spacingCls = BUTTON_SPACING_GAP[buttonSpacing]
 
   const mainButtons = buttons.filter((b) => b.layout !== 'social_icon')
   const socialButtons = buttons.filter((b) => b.layout === 'social_icon')
@@ -48,98 +55,123 @@ export function BioLinkPreview({ page, buttons }: BioLinkPreviewProps) {
 
   return (
     <div
-      className="w-full h-full min-h-[500px] overflow-auto rounded-2xl flex flex-col items-center py-8 px-4"
+      className={`w-full h-full min-h-[500px] overflow-auto rounded-2xl flex flex-col ${fontCls}`}
       style={{ ...bgStyle, color: textColor }}
     >
-      <div className="w-full max-w-[320px] flex flex-col items-center gap-4">
-        {/* Avatar */}
-        <div
-          className={`w-16 h-16 ${avatarCls} overflow-hidden bg-white/20 flex items-center justify-center shrink-0`}
-        >
-          {page.avatar_url ? (
-            <img src={page.avatar_url} alt={page.title} className="w-full h-full object-contain" />
-          ) : (
-            <span className="text-2xl font-bold opacity-60">
-              {(page.title || 'B').charAt(0).toUpperCase()}
-            </span>
-          )}
+      {/* Capa / Banner (Fase 2) */}
+      {coverUrl && (
+        <div className="w-full aspect-[3/1] overflow-hidden rounded-t-2xl shrink-0">
+          <img src={coverUrl} alt="cover" className="w-full h-full object-cover" />
         </div>
+      )}
 
-        {/* Title + description */}
-        <div className="text-center">
-          <p className="font-semibold text-base">{page.title || 'Minha página'}</p>
-          {page.description && (
-            <p className="text-xs opacity-70 mt-0.5 max-w-[220px] mx-auto">{page.description}</p>
-          )}
-        </div>
-
-        {/* Social icons */}
-        {socialButtons.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap justify-center">
-            {socialButtons.map((btn) => {
-              const path = btn.social_platform ? SOCIAL_ICON_PATHS[btn.social_platform] : undefined
-              return (
-                <div key={btn.id} className="w-6 h-6 flex items-center justify-center opacity-80">
-                  {path ? (
-                    <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
-                      <path d={path} />
-                    </svg>
-                  ) : (
-                    <span className="text-[10px]">{btn.label.slice(0, 2)}</span>
-                  )}
-                </div>
-              )
-            })}
+      <div className={`flex flex-col items-center py-8 px-4`}>
+        <div className={`w-full max-w-[320px] flex flex-col items-center ${spacingCls}`}>
+          {/* Avatar */}
+          <div
+            className={`w-16 h-16 ${avatarCls} overflow-hidden bg-white/20 flex items-center justify-center shrink-0`}
+          >
+            {page.avatar_url ? (
+              <img src={page.avatar_url} alt={page.title} className="w-full h-full object-contain" />
+            ) : (
+              <span className="text-2xl font-bold opacity-60">
+                {(page.title || 'B').charAt(0).toUpperCase()}
+              </span>
+            )}
           </div>
-        )}
 
-        {/* Buttons */}
-        <div className="w-full flex flex-col gap-2.5">
-          {mainButtons.map((btn) => {
-            if (btn.layout === 'featured') {
+          {/* Title + description */}
+          <div className="text-center">
+            <p className="font-semibold text-base">{page.title || 'Minha página'}</p>
+            {page.description && (
+              <p className="text-xs opacity-70 mt-0.5 max-w-[220px] mx-auto">{page.description}</p>
+            )}
+          </div>
+
+          {/* Social icons */}
+          {socialButtons.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+              {socialButtons.map((btn) => {
+                const path = btn.social_platform ? SOCIAL_ICON_PATHS[btn.social_platform] : undefined
+                return (
+                  <div key={btn.id} className="w-6 h-6 flex items-center justify-center opacity-80">
+                    {path ? (
+                      <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
+                        <path d={path} />
+                      </svg>
+                    ) : (
+                      <span className="text-[10px]">{btn.label.slice(0, 2)}</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Buttons */}
+          <div className={`w-full flex flex-col ${spacingCls}`}>
+            {mainButtons.map((btn) => {
+              if (btn.layout === 'featured') {
+                return (
+                  <div
+                    key={btn.id}
+                    className="w-full overflow-hidden rounded-[28px] border"
+                    style={{ borderColor: textColor + '33' }}
+                  >
+                    {btn.featured_image_url ? (
+                      <img src={btn.featured_image_url} alt={btn.label} className="w-full aspect-video object-cover" />
+                    ) : (
+                      <div className="w-full aspect-video bg-white/10 flex items-center justify-center">
+                        <span className="text-xs opacity-40">Imagem 16:9</span>
+                      </div>
+                    )}
+                    <div className="px-3 py-2 text-xs font-medium text-center" style={{ color: textColor }}>
+                      {btn.label}
+                    </div>
+                  </div>
+                )
+              }
+              // Catalog button preview
+              if (btn.type === 'catalog') {
+                return (
+                  <div
+                    key={btn.id}
+                    className={`w-full min-h-[48px] flex items-center gap-2 px-3 ${radiusCls}`}
+                    style={getButtonBg(btn)}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-white/20 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{btn.label}</p>
+                      <p className="text-[10px] opacity-60">Produto catálogo</p>
+                    </div>
+                  </div>
+                )
+              }
               return (
                 <div
                   key={btn.id}
-                  className="w-full overflow-hidden rounded-[28px] border"
-                  style={{ borderColor: textColor + '33' }}
+                  className={`w-full min-h-[48px] flex items-center gap-2 px-4 ${radiusCls}`}
+                  style={getButtonBg(btn)}
                 >
-                  {btn.featured_image_url ? (
-                    <img src={btn.featured_image_url} alt={btn.label} className="w-full aspect-video object-cover" />
-                  ) : (
-                    <div className="w-full aspect-video bg-white/10 flex items-center justify-center">
-                      <span className="text-xs opacity-40">Imagem 16:9</span>
-                    </div>
+                  {btn.thumbnail_url && (
+                    <img src={btn.thumbnail_url} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
                   )}
-                  <div className="px-3 py-2 text-xs font-medium text-center" style={{ color: textColor }}>
-                    {btn.label}
-                  </div>
+                  <span className="flex-1 text-center text-xs font-medium">{btn.label}</span>
                 </div>
               )
-            }
-            return (
-              <div
-                key={btn.id}
-                className={`w-full min-h-[48px] flex items-center gap-2 px-4 ${radiusCls}`}
-                style={getButtonBg(btn)}
-              >
-                {btn.thumbnail_url && (
-                  <img src={btn.thumbnail_url} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
-                )}
-                <span className="flex-1 text-center text-xs font-medium">{btn.label}</span>
+            })}
+            {mainButtons.length === 0 && (
+              <div className={`flex flex-col ${spacingCls}`}>
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className={`w-full h-12 ${radiusCls} opacity-30`}
+                    style={{ backgroundColor: buttonColor }}
+                  />
+                ))}
               </div>
-            )
-          })}
-          {mainButtons.length === 0 && (
-            <div className="flex flex-col gap-2">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className={`w-full h-12 ${radiusCls} opacity-30`}
-                  style={{ backgroundColor: buttonColor }}
-                />
-              ))}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>

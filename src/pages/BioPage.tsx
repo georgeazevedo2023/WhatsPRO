@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import type { BioPage as BioPageType, BioButton, SocialPlatform } from '@/types/bio'
+import type { BioPage as BioPageType, BioButton, SocialPlatform, BioCatalogProduct } from '@/types/bio'
+import { FONT_FAMILY_CLASS, BUTTON_SPACING_GAP } from '@/types/bio'
 
 // ─── Social platform icons (SVG inline) ──────────────────────────────────────
 
@@ -15,6 +16,10 @@ const SOCIAL_ICONS: Record<SocialPlatform, string> = {
   pinterest: 'M12 0C5.373 0 0 5.373 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 01.083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z',
   telegram: 'M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z',
 }
+
+// ─── Tipo estendido com catalog_product ──────────────────────────────────────
+
+type BioButtonWithCatalog = BioButton & { catalog_product?: BioCatalogProduct | null }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,9 +41,17 @@ async function trackClick(buttonId: string, supabaseUrl: string) {
   }).catch(() => null)
 }
 
+/** Filtra botões pelo agendamento (starts_at / ends_at) */
+function isButtonVisible(button: BioButton): boolean {
+  const now = Date.now()
+  if (button.starts_at && new Date(button.starts_at).getTime() > now) return false
+  if (button.ends_at && new Date(button.ends_at).getTime() < now) return false
+  return true
+}
+
 // ─── Button action ────────────────────────────────────────────────────────────
 
-function handleButtonClick(button: BioButton) {
+function handleButtonClickAction(button: BioButtonWithCatalog) {
   switch (button.type) {
     case 'whatsapp': {
       const phone = (button.phone || '').replace(/\D/g, '')
@@ -49,6 +62,17 @@ function handleButtonClick(button: BioButton) {
     case 'form': {
       if (button.form_slug) {
         window.location.href = `/r?mode=form&fs=${button.form_slug}`
+      }
+      break
+    }
+    case 'catalog': {
+      const product = button.catalog_product
+      const phone = (button.phone || '').replace(/\D/g, '')
+      if (phone) {
+        const msg = product ? encodeURIComponent(`Olá! Tenho interesse no produto: ${product.title}`) : ''
+        window.open(`https://wa.me/${phone}${msg ? `?text=${msg}` : ''}`, '_blank')
+      } else if (button.url) {
+        window.open(button.url, '_blank')
       }
       break
     }
@@ -64,8 +88,18 @@ function handleButtonClick(button: BioButton) {
 
 interface TemplateProps {
   page: BioPageType
-  buttons: BioButton[]
-  onButtonClick: (button: BioButton) => void
+  buttons: BioButtonWithCatalog[]
+  onButtonClick: (button: BioButtonWithCatalog) => void
+}
+
+// Cover image (Fase 2)
+function CoverImage({ url }: { url: string | null }) {
+  if (!url) return null
+  return (
+    <div className="w-full aspect-[3/1] overflow-hidden">
+      <img src={url} alt="cover" className="w-full h-full object-cover" />
+    </div>
+  )
 }
 
 // Shared avatar component
@@ -83,7 +117,7 @@ function Avatar({ url, title, rounded }: { url: string | null; title: string; ro
 }
 
 // Shared social icons row
-function SocialIconsRow({ buttons, onButtonClick }: { buttons: BioButton[]; onButtonClick: (b: BioButton) => void }) {
+function SocialIconsRow({ buttons, onButtonClick }: { buttons: BioButtonWithCatalog[]; onButtonClick: (b: BioButtonWithCatalog) => void }) {
   const socials = buttons.filter((b) => b.layout === 'social_icon')
   if (socials.length === 0) return null
   return (
@@ -117,9 +151,9 @@ function FeaturedButton({
   textColor,
   onButtonClick,
 }: {
-  button: BioButton
+  button: BioButtonWithCatalog
   textColor: string
-  onButtonClick: (b: BioButton) => void
+  onButtonClick: (b: BioButtonWithCatalog) => void
 }) {
   return (
     <button
@@ -152,12 +186,12 @@ function StackButton({
   textColor,
   onButtonClick,
 }: {
-  button: BioButton
+  button: BioButtonWithCatalog
   style: string
   radius: string
   buttonColor: string
   textColor: string
-  onButtonClick: (b: BioButton) => void
+  onButtonClick: (b: BioButtonWithCatalog) => void
 }) {
   const radiusCls = radius === 'full' ? 'rounded-[28px]' : radius === 'lg' ? 'rounded-2xl' : 'rounded-xl'
 
@@ -186,44 +220,114 @@ function StackButton({
   )
 }
 
+// Catalog button (Fase 2)
+function CatalogButton({
+  button,
+  style,
+  radius,
+  buttonColor,
+  textColor,
+  onButtonClick,
+}: {
+  button: BioButtonWithCatalog
+  style: string
+  radius: string
+  buttonColor: string
+  textColor: string
+  onButtonClick: (b: BioButtonWithCatalog) => void
+}) {
+  const product = button.catalog_product
+  const radiusCls = radius === 'full' ? 'rounded-[28px]' : radius === 'lg' ? 'rounded-2xl' : 'rounded-xl'
+  const bgStyle =
+    style === 'filled'
+      ? { backgroundColor: buttonColor, color: textColor }
+      : style === 'outline'
+      ? { backgroundColor: 'transparent', color: textColor, border: `1px solid ${textColor}` }
+      : { backgroundColor: textColor + '1a', color: textColor, border: `1px solid ${textColor}33` }
+
+  return (
+    <button
+      onClick={() => onButtonClick(button)}
+      className={`w-full min-h-[64px] flex items-center gap-3 px-4 transition-all duration-200 active:scale-[0.98] ${radiusCls}`}
+      style={bgStyle}
+    >
+      {product?.image_url ? (
+        <img src={product.image_url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+      ) : (
+        <div className="w-12 h-12 rounded-xl shrink-0 opacity-20" style={{ backgroundColor: textColor }} />
+      )}
+      <div className="flex-1 text-left min-w-0">
+        <p className="text-sm font-medium truncate">{button.label || product?.title || 'Produto'}</p>
+        {product?.price != null && (
+          <p className="text-xs opacity-70 mt-0.5">
+            {product.currency === 'BRL' ? 'R$' : (product.currency ?? '')} {product.price.toFixed(2)}
+          </p>
+        )}
+      </div>
+    </button>
+  )
+}
+
 // ── Template: simples ────────────────────────────────────────────────────────
 function TemplateSimples({ page, buttons, onButtonClick }: TemplateProps) {
   const mainButtons = buttons.filter((b) => b.layout !== 'social_icon')
+  const spacingCls = BUTTON_SPACING_GAP[page.button_spacing ?? 'normal']
+  const fontCls = FONT_FAMILY_CLASS[page.font_family ?? 'default']
+
   return (
     <div
-      className="min-h-screen flex flex-col items-center py-10 px-4"
+      className={`min-h-screen flex flex-col ${fontCls}`}
       style={{ backgroundColor: page.bg_color, color: page.text_color }}
     >
-      <div className="w-full max-w-[580px] flex flex-col items-center gap-5">
-        <Avatar url={page.avatar_url} title={page.title} rounded="full" />
-        <div className="text-center">
-          <h1 className="text-2xl font-semibold">{page.title}</h1>
-          {page.description && (
-            <p className="mt-1 text-sm opacity-75 max-w-xs mx-auto">{page.description}</p>
-          )}
-        </div>
-        <SocialIconsRow buttons={buttons} onButtonClick={onButtonClick} />
-        <div className="w-full flex flex-col gap-3">
-          {mainButtons.map((btn) =>
-            btn.layout === 'featured' ? (
-              <FeaturedButton
-                key={btn.id}
-                button={btn}
-                textColor={page.text_color}
-                onButtonClick={onButtonClick}
-              />
-            ) : (
-              <StackButton
-                key={btn.id}
-                button={btn}
-                style={page.button_style}
-                radius={page.button_radius}
-                buttonColor={page.button_color}
-                textColor={page.text_color}
-                onButtonClick={onButtonClick}
-              />
-            )
-          )}
+      <CoverImage url={page.cover_url} />
+      <div className={`flex flex-col items-center py-10 px-4`}>
+        <div className={`w-full max-w-[580px] flex flex-col items-center ${spacingCls}`}>
+          <Avatar url={page.avatar_url} title={page.title} rounded="full" />
+          <div className="text-center">
+            <h1 className="text-2xl font-semibold">{page.title}</h1>
+            {page.description && (
+              <p className="mt-1 text-sm opacity-75 max-w-xs mx-auto">{page.description}</p>
+            )}
+          </div>
+          <SocialIconsRow buttons={buttons} onButtonClick={onButtonClick} />
+          <div className={`w-full flex flex-col ${spacingCls}`}>
+            {mainButtons.map((btn) => {
+              if (btn.layout === 'featured') {
+                return (
+                  <FeaturedButton
+                    key={btn.id}
+                    button={btn}
+                    textColor={page.text_color}
+                    onButtonClick={onButtonClick}
+                  />
+                )
+              }
+              if (btn.type === 'catalog') {
+                return (
+                  <CatalogButton
+                    key={btn.id}
+                    button={btn}
+                    style={page.button_style}
+                    radius={page.button_radius}
+                    buttonColor={page.button_color}
+                    textColor={page.text_color}
+                    onButtonClick={onButtonClick}
+                  />
+                )
+              }
+              return (
+                <StackButton
+                  key={btn.id}
+                  button={btn}
+                  style={page.button_style}
+                  radius={page.button_radius}
+                  buttonColor={page.button_color}
+                  textColor={page.text_color}
+                  onButtonClick={onButtonClick}
+                />
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
@@ -233,6 +337,8 @@ function TemplateSimples({ page, buttons, onButtonClick }: TemplateProps) {
 // ── Template: shopping (inspirado Shopping Recife) ───────────────────────────
 function TemplateShopping({ page, buttons, onButtonClick }: TemplateProps) {
   const mainButtons = buttons.filter((b) => b.layout !== 'social_icon')
+  const spacingCls = BUTTON_SPACING_GAP[page.button_spacing ?? 'normal']
+  const fontCls = FONT_FAMILY_CLASS[page.font_family ?? 'default']
   const bgStyle =
     page.bg_type === 'gradient' && page.bg_gradient_to
       ? { background: `linear-gradient(0deg, ${page.bg_color}, ${page.bg_gradient_to})` }
@@ -240,39 +346,58 @@ function TemplateShopping({ page, buttons, onButtonClick }: TemplateProps) {
 
   return (
     <div
-      className="min-h-screen flex flex-col items-center py-10 px-4"
+      className={`min-h-screen flex flex-col ${fontCls}`}
       style={{ ...bgStyle, color: page.text_color }}
     >
-      <div className="w-full max-w-[580px] flex flex-col items-center gap-5">
-        <Avatar url={page.avatar_url} title={page.title} rounded="full" />
-        <h1 className="text-2xl font-bold text-center">{page.title}</h1>
-        {page.description && (
-          <p className="text-sm opacity-75 text-center max-w-xs">{page.description}</p>
-        )}
-        <SocialIconsRow buttons={buttons} onButtonClick={onButtonClick} />
-        <div className="w-full flex flex-col gap-[14px]">
-          {mainButtons.map((btn) =>
-            btn.layout === 'featured' ? (
-              <FeaturedButton
-                key={btn.id}
-                button={btn}
-                textColor={page.text_color}
-                onButtonClick={onButtonClick}
-              />
-            ) : (
-              <button
-                key={btn.id}
-                onClick={() => onButtonClick(btn)}
-                className="w-full min-h-[64px] flex items-center gap-3 px-5 rounded-[28px] border transition-all duration-200 hover:bg-white/10 active:scale-[0.98]"
-                style={{ borderColor: page.text_color, color: page.text_color }}
-              >
-                {btn.thumbnail_url && (
-                  <img src={btn.thumbnail_url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
-                )}
-                <span className="flex-1 text-center text-sm font-medium">{btn.label}</span>
-              </button>
-            )
+      <CoverImage url={page.cover_url} />
+      <div className="flex flex-col items-center py-10 px-4">
+        <div className={`w-full max-w-[580px] flex flex-col items-center ${spacingCls}`}>
+          <Avatar url={page.avatar_url} title={page.title} rounded="full" />
+          <h1 className="text-2xl font-bold text-center">{page.title}</h1>
+          {page.description && (
+            <p className="text-sm opacity-75 text-center max-w-xs">{page.description}</p>
           )}
+          <SocialIconsRow buttons={buttons} onButtonClick={onButtonClick} />
+          <div className={`w-full flex flex-col ${spacingCls}`}>
+            {mainButtons.map((btn) => {
+              if (btn.layout === 'featured') {
+                return (
+                  <FeaturedButton
+                    key={btn.id}
+                    button={btn}
+                    textColor={page.text_color}
+                    onButtonClick={onButtonClick}
+                  />
+                )
+              }
+              if (btn.type === 'catalog') {
+                return (
+                  <CatalogButton
+                    key={btn.id}
+                    button={btn}
+                    style="outline"
+                    radius={page.button_radius}
+                    buttonColor={page.button_color}
+                    textColor={page.text_color}
+                    onButtonClick={onButtonClick}
+                  />
+                )
+              }
+              return (
+                <button
+                  key={btn.id}
+                  onClick={() => onButtonClick(btn)}
+                  className="w-full min-h-[64px] flex items-center gap-3 px-5 rounded-[28px] border transition-all duration-200 hover:bg-white/10 active:scale-[0.98]"
+                  style={{ borderColor: page.text_color, color: page.text_color }}
+                >
+                  {btn.thumbnail_url && (
+                    <img src={btn.thumbnail_url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                  )}
+                  <span className="flex-1 text-center text-sm font-medium">{btn.label}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
@@ -282,6 +407,8 @@ function TemplateShopping({ page, buttons, onButtonClick }: TemplateProps) {
 // ── Template: negocio ────────────────────────────────────────────────────────
 function TemplateNegocio({ page, buttons, onButtonClick }: TemplateProps) {
   const mainButtons = buttons.filter((b) => b.layout !== 'social_icon')
+  const spacingCls = BUTTON_SPACING_GAP[page.button_spacing ?? 'normal']
+  const fontCls = FONT_FAMILY_CLASS[page.font_family ?? 'default']
   const bg =
     page.bg_type === 'gradient' && page.bg_gradient_to
       ? { background: `linear-gradient(135deg, ${page.bg_color}, ${page.bg_gradient_to})` }
@@ -289,45 +416,64 @@ function TemplateNegocio({ page, buttons, onButtonClick }: TemplateProps) {
 
   return (
     <div
-      className="min-h-screen flex flex-col items-center py-10 px-4"
+      className={`min-h-screen flex flex-col ${fontCls}`}
       style={{ ...bg, color: page.text_color }}
     >
-      <div className="w-full max-w-[580px] flex flex-col items-center gap-5">
-        <Avatar url={page.avatar_url} title={page.title} rounded="xl" />
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">{page.title}</h1>
-          {page.description && (
-            <p className="mt-1 text-sm opacity-70 max-w-xs mx-auto">{page.description}</p>
-          )}
-        </div>
-        <SocialIconsRow buttons={buttons} onButtonClick={onButtonClick} />
-        <div className="w-full flex flex-col gap-3">
-          {mainButtons.map((btn) =>
-            btn.layout === 'featured' ? (
-              <FeaturedButton
-                key={btn.id}
-                button={btn}
-                textColor={page.text_color}
-                onButtonClick={onButtonClick}
-              />
-            ) : (
-              <button
-                key={btn.id}
-                onClick={() => onButtonClick(btn)}
-                className="w-full min-h-[64px] flex items-center gap-3 px-5 rounded-2xl border transition-all duration-200 hover:bg-white/20 active:scale-[0.98]"
-                style={{
-                  backgroundColor: page.text_color + '1a',
-                  borderColor: page.text_color + '33',
-                  color: page.text_color,
-                }}
-              >
-                {btn.thumbnail_url && (
-                  <img src={btn.thumbnail_url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
-                )}
-                <span className="flex-1 text-center text-sm font-medium">{btn.label}</span>
-              </button>
-            )
-          )}
+      <CoverImage url={page.cover_url} />
+      <div className="flex flex-col items-center py-10 px-4">
+        <div className={`w-full max-w-[580px] flex flex-col items-center ${spacingCls}`}>
+          <Avatar url={page.avatar_url} title={page.title} rounded="xl" />
+          <div className="text-center">
+            <h1 className="text-2xl font-bold">{page.title}</h1>
+            {page.description && (
+              <p className="mt-1 text-sm opacity-70 max-w-xs mx-auto">{page.description}</p>
+            )}
+          </div>
+          <SocialIconsRow buttons={buttons} onButtonClick={onButtonClick} />
+          <div className={`w-full flex flex-col ${spacingCls}`}>
+            {mainButtons.map((btn) => {
+              if (btn.layout === 'featured') {
+                return (
+                  <FeaturedButton
+                    key={btn.id}
+                    button={btn}
+                    textColor={page.text_color}
+                    onButtonClick={onButtonClick}
+                  />
+                )
+              }
+              if (btn.type === 'catalog') {
+                return (
+                  <CatalogButton
+                    key={btn.id}
+                    button={btn}
+                    style={page.button_style}
+                    radius={page.button_radius}
+                    buttonColor={page.button_color}
+                    textColor={page.text_color}
+                    onButtonClick={onButtonClick}
+                  />
+                )
+              }
+              return (
+                <button
+                  key={btn.id}
+                  onClick={() => onButtonClick(btn)}
+                  className="w-full min-h-[64px] flex items-center gap-3 px-5 rounded-2xl border transition-all duration-200 hover:bg-white/20 active:scale-[0.98]"
+                  style={{
+                    backgroundColor: page.text_color + '1a',
+                    borderColor: page.text_color + '33',
+                    color: page.text_color,
+                  }}
+                >
+                  {btn.thumbnail_url && (
+                    <img src={btn.thumbnail_url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                  )}
+                  <span className="flex-1 text-center text-sm font-medium">{btn.label}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
@@ -339,7 +485,7 @@ function TemplateNegocio({ page, buttons, onButtonClick }: TemplateProps) {
 export default function BioPage() {
   const { slug } = useParams<{ slug: string }>()
   const [page, setPage] = useState<BioPageType | null>(null)
-  const [buttons, setButtons] = useState<BioButton[]>([])
+  const [buttons, setButtons] = useState<BioButtonWithCatalog[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
@@ -363,38 +509,18 @@ export default function BioPage() {
       .then((data) => {
         if (data?.page) {
           setPage(data.page)
-          setButtons(data.buttons ?? [])
+          // Filtra botões pelo agendamento
+          const allButtons: BioButtonWithCatalog[] = data.buttons ?? []
+          setButtons(allButtons.filter(isButtonVisible))
         }
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false))
   }, [slug])
 
-  function handleButtonClick(button: BioButton) {
+  function handleButtonClick(button: BioButtonWithCatalog) {
     trackClick(button.id, supabaseUrl)
-    handleButtonClick2(button)
-  }
-
-  function handleButtonClick2(button: BioButton) {
-    switch (button.type) {
-      case 'whatsapp': {
-        const phone = (button.phone || '').replace(/\D/g, '')
-        const msg = button.pre_message ? encodeURIComponent(button.pre_message) : ''
-        window.open(`https://wa.me/${phone}${msg ? `?text=${msg}` : ''}`, '_blank')
-        break
-      }
-      case 'form': {
-        if (button.form_slug) {
-          window.location.href = `/r?mode=form&fs=${button.form_slug}`
-        }
-        break
-      }
-      case 'url':
-      case 'social': {
-        if (button.url) window.open(button.url, '_blank')
-        break
-      }
-    }
+    handleButtonClickAction(button)
   }
 
   if (loading) {
