@@ -44,12 +44,34 @@ export interface BioPage {
   font_family: BioFontFamily
   button_spacing: BioButtonSpacing
 
+  // Fase 3 — captação de leads
+  capture_enabled: boolean
+  capture_fields: string[]        // ex: ['name', 'phone', 'email']
+  capture_title: string
+  capture_button_label: string
+
+  // Fase 3 — contexto AI Agent
+  ai_context_enabled: boolean
+  ai_context_template: string | null  // ex: 'Vim da página {page_title}'
+
   template: BioTemplate
   view_count: number
   status: BioPageStatus
 
   created_at: string
   updated_at: string
+}
+
+// Lead capturado via formulário inline da bio page
+export interface BioLeadCapture {
+  id: string
+  bio_page_id: string
+  bio_button_id: string | null
+  name: string | null
+  phone: string | null
+  email: string | null
+  extra_data: Record<string, string> | null
+  created_at: string
 }
 
 export interface BioButton {
@@ -117,6 +139,13 @@ export interface CreateBioPageInput {
   cover_url?: string
   font_family?: BioFontFamily
   button_spacing?: BioButtonSpacing
+  // Fase 3
+  capture_enabled?: boolean
+  capture_fields?: string[]
+  capture_title?: string
+  capture_button_label?: string
+  ai_context_enabled?: boolean
+  ai_context_template?: string
 }
 
 // DTO para criação de botão

@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useToast } from '@/hooks/use-toast'
 import { TemplateSelector } from './TemplateSelector'
 import { BioButtonEditor } from './BioButtonEditor'
@@ -72,6 +74,16 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
   const [buttonSpacing, setButtonSpacing] = useState<BioButtonSpacing>(existingPage?.button_spacing ?? 'normal')
   const [uploadingCover, setUploadingCover] = useState(false)
 
+  // Fase 3: captação de leads
+  const [captureEnabled, setCaptureEnabled] = useState(existingPage?.capture_enabled ?? false)
+  const [captureFields, setCaptureFields] = useState<string[]>(existingPage?.capture_fields ?? ['name', 'phone'])
+  const [captureTitle, setCaptureTitle] = useState(existingPage?.capture_title ?? 'Preencha seus dados')
+  const [captureButtonLabel, setCaptureButtonLabel] = useState(existingPage?.capture_button_label ?? 'Continuar')
+
+  // Fase 3: contexto AI Agent
+  const [aiContextEnabled, setAiContextEnabled] = useState(existingPage?.ai_context_enabled ?? false)
+  const [aiContextTemplate, setAiContextTemplate] = useState(existingPage?.ai_context_template ?? '')
+
   // Button editing state
   const [editingButtonId, setEditingButtonId] = useState<string | null>(null)
   const [addingButton, setAddingButton] = useState(false)
@@ -132,6 +144,14 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
       cover_url: coverUrl || undefined,
       font_family: fontFamily,
       button_spacing: buttonSpacing,
+      // Fase 3 — captação
+      capture_enabled: captureEnabled,
+      capture_fields: captureFields,
+      capture_title: captureTitle.trim() || 'Preencha seus dados',
+      capture_button_label: captureButtonLabel.trim() || 'Continuar',
+      // Fase 3 — contexto AI
+      ai_context_enabled: aiContextEnabled,
+      ai_context_template: aiContextTemplate.trim() || undefined,
     }
     try {
       if (isEditing && editPageId) {
@@ -234,6 +254,13 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
     cover_url: coverUrl || null,
     font_family: fontFamily,
     button_spacing: buttonSpacing,
+    // Fase 3
+    capture_enabled: captureEnabled,
+    capture_fields: captureFields,
+    capture_title: captureTitle,
+    capture_button_label: captureButtonLabel,
+    ai_context_enabled: aiContextEnabled,
+    ai_context_template: aiContextTemplate || null,
   }
 
   const isSaving = createPage.isPending || updatePage.isPending
@@ -475,6 +502,120 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
                   )
                 })}
               </div>
+            </div>
+
+            {/* Captação de Leads (Fase 3) */}
+            <div className="space-y-3 border rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Captação de Leads</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Exibe formulário antes de executar a ação do botão
+                  </p>
+                </div>
+                <Switch
+                  checked={captureEnabled}
+                  onCheckedChange={setCaptureEnabled}
+                />
+              </div>
+
+              {captureEnabled && (
+                <div className="flex flex-col gap-3 pt-1">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Campos do formulário</Label>
+                    <div className="flex flex-col gap-2">
+                      {(['name', 'phone', 'email'] as const).map((field) => {
+                        const fieldLabels: Record<typeof field, string> = {
+                          name: 'Nome (obrigatório)',
+                          phone: 'WhatsApp (obrigatório)',
+                          email: 'E-mail (opcional)',
+                        }
+                        return (
+                          <div key={field} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`capture-field-${field}`}
+                              checked={captureFields.includes(field)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setCaptureFields((prev) => [...prev, field])
+                                } else {
+                                  setCaptureFields((prev) => prev.filter((f) => f !== field))
+                                }
+                              }}
+                            />
+                            <label
+                              htmlFor={`capture-field-${field}`}
+                              className="text-sm cursor-pointer"
+                            >
+                              {fieldLabels[field]}
+                            </label>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="capture-title-input" className="text-xs text-muted-foreground">
+                      Título do formulário
+                    </Label>
+                    <Input
+                      id="capture-title-input"
+                      value={captureTitle}
+                      onChange={(e) => setCaptureTitle(e.target.value)}
+                      placeholder="Preencha seus dados"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="capture-btn-label" className="text-xs text-muted-foreground">
+                      Label do botão
+                    </Label>
+                    <Input
+                      id="capture-btn-label"
+                      value={captureButtonLabel}
+                      onChange={(e) => setCaptureButtonLabel(e.target.value)}
+                      placeholder="Continuar"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Contexto AI Agent (Fase 3) */}
+            <div className="space-y-3 border rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Contexto AI Agent</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Injeta contexto na mensagem ao abrir WhatsApp
+                  </p>
+                </div>
+                <Switch
+                  checked={aiContextEnabled}
+                  onCheckedChange={setAiContextEnabled}
+                />
+              </div>
+
+              {aiContextEnabled && (
+                <div className="flex flex-col gap-2 pt-1">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ai-context-template" className="text-xs text-muted-foreground">
+                      Template de contexto
+                    </Label>
+                    <Textarea
+                      id="ai-context-template"
+                      value={aiContextTemplate}
+                      onChange={(e) => setAiContextTemplate(e.target.value)}
+                      placeholder="Vim da página {page_title} e cliquei em {button_label}"
+                      rows={3}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Variáveis disponíveis: <code className="bg-muted px-1 rounded">{'{page_title}'}</code>, <code className="bg-muted px-1 rounded">{'{button_label}'}</code>
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Save button */}

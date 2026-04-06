@@ -3,7 +3,10 @@
  * No JWT required (public page access).
  *
  * GET  ?slug=minha-loja          → returns bio page + buttons (increments view_count)
- * POST { button_id: uuid }       → increments click_count for a button
+ * POST { button_id: uuid }       → increments click_count for a button (backward compat)
+ * POST { action: 'click', button_id: uuid }   → increments click_count for a button
+ * POST { action: 'capture', bio_page_id, bio_button_id?, name?, phone?, email?, extra_data? }
+ *                                → saves lead capture to bio_lead_captures
  */
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
@@ -23,22 +26,75 @@ Deno.serve(async (req) => {
 
   const supabase = createServiceClient()
 
-  // ── POST: track button click ──────────────────────────────────────────────
+  // ── POST: track button click or capture lead ─────────────────────────────
   if (req.method === 'POST') {
     try {
-      const body = await req.json()
-      const { button_id } = body
-
-      if (!button_id) {
-        return Response.json({ error: 'Missing button_id' }, { status: 400, headers: cors })
+      const body = await req.json() as {
+        action?: string
+        button_id?: string
+        bio_page_id?: string
+        bio_button_id?: string
+        name?: string
+        phone?: string
+        email?: string
+        extra_data?: Record<string, string>
       }
 
-      const { error } = await supabase.rpc('increment_bio_click', { p_button_id: button_id })
-      if (error) {
-        log.warn('Failed to increment click', { button_id, error: error.message })
+      // Determine action: explicit field or backward-compat (button_id present = click)
+      const action = body.action ?? (body.button_id ? 'click' : undefined)
+
+      if (!action) {
+        return Response.json({ error: 'Missing action or button_id' }, { status: 400, headers: cors })
       }
 
-      return Response.json({ ok: true }, { headers: cors })
+      // ── action: click ──────────────────────────────────────────────────────
+      if (action === 'click') {
+        const { button_id } = body
+        if (!button_id) {
+          return Response.json({ error: 'Missing button_id' }, { status: 400, headers: cors })
+        }
+
+        const { error } = await supabase.rpc('increment_bio_click', { p_button_id: button_id })
+        if (error) {
+          log.warn('Failed to increment click', { button_id, error: error.message })
+        }
+
+        return Response.json({ ok: true }, { headers: cors })
+      }
+
+      // ── action: capture ────────────────────────────────────────────────────
+      if (action === 'capture') {
+        const { bio_page_id, bio_button_id, name, phone, email, extra_data } = body
+
+        if (!bio_page_id) {
+          return Response.json({ error: 'Missing bio_page_id' }, { status: 400, headers: cors })
+        }
+
+        if (!name && !phone) {
+          return Response.json({ error: 'At least name or phone is required' }, { status: 400, headers: cors })
+        }
+
+        const { error } = await supabase
+          .from('bio_lead_captures')
+          .insert({
+            bio_page_id,
+            bio_button_id: bio_button_id ?? null,
+            name: name ?? null,
+            phone: phone ?? null,
+            email: email ?? null,
+            extra_data: extra_data ?? null,
+          })
+
+        if (error) {
+          log.error('Failed to insert lead capture', { bio_page_id, error: error.message })
+          return Response.json({ error: 'Database error' }, { status: 500, headers: cors })
+        }
+
+        log.info('Lead captured', { bio_page_id, hasName: !!name, hasPhone: !!phone })
+        return Response.json({ ok: true }, { headers: cors })
+      }
+
+      return Response.json({ error: 'Invalid action' }, { status: 400, headers: cors })
     } catch (e) {
       log.error('POST error', { error: (e as Error).message })
       return Response.json({ error: 'Internal error' }, { status: 500, headers: cors })

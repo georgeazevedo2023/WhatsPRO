@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.0.0 | **Última atualização**: 2026-04-05 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 27 Edge Functions + 44 Tabelas + M2 Agent QA Framework (F1+F2+F3+F4 concluídos) + M12 Formulários WhatsApp
+> **Versão**: 7.2.0 | **Última atualização**: 2026-04-06 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 46 Tabelas + M2 Agent QA Framework (F1+F2+F3+F4 concluídos) + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link (F1+F2)
 
 ## Visão Geral
 
@@ -12,13 +12,20 @@ WhatsPRO é uma plataforma multi-tenant de atendimento WhatsApp (helpdesk) e CRM
 | Frontend | React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui |
 | Backend | Supabase (PostgreSQL 17, Auth, Storage, Realtime, Edge Functions) |
 | WhatsApp API | UAZAPI (via Edge Function proxy) |
-| AI | Groq API (Whisper transcription, Llama summarization) |
+| IA — Agent (LLM primário) | OpenAI gpt-4.1-mini (function calling nativo) |
+| IA — Agent (fallback) | Gemini 2.5 Flash → Mistral Small → templates estáticos |
+| IA — TTS | Gemini 2.5 Flash Preview TTS (6 vozes) |
+| IA — Transcrição | Groq API (Whisper) |
+| IA — Summarização | Groq (Llama), fallback Mistral Small |
+| IA — Carrossel | Groq → Gemini → Mistral (chain 3s timeout) |
 | Data Fetching | TanStack React Query 5 |
 
 ### Arquitetura
 ```
 React Frontend ──> Supabase Edge Functions ──> UAZAPI (WhatsApp)
-                                            ──> Groq AI (Summaries/Transcription)
+                                            ──> OpenAI (Agent LLM primário)
+                                            ──> Gemini AI (Agent fallback, TTS)
+                                            ──> Groq AI (Summaries/Transcription/Carousel)
 React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ```
 
@@ -32,6 +39,25 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.2.0 (2026-04-06) — M14 Bio Link (Fases 1 + 2)
+
+**M14 — Bio Link (Linktree-style):**
+- `supabase/migrations/20260408000001_m14_bio_pages.sql` — tabelas `bio_pages` + `bio_buttons` com RLS, RPCs `increment_bio_view`/`increment_bio_click`
+- `supabase/migrations/` (Fase 2) — campos scheduling (`starts_at`, `ends_at`), `catalog_product_id`, visuais (`cover_url`, `font_family`, `button_spacing`)
+- `supabase/functions/bio-public/index.ts` — edge function pública (verify_jwt=false), GET retorna page+buttons com catalog_product resolvido, POST registra clique
+- `src/types/bio.ts` — tipos: BioPage, BioButton, BioCatalogProduct, BioTemplate (3), BioButtonType (5), BioFontFamily, BioButtonSpacing, constantes FONT_FAMILY_CLASS, BUTTON_SPACING_GAP
+- `src/pages/BioPage.tsx` — página pública /bio/:slug com 3 templates, CatalogButton, CoverImage, scheduling client-side
+- `src/pages/dashboard/BioLinksPage.tsx` — lista de páginas por instância
+- `src/components/bio/BioLinkEditor.tsx` — editor completo (conteúdo, botões, aparência, opções visuais Fase 2)
+- `src/components/bio/BioButtonEditor.tsx` — editor de botão com tipo catálogo + agendamento
+- `src/components/bio/BioLinkPreview.tsx` — preview em tempo real
+- `src/hooks/useBioPages.ts` — hooks: useBioPagesList, useCreateBioPage, useUpdateBioPage, useDeleteBioPage, useBioButtons, useCatalogProductsForBio
+- Bucket Storage `bio-images` (público) criado no Supabase
+
+**Edge Functions**: 31 total (+bio-public)
+
+---
 
 ### v7.1.0 (2026-04-05) — M13 Campanhas + Formulários + Funil Conversacional
 

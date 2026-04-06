@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client'
 import type {
   BioPage,
   BioButton,
+  BioLeadCapture,
   BioCatalogProduct,
   CreateBioPageInput,
   CreateBioButtonInput,
@@ -244,6 +245,117 @@ export function useCatalogProductsForBio(instanceId: string | null) {
         currency: p.currency as string | null,
         image_url: ((p.images as string[]) ?? [])[0] ?? null,
       }))
+    },
+    enabled: !!instanceId,
+    staleTime: 60_000,
+  })
+}
+
+// ─── Bio Lead Captures ───────────────────────────────────────────────────────
+
+export function useBioLeadCaptures(pageId: string | null) {
+  return useQuery({
+    queryKey: ['bio-lead-captures', pageId],
+    queryFn: async (): Promise<BioLeadCapture[]> => {
+      if (!pageId) return []
+      const { data, error } = await supabase
+        .from('bio_lead_captures')
+        .select('*')
+        .eq('bio_page_id', pageId)
+        .order('created_at', { ascending: false })
+        .limit(100)
+      if (error) throw error
+      return (data ?? []) as BioLeadCapture[]
+    },
+    enabled: !!pageId,
+    staleTime: 30_000,
+  })
+}
+
+// ─── Analytics por instância ──────────────────────────────────────────────────
+
+export interface BioAnalyticsRow {
+  page: BioPage
+  views: number
+  clicks: number
+  leads: number
+  ctr: number // clicks/views %
+}
+
+export interface BioAnalytics {
+  totalViews: number
+  totalClicks: number
+  totalLeads: number
+  rows: BioAnalyticsRow[]
+}
+
+export function useBioAnalytics(instanceId: string | null) {
+  return useQuery({
+    queryKey: ['bio-analytics', instanceId],
+    queryFn: async (): Promise<BioAnalytics> => {
+      if (!instanceId) return { totalViews: 0, totalClicks: 0, totalLeads: 0, rows: [] }
+
+      // Páginas da instância
+      const { data: pages, error: pagesErr } = await supabase
+        .from('bio_pages')
+        .select('*')
+        .eq('instance_id', instanceId)
+        .order('created_at', { ascending: false })
+      if (pagesErr) throw pagesErr
+
+      const bioPages = (pages ?? []) as BioPage[]
+      if (bioPages.length === 0) return { totalViews: 0, totalClicks: 0, totalLeads: 0, rows: [] }
+
+      const pageIds = bioPages.map((p) => p.id)
+
+      // Botões (para somar clicks)
+      const { data: buttons, error: buttonsErr } = await supabase
+        .from('bio_buttons')
+        .select('bio_page_id, click_count')
+        .in('bio_page_id', pageIds)
+      if (buttonsErr) throw buttonsErr
+
+      // Leads capturados (count por página)
+      const { data: captures, error: capturesErr } = await supabase
+        .from('bio_lead_captures')
+        .select('bio_page_id')
+        .in('bio_page_id', pageIds)
+      if (capturesErr) throw capturesErr
+
+      // Agrupa clicks e leads por page_id
+      const clicksByPage: Record<string, number> = {}
+      for (const btn of buttons ?? []) {
+        const pid = btn.bio_page_id as string
+        clicksByPage[pid] = (clicksByPage[pid] ?? 0) + ((btn.click_count as number) ?? 0)
+      }
+
+      const leadsByPage: Record<string, number> = {}
+      for (const cap of captures ?? []) {
+        const pid = cap.bio_page_id as string
+        leadsByPage[pid] = (leadsByPage[pid] ?? 0) + 1
+      }
+
+      let totalViews = 0
+      let totalClicks = 0
+      let totalLeads = 0
+
+      const rows: BioAnalyticsRow[] = bioPages.map((p) => {
+        const views = p.view_count ?? 0
+        const clicks = clicksByPage[p.id] ?? 0
+        const leads = leadsByPage[p.id] ?? 0
+        totalViews += views
+        totalClicks += clicks
+        totalLeads += leads
+        return {
+          page: p,
+          views,
+          clicks,
+          leads,
+          ctr: views > 0 ? Math.round((clicks / views) * 100) : 0,
+        }
+      })
+
+      return { totalViews, totalClicks, totalLeads, rows }
     },
     enabled: !!instanceId,
     staleTime: 60_000,

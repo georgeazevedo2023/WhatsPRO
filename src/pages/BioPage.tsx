@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import type { BioPage as BioPageType, BioButton, SocialPlatform, BioCatalogProduct } from '@/types/bio'
 import { FONT_FAMILY_CLASS, BUTTON_SPACING_GAP } from '@/types/bio'
+import { BioLeadCaptureModal } from '@/components/bio/BioLeadCaptureModal'
 
 // ─── Social platform icons (SVG inline) ──────────────────────────────────────
 
@@ -51,11 +52,19 @@ function isButtonVisible(button: BioButton): boolean {
 
 // ─── Button action ────────────────────────────────────────────────────────────
 
-function handleButtonClickAction(button: BioButtonWithCatalog) {
+function handleButtonClickAction(button: BioButtonWithCatalog, page?: BioPageType) {
   switch (button.type) {
     case 'whatsapp': {
       const phone = (button.phone || '').replace(/\D/g, '')
-      const msg = button.pre_message ? encodeURIComponent(button.pre_message) : ''
+      let preMsg = button.pre_message || ''
+      // Fase 3: injetar contexto AI Agent
+      if (page?.ai_context_enabled && page.ai_context_template) {
+        const ctx = page.ai_context_template
+          .replace(/\{page_title\}/g, page.title)
+          .replace(/\{button_label\}/g, button.label)
+        preMsg = preMsg ? `${preMsg}\n${ctx}` : ctx
+      }
+      const msg = preMsg ? encodeURIComponent(preMsg) : ''
       window.open(`https://wa.me/${phone}${msg ? `?text=${msg}` : ''}`, '_blank')
       break
     }
@@ -69,7 +78,15 @@ function handleButtonClickAction(button: BioButtonWithCatalog) {
       const product = button.catalog_product
       const phone = (button.phone || '').replace(/\D/g, '')
       if (phone) {
-        const msg = product ? encodeURIComponent(`Olá! Tenho interesse no produto: ${product.title}`) : ''
+        let baseMsg = product ? `Olá! Tenho interesse no produto: ${product.title}` : ''
+        // Fase 3: injetar contexto AI Agent
+        if (page?.ai_context_enabled && page.ai_context_template) {
+          const ctx = page.ai_context_template
+            .replace(/\{page_title\}/g, page.title)
+            .replace(/\{button_label\}/g, button.label)
+          baseMsg = baseMsg ? `${baseMsg}\n${ctx}` : ctx
+        }
+        const msg = baseMsg ? encodeURIComponent(baseMsg) : ''
         window.open(`https://wa.me/${phone}${msg ? `?text=${msg}` : ''}`, '_blank')
       } else if (button.url) {
         window.open(button.url, '_blank')
@@ -489,6 +506,11 @@ export default function BioPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
+  // Fase 3: estado de captura de lead
+  const [captureModalOpen, setCaptureModalOpen] = useState(false)
+  const [captureTarget, setCaptureTarget] = useState<BioButtonWithCatalog | null>(null)
+  const [isCapturing, setIsCapturing] = useState(false)
+
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
 
   useEffect(() => {
@@ -520,7 +542,40 @@ export default function BioPage() {
 
   function handleButtonClick(button: BioButtonWithCatalog) {
     trackClick(button.id, supabaseUrl)
-    handleButtonClickAction(button)
+
+    // Fase 3: interceptar clique para captura (exceto botões social)
+    if (page?.capture_enabled && button.type !== 'social') {
+      setCaptureTarget(button)
+      setCaptureModalOpen(true)
+      return
+    }
+
+    handleButtonClickAction(button, page ?? undefined)
+  }
+
+  async function handleCaptureSubmit(data: { name?: string; phone?: string; email?: string }) {
+    if (!captureTarget || !page) return
+    setIsCapturing(true)
+    try {
+      const base = supabaseUrl || 'https://euljumeflwtljegknawy.supabase.co'
+      await fetch(`${base}/functions/v1/bio-public`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'capture',
+          bio_page_id: page.id,
+          bio_button_id: captureTarget.id,
+          ...data,
+        }),
+      }).catch(() => null)
+    } finally {
+      setIsCapturing(false)
+      setCaptureModalOpen(false)
+      const target = captureTarget
+      setCaptureTarget(null)
+      // Executa a ação original após captura
+      handleButtonClickAction(target, page)
+    }
   }
 
   if (loading) {
@@ -543,12 +598,30 @@ export default function BioPage() {
 
   const props: TemplateProps = { page, buttons, onButtonClick: handleButtonClick }
 
-  switch (page.template) {
-    case 'shopping':
-      return <TemplateShopping {...props} />
-    case 'negocio':
-      return <TemplateNegocio {...props} />
-    default:
-      return <TemplateSimples {...props} />
-  }
+  return (
+    <>
+      {page.capture_enabled && captureTarget && (
+        <BioLeadCaptureModal
+          open={captureModalOpen}
+          onClose={() => {
+            setCaptureModalOpen(false)
+            setCaptureTarget(null)
+          }}
+          onSubmit={handleCaptureSubmit}
+          page={page}
+          isSubmitting={isCapturing}
+        />
+      )}
+      {(() => {
+        switch (page.template) {
+          case 'shopping':
+            return <TemplateShopping {...props} />
+          case 'negocio':
+            return <TemplateNegocio {...props} />
+          default:
+            return <TemplateSimples {...props} />
+        }
+      })()}
+    </>
+  )
 }
