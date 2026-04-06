@@ -95,28 +95,23 @@ Deno.serve(async (req) => {
 
       // Normalize phone
       const cleanPhone = phone.replace(/\D/g, '')
-      if (cleanPhone.length < 10) {
-        return Response.json({ error: 'Invalid phone' }, { status: 400, headers: cors })
+      if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+        return Response.json({ error: 'Invalid phone number' }, { status: 400, headers: cors })
       }
       const jid = `${cleanPhone}@s.whatsapp.net`
 
-      // Find or create contact
-      let { data: contact } = await supabase
+      // Atomic find-or-create contact (upsert avoids race condition on concurrent submissions)
+      const { data: contact, error: contactErr } = await supabase
         .from('contacts')
+        .upsert(
+          { jid, phone: cleanPhone, name: data.nome || data.nome_completo || null },
+          { onConflict: 'jid', ignoreDuplicates: false },
+        )
         .select('id')
-        .eq('jid', jid)
-        .maybeSingle()
+        .single()
 
-      if (!contact) {
-        const { data: newContact } = await supabase
-          .from('contacts')
-          .insert({ jid, phone: cleanPhone, name: data.nome || data.nome_completo || null })
-          .select('id')
-          .single()
-        contact = newContact
-      }
-
-      if (!contact) {
+      if (contactErr || !contact) {
+        log.error('Failed to upsert contact', { error: contactErr?.message })
         return Response.json({ error: 'Failed to create contact' }, { status: 500, headers: cors })
       }
 

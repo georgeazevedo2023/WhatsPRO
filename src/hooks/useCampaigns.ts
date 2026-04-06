@@ -9,18 +9,19 @@ export function useCampaignsList() {
     queryKey: ['utm-campaigns'],
     queryFn: async (): Promise<UtmCampaignWithMetrics[]> => {
       // Fetch campaigns
-      const { data: campaigns, error } = await (supabase as any)
+      const { data: campaigns, error } = await supabase
         .from('utm_campaigns')
         .select('*, instances(name)')
+        .limit(200)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
       // Fetch visit counts per campaign
-      const campaignIds = (campaigns || []).map((c: any) => c.id);
+      const campaignIds = (campaigns || []).map((c) => c.id);
       if (campaignIds.length === 0) return [];
 
-      const { data: visits } = await (supabase as any)
+      const { data: visits } = await supabase
         .from('utm_visits')
         .select('campaign_id, status')
         .in('campaign_id', campaignIds);
@@ -34,7 +35,7 @@ export function useCampaignsList() {
         metricsMap.set(v.campaign_id, m);
       }
 
-      return (campaigns || []).map((c: any) => {
+      return (campaigns || []).map((c) => {
         const m = metricsMap.get(c.id) || { total: 0, matched: 0 };
         return {
           ...c,
@@ -55,7 +56,7 @@ export function useCampaign(id: string | undefined) {
     enabled: !!id,
     queryFn: async (): Promise<UtmCampaign | null> => {
       if (!id) return null;
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('utm_campaigns')
         .select('*')
         .eq('id', id)
@@ -77,7 +78,7 @@ export function useCampaignVisits(campaignId: string | undefined, page = 0) {
       if (!campaignId) return { rows: [], hasMore: false };
       const from = page * VISITS_PAGE_SIZE;
       const to = from + VISITS_PAGE_SIZE;
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('utm_visits')
         .select('*, contacts(name, phone, profile_pic_url)')
         .eq('campaign_id', campaignId)
@@ -97,7 +98,7 @@ export function useCampaignMetrics(campaignId: string | undefined) {
     enabled: !!campaignId,
     queryFn: async () => {
       if (!campaignId) return null;
-      const { data: visits, error } = await (supabase as any)
+      const { data: visits, error } = await supabase
         .from('utm_visits')
         .select('status, visited_at, matched_at, metadata')
         .eq('campaign_id', campaignId);
@@ -105,14 +106,15 @@ export function useCampaignMetrics(campaignId: string | undefined) {
 
       const all = visits || [];
       const total = all.length;
-      const matched = all.filter((v: any) => v.status === 'matched').length;
-      const expired = all.filter((v: any) => v.status === 'expired').length;
+      const matched = all.filter((v) => v.status === 'matched').length;
+      const expired = all.filter((v) => v.status === 'expired').length;
 
       // Form metrics: count visits where metadata.form_started=true
-      const formStarted = all.filter((v: any) => v.metadata?.form_started === true).length;
+      const metadataOf = (v: typeof all[number]) => v.metadata as Record<string, unknown> | null;
+      const formStarted = all.filter((v) => metadataOf(v)?.['form_started'] === true).length;
       // Form completed = started AND matched (submitted the form then proceeded)
       const formCompleted = all.filter(
-        (v: any) => v.metadata?.form_started === true && v.status === 'matched'
+        (v) => metadataOf(v)?.['form_started'] === true && v.status === 'matched'
       ).length;
       const formCompletionRate = formStarted > 0
         ? Math.round((formCompleted / formStarted) * 100)
@@ -156,7 +158,7 @@ export function useCreateCampaign() {
 
   return useMutation({
     mutationFn: async (campaign: Omit<UtmCampaign, 'id' | 'created_at' | 'updated_at'>) => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('utm_campaigns')
         .insert(campaign)
         .select()
@@ -181,7 +183,7 @@ export function useUpdateCampaign() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<UtmCampaign> & { id: string }) => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('utm_campaigns')
         .update(updates)
         .eq('id', id)
@@ -190,7 +192,7 @@ export function useUpdateCampaign() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (_: any, vars: any) => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['utm-campaigns'] });
       qc.invalidateQueries({ queryKey: ['utm-campaign', vars.id] });
       toast({ title: 'Campanha atualizada' });
@@ -208,7 +210,7 @@ export function useDeleteCampaign() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('utm_campaigns')
         .delete()
         .eq('id', id);

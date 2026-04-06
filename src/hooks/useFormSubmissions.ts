@@ -3,17 +3,18 @@ import { supabase } from '@/integrations/supabase/client'
 import type { FormSubmission, FormStats } from '@/types/forms'
 
 // ─── useFormSubmissions ───────────────────────────────────────────────────────
-export function useFormSubmissions(formId: string | null, limit = 50) {
+export function useFormSubmissions(formId: string | null, limit = 50, page = 0) {
   return useQuery({
-    queryKey: ['form-submissions', formId, limit],
+    queryKey: ['form-submissions', formId, limit, page],
     queryFn: async (): Promise<FormSubmission[]> => {
       if (!formId) return []
+      const from = page * limit
       const { data, error } = await supabase
         .from('form_submissions')
         .select('*')
         .eq('form_id', formId)
         .order('submitted_at', { ascending: false })
-        .limit(limit)
+        .range(from, from + limit - 1)
       if (error) throw error
       return (data ?? []) as FormSubmission[]
     },

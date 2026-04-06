@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import { FileText } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -28,28 +28,30 @@ export default function WhatsappFormsPage() {
     },
   })
 
+  // Auto-select first agent (useEffect to avoid setState during render)
+  useEffect(() => {
+    if (agents.length > 0 && !selectedAgentId) {
+      setSelectedAgentId(agents[0].id)
+    }
+  }, [agents, selectedAgentId])
+
   if (!isSuperAdmin) return <Navigate to="/dashboard" replace />
 
-  // Auto-select first agent
-  if (agents.length > 0 && !selectedAgentId) {
-    setSelectedAgentId(agents[0].id)
-  }
-
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-primary/10 rounded-lg">
-            <FileText className="w-6 h-6 text-primary" />
+    <div className="p-4 sm:p-6 space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="p-2.5 bg-gradient-to-br from-[#25D366]/20 to-[#128C7E]/10 rounded-xl shrink-0 border border-[#25D366]/20">
+            <FileText className="w-6 h-6 text-[#25D366]" />
           </div>
-          <div>
-            <h1 className="text-2xl font-bold">Formulários WhatsApp</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold leading-tight">Formulários WhatsApp</h1>
             <p className="text-muted-foreground text-sm">Crie formulários para coletar dados via conversa WhatsApp</p>
           </div>
         </div>
         {agents.length > 1 && (
           <Select value={selectedAgentId ?? ''} onValueChange={setSelectedAgentId}>
-            <SelectTrigger className="w-48">
+            <SelectTrigger className="w-full sm:w-48">
               <SelectValue placeholder="Selecionar agente" />
             </SelectTrigger>
             <SelectContent>

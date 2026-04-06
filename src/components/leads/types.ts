@@ -1,3 +1,5 @@
+import type { Tables } from '@/integrations/supabase/types';
+
 export interface LeadData {
   contact_id: string;
   phone: string;
@@ -7,8 +9,8 @@ export interface LeadData {
   ia_blocked_instances: string[];
   first_contact_at: string;
   display_name: string;
-  lead_profile: any;
-  conversations: any[];
+  lead_profile: Tables<'lead_profiles'> | null;
+  conversations: Array<{ id: string }>;
   tags: string[];
   label_names: string[];
   last_contact_at: string | null;

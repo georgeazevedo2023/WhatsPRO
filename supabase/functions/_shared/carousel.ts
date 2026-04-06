@@ -9,6 +9,9 @@
  */
 
 import { fetchWithTimeout } from './fetchWithTimeout.ts'
+import { createLogger } from './logger.ts'
+
+const log = createLogger('carousel')
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
 
@@ -110,7 +113,7 @@ export async function generateCarouselCopies(
   const cacheKey = `${product.id || title}:${numCards}`
   const cached = _carouselCopyCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
-    console.log(`[carousel] Carousel copies: cache HIT for ${cacheKey}`)
+    log.info('Carousel copies: cache HIT', { cacheKey })
     return cached.copies
   }
 
@@ -183,19 +186,19 @@ export async function generateCarouselCopies(
       if (text) {
         const copies = parseCopyResponse(text, copyCount)
         if (copies) {
-          console.log(`[carousel] Carousel copies: ${provider.name} OK`)
+          log.info('Carousel copies: provider succeeded', { provider: provider.name })
           result = [card1, ...copies]
           break
         }
       }
-      console.warn(`[carousel] ${provider.name} copy: bad response`)
+      log.warn('Carousel copies: bad response from provider', { provider: provider.name })
     } catch (e) {
-      console.warn(`[carousel] ${provider.name} copy error:`, e)
+      log.warn('Carousel copies: provider error', { provider: provider.name, error: (e as Error).message })
     }
   }
 
   if (!result) {
-    console.warn('[carousel] Carousel copies: all LLMs failed, using static')
+    log.warn('Carousel copies: all LLMs failed, using static fallback')
     result = [card1, ...fallbackCopies]
   }
 

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
 import {
   Type,
   AlignLeft,
@@ -97,6 +98,14 @@ interface FormSettings {
   expires_at: string
 }
 
+// ─── Tab labels ───────────────────────────────────────────────────────────────
+
+const TAB_LABELS: Record<ActiveTab, string> = {
+  fields: 'Campos',
+  settings: 'Configurações',
+  preview: 'Preview',
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function FormBuilder({ form, onClose }: FormBuilderProps) {
@@ -110,6 +119,7 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
   })
   const [selectedFieldIndex, setSelectedFieldIndex] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState<ActiveTab>('fields')
+  const [activePanelMobile, setActivePanelMobile] = useState<'fields' | 'editor'>('fields')
 
   const updateForm = useUpdateForm()
   const upsertFields = useUpsertFormFields()
@@ -144,6 +154,7 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
     }
     setFields((prev) => [...prev, newField])
     setSelectedFieldIndex(fields.length)
+    setActivePanelMobile('editor')
   }
 
   function moveField(index: number, direction: 'up' | 'down') {
@@ -152,7 +163,6 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
       const swapIdx = direction === 'up' ? index - 1 : index + 1
       if (swapIdx < 0 || swapIdx >= next.length) return prev
       ;[next[index], next[swapIdx]] = [next[swapIdx], next[index]]
-      // Re-sync position values
       return next.map((f, i) => ({ ...f, position: i }))
     })
     setSelectedFieldIndex((prev) => {
@@ -200,7 +210,7 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
         fields: fields.map((f, i) => ({ ...f, position: i })),
       })
       toast.success('Formulário salvo com sucesso!')
-    } catch (err) {
+    } catch {
       // Errors are handled inside the mutation hooks via toast
     }
   }
@@ -210,7 +220,7 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
   return (
     <div className="flex h-full flex-col bg-background">
       {/* ── Header ── */}
-      <div className="flex items-center gap-3 border-b px-5 py-3">
+      <div className="flex items-center gap-3 border-b px-4 py-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-sm font-semibold truncate">{form.name}</h2>
@@ -231,33 +241,34 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
           size="sm"
           onClick={handleSave}
           disabled={isSaving}
+          className="gap-1.5 shrink-0"
         >
           {isSaving ? (
-            <Loader2 size={14} className="mr-1.5 animate-spin" />
+            <Loader2 size={14} className="animate-spin" />
           ) : (
-            <Save size={14} className="mr-1.5" />
+            <Save size={14} />
           )}
           Salvar
         </Button>
-        <Button variant="ghost" size="icon" onClick={onClose}>
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
           <X size={16} />
         </Button>
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="flex border-b px-5">
+      {/* ── Tabs (pill style) ── */}
+      <div className="flex items-center gap-1 border-b px-4 py-2 bg-background/50">
         {(['fields', 'settings', 'preview'] as ActiveTab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={[
-              'relative px-4 py-2.5 text-sm font-medium transition-colors',
+            className={cn(
+              'px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150',
               activeTab === tab
-                ? 'text-foreground after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-primary'
-                : 'text-muted-foreground hover:text-foreground',
-            ].join(' ')}
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
+            )}
           >
-            {tab === 'fields' ? 'Campos' : tab === 'settings' ? 'Configurações' : 'Preview'}
+            {TAB_LABELS[tab]}
           </button>
         ))}
       </div>
@@ -266,11 +277,34 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
       <div className="flex-1 overflow-hidden">
         {/* FIELDS tab */}
         {activeTab === 'fields' && (
-          <div className="flex h-full divide-x">
+          <div className="flex h-full flex-col sm:flex-row sm:divide-x">
+            {/* Mobile sub-tab switcher (pill style) — visible only on small screens */}
+            <div className="flex items-center gap-1 border-b sm:hidden shrink-0 px-3 py-2 bg-muted/30">
+              {(['fields', 'editor'] as const).map((panel) => (
+                <button
+                  key={panel}
+                  onClick={() => setActivePanelMobile(panel)}
+                  className={cn(
+                    'flex-1 px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150',
+                    activePanelMobile === panel
+                      ? 'bg-background text-foreground shadow-sm border border-border/50'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {panel === 'fields' ? 'Campos' : 'Editor'}
+                </button>
+              ))}
+            </div>
+
             {/* Left: field list */}
-            <div className="flex w-1/2 flex-col">
+            <div
+              className={cn(
+                'flex flex-col sm:w-1/2',
+                activePanelMobile === 'fields' ? 'flex' : 'hidden sm:flex',
+              )}
+            >
               <ScrollArea className="flex-1">
-                <div className="space-y-1 p-3">
+                <div className="space-y-1.5 p-3">
                   {fields.length === 0 && (
                     <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
                       <Type size={28} className="opacity-40" />
@@ -284,9 +318,10 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
                       index={idx}
                       total={fields.length}
                       isSelected={selectedFieldIndex === idx}
-                      onSelect={() =>
+                      onSelect={() => {
                         setSelectedFieldIndex(selectedFieldIndex === idx ? null : idx)
-                      }
+                        setActivePanelMobile('editor')
+                      }}
                       onMoveUp={() => moveField(idx, 'up')}
                       onMoveDown={() => moveField(idx, 'down')}
                       onDelete={() => deleteField(idx)}
@@ -296,20 +331,23 @@ export function FormBuilder({ form, onClose }: FormBuilderProps) {
               </ScrollArea>
               <Separator />
               <div className="p-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
+                <button
                   onClick={addField}
+                  className="w-full flex items-center justify-center gap-1.5 h-9 rounded-lg border border-primary/20 bg-primary/5 text-primary text-sm font-medium hover:bg-primary/10 transition-colors duration-150"
                 >
-                  <Plus size={14} className="mr-1.5" />
+                  <Plus size={14} />
                   Adicionar Campo
-                </Button>
+                </button>
               </div>
             </div>
 
             {/* Right: field editor */}
-            <div className="flex w-1/2 flex-col">
+            <div
+              className={cn(
+                'flex flex-col sm:w-1/2',
+                activePanelMobile === 'editor' ? 'flex' : 'hidden sm:flex',
+              )}
+            >
               {selectedFieldIndex !== null && fields[selectedFieldIndex] ? (
                 <ScrollArea className="flex-1">
                   <FieldEditor
@@ -458,65 +496,73 @@ function FieldListItem({
   return (
     <div
       onClick={onSelect}
-      className={[
-        'group flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors',
+      className={cn(
+        'group cursor-pointer rounded-xl border transition-all duration-200 active:scale-[0.99]',
         isSelected
-          ? 'border-primary/40 bg-primary/5'
-          : 'border-transparent bg-muted/40 hover:bg-muted/70',
-      ].join(' ')}
+          ? 'border-primary/30 bg-primary/5 shadow-sm'
+          : 'border-transparent bg-muted/40 hover:bg-muted/60 hover:border-border/40',
+      )}
     >
-      {/* Position badge */}
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
-        {index + 1}
-      </span>
+      {/* Main row: badge + icon + label + delete */}
+      <div className="flex items-start gap-2.5 px-3 py-3">
+        {/* Position badge */}
+        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+          {index + 1}
+        </span>
 
-      {/* Icon */}
-      <span className="shrink-0 text-muted-foreground">
-        {FIELD_ICONS[field.field_type]}
-      </span>
+        {/* Type icon */}
+        <span className="mt-0.5 shrink-0 text-muted-foreground">
+          {FIELD_ICONS[field.field_type]}
+        </span>
 
-      {/* Label + type */}
-      <div className="flex-1 min-w-0">
-        <p className="truncate text-sm font-medium leading-tight">{field.label}</p>
-        <p className="text-[10px] text-muted-foreground">{FIELD_LABELS[field.field_type]}</p>
+        {/* Label + type — wraps freely, no truncation */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium leading-snug">{field.label}</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">{FIELD_LABELS[field.field_type]}</p>
+        </div>
+
+        {/* Delete — always visible, right-aligned */}
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:bg-destructive/20"
+            onClick={onDelete}
+            title="Remover campo"
+          >
+            <Trash2 size={14} />
+          </Button>
+        </div>
       </div>
 
-      {/* Actions — visible on hover or when selected */}
-      <div
-        className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 data-[visible=true]:opacity-100"
-        data-visible={isSelected}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 text-muted-foreground hover:text-foreground"
-          disabled={index === 0}
-          onClick={onMoveUp}
-          title="Mover para cima"
+      {/* Action bar — up/down — only when selected */}
+      {isSelected && (
+        <div
+          className="flex items-center justify-end gap-1 border-t border-border/30 px-2 py-1.5"
+          onClick={(e) => e.stopPropagation()}
         >
-          <ChevronUp size={13} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 text-muted-foreground hover:text-foreground"
-          disabled={index === total - 1}
-          onClick={onMoveDown}
-          title="Mover para baixo"
-        >
-          <ChevronDownIcon size={13} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-          onClick={onDelete}
-          title="Remover campo"
-        >
-          <Trash2 size={13} />
-        </Button>
-      </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            disabled={index === 0}
+            onClick={onMoveUp}
+          >
+            <ChevronUp size={12} />
+            Subir
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            disabled={index === total - 1}
+            onClick={onMoveDown}
+          >
+            <ChevronDownIcon size={12} />
+            Descer
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

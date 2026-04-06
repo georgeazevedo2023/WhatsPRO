@@ -14,7 +14,6 @@ import {
   PlusCircle,
   type LucideIcon,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { FormTemplate } from '@/types/forms'
 import { FORM_TEMPLATES } from '@/types/forms'
@@ -57,6 +56,25 @@ interface TemplateGalleryProps {
   onBlank: () => void
 }
 
+// ─── BlankFormCard ────────────────────────────────────────────────────────────
+function BlankFormCard({ onSelect }: { onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="group flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border bg-card p-8 text-center transition-all duration-200 hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[200px]"
+    >
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 border border-primary/20 transition-colors duration-200 group-hover:bg-primary/20">
+        <PlusCircle className="h-6 w-6 text-primary" />
+      </div>
+      <div>
+        <p className="font-semibold text-sm text-foreground">Formulário em Branco</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Comece do zero</p>
+      </div>
+    </button>
+  )
+}
+
 // ─── TemplateCard ─────────────────────────────────────────────────────────────
 interface TemplateCardProps {
   template: FormTemplate
@@ -76,7 +94,7 @@ function TemplateCard({ template, onSelect }: TemplateCardProps) {
     <button
       type="button"
       onClick={() => onSelect(template)}
-      className="group flex flex-col rounded-xl border border-border bg-card text-left transition-all hover:border-primary/50 hover:shadow-md hover:shadow-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring overflow-hidden"
+      className="group flex flex-col rounded-xl border border-border bg-card text-left transition-all duration-200 hover:border-primary/50 hover:shadow-md hover:shadow-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring overflow-hidden"
     >
       {/* Thumbnail area */}
       <div
@@ -147,18 +165,9 @@ export function TemplateGallery({ onSelect, onBlank }: TemplateGalleryProps) {
         </p>
       </div>
 
-      {/* Botão em branco */}
-      <Button
-        variant="outline"
-        onClick={onBlank}
-        className="w-full justify-start gap-2 h-10 text-sm"
-      >
-        <PlusCircle className="h-4 w-4 text-primary" />
-        Formulário em Branco
-      </Button>
-
-      {/* Grade de templates */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      {/* Grade de templates com blank como primeiro card */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <BlankFormCard onSelect={onBlank} />
         {FORM_TEMPLATES.map((template) => (
           <TemplateCard key={template.type} template={template} onSelect={onSelect} />
         ))}

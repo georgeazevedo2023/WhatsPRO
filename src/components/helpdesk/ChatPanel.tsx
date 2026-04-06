@@ -101,7 +101,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         .limit(MESSAGES_PAGE_SIZE);
       if (error) throw error;
       if (id === fetchIdRef.current) {
-        const msgs = ((data as Message[]) || []).reverse();
+        const msgs = ((data as Message[]) || []).slice().reverse();
         setMessages(msgs);
         setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
       }
@@ -128,7 +128,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         .order('created_at', { ascending: false })
         .limit(MESSAGES_PAGE_SIZE);
       if (error) throw error;
-      const older = ((data as Message[]) || []).reverse();
+      const older = ((data as Message[]) || []).slice().reverse();
       setMessages(prev => [...older, ...prev]);
       setHasOlderMessages(older.length === MESSAGES_PAGE_SIZE);
       // Preserve scroll position after prepending
@@ -163,7 +163,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
                   const existingIds = new Set(prev.map(m => m.id));
                   const newMsgs = data.filter(m => !existingIds.has(m.id)) as Message[];
                   if (newMsgs.length === 0) return prev;
-                  return [...prev, ...newMsgs.reverse()];
+                  return [...prev, ...newMsgs.slice().reverse()];
                 });
               }
             })
@@ -262,6 +262,15 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     return result;
   }, [chatMessages, conversation?.is_read]);
 
+  // Reconnect automático após disconnect (5s delay)
+  useEffect(() => {
+    if (channelStatus !== 'disconnected' || !conversation?.id) return;
+    const timer = setTimeout(() => {
+      fetchMessages();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [channelStatus, conversation?.id, fetchMessages]);
+
   // These callbacks MUST be before the early return to maintain consistent hook count
   const handleMessageSent = useCallback(() => { fetchMessages(); setIaAtivada(false); }, [fetchMessages]);
   const handleStatusChange = useCallback((status: string) => {
@@ -305,7 +314,12 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
             </div>
           </div>
 
-          {/* Connection dot */}
+          {/* Connection dot + disconnect badge */}
+          {channelStatus === 'disconnected' && (
+            <span title="Reconectando..." className="text-destructive shrink-0">
+              <WifiOff size={14} />
+            </span>
+          )}
           <span className={`w-2 h-2 rounded-full shrink-0 ${channelStatus === 'connected' ? 'bg-primary' : channelStatus === 'disconnected' ? 'bg-destructive animate-pulse' : 'bg-warning animate-pulse'}`}
             title={channelStatus === 'connected' ? 'Conectado' : channelStatus === 'disconnected' ? 'Desconectado' : 'Conectando...'} />
 

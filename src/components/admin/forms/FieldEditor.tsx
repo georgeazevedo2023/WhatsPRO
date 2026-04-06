@@ -280,7 +280,7 @@ function ValidationSection({
     return (
       <div className="space-y-3">
         <Label className="text-sm font-medium">Configuração da escala</Label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Mínimo</Label>
             <Input
@@ -350,7 +350,7 @@ function ValidationSection({
     return (
       <div className="space-y-3">
         <Label className="text-sm font-medium">Intervalo permitido</Label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Mínimo</Label>
             <Input

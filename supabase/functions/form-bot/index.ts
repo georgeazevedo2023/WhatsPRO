@@ -239,6 +239,7 @@ Deno.serve(async (req) => {
           current_field_index: 0,
           collected_data: {},
           status: 'in_progress',
+          retries: 0,
         })
         .select()
         .single()
@@ -274,6 +275,25 @@ Deno.serve(async (req) => {
       })
     }
 
+    // ── TTL check: abandon sessions older than 24h ────────────────────────────
+    const SESSION_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+    const sessionAge = Date.now() - new Date(session.created_at).getTime()
+    if (sessionAge > SESSION_TTL_MS) {
+      await supabase
+        .from('form_sessions')
+        .update({ status: 'abandoned' })
+        .eq('id', session.id)
+      log.info('Session expired by TTL', { sessionId: session.id, ageMs: sessionAge })
+      await sendWhatsAppMessage(
+        instance_id,
+        chatId,
+        'Sua sessão de formulário expirou. Por favor, inicie novamente.',
+      )
+      return new Response(JSON.stringify({ ok: false, reason: 'session_expired' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     // Get form + fields
     const { data: form } = await supabase
       .from('whatsapp_forms')
@@ -300,7 +320,7 @@ Deno.serve(async (req) => {
       const isValid = validateAnswer(currentField.field_type, msgText, currentField.validation_rules)
       if (!isValid) {
         const maxRetries = 3
-        const newRetries = session.retries + 1
+        const newRetries = (session.retries ?? 0) + 1
 
         if (newRetries >= maxRetries) {
           // Abandon session after too many retries

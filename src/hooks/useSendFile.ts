@@ -4,6 +4,7 @@ import { uazapiProxy } from '@/lib/uazapiClient';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { STATUS_IA } from '@/constants/statusIa';
+import type { Tables } from '@/integrations/supabase/types';
 
 interface SendFileOptions {
   conversationId: string;
@@ -17,7 +18,7 @@ export interface UseSendFileReturn {
   sendingFile: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   imageInputRef: React.RefObject<HTMLInputElement | null>;
-  handleSendFile: (file: File, opts: SendFileOptions) => Promise<{ success: boolean; mediaType?: string; mediaUrl?: string; insertedMsg?: any }>;
+  handleSendFile: (file: File, opts: SendFileOptions) => Promise<{ success: boolean; mediaType?: string; mediaUrl?: string; insertedMsg?: Tables<'conversation_messages'> }>;
 }
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
