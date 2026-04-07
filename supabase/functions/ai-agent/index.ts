@@ -283,6 +283,18 @@ Deno.serve(async (req) => {
       })
     }
 
+    // 5.4.1 #M16: Early load funnel data (needed for handoff triggers + max_lead_messages before context injection)
+    type FunnelRow = { name: string; type: string; ai_template: string | null; ai_custom_text: string | null; handoff_message: string | null; handoff_message_outside_hours: string | null; max_messages_before_handoff: number | null }
+    let funnelData: FunnelRow | null = null
+    const funnelTagEarly = (conversation.tags || []).find((t: string) => t.startsWith('funil:'))
+    if (funnelTagEarly) {
+      const fSlug = funnelTagEarly.split(':').slice(1).join(':')
+      try {
+        const { data: fRow } = await supabase.from('funnels').select('name, type, ai_template, ai_custom_text, handoff_message, handoff_message_outside_hours, max_messages_before_handoff').eq('slug', fSlug).eq('instance_id', instance_id).maybeSingle()
+        if (fRow) funnelData = fRow
+      } catch { /* non-critical */ }
+    }
+
     // 5.5 Check handoff_triggers — force handoff if lead text matches any trigger
     // Only trigger after agent has replied at least once (skip on first interaction)
     const triggers: string[] = agent.handoff_triggers || []
@@ -342,7 +354,9 @@ Deno.serve(async (req) => {
         } else {
           // Single message with trigger — immediate handoff (original behavior)
           log.info('Handoff trigger matched', { trigger: matchedTrigger, textPreview: lastMsg.substring(0, 80) })
-          const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+          let handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+          // #M16: Funnel handoff priority (trigger path)
+          if (funnelData?.handoff_message) handoffMsg = funnelData.handoff_message
 
           // Check if recent messages show frustration — send empathy before handoff
           // BUT skip if empathy was already sent recently (within 60s) to avoid duplicates
@@ -404,7 +418,8 @@ Deno.serve(async (req) => {
     }
 
     // 5.6 Rate limit: atomic lead message counter + auto-handoff (D-06/D-07/D-09)
-    const MAX_LEAD_MESSAGES = agent.max_lead_messages || 8
+    // #M16: Funnel can override max_lead_messages
+    const MAX_LEAD_MESSAGES = funnelData?.max_messages_before_handoff || agent.max_lead_messages || 8
     const { data: counterRow, error: counterErr } = await supabase
       .rpc('increment_lead_msg_count', { p_conversation_id: conversation_id })
       .single()
@@ -412,7 +427,9 @@ Deno.serve(async (req) => {
 
     if (leadMsgCount >= MAX_LEAD_MESSAGES) {
       log.info('Lead message limit reached — auto handoff', { count: leadMsgCount, max: MAX_LEAD_MESSAGES })
-      const handoffMsg = agent.handoff_message || 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado!'
+      let handoffMsg = agent.handoff_message || 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado!'
+      // #M16: Funnel handoff priority (max messages path)
+      if (funnelData?.handoff_message) handoffMsg = funnelData.handoff_message
       await sendTextMsg(handoffMsg)
       await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
@@ -558,6 +575,19 @@ Deno.serve(async (req) => {
       } catch (err) {
         log.warn('Bio context load error (non-critical)', { error: (err as Error).message })
       }
+    }
+
+    // 8.8 Inject funnel context into prompt (funnelData loaded early in 5.4.1)
+    if (funnelData) {
+      const fParts: string[] = [
+        `\n\n<funnel_context>`,
+        `Este lead está no funil "${funnelData.name}" (tipo: ${funnelData.type}).`,
+      ]
+      if (funnelData.ai_template) fParts.push(funnelData.ai_template)
+      if (funnelData.ai_custom_text) fParts.push(funnelData.ai_custom_text)
+      fParts.push('Adapte suas respostas ao objetivo do funil.')
+      fParts.push('</funnel_context>')
+      campaignContext += fParts.join('\n')
     }
 
     // ── SHADOW MODE ──────────────────────────────────────────────────────
@@ -1725,7 +1755,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           if (rawTags.length === 0) return 'Nenhuma tag informada.'
 
           // #25: Enforcement — validate tag keys and motivo values
-          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel','acabamento','marca_preferida','quantidade','area','aplicacao','enrich_count','qualificacao_completa'])
+          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel','acabamento','marca_preferida','quantidade','area','aplicacao','enrich_count','qualificacao_completa','funil'])
           const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
           const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro'])
 
@@ -1901,6 +1931,16 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
               if (currentMin < sh * 60 + sm || currentMin >= eh * 60 + em) {
                 handoffMsg = agent.handoff_message_outside_hours || 'Sua mensagem foi recebida e retornaremos assim que possível! 😊'
               }
+            }
+          }
+
+          // #M16: Funnel handoff priority — funnel msg > agent msg
+          if (funnelData) {
+            const isOutsideHours = handoffMsg !== (agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.')
+            if (isOutsideHours && funnelData.handoff_message_outside_hours) {
+              handoffMsg = funnelData.handoff_message_outside_hours
+            } else if (!isOutsideHours && funnelData.handoff_message) {
+              handoffMsg = funnelData.handoff_message
             }
           }
 

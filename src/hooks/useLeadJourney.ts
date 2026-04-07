@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 
 export interface JourneyEvent {
-  type: 'bio_capture' | 'campaign_visit' | 'form_submission' | 'conversation' | 'kanban'
+  type: 'bio_capture' | 'campaign_visit' | 'form_submission' | 'conversation' | 'kanban' | 'funnel_entry'
   title: string
   subtitle?: string
   timestamp: string
@@ -83,7 +83,8 @@ export function useLeadJourney(contactId: string | null) {
         })
       }
 
-      // Conversations
+      // Conversations + detect funnel tags
+      const funnelSlugs = new Set<string>()
       for (const row of convRes.data || []) {
         events.push({
           type: 'conversation',
@@ -91,6 +92,25 @@ export function useLeadJourney(contactId: string | null) {
           subtitle: row.status || undefined,
           timestamp: row.created_at,
         })
+        // Detect funil:SLUG tag for funnel_entry event
+        const fTag = (row.tags || []).find((t: string) => t.startsWith('funil:'))
+        if (fTag) funnelSlugs.add(fTag.split(':').slice(1).join(':'))
+      }
+
+      // Funnel entries (M16)
+      if (funnelSlugs.size > 0) {
+        const { data: funnels } = await supabase
+          .from('funnels')
+          .select('name, type, slug, created_at')
+          .in('slug', Array.from(funnelSlugs))
+        for (const f of funnels || []) {
+          events.push({
+            type: 'funnel_entry',
+            title: `Funil: ${f.name}`,
+            subtitle: f.type,
+            timestamp: f.created_at,
+          })
+        }
       }
 
       // Kanban cards

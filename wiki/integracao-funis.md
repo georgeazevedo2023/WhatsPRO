@@ -1,13 +1,15 @@
 ---
 title: Integração de Funis — Campanhas + Bio Link + Formulários + AI Agent
-tags: [funis, campanhas, bio-link, formularios, ai-agent, integracao, jornada]
-sources: [CLAUDE.md, PRD.md, M15]
-updated: 2026-04-07
+tags: [funis, campanhas, bio-link, formularios, ai-agent, integracao, jornada, m16]
+sources: [CLAUDE.md, PRD.md, M15, M16]
+updated: 2026-04-08
 ---
 
 # Integração de Funis — Como Tudo se Conecta
 
-> Guia completo de como os 4 sistemas (Campanhas, Bio Link, Formulários, AI Agent) trabalham juntos no WhatsPRO. Inclui fluxos de dados, exemplos de jornada, e instruções de uso.
+> **ATUALIZADO M16**: Agora tudo esta unificado sob "Funis". O admin cria funis (nao campanhas/bios/forms separados). A tabela `funnels` orquestra os 3 modulos via FK. Tag `funil:SLUG` e propagada automaticamente. AI Agent recebe `<funnel_context>`.
+>
+> Guia completo de como os sistemas trabalham juntos no WhatsPRO. Inclui fluxos de dados, exemplos de jornada, e instrucoes de uso.
 
 ---
 

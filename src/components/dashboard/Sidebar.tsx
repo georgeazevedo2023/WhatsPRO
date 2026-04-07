@@ -36,6 +36,8 @@ import {
   Plus,
   BookMarked,
   Link2,
+  Target,
+  Wand2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -83,8 +85,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
   const [instancesOpen, setInstancesOpen] = useState(false);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [helpdeskOpen, setHelpdeskOpen] = useState(false);
-  const [campanhasOpen, setCampanhasOpen] = useState(false);
-  const [bioLinksOpen, setBioLinksOpen] = useState(false);
+  const [funnelsOpen, setFunnelsOpen] = useState(false);
   const [aiAgentOpen, setAiAgentOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
@@ -97,7 +98,6 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
   const navItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
     { icon: Clock, label: 'Agendamentos', path: '/dashboard/scheduled' },
-    { icon: FileText, label: 'Formulários', path: '/dashboard/forms' },
   ];
 
   const isActive = (path: string) => location.pathname === path;
@@ -105,16 +105,17 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
   const isInstancesActive = location.pathname.startsWith('/dashboard/instances');
   const isBroadcastActive = location.pathname.startsWith('/dashboard/broadcast');
   const isHelpdeskActive = location.pathname.startsWith('/dashboard/helpdesk');
-  const isCampanhasActive = location.pathname.startsWith('/dashboard/campaigns');
-  const isBioLinksActive = location.pathname.startsWith('/dashboard/bio-links');
+  const isFunnelsActive = location.pathname.startsWith('/dashboard/funnels')
+    || location.pathname.startsWith('/dashboard/campaigns')
+    || location.pathname.startsWith('/dashboard/bio-links')
+    || location.pathname === '/dashboard/forms';
   const isAiAgentActive = location.pathname.startsWith('/dashboard/ai-agent');
   const isAdminActive = location.pathname.startsWith('/dashboard/admin');
   const isDocsActive = ['/dashboard/docs', '/dashboard/roadmap', '/dashboard/backup'].some(p => location.pathname.startsWith(p));
 
   // Auto-open collapsibles based on current path
   useEffect(() => {
-    if (isCampanhasActive) setCampanhasOpen(true);
-    if (isBioLinksActive) setBioLinksOpen(true);
+    if (isFunnelsActive) setFunnelsOpen(true);
     if (isAiAgentActive) setAiAgentOpen(true);
     if (isAdminActive) setAdminOpen(true);
     if (isDocsActive) setDocsOpen(true);
@@ -535,31 +536,20 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           </Tooltip>
         )}
 
-        {/* Campanhas - Collapsible (super admin only) */}
+        {/* Funis - Collapsible unificado (super admin only) */}
         {isSuperAdmin && renderCollapsible(
-          Megaphone,
-          'Campanhas',
-          campanhasOpen,
-          setCampanhasOpen,
-          isCampanhasActive,
-          '/dashboard/campaigns',
+          Target,
+          'Funis',
+          funnelsOpen,
+          setFunnelsOpen,
+          isFunnelsActive,
+          '/dashboard/funnels',
           <>
-            {renderSubItem('/dashboard/campaigns', 'Todas', Megaphone)}
-            {renderSubItem('/dashboard/campaigns/new', 'Nova campanha', Plus)}
-          </>
-        )}
-
-        {/* Bio Link - Collapsible (super admin only) */}
-        {isSuperAdmin && renderCollapsible(
-          Link2,
-          'Bio Link',
-          bioLinksOpen,
-          setBioLinksOpen,
-          isBioLinksActive,
-          '/dashboard/bio-links',
-          <>
-            {renderSubItem('/dashboard/bio-links', 'Todas as páginas', Link2)}
-            {renderSubItem('/dashboard/bio-links/new', 'Nova página', Plus)}
+            {renderSubItem('/dashboard/funnels', 'Todos os funis', Target)}
+            {renderSubItem('/dashboard/funnels/new', 'Novo funil', Wand2)}
+            {renderSubItem('/dashboard/campaigns', 'Campanhas', Megaphone)}
+            {renderSubItem('/dashboard/bio-links', 'Bio Link', Link2)}
+            {renderSubItem('/dashboard/forms', 'Formularios', FileText)}
           </>
         )}
 

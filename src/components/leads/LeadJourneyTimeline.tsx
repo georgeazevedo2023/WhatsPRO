@@ -1,7 +1,7 @@
 import { useLeadJourney, type JourneyEvent } from '@/hooks/useLeadJourney'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, Link2, Megaphone, FileText, MessageSquare, Kanban } from 'lucide-react'
+import { Loader2, Link2, Megaphone, FileText, MessageSquare, Kanban, Target } from 'lucide-react'
 
 const EVENT_CONFIG: Record<JourneyEvent['type'], { icon: React.ReactNode; color: string }> = {
   bio_capture: { icon: <Link2 className="w-3.5 h-3.5" />, color: 'bg-emerald-500' },
@@ -9,6 +9,7 @@ const EVENT_CONFIG: Record<JourneyEvent['type'], { icon: React.ReactNode; color:
   form_submission: { icon: <FileText className="w-3.5 h-3.5" />, color: 'bg-purple-500' },
   conversation: { icon: <MessageSquare className="w-3.5 h-3.5" />, color: 'bg-amber-500' },
   kanban: { icon: <Kanban className="w-3.5 h-3.5" />, color: 'bg-pink-500' },
+  funnel_entry: { icon: <Target className="w-3.5 h-3.5" />, color: 'bg-orange-500' },
 }
 
 function formatDate(iso: string): string {

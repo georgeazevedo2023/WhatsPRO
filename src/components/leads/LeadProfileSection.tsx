@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ContactAvatar } from '@/components/helpdesk/ContactAvatar';
-import { User, ShieldBan, Calendar, Phone, MapPin, Globe, Link2, FileText, Megaphone } from 'lucide-react';
+import { User, ShieldBan, Calendar, Phone, MapPin, Globe, Link2, FileText, Megaphone, Target } from 'lucide-react';
 import { ORIGIN_OPTIONS } from './types';
 import type { ExtractionField, InstanceOption } from './types';
 
@@ -43,6 +43,7 @@ function OriginBadge({ origin, tags }: { origin: string; tags: string[] }) {
   const bioTag = tags.find(t => t.startsWith('bio_page:'))
   const campaignTag = tags.find(t => t.startsWith('campanha:'))
   const formTag = tags.find(t => t.startsWith('formulario:'))
+  const funnelTag = tags.find(t => t.startsWith('funil:'))
 
   const config: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
     bio: {
@@ -59,6 +60,11 @@ function OriginBadge({ origin, tags }: { origin: string; tags: string[] }) {
       icon: <FileText className="w-3 h-3" />,
       label: formTag ? `Formulário: ${formTag.split(':')[1]}` : 'Formulário',
       className: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+    },
+    funil: {
+      icon: <Target className="w-3 h-3" />,
+      label: funnelTag ? `Funil: ${funnelTag.split(':')[1]}` : 'Funil',
+      className: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
     },
   }
 

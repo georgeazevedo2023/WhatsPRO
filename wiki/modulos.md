@@ -1,8 +1,8 @@
 ---
 title: Módulos
-tags: [modulos, features, helpdesk, crm, leads, broadcast]
+tags: [modulos, features, helpdesk, crm, leads, broadcast, funis]
 sources: [CLAUDE.md, PRD.md, docs/CONTEXTO_PROJETO.md]
-updated: 2026-04-07
+updated: 2026-04-08
 ---
 
 # Módulos
@@ -89,6 +89,21 @@ updated: 2026-04-07
 - Timeline de jornada do lead (bio → form → conversa → kanban)
 - Forms mostra "Usado em" (quais campanhas/bios usam cada form)
 - Campaign Detail mostra leads convertidos
+
+## M16 — Funis: Fusao Total (Campanhas + Bio Link + Formularios) ✅
+
+- Tabela `funnels` orquestra utm_campaigns + bio_pages + whatsapp_forms + kanban_boards via FK
+- Sidebar unificada: 3 itens separados → 1 "Funis" com sub-items
+- Wizard 4 passos: Tipo → Detalhes → Canais → Resumo — auto-cria todos os recursos em 1 clique
+- 7 tipos: sorteio, captacao, venda, vaga, lancamento, evento, atendimento
+- AI Agent: `<funnel_context>` injection + handoff priority funil > agente + max_messages do funil
+- Tag `funil:SLUG` propagada automaticamente por form-public, bio-public, whatsapp-webhook
+- FunnelDetail: KPIs + kanban visual + 3 tabs (Canais, Formulario, Config)
+- LeadFunnelCard: card no LeadDetail mostrando funil ativo + etapa + dias
+- FunnelConversionChart: grafico horizontal Visitas→Capturas→Leads→Conversoes no Dashboard
+- KPI "Funis Ativos" no DashboardHome + filtro por funil na Intelligence
+- ImportExistingDialog: vincular recursos existentes a funis
+- OriginBadge suporta 'funil' (laranja)
 
 ## Links
 

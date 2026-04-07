@@ -8,6 +8,7 @@ import {
   Sparkles,
   RefreshCw,
   Inbox,
+  Target,
 } from "lucide-react";
 import { PERIOD_OPTIONS } from "./types";
 
@@ -17,6 +18,9 @@ interface IntelligenceFiltersProps {
   selectedInbox: string;
   setSelectedInbox: (value: string) => void;
   inboxes: { id: string; name: string }[] | undefined;
+  funnels?: { slug: string; name: string }[];
+  selectedFunnel?: string;
+  setSelectedFunnel?: (value: string) => void;
   summaryCount: number | undefined;
   loading: boolean;
   hasAnalysis: boolean;
@@ -29,6 +33,9 @@ export function IntelligenceFilters({
   selectedInbox,
   setSelectedInbox,
   inboxes,
+  funnels,
+  selectedFunnel,
+  setSelectedFunnel,
   summaryCount,
   loading,
   hasAnalysis,
@@ -76,6 +83,27 @@ export function IntelligenceFilters({
                 </SelectContent>
               </Select>
             </div>
+
+            {funnels && funnels.length > 0 && setSelectedFunnel && (
+              <div className="flex flex-col gap-1.5 flex-1 min-w-[180px]">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                  <Target className="w-3 h-3" /> Funil
+                </label>
+                <Select value={selectedFunnel || 'all'} onValueChange={setSelectedFunnel}>
+                  <SelectTrigger className="bg-background border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os funis</SelectItem>
+                    {funnels.map((f) => (
+                      <SelectItem key={f.slug} value={f.slug}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="flex flex-col gap-1.5">
               <div className="h-5" />

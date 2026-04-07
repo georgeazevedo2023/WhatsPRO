@@ -11,6 +11,61 @@ type: log
 
 ## 2026-04-07
 
+### M16 — Funis: Fusao Total (Campanhas + Bio Link + Formularios) — Fases 1-4
+- **Tipo:** Feature — novo modulo (4 fases, 15 arquivos novos/modificados)
+- **TypeScript:** 0 erros | **Testes:** 421 passed (5 pre-existentes)
+- **Build:** OK (6.97s)
+
+| Fase | Arquivos | Mudancas |
+|------|----------|---------|
+| **F1: Fundacao** | migration, types, hooks, FunnelsPage, Sidebar, App.tsx, ai-agent VALID_KEYS | Tabela `funnels` com FK para utm_campaigns/bio_pages/whatsapp_forms/kanban_boards. Sidebar unificada (3→1 item). Tag `funil` adicionada ao VALID_KEYS. |
+| **F2: Wizard** | FunnelWizard, useCreateFunnel, funnelTemplates | Wizard 4 passos (Tipo→Detalhes→Canais→Resumo) auto-cria Board+Columns+Form+Fields+BioPage+Buttons+Campaign+Funnel em 1 clique. 7 tipos com defaults. |
+| **F3: AI Agent + Handoff** | ai-agent (context+handoff), form-public, bio-public, whatsapp-webhook | `<funnel_context>` injection, handoff priority funil>agente, tag `funil:SLUG` propagada por 3 edge functions, max_messages_before_handoff do funil. |
+| **F4: Detail + Metricas + Origin** | FunnelDetail, useFunnelMetrics, LeadProfileSection, App.tsx | Pagina detalhe com KPIs+Kanban visual+3 tabs. Metricas agregadas (campaign+bio+form). OriginBadge suporta 'funil' (laranja). |
+
+**Novos arquivos:**
+- `supabase/migrations/20260410000001_m16_funnels.sql`
+- `src/types/funnels.ts`
+- `src/hooks/useFunnels.ts`
+- `src/hooks/useCreateFunnel.ts`
+- `src/hooks/useFunnelMetrics.ts`
+- `src/data/funnelTemplates.ts`
+- `src/pages/dashboard/FunnelsPage.tsx`
+- `src/pages/dashboard/FunnelWizard.tsx`
+- `src/pages/dashboard/FunnelDetail.tsx`
+
+**Arquivos modificados:**
+- `src/components/dashboard/Sidebar.tsx` — 3 items → 1 "Funis"
+- `src/App.tsx` — 3 rotas novas + 2 lazy imports
+- `supabase/functions/ai-agent/index.ts` — VALID_KEYS, early funnelData load, `<funnel_context>`, handoff priority
+- `supabase/functions/form-public/index.ts` — lookup funil + tag
+- `supabase/functions/bio-public/index.ts` — lookup funil + tag
+- `supabase/functions/whatsapp-webhook/index.ts` — lookup funil + tag
+- `src/components/leads/LeadProfileSection.tsx` — OriginBadge funil
+
+**Fase 5 (Import + Polish):**
+- `src/components/funnels/ImportExistingDialog.tsx` (NOVO) — Dialog com selects de campanhas/bios/forms/boards existentes, vincula a novo funil
+- `src/pages/dashboard/FunnelsPage.tsx` — Botao "Importar existente" no header
+- Rotas antigas (/dashboard/campaigns, /dashboard/bio-links, /dashboard/forms) mantidas como sub-items do menu "Funis"
+
+**M16 completo — 5 fases entregues.** Zero regressao em todos os 5 checkpoints (TS 0 erros, 421 testes, Build OK).
+
+**Polish (5 itens):**
+- `DashboardHome.tsx` — KPI card "Funis Ativos" (5a coluna no grid) + FunnelConversionChart (barras horizontais)
+- `useLeadJourney.ts` — novo tipo `funnel_entry`, detecta tag `funil:SLUG` nas conversas → busca funil
+- `LeadJourneyTimeline.tsx` — evento laranja (Target icon, bg-orange-500)
+- `LeadFunnelCard.tsx` (NOVO) — card que mostra funil ativo do lead + etapa kanban + dias na etapa
+- `LeadDetail.tsx` — integra LeadFunnelCard antes do JourneyTimeline
+- `IntelligenceFilters.tsx` — select "Funil" (opcional, props novas)
+- `Intelligence.tsx` — state `selectedFunnel` + lista de funis passada pro filtro
+- `FunnelConversionChart.tsx` (NOVO) — grafico agregado Visitas→Capturas→Leads→Conversoes
+
+**M16 100% completo — 5 fases + 5 polish.** Zero regressao. TS 0 erros, 421 testes, Build OK.
+
+---
+
+## 2026-04-07
+
 ### M15 — Integração Bio Link + Jornada do Lead (F1+F2)
 - **Tipo:** Feature — milestone completo (2 fases, 13 tasks)
 - **Commit:** 1ebd77c

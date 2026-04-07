@@ -12,7 +12,7 @@ import DashboardFilters, { type DashboardFiltersState } from '@/components/dashb
 import LazySection from '@/components/dashboard/LazySection';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Server, Users, Wifi, WifiOff, MessageSquare, UsersRound, RefreshCw, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Server, Users, Wifi, WifiOff, MessageSquare, UsersRound, RefreshCw, UserPlus, ChevronDown, ChevronUp, Target } from 'lucide-react';
 import HelpdeskMetricsCharts from '@/components/dashboard/HelpdeskMetricsCharts';
 import AgentPerformanceCard from '@/components/dashboard/AgentPerformanceCard';
 import E2eStatusCard from '@/components/dashboard/E2eStatusCard';
@@ -26,6 +26,8 @@ import { formatBR } from '@/lib/dateUtils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useState } from 'react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { useFunnelKPIs } from '@/hooks/useFunnels';
+import FunnelConversionChart from '@/components/dashboard/FunnelConversionChart';
 
 
 interface InstanceStats {
@@ -89,6 +91,9 @@ const DashboardHome = () => {
     })),
     [rawInstances, ownerProfilesMap]
   );
+
+  // Query — Funnel KPIs (M16)
+  const { data: funnelKpis } = useFunnelKPIs();
 
   // Query 2 — Helpdesk leads stats
   const { data: helpdeskLeads = { today: 0, yesterday: 0, total: 0, dailyData: [] } } = useQuery({
@@ -267,7 +272,7 @@ const DashboardHome = () => {
 
       <ErrorBoundary section="Estatisticas">
         {/* KPI Cards - Compact mobile grid */}
-        <div className="grid gap-2 md:gap-3 grid-cols-2 md:grid-cols-4 animate-fade-in" style={{ animationDelay: '100ms' }}>
+        <div className="grid gap-2 md:gap-3 grid-cols-2 md:grid-cols-5 animate-fade-in" style={{ animationDelay: '100ms' }}>
           <StatsCard title="Instâncias" value={instances.length} icon={Server} className="min-h-0" />
           <StatsCard title="Online" value={connectedInstances.length} icon={Wifi} className="min-h-0" />
           <StatsCard title="Grupos" value={loadingStats ? '...' : totalGroups} icon={MessageSquare} className="min-h-0" />
@@ -282,6 +287,15 @@ const DashboardHome = () => {
             } : undefined}
             className="min-h-0"
           />
+          {isSuperAdmin && (
+            <StatsCard
+              title="Funis Ativos"
+              value={funnelKpis?.activeFunnels ?? 0}
+              icon={Target}
+              description={`${funnelKpis?.totalFunnels ?? 0} total`}
+              className="min-h-0"
+            />
+          )}
         </div>
 
         {/* Secondary KPIs - Progressive Disclosure */}
@@ -402,6 +416,13 @@ const DashboardHome = () => {
       <LazySection height="300px">
         <AgentPerformanceCard periodDays={filters.period} />
       </LazySection>
+
+      {/* Funnel Conversion Chart — M16 */}
+      {isSuperAdmin && (
+        <LazySection height="200px">
+          <FunnelConversionChart />
+        </LazySection>
+      )}
 
       {/* E2E Test Status */}
       {isSuperAdmin && (

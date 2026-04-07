@@ -183,6 +183,40 @@ Deno.serve(async (req) => {
         }
       }
 
+      // #M16: Lookup funnel and set funil:SLUG tag on conversation
+      let funnelSlug: string | null = null
+      try {
+        // Find funnel that owns this form or this campaign or this bio page
+        const { data: funnel } = await supabase
+          .from('funnels')
+          .select('slug')
+          .or(`form_id.eq.${form.id}${bio_page ? `,bio_page_id.in.(select id from bio_pages where slug='${bio_page}')` : ''}`)
+          .eq('status', 'active')
+          .limit(1)
+          .maybeSingle()
+        if (funnel) funnelSlug = funnel.slug
+      } catch { /* non-critical */ }
+
+      // If funnel found, tag conversations with funil:SLUG
+      if (funnelSlug && contact.id) {
+        try {
+          const { data: convs } = await supabase
+            .from('conversations')
+            .select('id, tags')
+            .eq('contact_id', contact.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+          if (convs?.[0]) {
+            const existingTags: string[] = convs[0].tags || []
+            if (!existingTags.some((t: string) => t.startsWith('funil:'))) {
+              await supabase.from('conversations').update({
+                tags: [...existingTags, `funil:${funnelSlug}`],
+              }).eq('id', convs[0].id)
+            }
+          }
+        } catch { /* non-critical */ }
+      }
+
       log.info('Form submitted', {
         form_id: form.id,
         contact_id: contact.id,
@@ -190,6 +224,7 @@ Deno.serve(async (req) => {
         campaign: campaignName,
         ref_code,
         bio_page: bio_page || undefined,
+        funnel: funnelSlug || undefined,
       })
 
       return Response.json({

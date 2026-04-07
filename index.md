@@ -56,4 +56,4 @@ type: index
 
 ---
 
-*Última atualização: 2026-04-07 — M15 Integração Funis F1+F2 (Bio→Lead real, journey timeline, badge origem)*
+*Última atualização: 2026-04-07 — M16 Funis Fusão Total F1-F4 (tabela funnels, sidebar unificada, wizard 7 tipos, AI Agent context+handoff, metricas, OriginBadge funil)*

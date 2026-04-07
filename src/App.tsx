@@ -53,6 +53,9 @@ const WhatsappFormsPage = lazy(() => import("./pages/dashboard/WhatsappFormsPage
 const CampaignRedirect = lazy(() => import("./pages/CampaignRedirect"));
 const BioPage = lazy(() => import("./pages/BioPage"));
 const BioLinksPage = lazy(() => import("./pages/dashboard/BioLinksPage"));
+const FunnelsPage = lazy(() => import("./pages/dashboard/FunnelsPage"));
+const FunnelWizard = lazy(() => import("./pages/dashboard/FunnelWizard"));
+const FunnelDetail = lazy(() => import("./pages/dashboard/FunnelDetail"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -246,6 +249,9 @@ const AppRoutes = () => {
         <Route path="leads/:contactId" element={<CrmRoute><ErrorBoundary section="Lead"><Suspense fallback={<PageLoader />}><LeadDetail /></Suspense></ErrorBoundary></CrmRoute>} />
         <Route path="forms" element={<AdminRoute><ErrorBoundary section="Formulários"><Suspense fallback={<PageLoader />}><WhatsappFormsPage /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="bio-links" element={<AdminRoute><ErrorBoundary section="Bio Link"><Suspense fallback={<PageLoader />}><BioLinksPage /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="funnels" element={<AdminRoute><ErrorBoundary section="Funis"><Suspense fallback={<PageLoader />}><FunnelsPage /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="funnels/new" element={<AdminRoute><ErrorBoundary section="Novo Funil"><Suspense fallback={<PageLoader />}><FunnelWizard /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="funnels/:id" element={<AdminRoute><ErrorBoundary section="Funil"><Suspense fallback={<PageLoader />}><FunnelDetail /></Suspense></ErrorBoundary></AdminRoute>} />
         {/* Redirect legacy/bookmarked URLs */}
         <Route path="leads-broadcast" element={<Navigate to="/dashboard/broadcast/leads" replace />} />
       </Route>

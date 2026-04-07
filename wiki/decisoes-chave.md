@@ -1,8 +1,8 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca]
+tags: [decisoes, regras, padroes, seguranca, funis]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-07
+updated: 2026-04-08
 ---
 
 # Decisões-Chave
@@ -45,7 +45,12 @@ Ao alterar feature do AI Agent, sincronizar:
 - STATUS_IA constantes — NUNCA magic strings
 - `leadHelper.ts` para criar leads — NUNCA duplicar FIELD_MAP ou upsert de lead_profiles
 - Tags de origem: sempre `origem:X` (campanha/formulario/bio) — padronizado em todos os sistemas
-- `lead_profiles.origin` deve ser setado na criação do lead (bio/campanha/formulario)
+- `lead_profiles.origin` deve ser setado na criação do lead (bio/campanha/formulario/funil)
+- Tag `funil:SLUG` — setada automaticamente por form-public, bio-public, whatsapp-webhook quando recurso pertence a um funil
+- Handoff priority: funil.handoff_message > agent.handoff_message — funil customiza handoff sem alterar config do agente
+- Funis sao camada de orquestracao — NUNCA duplicar logica dos modulos internos (campaigns, bio, forms). Funil aponta via FK.
+- `funnelTemplates.ts` define defaults por tipo — kanban columns, bio buttons, campaign UTM, form template. Centralizado.
+- `funnelData` carregado early (antes dos handoff triggers) no ai-agent para estar disponivel em todos os paths de handoff
 
 ## Segurança
 

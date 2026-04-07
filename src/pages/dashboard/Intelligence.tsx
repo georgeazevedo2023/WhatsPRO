@@ -22,6 +22,7 @@ import { PERIOD_OPTIONS } from "@/components/intelligence/types";
 import { IntelligenceFilters } from "@/components/intelligence/IntelligenceFilters";
 import { IntelligenceKPICards } from "@/components/intelligence/IntelligenceKPICards";
 import { IntelligenceCharts } from "@/components/intelligence/IntelligenceCharts";
+import { useFunnelsList } from "@/hooks/useFunnels";
 
 function ConversationDetailDialog({
   open,
@@ -143,6 +144,8 @@ export default function Intelligence() {
   const queryClient = useQueryClient();
   const [periodDays, setPeriodDays] = useState("30");
   const [selectedInbox, setSelectedInbox] = useState("all");
+  const [selectedFunnel, setSelectedFunnel] = useState("all");
+  const { data: funnelsList } = useFunnelsList();
   const [analysisEnabled, setAnalysisEnabled] = useState(false);
   const [generatedAt, setGeneratedAt] = useState<Date | null>(null);
   const [copied, setCopied] = useState(false);
@@ -295,6 +298,9 @@ export default function Intelligence() {
         selectedInbox={selectedInbox}
         setSelectedInbox={(v) => { setSelectedInbox(v); setAnalysisEnabled(false); }}
         inboxes={inboxes}
+        funnels={(funnelsList || []).map(f => ({ slug: f.slug, name: f.name }))}
+        selectedFunnel={selectedFunnel}
+        setSelectedFunnel={(v) => { setSelectedFunnel(v); setAnalysisEnabled(false); }}
         summaryCount={summaryCount}
         loading={loading}
         hasAnalysis={!!analysis}

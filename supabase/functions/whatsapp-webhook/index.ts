@@ -762,6 +762,17 @@ Deno.serve(async (req) => {
               for (const t of existing) tagMap.set(t.split(':')[0], t)
               for (const t of campaignTags) tagMap.set(t.split(':')[0], t)
 
+              // #M16: If campaign belongs to a funnel, add funil:SLUG tag
+              try {
+                const { data: funnel } = await supabase
+                  .from('funnels')
+                  .select('slug')
+                  .eq('campaign_id', campaign.id)
+                  .eq('status', 'active')
+                  .maybeSingle()
+                if (funnel) tagMap.set('funil', `funil:${funnel.slug}`)
+              } catch { /* non-critical */ }
+
               await supabase.from('conversations')
                 .update({ tags: Array.from(tagMap.values()) })
                 .eq('id', conversation.id)

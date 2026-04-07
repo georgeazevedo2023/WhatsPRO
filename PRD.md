@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.4.0 | **Última atualização**: 2026-04-07 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 48 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis (F1+F2)
+> **Versão**: 7.5.0 | **Última atualização**: 2026-04-08 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 49 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total
 
 ## Visão Geral
 
@@ -39,6 +39,28 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.5.0 (2026-04-08) — M16 Funis: Fusao Total (5 fases + 5 polish)
+
+**M16 — Fusao Total de Campanhas + Bio Link + Formularios:**
+- Tabela `funnels` com FK para utm_campaigns, bio_pages, whatsapp_forms, kanban_boards
+- Sidebar unificada: 3 items separados → 1 "Funis" com sub-items (campanhas, bio, forms acessiveis)
+- Wizard 4 passos (Tipo→Detalhes→Canais→Resumo) auto-cria Board+Columns+Form+Fields+BioPage+Buttons+Campaign+Funnel
+- 7 tipos de funil: sorteio, captacao, venda, vaga, lancamento, evento, atendimento
+- AI Agent: `<funnel_context>` injection quando tag `funil:SLUG` detectada na conversa
+- Handoff customizado por funil: prioridade funil.handoff_message > agent.handoff_message (3 paths)
+- `max_messages_before_handoff` do funil sobrepoe o do agente
+- Tag `funil:SLUG` propagada automaticamente por form-public, bio-public, whatsapp-webhook
+- FunnelDetail: pagina com KPIs + kanban visual + 3 tabs (Canais, Formulario, Config)
+- useFunnelMetrics: metricas agregadas de campanhas + bio + forms + conversas + kanban
+- OriginBadge: suporta 'funil' (badge laranja com icone Target)
+- LeadFunnelCard: card no LeadDetail mostrando funil ativo + etapa kanban + dias na etapa
+- FunnelConversionChart: grafico horizontal no Dashboard (Visitas→Capturas→Leads→Conversoes)
+- KPI "Funis Ativos" no DashboardHome (5a coluna no grid)
+- funnel_entry na LeadJourneyTimeline (evento laranja)
+- Filtro por funil na Intelligence page (select opcional)
+- ImportExistingDialog: vincular campanhas/bios/forms/boards existentes a novo funil
+- 13 arquivos novos, 9 modificados, zero regressao (TS 0 erros, 421 testes, Build OK)
 
 ### v7.4.0 (2026-04-07) — M15 Integração Bio Link + Jornada do Lead (F1+F2)
 

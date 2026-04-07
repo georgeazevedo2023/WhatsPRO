@@ -110,8 +110,39 @@ Deno.serve(async (req) => {
           return Response.json({ error: 'Database error' }, { status: 500, headers: cors })
         }
 
-        log.info('Lead captured', { bio_page_id, hasName: !!name, hasPhone: !!phone, contactId })
-        return Response.json({ ok: true, contact_id: contactId }, { headers: cors })
+        // #M16: If this bio page belongs to a funnel, tag future conversations with funil:SLUG
+        let funnelSlug: string | null = null
+        if (contactId) {
+          try {
+            const { data: funnel } = await supabase
+              .from('funnels')
+              .select('slug')
+              .eq('bio_page_id', bio_page_id)
+              .eq('status', 'active')
+              .maybeSingle()
+            if (funnel) {
+              funnelSlug = funnel.slug
+              // Tag the most recent conversation for this contact
+              const { data: convs } = await supabase
+                .from('conversations')
+                .select('id, tags')
+                .eq('contact_id', contactId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+              if (convs?.[0]) {
+                const tags: string[] = convs[0].tags || []
+                if (!tags.some((t: string) => t.startsWith('funil:'))) {
+                  await supabase.from('conversations').update({
+                    tags: [...tags, `funil:${funnelSlug}`],
+                  }).eq('id', convs[0].id)
+                }
+              }
+            }
+          } catch { /* non-critical */ }
+        }
+
+        log.info('Lead captured', { bio_page_id, hasName: !!name, hasPhone: !!phone, contactId, funnel: funnelSlug })
+        return Response.json({ ok: true, contact_id: contactId, funnel_slug: funnelSlug }, { headers: cors })
       }
 
       return Response.json({ error: 'Invalid action' }, { status: 400, headers: cors })

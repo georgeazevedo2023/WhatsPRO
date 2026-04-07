@@ -109,6 +109,7 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - Quick Product Import: paste URL → scrape → auto-fill catalog form (S6)
 - Global cross-inbox search (Ctrl+K) with command palette
 - UTM Campaign tracking: links, QR codes, metrics, AI contextual, landing page with countdown + client-side capture
+- Funnels (M16): unified orchestration of Campaigns + Bio Link + Forms + Kanban — 7 funnel types, auto-creation wizard, AI context injection, custom handoff, conversion metrics
 - TTS: AI Agent responds with audio (Gemini 2.5 Flash Preview TTS)
 - Auto-carousel: multi-photo product carousel (up to 5 photos) with AI sales copy per card
 - Handoff triggers: auto-transfer to human when keywords detected
@@ -329,7 +330,15 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Bio tracking tags: BioPage.tsx appenda `[bio:slug|label]` no pre_message de botões whatsapp/catalog. Tags na conversa: `origem:bio` + `bio_page:SLUG`.
 - Bio AI context: ai-agent detecta tag `bio_page:X` → carrega bio_pages → injeta `<bio_context>` no prompt (similar a campaign_context e form_data).
 - Bio→Form attribution: BioPage passa `bio_page=SLUG&bio_btn=ID` na URL do form redirect. CampaignRedirect envia ao form-public. form-public seta origin='bio' + tags.
-- OriginBadge: componente em LeadProfileSection.tsx — badge colorido (verde Bio, azul Campanha, roxo Formulário) baseado em `lead_profiles.origin` + tags da conversa.
-- LeadJourneyTimeline: componente visual em LeadJourneyTimeline.tsx — timeline com touchpoints do lead (bio_lead_captures, utm_visits, form_submissions, conversations, kanban_cards) ordenados cronologicamente.
+- OriginBadge: componente em LeadProfileSection.tsx — badge colorido (verde Bio, azul Campanha, roxo Formulário, laranja Funil) baseado em `lead_profiles.origin` + tags da conversa.
+- LeadJourneyTimeline: componente visual em LeadJourneyTimeline.tsx — timeline com touchpoints do lead (bio_lead_captures, utm_visits, form_submissions, conversations, kanban_cards, funnels) ordenados cronologicamente. Tipo `funnel_entry` (laranja) detecta tag `funil:SLUG`.
 - Forms "Usado em": FormsTab.tsx mostra badges (Megaphone=campanha, Link2=bio) em cada FormCard via `useFormUsage()` hook.
 - Campaign leads: CampaignDetail.tsx seção "Leads desta campanha" — utm_visits matched com contact/lead_profile.
+- Funnels (M16): tabela `funnels` orquestra utm_campaigns + bio_pages + whatsapp_forms + kanban_boards. Sidebar unificada (3→1 "Funis"). Wizard auto-cria todos os recursos. 7 tipos: sorteio, captacao, venda, vaga, lancamento, evento, atendimento.
+- Funnel tag: `funil:SLUG` setada por form-public, bio-public, whatsapp-webhook. AI Agent detecta e injeta `<funnel_context>` no prompt.
+- Funnel handoff: prioridade funil.handoff_message > agent.handoff_message. Funil pode customizar max_messages_before_handoff e handoff_department.
+- Funnel templates: `funnelTemplates.ts` — kanban columns, bio defaults, campaign defaults, form template mapping por tipo.
+- FunnelDetail: pagina com KPIs, kanban visual, 3 tabs (Canais, Formulario, Config). Metricas agregadas via useFunnelMetrics.
+- FunnelConversionChart: grafico horizontal no Dashboard — Visitas→Capturas→Leads→Conversoes agregado de funis ativos.
+- LeadFunnelCard: card no LeadDetail mostrando funil ativo + etapa kanban + dias na etapa.
+- ImportExistingDialog: dialog que permite vincular campanhas/bios/forms/boards existentes a um novo funil.
