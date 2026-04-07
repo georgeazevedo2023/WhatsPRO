@@ -534,6 +534,32 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 8.7 Load bio link context (if conversation has bio_page: tag)
+    const bioPageTag = (conversation.tags || []).find((t: string) => t.startsWith('bio_page:'))
+    if (bioPageTag) {
+      const bioSlug = bioPageTag.split(':').slice(1).join(':')
+      try {
+        const { data: bioPage } = await supabase
+          .from('bio_pages')
+          .select('title, slug, description')
+          .eq('slug', bioSlug)
+          .maybeSingle()
+
+        if (bioPage) {
+          const bioParts: string[] = [
+            `\n\n<bio_context>`,
+            `Este lead chegou pela página Bio Link "${bioPage.title}".`,
+          ]
+          if (bioPage.description) bioParts.push(`Descrição da página: ${bioPage.description}`)
+          bioParts.push('Adapte a conversa ao contexto da página bio.')
+          bioParts.push('</bio_context>')
+          campaignContext += bioParts.join('\n')
+        }
+      } catch (err) {
+        log.warn('Bio context load error (non-critical)', { error: (err as Error).message })
+      }
+    }
+
     // ── SHADOW MODE ──────────────────────────────────────────────────────
     // AI listens without responding, only extracts info via tools
     if (conversation.status_ia === STATUS_IA.SHADOW) {

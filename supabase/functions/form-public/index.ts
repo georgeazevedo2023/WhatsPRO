@@ -7,6 +7,7 @@
  */
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { upsertLeadFromFormData } from '../_shared/leadHelper.ts'
 
 const cors: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -15,16 +16,6 @@ const cors: Record<string, string> = {
 }
 
 const log = createLogger('form-public')
-
-// Standard field_key → lead_profiles column mapping
-const FIELD_MAP: Record<string, string> = {
-  nome: 'full_name', nome_completo: 'full_name', full_name: 'full_name',
-  email: 'email', cpf: 'cpf',
-  cidade: 'city', city: 'city',
-  estado: 'state', state: 'state',
-  empresa: 'company', company: 'company',
-  cargo: 'role', role: 'role',
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -75,7 +66,7 @@ Deno.serve(async (req) => {
   if (req.method === 'POST') {
     try {
       const body = await req.json()
-      const { slug, ref_code, data, phone } = body
+      const { slug, ref_code, data, phone, bio_page, bio_btn } = body
 
       if (!slug || !data || !phone) {
         return Response.json({ error: 'Missing slug, data, or phone' }, { status: 400, headers: cors })
@@ -126,25 +117,9 @@ Deno.serve(async (req) => {
         .select('id')
         .single()
 
-      // Upsert lead_profile from form data
-      const leadData: Record<string, unknown> = { contact_id: contact.id }
-      const customFields: Record<string, unknown> = {}
-
-      for (const [key, value] of Object.entries(data)) {
-        const col = FIELD_MAP[key.toLowerCase()]
-        if (col) {
-          leadData[col] = value
-        } else if (key !== 'telefone' && key !== 'phone' && key !== 'whatsapp') {
-          customFields[key] = value
-        }
-      }
-
-      if (Object.keys(customFields).length > 0) {
-        leadData.custom_fields = customFields
-      }
-      leadData.first_contact_at = new Date().toISOString()
-
-      await supabase.from('lead_profiles').upsert(leadData, { onConflict: 'contact_id' })
+      // Upsert lead_profile from form data (shared helper)
+      const origin = bio_page ? 'bio' : (ref_code ? 'campanha' : 'formulario')
+      await upsertLeadFromFormData(supabase, contact.id, data, origin)
 
       // Match utm_visit if ref_code provided
       let campaignName: string | null = null
@@ -194,7 +169,12 @@ Deno.serve(async (req) => {
                   column_id: cols[0].id,
                   contact_id: contact.id,
                   title: (data.nome || data.nome_completo || cleanPhone) as string,
-                  tags: ['auto-criado', `campanha:${campaignName}`, `formulario:${slug}`],
+                  tags: [
+                    'auto-criado',
+                    `campanha:${campaignName}`,
+                    `formulario:${slug}`,
+                    ...(bio_page ? [`origem:bio`, `bio_page:${bio_page}`] : []),
+                  ],
                   position: 0,
                 })
               }
@@ -209,6 +189,7 @@ Deno.serve(async (req) => {
         submission_id: submission?.id,
         campaign: campaignName,
         ref_code,
+        bio_page: bio_page || undefined,
       })
 
       return Response.json({

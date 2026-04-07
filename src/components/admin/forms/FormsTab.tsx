@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { supabase } from '@/integrations/supabase/client'
 import {
   FileText,
   Search,
@@ -11,6 +13,8 @@ import {
   ArchiveRestore,
   Trash2,
   TableOfContents,
+  Megaphone,
+  Link2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -77,8 +81,48 @@ const STATUS_BORDER: Record<WhatsappForm['status'], string> = {
 }
 
 // ─── FormCard ─────────────────────────────────────────────────────────────────
+/** M15 — Hook to find which campaigns and bio pages reference each form slug */
+function useFormUsage(formSlugs: string[]) {
+  return useQuery({
+    queryKey: ['form-usage', formSlugs],
+    queryFn: async () => {
+      if (formSlugs.length === 0) return {} as Record<string, { campaigns: string[]; bioPages: string[] }>
+
+      const [campaignsRes, bioRes] = await Promise.all([
+        supabase.from('utm_campaigns').select('name, form_slug').in('form_slug', formSlugs),
+        supabase.from('bio_buttons').select('form_slug, bio_pages(title)').in('form_slug', formSlugs),
+      ])
+
+      const usage: Record<string, { campaigns: string[]; bioPages: string[] }> = {}
+      for (const slug of formSlugs) {
+        usage[slug] = { campaigns: [], bioPages: [] }
+      }
+
+      for (const row of campaignsRes.data || []) {
+        if (row.form_slug && usage[row.form_slug]) {
+          usage[row.form_slug].campaigns.push(row.name)
+        }
+      }
+
+      for (const row of bioRes.data || []) {
+        if (row.form_slug && usage[row.form_slug]) {
+          const title = (row as any).bio_pages?.title
+          if (title && !usage[row.form_slug].bioPages.includes(title)) {
+            usage[row.form_slug].bioPages.push(title)
+          }
+        }
+      }
+
+      return usage
+    },
+    enabled: formSlugs.length > 0,
+    staleTime: 60_000,
+  })
+}
+
 interface FormCardProps {
   form: WhatsappForm
+  usage?: { campaigns: string[]; bioPages: string[] }
   onEdit: (id: string) => void
   onViewSubmissions: (id: string) => void
   onShare: (form: WhatsappForm) => void
@@ -88,6 +132,7 @@ interface FormCardProps {
 
 function FormCard({
   form,
+  usage,
   onEdit,
   onViewSubmissions,
   onShare,
@@ -126,6 +171,22 @@ function FormCard({
       {/* Descrição */}
       {form.description && (
         <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{form.description}</p>
+      )}
+
+      {/* M15 — "Usado em" badges */}
+      {usage && (usage.campaigns.length > 0 || usage.bioPages.length > 0) && (
+        <div className="flex flex-wrap gap-1">
+          {usage.campaigns.map(name => (
+            <Badge key={`c-${name}`} variant="outline" className="text-[10px] px-1.5 py-0 h-4 gap-1 bg-blue-500/10 text-blue-600 border-blue-500/20">
+              <Megaphone className="w-2.5 h-2.5" /> {name}
+            </Badge>
+          ))}
+          {usage.bioPages.map(title => (
+            <Badge key={`b-${title}`} variant="outline" className="text-[10px] px-1.5 py-0 h-4 gap-1 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+              <Link2 className="w-2.5 h-2.5" /> {title}
+            </Badge>
+          ))}
+        </div>
       )}
 
       {/* Rodapé: data + ações */}
@@ -236,6 +297,10 @@ export function FormsTab({ agentId }: FormsTabProps) {
   const createForm = useCreateForm()
   const updateForm = useUpdateForm()
   const deleteForm = useDeleteForm()
+
+  // M15 — fetch which campaigns/bios use each form
+  const formSlugs = forms.map(f => f.slug).filter(Boolean)
+  const { data: formUsageMap } = useFormUsage(formSlugs)
 
   const filteredForms = forms.filter((f) =>
     f.name.toLowerCase().includes(search.toLowerCase()),
@@ -373,6 +438,7 @@ export function FormsTab({ agentId }: FormsTabProps) {
             <FormCard
               key={form.id}
               form={form}
+              usage={formUsageMap?.[form.slug]}
               onEdit={setEditFormId}
               onViewSubmissions={setViewSubmissionsFormId}
               onShare={handleShare}

@@ -14,6 +14,7 @@ import { LeadHistorySection } from '@/components/leads/LeadHistorySection';
 import { LeadTimelineSection } from '@/components/leads/LeadTimelineSection';
 import { LeadFormsSection } from '@/components/leads/LeadFormsSection';
 import { LeadFilesSection } from '@/components/leads/LeadFilesSection';
+import { LeadJourneyTimeline } from '@/components/leads/LeadJourneyTimeline';
 import { ConversationModal } from '@/components/leads/ConversationModal';
 import { ArrowLeft, MapPin, Settings2, Trash2, Loader2, Save, Contact2, ExternalLink, Activity } from 'lucide-react';
 import { toast } from 'sonner';
@@ -539,8 +540,11 @@ const LeadDetail = () => {
             onOpenConversation={openConversation}
           />
 
+          {/* Journey Timeline — M15 */}
+          {contactId && <LeadJourneyTimeline contactId={contactId} />}
+
           {/* Forms Section */}
-          {lead?.contact_id && <LeadFormsSection contactId={lead.contact_id} />}
+          {contactId && <LeadFormsSection contactId={contactId} />}
 
           {/* Timeline Section */}
           <LeadTimelineSection events={actionEvents} />

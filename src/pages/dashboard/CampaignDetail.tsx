@@ -16,8 +16,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowLeft, Pencil, Loader2, UserCheck, Clock, Globe } from 'lucide-react';
+import { ArrowLeft, Pencil, Loader2, UserCheck, Clock, Globe, Users } from 'lucide-react';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 const CampaignDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -116,6 +118,9 @@ const CampaignDetail = () => {
         </Card>
       </div>
 
+      {/* M15 — Leads desta campanha */}
+      <CampaignLeadsSection campaignId={id!} />
+
       {/* Recent visits */}
       <Card>
         <CardHeader>
@@ -194,5 +199,75 @@ const CampaignDetail = () => {
     </div>
   );
 };
+
+function fmtDate(d: string | null) {
+  if (!d) return '-'
+  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+/** M15 — Leads that converted from this campaign (matched utm_visits with contact) */
+function CampaignLeadsSection({ campaignId }: { campaignId: string }) {
+  const { data: leads, isLoading } = useQuery({
+    queryKey: ['campaign-leads', campaignId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('utm_visits')
+        .select('id, matched_at, contacts(id, phone, name, profile_pic_url), lead_profiles(full_name, email, origin)')
+        .eq('campaign_id', campaignId)
+        .eq('status', 'matched')
+        .not('contact_id', 'is', null)
+        .order('matched_at', { ascending: false })
+        .limit(20)
+      return data || []
+    },
+    enabled: !!campaignId,
+  })
+
+  if (isLoading || !leads?.length) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Users className="w-4 h-4" />
+          Leads desta campanha
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal ml-auto">
+            {leads.length}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Contato</TableHead>
+              <TableHead>Nome</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Conversao</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {leads.map((v: any) => (
+              <TableRow key={v.id}>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Avatar className="w-7 h-7">
+                      <AvatarImage src={v.contacts?.profile_pic_url || undefined} />
+                      <AvatarFallback className="text-xs">{(v.contacts?.name || v.contacts?.phone || '?')[0]}</AvatarFallback>
+                    </Avatar>
+                    <div className="text-sm">{v.contacts?.name || v.contacts?.phone || '-'}</div>
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm">{v.lead_profiles?.full_name || '-'}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">{v.lead_profiles?.email || '-'}</TableCell>
+                <TableCell className="text-sm">{fmtDate(v.matched_at)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
 
 export default CampaignDetail;

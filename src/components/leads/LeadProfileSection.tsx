@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ContactAvatar } from '@/components/helpdesk/ContactAvatar';
-import { User, ShieldBan, Calendar, Phone, MapPin } from 'lucide-react';
+import { User, ShieldBan, Calendar, Phone, MapPin, Globe, Link2, FileText, Megaphone } from 'lucide-react';
 import { ORIGIN_OPTIONS } from './types';
 import type { ExtractionField, InstanceOption } from './types';
 
@@ -35,6 +35,45 @@ interface LeadProfileSectionProps {
   editDocument: string;
   setEditDocument: (v: string) => void;
   onToggleBlockInstance: (instanceId: string) => void;
+}
+
+/** M15 — Visual badge showing lead origin (campanha, bio, formulario, organic) */
+function OriginBadge({ origin, tags }: { origin: string; tags: string[] }) {
+  // Extract specific source name from tags
+  const bioTag = tags.find(t => t.startsWith('bio_page:'))
+  const campaignTag = tags.find(t => t.startsWith('campanha:'))
+  const formTag = tags.find(t => t.startsWith('formulario:'))
+
+  const config: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
+    bio: {
+      icon: <Link2 className="w-3 h-3" />,
+      label: bioTag ? `Bio Link: ${bioTag.split(':')[1]}` : 'Bio Link',
+      className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+    },
+    campanha: {
+      icon: <Megaphone className="w-3 h-3" />,
+      label: campaignTag ? `Campanha: ${campaignTag.split(':')[1]}` : 'Campanha',
+      className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+    },
+    formulario: {
+      icon: <FileText className="w-3 h-3" />,
+      label: formTag ? `Formulário: ${formTag.split(':')[1]}` : 'Formulário',
+      className: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+    },
+  }
+
+  const c = config[origin] || {
+    icon: <Globe className="w-3 h-3" />,
+    label: origin || 'Orgânico',
+    className: 'bg-muted text-muted-foreground border-border',
+  }
+
+  return (
+    <Badge variant="outline" className={`text-xs px-2.5 py-1 gap-1.5 font-medium ${c.className}`}>
+      {c.icon}
+      {c.label}
+    </Badge>
+  )
 }
 
 export function LeadProfileSection({
@@ -96,6 +135,16 @@ export function LeadProfileSection({
                 <p className="text-sm font-medium truncate mt-0.5">{extractedData[f.key]}</p>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Origin badge — M15 */}
+        {lp.origin && (
+          <div>
+            <Label className="text-xs text-muted-foreground">Origem do Lead</Label>
+            <div className="mt-1.5">
+              <OriginBadge origin={lp.origin} tags={contact.tags} />
+            </div>
           </div>
         )}
 

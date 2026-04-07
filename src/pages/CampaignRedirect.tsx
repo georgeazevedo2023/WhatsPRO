@@ -77,7 +77,7 @@ function RedirectView({ name, waUrl, refCode, postUrl }: { name: string; waUrl: 
 }
 
 // ── Form Mode (fields → submit → redirect) ──────────────────────────
-function FormView({ name, waUrl, refCode, formSlug, postUrl }: { name: string; waUrl: string; refCode: string; formSlug: string; postUrl: string }) {
+function FormView({ name, waUrl, refCode, formSlug, postUrl, bioPage, bioBtn }: { name: string; waUrl: string; refCode: string; formSlug: string; postUrl: string; bioPage?: string; bioBtn?: string }) {
   const [fields, setFields] = useState<FormField[]>([]);
   const [welcomeMsg, setWelcomeMsg] = useState('');
   const [loading, setLoading] = useState(true);
@@ -123,6 +123,8 @@ function FormView({ name, waUrl, refCode, formSlug, postUrl }: { name: string; w
         ref_code: refCode,
         phone,
         data: formData,
+        ...(bioPage ? { bio_page: bioPage } : {}),
+        ...(bioBtn ? { bio_btn: bioBtn } : {}),
       }),
     });
 
@@ -170,6 +172,8 @@ export default function CampaignRedirect() {
   const postUrl = params.get('p') || '';
   const mode = params.get('mode') || 'redirect';
   const formSlug = params.get('fs') || '';
+  const bioPage = params.get('bio_page') || '';
+  const bioBtn = params.get('bio_btn') || '';
 
   if (!waUrl) {
     return (
@@ -187,7 +191,7 @@ export default function CampaignRedirect() {
         </div>
 
         {mode === 'form' && formSlug ? (
-          <FormView name={name} waUrl={waUrl} refCode={refCode} formSlug={formSlug} postUrl={postUrl} />
+          <FormView name={name} waUrl={waUrl} refCode={refCode} formSlug={formSlug} postUrl={postUrl} bioPage={bioPage || undefined} bioBtn={bioBtn || undefined} />
         ) : (
           <RedirectView name={name} waUrl={waUrl} refCode={refCode} postUrl={postUrl} />
         )}

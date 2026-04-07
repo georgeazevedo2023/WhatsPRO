@@ -1,6 +1,7 @@
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { upsertLeadFromFormData } from '../_shared/leadHelper.ts'
 
 const supabase = createServiceClient()
 const log = createLogger('form-bot')
@@ -395,30 +396,10 @@ Deno.serve(async (req) => {
           log.error('Auto-tag error (non-critical)', { error: (err as Error).message })
         }
 
-        // ── Auto-upsert lead_profile from form data ─────────────────
+        // ── Auto-upsert lead_profile from form data (shared helper) ──
         if (session.contact_id) {
           try {
-            const FIELD_MAP: Record<string, string> = {
-              nome: 'full_name', nome_completo: 'full_name', full_name: 'full_name',
-              email: 'email', cpf: 'cpf',
-              cidade: 'city', city: 'city',
-              estado: 'state', state: 'state',
-              empresa: 'company', company: 'company',
-              cargo: 'role', role: 'role',
-            }
-            const leadData: Record<string, unknown> = { contact_id: session.contact_id }
-            const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(newData)) {
-              const col = FIELD_MAP[key.toLowerCase()]
-              if (col) {
-                leadData[col] = value
-              } else if (!['telefone', 'phone', 'whatsapp'].includes(key.toLowerCase())) {
-                customFields[key] = value
-              }
-            }
-            if (Object.keys(customFields).length > 0) leadData.custom_fields = customFields
-            leadData.first_contact_at = new Date().toISOString()
-            await supabase.from('lead_profiles').upsert(leadData, { onConflict: 'contact_id' })
+            await upsertLeadFromFormData(supabase, session.contact_id, newData, 'formulario')
             log.info('Lead profile upserted from form', { contact_id: session.contact_id })
           } catch (err) {
             log.error('Lead upsert error (non-critical)', { error: (err as Error).message })

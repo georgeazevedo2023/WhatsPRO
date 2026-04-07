@@ -64,12 +64,19 @@ function handleButtonClickAction(button: BioButtonWithCatalog, page?: BioPageTyp
           .replace(/\{button_label\}/g, button.label)
         preMsg = preMsg ? `${preMsg}\n${ctx}` : ctx
       }
+      // M15: append bio tracking tag (invisible to user, detectable by webhook/AI Agent)
+      if (page?.slug) {
+        const bioTag = `[bio:${page.slug}|${button.label}]`
+        preMsg = preMsg ? `${preMsg}\n${bioTag}` : bioTag
+      }
       const msg = preMsg ? encodeURIComponent(preMsg) : ''
       window.open(`https://wa.me/${phone}${msg ? `?text=${msg}` : ''}`, '_blank')
       break
     }
     case 'form': {
-      if (button.form_slug) {
+      if (button.form_slug && page?.slug) {
+        window.location.href = `/r?mode=form&fs=${button.form_slug}&bio_page=${encodeURIComponent(page.slug)}&bio_btn=${button.id}`
+      } else if (button.form_slug) {
         window.location.href = `/r?mode=form&fs=${button.form_slug}`
       }
       break
@@ -85,6 +92,11 @@ function handleButtonClickAction(button: BioButtonWithCatalog, page?: BioPageTyp
             .replace(/\{page_title\}/g, page.title)
             .replace(/\{button_label\}/g, button.label)
           baseMsg = baseMsg ? `${baseMsg}\n${ctx}` : ctx
+        }
+        // M15: append bio tracking tag
+        if (page?.slug) {
+          const bioTag = `[bio:${page.slug}|${button.label}]`
+          baseMsg = baseMsg ? `${baseMsg}\n${bioTag}` : bioTag
         }
         const msg = baseMsg ? encodeURIComponent(baseMsg) : ''
         window.open(`https://wa.me/${phone}${msg ? `?text=${msg}` : ''}`, '_blank')

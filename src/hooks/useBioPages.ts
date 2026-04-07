@@ -315,10 +315,10 @@ export function useBioAnalytics(instanceId: string | null) {
         .in('bio_page_id', pageIds)
       if (buttonsErr) throw buttonsErr
 
-      // Leads capturados (count por página)
+      // Leads capturados (count por página, with contact_id for conversion tracking)
       const { data: captures, error: capturesErr } = await supabase
         .from('bio_lead_captures')
-        .select('bio_page_id')
+        .select('bio_page_id, contact_id')
         .in('bio_page_id', pageIds)
       if (capturesErr) throw capturesErr
 

@@ -10,6 +10,7 @@
  */
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { upsertContactFromPhone, upsertLeadFromFormData } from '../_shared/leadHelper.ts'
 
 const cors: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -74,11 +75,30 @@ Deno.serve(async (req) => {
           return Response.json({ error: 'At least name or phone is required' }, { status: 400, headers: cors })
         }
 
+        // Create real contact + lead_profile if phone provided
+        let contactId: string | null = null
+        if (phone) {
+          const contact = await upsertContactFromPhone(supabase, phone, name)
+          if (contact) {
+            contactId = contact.id
+            const formData: Record<string, unknown> = {}
+            if (name) formData.nome = name
+            if (email) formData.email = email
+            if (extra_data) {
+              for (const [k, v] of Object.entries(extra_data)) {
+                formData[k] = v
+              }
+            }
+            await upsertLeadFromFormData(supabase, contactId, formData, 'bio')
+          }
+        }
+
         const { error } = await supabase
           .from('bio_lead_captures')
           .insert({
             bio_page_id,
             bio_button_id: bio_button_id ?? null,
+            contact_id: contactId,
             name: name ?? null,
             phone: phone ?? null,
             email: email ?? null,
@@ -90,8 +110,8 @@ Deno.serve(async (req) => {
           return Response.json({ error: 'Database error' }, { status: 500, headers: cors })
         }
 
-        log.info('Lead captured', { bio_page_id, hasName: !!name, hasPhone: !!phone })
-        return Response.json({ ok: true }, { headers: cors })
+        log.info('Lead captured', { bio_page_id, hasName: !!name, hasPhone: !!phone, contactId })
+        return Response.json({ ok: true, contact_id: contactId }, { headers: cors })
       }
 
       return Response.json({ error: 'Invalid action' }, { status: 400, headers: cors })
