@@ -1,5 +1,76 @@
 # WhatsPRO - CRM Multi-Tenant WhatsApp
 
+## Vault Obsidian — Sistema RAG Local (método Karpathy)
+
+Este projeto é um vault Obsidian que funciona como **cérebro persistente** do projeto.
+A IA (Claude Code) DEVE usar o vault como memória de longo prazo — lendo, consultando e mantendo as páginas wiki atualizadas.
+
+### REGRA ZERO — DOCUMENTAÇÃO É OBRIGATÓRIA, NÃO OPCIONAL
+
+> **NUNCA** terminar uma tarefa sem documentar no vault.
+> Código sem documentação no vault é trabalho incompleto.
+> Se você implementou, corrigiu, decidiu, testou ou deployou — o vault DEVE refletir isso.
+
+---
+
+### PROTOCOLO DE INÍCIO DE SESSÃO (OBRIGATÓRIO)
+
+Ao iniciar QUALQUER sessão, SEMPRE execute ANTES de qualquer código:
+
+1. **Ler `index.md`** — Mapa completo do projeto
+2. **Ler `wiki/roadmap.md`** — Status atual e próximos passos
+3. **Ler `wiki/erros-e-licoes.md`** — NÃO repetir erros documentados
+4. **Ler `log.md`** (últimas 5 entradas) — O que mudou recentemente
+5. **Ler `wiki/decisoes-chave.md`** — Regras e padrões vigentes
+
+Se pular, PARE e volte ao passo 1.
+
+### PROTOCOLO DE FIM DE SESSÃO (OBRIGATÓRIO)
+
+1. **Atualizar `log.md`** — Resumo de TUDO que foi feito (tipo, arquivos, decisões)
+2. **Atualizar wikis afetadas** — Páginas que ficaram desatualizadas
+3. **Atualizar `wiki/roadmap.md`** — Se progresso de alguma fase mudou
+4. **Atualizar `wiki/erros-e-licoes.md`** — Se encontrou/corrigiu bugs
+5. **Informar o usuário** — Resumo do que foi documentado
+
+---
+
+### COMANDOS DO USUÁRIO
+
+| O usuário diz | O que fazer |
+|---------------|-------------|
+| "leia o vault" / "contexto" | Protocolo de início (5 passos) → resumo do estado |
+| "contexto geral" | Ler index + visao-produto + arquitetura + roadmap → resumo completo |
+| "roadmap" / "status do projeto" | Ler roadmap + log → fases, progresso, bloqueios |
+| "o que falta?" | Ler roadmap → listar só pendente por fase |
+| "documentou?" / "atualiza o vault" | Atualizar log + wikis afetadas |
+| "status do vault" / "lint" | Auditoria de consistência do vault |
+| "fim de sessão" | Protocolo de fim (documentar tudo + resumo) |
+
+---
+
+### QUANDO ATUALIZAR O VAULT
+
+- **Após COMMIT:** log.md + wiki/roadmap.md
+- **Após NOVA FEATURE:** wiki relevante + index (se nova página) + log.md
+- **Após BUG:** wiki/erros-e-licoes.md (causa + correção + regra preventiva) + log.md
+- **Após DECISÃO:** wiki/decisoes-chave.md + log.md
+- **Após AUDITORIA/TESTES:** wiki/erros-e-licoes.md (se problemas) + roadmap + log.md
+- **Após REFATORAÇÃO:** wikis afetadas + log.md
+- **Após DEPENDÊNCIA:** wiki/arquitetura.md + log.md
+- **Antes de DEPLOY:** seguir wiki/deploy-checklist.md → registrar em log.md
+
+### CONVENÇÕES
+
+- Wikilinks: `[[wiki/pagina]]`
+- Frontmatter YAML: title, tags, sources, updated
+- `log.md` é append-only
+- Fontes brutas (PRD.md, docs/) são read-only
+- Datas absolutas: `2026-04-05`
+- Português (Brasil) com acentuação correta
+
+---
+
 ## Overview
 WhatsPRO is a multi-tenant WhatsApp helpdesk, CRM, AI Agent, and Leads platform built with React + Supabase + UAZAPI.
 
@@ -228,7 +299,7 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - max_lead_messages: auto-handoff apos N msgs do lead (default 8). Atomic counter via increment_lead_msg_count RPC.
 - Campaign context: tag campanha:NAME on conversation → loads utm_campaigns.ai_template + ai_custom_text into system prompt
 - context_long_enabled (Memoria do Lead): loads lead_profiles (full_name, city, interests, ticket, objections, conversation_summaries) into prompt
-- Shared modules (15): cors.ts, fetchWithTimeout.ts, circuitBreaker.ts, llmProvider.ts, constants.ts, logger.ts, agentHelpers.ts, auth.ts, supabaseClient.ts, carousel.ts, rateLimit.ts, validatorAgent.ts, ttsProviders.ts, response.ts, aiRuntime.ts
+- Shared modules (16): cors.ts, fetchWithTimeout.ts, circuitBreaker.ts, llmProvider.ts, constants.ts, logger.ts, agentHelpers.ts, auth.ts, supabaseClient.ts, carousel.ts, rateLimit.ts, validatorAgent.ts, ttsProviders.ts, response.ts, aiRuntime.ts, leadHelper.ts
 - Admin AI Agent components (19): GeneralConfig, BrainConfig, CatalogConfig, CatalogTable, CatalogProductForm, CsvProductImport, BatchScrapeImport, KnowledgeConfig, RulesConfig, GuardrailsConfig, VoiceConfig, ExtractionConfig, MetricsConfig, ValidatorMetrics, SubAgentsConfig, BlockedNumbersConfig, FollowUpConfig, BusinessInfoConfig, PromptStudio
 - Admin AI Agent tabs: Setup (GeneralConfig+BusinessInfo), Prompt Studio, Inteligencia (Brain+SubAgents+Extraction), Catalogo, Conhecimento, Seguranca (Rules+Guardrails+BlockedNumbers), Canais (Voice+FollowUp), Metricas (Metrics+ValidatorMetrics)
 - Batch history: e2e_test_batches (UUID PK) → e2e_test_runs.batch_uuid FK. runAllE2e() creates batch row at start, completes it after loop. useE2eBatchHistory/useE2eBatchRuns/useCreateBatch/useCompleteBatch in src/hooks/useE2eBatchHistory.ts
@@ -253,3 +324,12 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Form-bot auto-tag: após completion, taga conversa com `formulario:SLUG` + `origem:formulario` via mergeTags. Também faz upsert lead_profile com dados coletados (mesmo FIELD_MAP do form-public).
 - AI Agent form context: detecta tag `formulario:SLUG` na conversa, carrega submission do form_submissions, injeta dados no prompt como `<form_data>`. Instrui LLM a NÃO perguntar informações já coletadas.
 - LeadFormsSection: componente no LeadDetail mostra "Formulários respondidos" com badge de contagem, template_type, data, preview dos 2 primeiros campos. Clique expande pra ver todos os dados coletados.
+- leadHelper.ts: `_shared/leadHelper.ts` — módulo compartilhado com `FORM_FIELD_MAP`, `upsertContactFromPhone()`, `upsertLeadFromFormData()`. Usado por form-public, form-bot, bio-public. NUNCA duplicar FIELD_MAP localmente.
+- Bio lead creation: bio-public action='capture' cria contact + lead_profile real (via leadHelper) com `origin='bio'`. Armazena contact_id em bio_lead_captures.
+- Bio tracking tags: BioPage.tsx appenda `[bio:slug|label]` no pre_message de botões whatsapp/catalog. Tags na conversa: `origem:bio` + `bio_page:SLUG`.
+- Bio AI context: ai-agent detecta tag `bio_page:X` → carrega bio_pages → injeta `<bio_context>` no prompt (similar a campaign_context e form_data).
+- Bio→Form attribution: BioPage passa `bio_page=SLUG&bio_btn=ID` na URL do form redirect. CampaignRedirect envia ao form-public. form-public seta origin='bio' + tags.
+- OriginBadge: componente em LeadProfileSection.tsx — badge colorido (verde Bio, azul Campanha, roxo Formulário) baseado em `lead_profiles.origin` + tags da conversa.
+- LeadJourneyTimeline: componente visual em LeadJourneyTimeline.tsx — timeline com touchpoints do lead (bio_lead_captures, utm_visits, form_submissions, conversations, kanban_cards) ordenados cronologicamente.
+- Forms "Usado em": FormsTab.tsx mostra badges (Megaphone=campanha, Link2=bio) em cada FormCard via `useFormUsage()` hook.
+- Campaign leads: CampaignDetail.tsx seção "Leads desta campanha" — utm_visits matched com contact/lead_profile.

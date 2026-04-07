@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.2.0 | **Última atualização**: 2026-04-06 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 46 Tabelas + M2 Agent QA Framework (F1+F2+F3+F4 concluídos) + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link (F1+F2)
+> **Versão**: 7.4.0 | **Última atualização**: 2026-04-07 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 48 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis (F1+F2)
 
 ## Visão Geral
 
@@ -39,6 +39,45 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.4.0 (2026-04-07) — M15 Integração Bio Link + Jornada do Lead (F1+F2)
+
+**M15 F1 — Foundation (dados isolados corrigidos):**
+- `supabase/migrations/20260409000001_m15_bio_lead_captures_and_funnel.sql` — cria tabela `bio_lead_captures` (estava sem migration!) + coluna `contact_id` FK
+- `supabase/functions/_shared/leadHelper.ts` — módulo compartilhado: `FORM_FIELD_MAP`, `upsertContactFromPhone()`, `upsertLeadFromFormData()` (elimina duplicação em form-public e form-bot)
+- `supabase/functions/bio-public/index.ts` — action 'capture' agora cria contact + lead_profile real com `origin='bio'`
+- `supabase/functions/form-public/index.ts` — usa leadHelper, reconhece `bio_page` param, tags `origem:bio` + `bio_page:SLUG`
+- `supabase/functions/form-bot/index.ts` — usa leadHelper (FIELD_MAP local removido)
+- `supabase/functions/ai-agent/index.ts` — novo bloco `<bio_context>` injetado quando conversa tem tag `bio_page:X`
+- `src/pages/BioPage.tsx` — gera bio tracking tag `[bio:slug|label]` + passa `bio_page` no redirect de form
+- `src/pages/CampaignRedirect.tsx` — passa `bio_page`/`bio_btn` ao form-public no submit
+
+**M15 F2 — Admin UX (jornada do lead):**
+- `src/components/leads/LeadProfileSection.tsx` — `OriginBadge` colorido (verde=Bio, azul=Campanha, roxo=Formulário)
+- `src/components/leads/LeadJourneyTimeline.tsx` + `src/hooks/useLeadJourney.ts` — timeline visual com touchpoints (bio→form→conversa→kanban)
+- `src/pages/dashboard/LeadDetail.tsx` — integra journey timeline
+- `src/components/admin/forms/FormsTab.tsx` — badges "Usado em" (campanhas/bios que referenciam cada form)
+- `src/pages/dashboard/CampaignDetail.tsx` — seção "Leads desta campanha" com tabela de contatos convertidos
+
+**Shared Modules**: 16 total (+leadHelper) | **Tabelas**: 48 total (+bio_lead_captures)
+
+---
+
+### v7.3.0 (2026-04-06) — M14 Bio Link Fase 3 (Funil + AI Context + Analytics)
+
+**M14 Fase 3 — Bio Link: Captação de Leads + Contexto AI + Analytics:**
+- `supabase/migrations/*_m14_bio_fase3.sql` — tabela `bio_lead_captures` + 6 novos campos em `bio_pages` (`capture_enabled`, `capture_fields`, `capture_title`, `capture_button_label`, `ai_context_enabled`, `ai_context_template`)
+- `supabase/functions/bio-public/index.ts` — nova action `'capture'` no POST → INSERT em `bio_lead_captures` (backward-compat: POST sem action mas com `button_id` → click)
+- `src/types/bio.ts` — `BioLeadCapture` interface + 6 campos Fase 3 em `BioPage` e `CreateBioPageInput`
+- `src/components/bio/BioLeadCaptureModal.tsx` — Dialog com campos dinâmicos baseados em `capture_fields`, título/label configuráveis
+- `src/pages/BioPage.tsx` — intercepta cliques (exceto social) quando `capture_enabled` → modal → POST capture → ação original; injeção de contexto AI (`{page_title}`, `{button_label}`) no `pre_message` de botões whatsapp/catalog
+- `src/components/bio/BioLinkEditor.tsx` — tab Aparência: seção "Captação de Leads" (Switch + checkboxes de campos + inputs) + seção "Contexto AI Agent" (Switch + Textarea com dica de variáveis)
+- `src/hooks/useBioPages.ts` — hooks: `useBioLeadCaptures(pageId)` + `useBioAnalytics(instanceId)` (agrega views + cliques + leads + CTR por página)
+- `src/pages/dashboard/BioLinksPage.tsx` — Tabs "Páginas" + "Analytics" (3 KPI cards + tabela CTR por página)
+
+**Tabelas**: 47 total (+bio_lead_captures)
+
+---
 
 ### v7.2.0 (2026-04-06) — M14 Bio Link (Fases 1 + 2)
 
