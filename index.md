@@ -24,6 +24,7 @@ type: index
 | [[wiki/erros-e-licoes]] | Bugs, lições aprendidas, regras preventivas (consultar SEMPRE) |
 | [[wiki/deploy-checklist]] | Checklist obrigatório de pré/pós deploy |
 | [[wiki/decisoes-chave]] | Regras de integridade, padrões, segurança |
+| [[wiki/integracao-funis]] | Como Campanhas + Bio Link + Forms + AI Agent se conectam (M15) |
 
 ---
 
