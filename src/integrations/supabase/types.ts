@@ -553,6 +553,236 @@ export type Database = {
           },
         ]
       }
+      bio_buttons: {
+        Row: {
+          bio_page_id: string
+          catalog_product_id: string | null
+          click_count: number
+          created_at: string
+          ends_at: string | null
+          featured_image_url: string | null
+          form_slug: string | null
+          id: string
+          label: string
+          layout: string
+          phone: string | null
+          position: number
+          pre_message: string | null
+          social_platform: string | null
+          starts_at: string | null
+          thumbnail_url: string | null
+          type: string
+          url: string | null
+          whatsapp_tag: string | null
+        }
+        Insert: {
+          bio_page_id: string
+          catalog_product_id?: string | null
+          click_count?: number
+          created_at?: string
+          ends_at?: string | null
+          featured_image_url?: string | null
+          form_slug?: string | null
+          id?: string
+          label: string
+          layout?: string
+          phone?: string | null
+          position?: number
+          pre_message?: string | null
+          social_platform?: string | null
+          starts_at?: string | null
+          thumbnail_url?: string | null
+          type?: string
+          url?: string | null
+          whatsapp_tag?: string | null
+        }
+        Update: {
+          bio_page_id?: string
+          catalog_product_id?: string | null
+          click_count?: number
+          created_at?: string
+          ends_at?: string | null
+          featured_image_url?: string | null
+          form_slug?: string | null
+          id?: string
+          label?: string
+          layout?: string
+          phone?: string | null
+          position?: number
+          pre_message?: string | null
+          social_platform?: string | null
+          starts_at?: string | null
+          thumbnail_url?: string | null
+          type?: string
+          url?: string | null
+          whatsapp_tag?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bio_buttons_bio_page_id_fkey"
+            columns: ["bio_page_id"]
+            isOneToOne: false
+            referencedRelation: "bio_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bio_buttons_catalog_product_id_fkey"
+            columns: ["catalog_product_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agent_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bio_lead_captures: {
+        Row: {
+          bio_button_id: string | null
+          bio_page_id: string
+          created_at: string
+          email: string | null
+          extra_data: Json | null
+          id: string
+          name: string | null
+          phone: string | null
+        }
+        Insert: {
+          bio_button_id?: string | null
+          bio_page_id: string
+          created_at?: string
+          email?: string | null
+          extra_data?: Json | null
+          id?: string
+          name?: string | null
+          phone?: string | null
+        }
+        Update: {
+          bio_button_id?: string | null
+          bio_page_id?: string
+          created_at?: string
+          email?: string | null
+          extra_data?: Json | null
+          id?: string
+          name?: string | null
+          phone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bio_lead_captures_bio_button_id_fkey"
+            columns: ["bio_button_id"]
+            isOneToOne: false
+            referencedRelation: "bio_buttons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bio_lead_captures_bio_page_id_fkey"
+            columns: ["bio_page_id"]
+            isOneToOne: false
+            referencedRelation: "bio_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bio_pages: {
+        Row: {
+          ai_context_enabled: boolean
+          ai_context_template: string | null
+          avatar_url: string | null
+          bg_color: string
+          bg_gradient_to: string | null
+          bg_type: string
+          button_color: string
+          button_radius: string
+          button_spacing: string
+          button_style: string
+          capture_button_label: string
+          capture_enabled: boolean
+          capture_fields: Json
+          capture_title: string
+          cover_url: string | null
+          created_at: string
+          created_by: string
+          description: string | null
+          font_family: string
+          id: string
+          instance_id: string
+          slug: string
+          status: string
+          template: string
+          text_color: string
+          title: string
+          updated_at: string
+          view_count: number
+        }
+        Insert: {
+          ai_context_enabled?: boolean
+          ai_context_template?: string | null
+          avatar_url?: string | null
+          bg_color?: string
+          bg_gradient_to?: string | null
+          bg_type?: string
+          button_color?: string
+          button_radius?: string
+          button_spacing?: string
+          button_style?: string
+          capture_button_label?: string
+          capture_enabled?: boolean
+          capture_fields?: Json
+          capture_title?: string
+          cover_url?: string | null
+          created_at?: string
+          created_by: string
+          description?: string | null
+          font_family?: string
+          id?: string
+          instance_id: string
+          slug: string
+          status?: string
+          template?: string
+          text_color?: string
+          title: string
+          updated_at?: string
+          view_count?: number
+        }
+        Update: {
+          ai_context_enabled?: boolean
+          ai_context_template?: string | null
+          avatar_url?: string | null
+          bg_color?: string
+          bg_gradient_to?: string | null
+          bg_type?: string
+          button_color?: string
+          button_radius?: string
+          button_spacing?: string
+          button_style?: string
+          capture_button_label?: string
+          capture_enabled?: boolean
+          capture_fields?: Json
+          capture_title?: string
+          cover_url?: string | null
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          font_family?: string
+          id?: string
+          instance_id?: string
+          slug?: string
+          status?: string
+          template?: string
+          text_color?: string
+          title?: string
+          updated_at?: string
+          view_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bio_pages_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       broadcast_logs: {
         Row: {
           carousel_data: Json | null
@@ -889,52 +1119,49 @@ export type Database = {
       }
       e2e_test_batches: {
         Row: {
-          id: string
-          agent_id: string | null
-          created_at: string
-          run_type: string
-          total: number
-          passed: number
-          failed: number
+          agent_id: string
+          batch_id: string
+          completed_at: string | null
           composite_score: number | null
-          status: string
-          approved_by: string | null
-          approved_at: string | null
-          reviewer_notes: string | null
           created_by: string | null
-          prompt_hash: string | null
+          failed: number
+          id: string
+          metadata: Json | null
+          passed: number
+          run_type: string
+          started_at: string
+          status: string
+          total: number
         }
         Insert: {
-          id?: string
-          agent_id?: string | null
-          created_at?: string
-          run_type?: string
-          total?: number
-          passed?: number
-          failed?: number
+          agent_id: string
+          batch_id: string
+          completed_at?: string | null
           composite_score?: number | null
-          status?: string
-          approved_by?: string | null
-          approved_at?: string | null
-          reviewer_notes?: string | null
           created_by?: string | null
-          prompt_hash?: string | null
+          failed?: number
+          id?: string
+          metadata?: Json | null
+          passed?: number
+          run_type?: string
+          started_at?: string
+          status?: string
+          total?: number
         }
         Update: {
-          id?: string
-          agent_id?: string | null
-          created_at?: string
-          run_type?: string
-          total?: number
-          passed?: number
-          failed?: number
+          agent_id?: string
+          batch_id?: string
+          completed_at?: string | null
           composite_score?: number | null
-          status?: string
-          approved_by?: string | null
-          approved_at?: string | null
-          reviewer_notes?: string | null
           created_by?: string | null
-          prompt_hash?: string | null
+          failed?: number
+          id?: string
+          metadata?: Json | null
+          passed?: number
+          run_type?: string
+          started_at?: string
+          status?: string
+          total?: number
         }
         Relationships: [
           {
@@ -944,20 +1171,6 @@ export type Database = {
             referencedRelation: "ai_agents"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "e2e_test_batches_approved_by_fkey"
-            columns: ["approved_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "e2e_test_batches_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
         ]
       }
       e2e_test_runs: {
@@ -1122,6 +1335,280 @@ export type Database = {
             columns: ["instance_id"]
             isOneToOne: false
             referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      form_fields: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          field_key: string
+          field_type: string
+          form_id: string
+          id: string
+          label: string
+          position: number
+          required: boolean
+          skip_if_known: boolean
+          validation_rules: Json | null
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          field_key: string
+          field_type: string
+          form_id: string
+          id?: string
+          label: string
+          position: number
+          required?: boolean
+          skip_if_known?: boolean
+          validation_rules?: Json | null
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          field_key?: string
+          field_type?: string
+          form_id?: string
+          id?: string
+          label?: string
+          position?: number
+          required?: boolean
+          skip_if_known?: boolean
+          validation_rules?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "form_fields_form_id_fkey"
+            columns: ["form_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_forms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      form_sessions: {
+        Row: {
+          collected_data: Json
+          completed_at: string | null
+          contact_id: string | null
+          conversation_id: string
+          current_field_index: number
+          form_id: string
+          id: string
+          last_activity_at: string
+          retries: number
+          started_at: string
+          status: string
+        }
+        Insert: {
+          collected_data?: Json
+          completed_at?: string | null
+          contact_id?: string | null
+          conversation_id: string
+          current_field_index?: number
+          form_id: string
+          id?: string
+          last_activity_at?: string
+          retries?: number
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          collected_data?: Json
+          completed_at?: string | null
+          contact_id?: string | null
+          conversation_id?: string
+          current_field_index?: number
+          form_id?: string
+          id?: string
+          last_activity_at?: string
+          retries?: number
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "form_sessions_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "form_sessions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "form_sessions_form_id_fkey"
+            columns: ["form_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_forms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      form_submissions: {
+        Row: {
+          contact_id: string | null
+          data: Json
+          form_id: string
+          id: string
+          session_id: string | null
+          submitted_at: string
+        }
+        Insert: {
+          contact_id?: string | null
+          data?: Json
+          form_id: string
+          id?: string
+          session_id?: string | null
+          submitted_at?: string
+        }
+        Update: {
+          contact_id?: string | null
+          data?: Json
+          form_id?: string
+          id?: string
+          session_id?: string | null
+          submitted_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "form_submissions_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "form_submissions_form_id_fkey"
+            columns: ["form_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_forms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "form_submissions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "form_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      funnels: {
+        Row: {
+          ai_custom_text: string | null
+          ai_template: string | null
+          bio_page_id: string | null
+          campaign_id: string | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          form_id: string | null
+          handoff_department: string | null
+          handoff_message: string | null
+          handoff_message_outside_hours: string | null
+          icon: string | null
+          id: string
+          instance_id: string
+          kanban_board_id: string | null
+          max_messages_before_handoff: number | null
+          name: string
+          settings: Json | null
+          slug: string
+          status: string | null
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          ai_custom_text?: string | null
+          ai_template?: string | null
+          bio_page_id?: string | null
+          campaign_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          form_id?: string | null
+          handoff_department?: string | null
+          handoff_message?: string | null
+          handoff_message_outside_hours?: string | null
+          icon?: string | null
+          id?: string
+          instance_id: string
+          kanban_board_id?: string | null
+          max_messages_before_handoff?: number | null
+          name: string
+          settings?: Json | null
+          slug: string
+          status?: string | null
+          type: string
+          updated_at?: string | null
+        }
+        Update: {
+          ai_custom_text?: string | null
+          ai_template?: string | null
+          bio_page_id?: string | null
+          campaign_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          form_id?: string | null
+          handoff_department?: string | null
+          handoff_message?: string | null
+          handoff_message_outside_hours?: string | null
+          icon?: string | null
+          id?: string
+          instance_id?: string
+          kanban_board_id?: string | null
+          max_messages_before_handoff?: number | null
+          name?: string
+          settings?: Json | null
+          slug?: string
+          status?: string | null
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "funnels_bio_page_id_fkey"
+            columns: ["bio_page_id"]
+            isOneToOne: false
+            referencedRelation: "bio_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funnels_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "utm_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funnels_form_id_fkey"
+            columns: ["form_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_forms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funnels_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funnels_kanban_board_id_fkey"
+            columns: ["kanban_board_id"]
+            isOneToOne: false
+            referencedRelation: "kanban_boards"
             referencedColumns: ["id"]
           },
         ]
@@ -2460,8 +2947,11 @@ export type Database = {
           created_by: string
           destination_phone: string
           expires_at: string | null
+          form_slug: string | null
           id: string
           instance_id: string
+          kanban_board_id: string | null
+          landing_mode: string
           name: string
           slug: string
           starts_at: string | null
@@ -2482,8 +2972,11 @@ export type Database = {
           created_by: string
           destination_phone: string
           expires_at?: string | null
+          form_slug?: string | null
           id?: string
           instance_id: string
+          kanban_board_id?: string | null
+          landing_mode?: string
           name: string
           slug: string
           starts_at?: string | null
@@ -2504,8 +2997,11 @@ export type Database = {
           created_by?: string
           destination_phone?: string
           expires_at?: string | null
+          form_slug?: string | null
           id?: string
           instance_id?: string
+          kanban_board_id?: string | null
+          landing_mode?: string
           name?: string
           slug?: string
           starts_at?: string | null
@@ -2526,6 +3022,13 @@ export type Database = {
             referencedRelation: "instances"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "utm_campaigns_kanban_board_id_fkey"
+            columns: ["kanban_board_id"]
+            isOneToOne: false
+            referencedRelation: "kanban_boards"
+            referencedColumns: ["id"]
+          },
         ]
       }
       utm_visits: {
@@ -2536,6 +3039,7 @@ export type Database = {
           created_at: string
           id: string
           matched_at: string | null
+          metadata: Json | null
           ref_code: string
           referrer: string | null
           status: string
@@ -2550,6 +3054,7 @@ export type Database = {
           created_at?: string
           id?: string
           matched_at?: string | null
+          metadata?: Json | null
           ref_code: string
           referrer?: string | null
           status?: string
@@ -2564,6 +3069,7 @@ export type Database = {
           created_at?: string
           id?: string
           matched_at?: string | null
+          metadata?: Json | null
           ref_code?: string
           referrer?: string | null
           status?: string
@@ -2591,6 +3097,68 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_forms: {
+        Row: {
+          agent_id: string
+          completion_message: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          expires_at: string | null
+          id: string
+          max_submissions: number | null
+          name: string
+          slug: string
+          status: string
+          template_type: string | null
+          updated_at: string
+          webhook_url: string | null
+          welcome_message: string
+        }
+        Insert: {
+          agent_id: string
+          completion_message?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          max_submissions?: number | null
+          name: string
+          slug: string
+          status?: string
+          template_type?: string | null
+          updated_at?: string
+          webhook_url?: string | null
+          welcome_message?: string
+        }
+        Update: {
+          agent_id?: string
+          completion_message?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          max_submissions?: number | null
+          name?: string
+          slug?: string
+          status?: string
+          template_type?: string | null
+          updated_at?: string
+          webhook_url?: string | null
+          welcome_message?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_forms_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
             referencedColumns: ["id"]
           },
         ]
@@ -2742,7 +3310,40 @@ export type Database = {
       }
       dblink_is_busy: { Args: { "": string }; Returns: number }
       delete_inbox: { Args: { _inbox_id: string }; Returns: undefined }
+      get_active_form_session: {
+        Args: { p_conversation_id: string }
+        Returns: {
+          collected_data: Json
+          completed_at: string | null
+          contact_id: string | null
+          conversation_id: string
+          current_field_index: number
+          form_id: string
+          id: string
+          last_activity_at: string
+          retries: number
+          started_at: string
+          status: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "form_sessions"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_e2e_results: { Args: never; Returns: Json }
+      get_form_stats: {
+        Args: { p_form_id: string }
+        Returns: {
+          today: number
+          total: number
+        }[]
+      }
+      get_funnel_lead_count: {
+        Args: { p_funnel_slug: string }
+        Returns: number
+      }
       get_inbox_role: {
         Args: { _inbox_id: string; _user_id: string }
         Returns: Database["public"]["Enums"]["inbox_role"]
@@ -2789,6 +3390,11 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      increment_bio_click: { Args: { p_button_id: string }; Returns: undefined }
+      increment_bio_view: {
+        Args: { p_bio_page_id: string }
+        Returns: undefined
       }
       increment_lead_msg_count: {
         Args: { p_conversation_id: string }

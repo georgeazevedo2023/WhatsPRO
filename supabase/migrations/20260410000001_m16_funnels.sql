@@ -52,27 +52,21 @@ CREATE INDEX IF NOT EXISTS idx_funnels_form ON funnels(form_id);
 -- RLS
 ALTER TABLE funnels ENABLE ROW LEVEL SECURITY;
 
--- Super admins: full CRUD
+-- Super admins: full CRUD (using is_super_admin function)
 CREATE POLICY "super_admins_manage_funnels" ON funnels
   FOR ALL TO authenticated
-  USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  )
-  WITH CHECK (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  );
+  USING (is_super_admin(auth.uid()))
+  WITH CHECK (is_super_admin(auth.uid()));
 
--- Gerentes: read-only nos funis de instancias que tem acesso
+-- Gerentes: read-only (same pattern as utm_campaigns)
 CREATE POLICY "gerentes_view_funnels" ON funnels
   FOR SELECT TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM profiles p
-      JOIN inbox_users iu ON iu.user_id = p.id
-      JOIN inboxes i ON i.id = iu.inbox_id
-      WHERE p.id = auth.uid()
-        AND p.role = 'gerente'
-        AND i.instance_id = funnels.instance_id
+      SELECT 1 FROM inboxes ib
+      JOIN inbox_users iu ON iu.inbox_id = ib.id
+      WHERE ib.instance_id = funnels.instance_id
+        AND iu.user_id = auth.uid()
     )
   );
 
