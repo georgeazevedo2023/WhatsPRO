@@ -9,7 +9,7 @@
 
 WhatsPRO é uma plataforma multi-tenant de atendimento WhatsApp (helpdesk) e CRM.
 
-**Stack:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui + Supabase + UAZAPI + Groq AI
+**Stack:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui + Supabase + UAZAPI + OpenAI gpt-4.1-mini (Agent) + Gemini 2.5 Flash (TTS/fallback) + Groq (transcription/summarization)
 
 **Roles:** `super_admin` (tudo), `gerente` (gerencia equipe/inboxes), `user` (atende conversas)
 
@@ -248,12 +248,12 @@ WhatsPRO é uma plataforma multi-tenant de atendimento WhatsApp (helpdesk) e CRM
 
 > Consulte `/ai-agent` para roadmap detalhado por sprint com exemplos de fluxo.
 
-**Arquitetura:** Orquestrador com 8 tools via Gemini 2.5 Flash function calling
-**Cérebro:** Gemini 2.5 Flash (multimodal) com 8 tools + shadow mode
+**Arquitetura:** Orquestrador com 8 tools via OpenAI gpt-4.1-mini function calling
+**Cérebro:** OpenAI gpt-4.1-mini (LLM primário). Fallback: Gemini 2.5 Flash → Mistral Small → templates estáticos
 **Edge Functions:** `ai-agent` (cérebro), `ai-agent-debounce` (agrupamento 10s), `ai-agent-playground` (simulado, super_admin)
 **Tabelas:** `ai_agents` (+ extraction_fields JSONB), `ai_agent_products`, `ai_agent_knowledge`, `ai_agent_media`, `ai_agent_logs`, `lead_profiles`, `ai_debounce_queue`, `conversations` (+ tags TEXT[])
 **Admin:** 10 tabs (Geral, Cérebro, Catálogo, Conhecimento, Regras, Guardrails, Voz, Extração, Sub-Agentes, Métricas) + Playground
-**TTS:** Gemini response_modalities: AUDIO, voz Kore, envia como PTT via UAZAPI quando voice_enabled
+**TTS:** Gemini 2.5 Flash Preview TTS (chain: Gemini → Cartesia → Murf → Speechify → texto). 6 vozes configuráveis.
 **Sub-agentes:** 5 modos (SDR, Sales, Support, Scheduling, Handoff) com prompts individuais em ai_agents.sub_agents JSONB
 **Páginas dedicadas:** `/dashboard/ai-agent`, `/ai-agent/catalog`, `/ai-agent/knowledge`, `/ai-agent/playground`
 
@@ -276,12 +276,12 @@ WhatsPRO é uma plataforma multi-tenant de atendimento WhatsApp (helpdesk) e CRM
 
 ## Infraestrutura
 
-### Banco de Dados — 38 tabelas com RLS (31 existentes + 7 M10)
+### Banco de Dados — 44+ tabelas com RLS
 - **Indexes:** conversations (inbox_id, status, priority, assigned_to, department_id, last_message_at), contacts (jid UNIQUE, phone), kanban_cards (board_id, column_id)
 - **Vault:** API keys em `supabase_vault`
 - **RPCs:** `delete_inbox`, `get_kanban_board_counts`, `is_super_admin`, `has_inbox_access`, `can_access_kanban_board`
 
-### Edge Functions — 20 total
+### Edge Functions — 30 total
 | Function | Auth | Descrição |
 |----------|------|-----------|
 | uazapi-proxy | JWT + instance | Proxy UAZAPI (17 actions) |
@@ -301,7 +301,7 @@ WhatsPRO é uma plataforma multi-tenant de atendimento WhatsApp (helpdesk) e CRM
 | cleanup-old-media | Cron | Limpar mídia antiga |
 | database-backup | Super admin | Backup do banco |
 | fire-outgoing-webhook | Internal | Dispara webhook de saída |
-| ai-agent | Webhook | Cérebro IA (Gemini + function calling) |
+| ai-agent | Webhook | Cérebro IA (OpenAI gpt-4.1-mini + function calling) |
 | ai-agent-debounce | Webhook | Agrupa msgs 10s + typing indicator |
 | ai-agent-playground | Super admin | Chat simulado para testar agente IA |
 

@@ -72,6 +72,9 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersSearch, setUsersSearch] = useState('');
   const [allInboxes, setAllInboxes] = useState<InboxSimple[]>([]);
+  const [allInstances, setAllInstances] = useState<{ id: string; name: string }[]>([]);
+  const [allInboxesRaw, setAllInboxesRaw] = useState<{ id: string; name: string; instance_id: string }[]>([]);
+  const [allDepartments, setAllDepartments] = useState<{ id: string; name: string; inbox_id: string }[]>([]);
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
 
   // Create user
@@ -89,6 +92,9 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<AppRole>('user');
+  const [newUserInstanceId, setNewUserInstanceId] = useState('');
+  const [newUserInboxId, setNewUserInboxId] = useState('');
+  const [newUserDeptIds, setNewUserDeptIds] = useState<Set<string>>(new Set());
 
   // Delete user
   const [userToDelete, setUserToDelete] = useState<UserWithRole | null>(null);
@@ -143,6 +149,9 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
         name: ib.name,
         instance_name: instMap.get(ib.instance_id)?.name || '',
       })));
+      setAllInstances((instRes.data || []).map(i => ({ id: i.id, name: i.name })));
+      setAllInboxesRaw(inboxesList.map(ib => ({ id: ib.id, name: ib.name, instance_id: ib.instance_id })));
+      setAllDepartments((deptsRes.data || []).map(d => ({ id: d.id, name: d.name, inbox_id: d.inbox_id })));
 
       const resolveRole = (userId: string): AppRole => {
         const userRoles = roles.filter(r => r.user_id === userId).map(r => r.role);
@@ -234,10 +243,29 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
     if (!newUserEmail.trim() || !newUserPassword.trim()) { toast.error('Email e senha são obrigatórios'); return; }
     setIsCreatingUser(true);
     try {
-      await edgeFunctionFetch('admin-create-user', { email: newUserEmail, password: newUserPassword, full_name: newUserName, role: newUserRole });
-      toast.success('Membro criado!');
+      const result = await edgeFunctionFetch<{ success: boolean; user: { id: string; email: string } }>('admin-create-user', { email: newUserEmail, password: newUserPassword, full_name: newUserName, role: newUserRole });
+      const newUserId = result.user?.id;
+
+      if (newUserId) {
+        // Vincular instância
+        if (newUserInstanceId) {
+          await supabase.from('user_instance_access').insert({ user_id: newUserId, instance_id: newUserInstanceId });
+        }
+        // Vincular caixa de entrada
+        if (newUserInboxId) {
+          await supabase.from('inbox_users').insert({ user_id: newUserId, inbox_id: newUserInboxId, role: 'agente' as InboxRole });
+        }
+        // Vincular departamentos
+        if (newUserDeptIds.size > 0) {
+          const deptInserts = Array.from(newUserDeptIds).map(deptId => ({ user_id: newUserId, department_id: deptId }));
+          await supabase.from('department_members').insert(deptInserts);
+        }
+      }
+
+      toast.success('Membro criado e vinculado!');
       setIsCreateUserOpen(false);
       setNewUserEmail(''); setNewUserPassword(''); setNewUserName(''); setNewUserRole('user');
+      setNewUserInstanceId(''); setNewUserInboxId(''); setNewUserDeptIds(new Set());
       fetchUsers();
     } catch (err) {
       handleError(err, 'Erro ao criar membro');
@@ -480,8 +508,8 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
 
       {/* Create User Dialog */}
       <Dialog open={isCreateUserOpen} onOpenChange={setIsCreateUserOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Novo Membro</DialogTitle><DialogDescription>Crie uma conta de membro no sistema. Após criar, expanda o card para atribuir caixas de entrada.</DialogDescription></DialogHeader>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Novo Membro</DialogTitle><DialogDescription>Crie uma conta de membro e vincule a instância, caixa e departamentos.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2"><Label>Nome Completo</Label><Input placeholder="Nome do membro" value={newUserName} onChange={e => setNewUserName(e.target.value)} /></div>
             <div className="space-y-2"><Label>Email *</Label><Input type="email" placeholder="email@exemplo.com" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} /></div>
@@ -503,6 +531,73 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Separator */}
+            <div className="border-t border-border pt-4 space-y-4">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold">Vinculação</p>
+
+              {/* Instância (single select) */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5"><MonitorSmartphone className="w-3.5 h-3.5" /> Instância</Label>
+                <Select value={newUserInstanceId} onValueChange={v => { setNewUserInstanceId(v); setNewUserInboxId(''); setNewUserDeptIds(new Set()); }}>
+                  <SelectTrigger><SelectValue placeholder="Selecione a instância..." /></SelectTrigger>
+                  <SelectContent>
+                    {allInstances.map(inst => (
+                      <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Caixa de Entrada (single select, filtered by instance) */}
+              {newUserInstanceId && (() => {
+                const filteredInboxes = allInboxesRaw.filter(ib => ib.instance_id === newUserInstanceId);
+                return (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5"><Inbox className="w-3.5 h-3.5" /> Caixa de Entrada</Label>
+                    {filteredInboxes.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Nenhuma caixa nesta instância</p>
+                    ) : (
+                      <Select value={newUserInboxId} onValueChange={v => { setNewUserInboxId(v); setNewUserDeptIds(new Set()); }}>
+                        <SelectTrigger><SelectValue placeholder="Selecione a caixa..." /></SelectTrigger>
+                        <SelectContent>
+                          {filteredInboxes.map(ib => (
+                            <SelectItem key={ib.id} value={ib.id}>{ib.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Departamentos (multi-select via checkboxes, filtered by inbox) */}
+              {newUserInboxId && (() => {
+                const filteredDepts = allDepartments.filter(d => d.inbox_id === newUserInboxId);
+                return filteredDepts.length > 0 ? (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Departamentos</Label>
+                    <div className="space-y-2 pl-1">
+                      {filteredDepts.map(dept => (
+                        <label key={dept.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                          <Checkbox
+                            checked={newUserDeptIds.has(dept.id)}
+                            onCheckedChange={checked => {
+                              setNewUserDeptIds(prev => {
+                                const next = new Set(prev);
+                                if (checked) next.add(dept.id); else next.delete(dept.id);
+                                return next;
+                              });
+                            }}
+                          />
+                          {dept.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
             </div>
           </div>
           <DialogFooter>

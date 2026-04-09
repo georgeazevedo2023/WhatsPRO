@@ -13,19 +13,19 @@ verify_jwt = false
 
 # ── User-facing functions (frontend sends user JWT) ────────────────
 [functions.uazapi-proxy]
-verify_jwt = true
+verify_jwt = false
 
 [functions.admin-create-user]
-verify_jwt = true
+verify_jwt = false
 
 [functions.admin-delete-user]
-verify_jwt = true
+verify_jwt = false
 
 [functions.admin-update-user]
-verify_jwt = true
+verify_jwt = false
 
 [functions.activate-ia]
-verify_jwt = true
+verify_jwt = false
 
 [functions.analyze-summaries]
 verify_jwt = true

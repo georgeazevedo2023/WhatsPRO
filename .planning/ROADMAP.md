@@ -21,7 +21,7 @@
 
 ## Backlog
 
-### Milestone 2: Agent QA Framework — IN PROGRESS
+### Milestone 2: Agent QA Framework — SHIPPED (2026-04-05)
 
 #### Pre-requisitos (2026-04-04)
 - [x] Fix bug activeSubAgents→activeSub (ai-agent/index.ts:2353)
@@ -35,20 +35,36 @@
 - [x] runAllE2e cria/finaliza batch row no DB
 - [x] 44 testes, tsc clean — commit 4fe98ad
 
-#### F2: Fluxo de Aprovação Admin (próximo)
-- [ ] Hook useE2eApproval + mutation approve/reject
-- [ ] ApprovalQueue + ReviewDrawer components
-- [ ] Badge de pendentes no header do Playground
+#### F2: Fluxo de Aprovação Admin (2026-04-04)
+- [x] Hook useE2eApproval + mutation approve/reject
+- [x] ApprovalQueue + ReviewDrawer components
+- [x] Badge de pendentes no header do Playground — commit 95ad466
 
-#### F3: Barra de Evolução (Score Composto)
-- [ ] agentScoring.ts — computeCompositeScore (E2E 40% + Validator 30% + Tools 20% + Latência 10%)
-- [ ] useAgentScore hook
-- [ ] AgentScoreBar component com Recharts trend chart
+#### F3: Barra de Evolução (Score Composto) (2026-04-04)
+- [x] agentScoring.ts — computeCompositeScore (E2E 40% + Validator 30% + Tools 20% + Latência 10%)
+- [x] useAgentScore hook
+- [x] AgentScoreBar component com Recharts trend chart — commit 95ad466
 
-#### F4: Ciclo Automatizado Teste → Ajuste → Re-teste
-- [ ] Migration: colunas de regressão + pg_cron
-- [ ] e2e-scheduled edge function evoluída
-- [ ] E2eSchedulePanel + RegressionBadge + BatchHistoryPanel
+#### F4: Ciclo Automatizado Teste → Ajuste → Re-teste (2026-04-05)
+- [x] Migration: colunas de regressão + pg_cron
+- [x] e2e-scheduled edge function evoluída
+- [x] E2eSchedulePanel + RegressionBadge + BatchHistoryPanel
+
+### Milestone 12: WhatsApp Forms — SHIPPED (2026-04-05)
+
+- [x] form-bot edge function (FORM:<slug> trigger, validações, retries, webhook externo)
+- [x] 4 tabelas: whatsapp_forms, form_fields, form_sessions, form_submissions
+- [x] 12 templates built-in, FieldType (16 tipos)
+- [x] Admin UI: FormsTab, FormBuilder, FormPreview, TemplateGallery, SubmissionsTable
+
+### Milestone 13: Campanhas + Forms + Funil — SHIPPED (2026-04-05)
+
+- [x] Landing page com landing_mode: redirect (countdown) ou form (campos dinâmicos)
+- [x] form-public edge function (GET definition + POST submit → contact + lead + kanban card)
+- [x] LandingForm: validações client-side (CPF, email, phone, CEP)
+- [x] Auto-tag formulario:SLUG + origem:formulario
+- [x] AI Agent form context: detecta tag, injeta dados no prompt
+- [x] LeadFormsSection no LeadDetail
 
 ### Milestone 3: Observabilidade e Monitoramento
 - Dashboard de saúde do agente (latência, tokens, error rates)
@@ -78,6 +94,8 @@
 | 7. Backend Helpers Consolidation | v1.0 | 4/4 | ✅ Complete | 2026-03-30 |
 | M2 Pre-requisitos | M2 Agent QA | — | ✅ Complete | 2026-04-04 |
 | M2 F1: Batch History | M2 Agent QA | 1/4 | ✅ Complete | 2026-04-04 |
-| M2 F2: Approval Flow | M2 Agent QA | 2/4 | 📋 Pending | — |
-| M2 F3: Score Bar | M2 Agent QA | 3/4 | 📋 Pending | — |
-| M2 F4: Auto Cycle | M2 Agent QA | 4/4 | 📋 Pending | — |
+| M2 F2: Approval Flow | M2 Agent QA | 2/4 | ✅ Complete | 2026-04-04 |
+| M2 F3: Score Bar | M2 Agent QA | 3/4 | ✅ Complete | 2026-04-04 |
+| M2 F4: Auto Cycle | M2 Agent QA | 4/4 | ✅ Complete | 2026-04-05 |
+| M12: WhatsApp Forms | M12 | — | ✅ Complete | 2026-04-05 |
+| M13: Campanhas+Forms+Funil | M13 | — | ✅ Complete | 2026-04-05 |

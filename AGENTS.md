@@ -7,14 +7,15 @@ WhatsPRO is a multi-tenant WhatsApp helpdesk, CRM, AI Agent, and Leads platform 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui
 - **Backend**: Supabase (PostgreSQL, Auth, Storage, Realtime, Edge Functions)
 - **WhatsApp API**: UAZAPI (proxied through Edge Functions)
-- **AI**: Gemini 2.5 Flash (AI Agent M10), Gemini 2.5 Flash Preview TTS (voice), Groq API (Whisper transcription, Llama summarization/carousel copy), Mistral Small (carousel fallback)
+- **AI**: OpenAI gpt-4.1-mini (AI Agent M10 — LLM primário, function calling), Gemini 2.5 Flash (fallback + TTS Preview 6 vozes), Groq API (Whisper transcription, Llama summarization/carousel copy), Mistral Small (carousel/summarization fallback)
 - **Data Fetching**: TanStack React Query 5
 
 ## Architecture
 ```
 React Frontend -> Supabase Edge Functions -> UAZAPI (WhatsApp)
-                                          -> Gemini AI (Agent, TTS, Function Calling)
-                                          -> Groq AI (Summaries/Transcription)
+                                          -> OpenAI (Agent LLM primário)
+                                          -> Gemini AI (Agent fallback, TTS)
+                                          -> Groq AI (Summaries/Transcription/Carousel)
 React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 ```
 
@@ -41,21 +42,24 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - TTS: AI Agent responds with audio (Gemini 2.5 Flash Preview TTS)
 - Auto-carousel: multi-photo product carousel (up to 5 photos) with AI sales copy per card
 - Handoff triggers: auto-transfer to human when keywords detected
-- LLM Fallback Chain: Groq (Llama 3.3) → Gemini 2.5 Flash → Mistral Small → static templates
+- LLM primário: OpenAI gpt-4.1-mini (function calling). Fallback: Gemini 2.5 Flash → Mistral Small → static templates
 
 ## Deployment
 - **Production**: crm.wsmart.com.br (Docker Swarm + Traefik + SSL)
 - **CI/CD**: GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
 - **Portainer**: Stack "whatspro" on Hetzner CX42 (65.108.51.109)
 
-## Edge Functions (24 total)
+## Edge Functions (30 total)
 Located in `supabase/functions/`. Each uses Deno runtime.
-- JWT verification is disabled in config.toml (functions handle auth manually via `_shared/auth.ts`)
+- JWT: `verify_jwt = true` (maioria), `false` em webhooks e públicas (whatsapp-webhook, fire-outgoing-webhook, go, health-check, form-public)
 - Shared CORS config in `supabase/functions/_shared/cors.ts`
-- Shared utilities: `fetchWithTimeout.ts` (30s timeout), `rateLimit.ts` (per-user throttle), `response.ts` (standard format)
-- AI Agent: `ai-agent` (brain, SDR+handoff+shadow), `ai-agent-debounce` (10s atomic grouping), `ai-agent-playground` (testing)
-- Product Import: `scrape-product` (URL → title, price, description, images, category via JSON-LD/NEXT_DATA/OG)
-- UTM Tracking: `go` (redirect endpoint for campaign links)
+- Shared utilities: `fetchWithTimeout.ts` (30s timeout), `rateLimit.ts` (atomic RPC), `circuitBreaker.ts` (Gemini/Groq/Mistral), `response.ts` (standard format)
+- AI Agent: `ai-agent` (brain, SDR+handoff+shadow, circuit breaker), `ai-agent-debounce` (10s atomic grouping), `ai-agent-playground` (testing)
+- Product Import: `scrape-product` (URL → title, price, description, images, category)
+- UTM Tracking: `go` (landing page countdown + client-side capture + redirect)
+- Forms: `form-bot` (WhatsApp form sessions), `form-public` (public landing form)
+- Monitoring: `health-check` (DB + MV + env → 200/503)
+- Background: `process-jobs` (SKIP LOCKED job queue), `e2e-scheduled` (cron E2E batch)
 
 ## Commands
 - `/prd` - Consultar PRD completo do projeto (módulos, tasks, roadmap, changelog)

@@ -24,14 +24,14 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { useInstances } from '@/hooks/useInstances'
-import { useAuthSession } from '@/hooks/useAuthSession'
+import { useAuth } from '@/contexts/AuthContext'
 import { useBioPagesList, useDeleteBioPage, useUpdateBioPage, useBioAnalytics } from '@/hooks/useBioPages'
 import { BioLinkCard } from '@/components/bio/BioLinkCard'
 import { BioLinkEditor } from '@/components/bio/BioLinkEditor'
 import type { BioPage } from '@/types/bio'
 
 export default function BioLinksPage() {
-  const { isSuperAdmin, loading: authLoading } = useAuthSession()
+  const { isSuperAdmin, loading: authLoading } = useAuth()
 
   if (!authLoading && !isSuperAdmin) {
     return <Navigate to="/dashboard" replace />

@@ -321,6 +321,7 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
             {/* Avatar */}
             <div className="space-y-1.5">
               <Label>Logo / Foto de perfil</Label>
+              <p className="text-xs text-muted-foreground">400×400 px · JPG, PNG ou WebP</p>
               <div className="flex items-center gap-3">
                 <div
                   className="w-14 h-14 rounded-xl overflow-hidden flex items-center justify-center shrink-0"
@@ -446,7 +447,7 @@ export function BioLinkEditor({ open, onClose, editPageId, instanceId }: BioLink
             {/* Capa / Banner */}
             <div className="space-y-1.5">
               <Label>Capa / Banner (opcional)</Label>
-              <p className="text-xs text-muted-foreground">Imagem exibida no topo da página (antes do avatar)</p>
+              <p className="text-xs text-muted-foreground">1200×400 px (proporção 3:1) · JPG, PNG ou WebP · exibida antes do avatar</p>
               {coverUrl ? (
                 <div className="flex flex-col gap-2">
                   <img src={coverUrl} alt="cover" className="w-full aspect-[3/1] rounded-xl object-cover" />

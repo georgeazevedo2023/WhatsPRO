@@ -21,6 +21,9 @@ dist-ssr
 .mcp.json
 .claude/settings.local.json
 
+# Obsidian local config (vault wiki/ and index.md are versioned)
+.obsidian/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
