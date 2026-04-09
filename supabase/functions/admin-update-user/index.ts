@@ -1,4 +1,4 @@
-import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+import { getDynamicCorsHeaders } from '../_shared/cors.ts'
 import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
@@ -7,6 +7,8 @@ import { unauthorizedResponse } from '../_shared/auth.ts'
 const log = createLogger('admin-update-user')
 
 Deno.serve(async (req) => {
+  const corsHeaders = getDynamicCorsHeaders(req)
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }

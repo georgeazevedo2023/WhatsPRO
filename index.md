@@ -1,6 +1,6 @@
 ---
 title: WhatsPRO — Master Index
-updated: 2026-04-06
+updated: 2026-04-09
 type: index
 ---
 
@@ -25,6 +25,10 @@ type: index
 | [[wiki/deploy-checklist]] | Checklist obrigatório de pré/pós deploy |
 | [[wiki/decisoes-chave]] | Regras de integridade, padrões, segurança |
 | [[wiki/integracao-funis]] | Como Campanhas + Bio Link + Forms + AI Agent se conectam (M15) |
+| [[wiki/uazapi-polls-interativos]] | UAZAPI Mensagens Interativas: Poll, QuickReply, List — endpoints e plano |
+| [[wiki/plano-enquetes-polls]] | Plano M17 Plataforma Inteligente: 4 pilares (Motor Automacao + Funis Agenticos + Tags + Enquetes), 5 fases, 8 decisoes |
+| [[wiki/casos-de-uso/guia-funcionalidades-completo]] | Guia completo: 13 funcionalidades + 10 integracoes + 10 jornadas |
+| [[wiki/casos-de-uso/campanha-deputado-anderson]] | Case: campanha politica deputado estadual PE (causa animal) |
 
 ---
 
@@ -56,4 +60,4 @@ type: index
 
 ---
 
-*Última atualização: 2026-04-07 — M16 Funis Fusão Total F1-F4 (tabela funnels, sidebar unificada, wizard 7 tipos, AI Agent context+handoff, metricas, OriginBadge funil)*
+*Última atualização: 2026-04-09 — M17 Plataforma Inteligente COMPLETO (5 fases: Motor, Agêntico, Perfis, Enquetes, NPS)*

@@ -22,12 +22,13 @@ import { GuardrailsConfig } from './ai-agent/GuardrailsConfig';
 import { VoiceConfig } from './ai-agent/VoiceConfig';
 import { ExtractionConfig } from './ai-agent/ExtractionConfig';
 import { MetricsConfig } from './ai-agent/MetricsConfig';
-import { SubAgentsConfig } from './ai-agent/SubAgentsConfig';
+import { ProfilesConfig } from './ai-agent/ProfilesConfig';
 import { BlockedNumbersConfig } from './ai-agent/BlockedNumbersConfig';
 import { FollowUpConfig } from './ai-agent/FollowUpConfig';
 import { BusinessInfoConfig } from './ai-agent/BusinessInfoConfig';
 import { PromptStudio } from './ai-agent/PromptStudio';
 import { ValidatorMetrics } from './ai-agent/ValidatorMetrics';
+import { PollConfigSection } from './ai-agent/PollConfigSection';
 import { NICHE_TEMPLATES } from '@/data/nicheTemplates';
 
 interface AIAgent {
@@ -51,7 +52,7 @@ const TABS = [
 
 const ALLOWED_FIELDS = [
   'instance_id', 'enabled', 'name', 'greeting_message', 'personality', 'system_prompt',
-  'sub_agents', 'model', 'temperature', 'max_tokens', 'debounce_seconds',
+  'model', 'temperature', 'max_tokens', 'debounce_seconds',
   'handoff_triggers', 'handoff_cooldown_minutes', 'handoff_max_conversation_minutes',
   'handoff_negative_sentiment', 'blocked_topics', 'max_discount_percent', 'blocked_phrases',
   'voice_enabled', 'voice_max_text_length', 'voice_reply_to_audio', 'voice_name', 'context_short_messages', 'context_long_enabled',
@@ -72,6 +73,9 @@ const ALLOWED_FIELDS = [
   'validator_model',
   'validator_rigor',
   'tts_fallback_providers',
+  // M17 F5: NPS
+  'poll_nps_enabled', 'poll_nps_delay_minutes', 'poll_nps_question',
+  'poll_nps_options', 'poll_nps_notify_on_bad',
 ];
 
 export default function AIAgentTab() {
@@ -513,7 +517,7 @@ export default function AIAgentTab() {
                 {activeTab === 'intelligence' && (
                   <div className="space-y-6">
                     <BrainConfig config={config} onChange={handleChange} fieldErrors={fieldErrors} />
-                    <SubAgentsConfig config={config} onChange={handleChange} />
+                    <ProfilesConfig agentId={selectedAgentId!} />
                     <ExtractionConfig config={config} onChange={handleChange} />
                   </div>
                 )}
@@ -550,6 +554,7 @@ export default function AIAgentTab() {
                   <div className="space-y-6">
                     <MetricsConfig agentId={selectedAgentId} />
                     <ValidatorMetrics agentId={selectedAgentId} />
+                    <PollConfigSection config={config} onChange={handleChange} />
                   </div>
                 )}
               </div>

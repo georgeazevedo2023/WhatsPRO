@@ -28,6 +28,8 @@ import { useState } from 'react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useFunnelKPIs } from '@/hooks/useFunnels';
 import FunnelConversionChart from '@/components/dashboard/FunnelConversionChart';
+import PollMetricsCard from '@/components/dashboard/PollMetricsCard';
+import PollNpsChart from '@/components/dashboard/PollNpsChart';
 
 
 interface InstanceStats {
@@ -421,6 +423,16 @@ const DashboardHome = () => {
       {isSuperAdmin && (
         <LazySection height="200px">
           <FunnelConversionChart />
+        </LazySection>
+      )}
+
+      {/* M17 F5: Poll + NPS Metrics */}
+      {isSuperAdmin && (
+        <LazySection height="120px">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <PollMetricsCard instanceId={filters.instanceId || rawInstances[0]?.id} periodDays={filters.period} />
+            <PollNpsChart instanceId={filters.instanceId || rawInstances[0]?.id} periodDays={filters.period} />
+          </div>
         </LazySection>
       )}
 

@@ -203,6 +203,25 @@ export function TicketResolutionDrawer({ conversation, onResolved, trigger }: Ti
         broadcastStatusChanged(conversation.id, 'resolvida');
       }).catch(() => {});
 
+      // M17 F5: Schedule NPS poll if enabled (fire-and-forget via job_queue)
+      supabase
+        .from('ai_agents')
+        .select('poll_nps_enabled, poll_nps_delay_minutes')
+        .eq('instance_id', conversation.instance_id)
+        .maybeSingle()
+        .then(({ data: agentNps }) => {
+          if (agentNps?.poll_nps_enabled) {
+            const delayMin = agentNps.poll_nps_delay_minutes || 5;
+            const scheduledFor = new Date(Date.now() + delayMin * 60000).toISOString();
+            supabase.from('job_queue' as any).insert({
+              job_type: 'nps_send',
+              payload: { conversation_id: conversation.id, instance_id: conversation.instance_id },
+              scheduled_for: scheduledFor,
+            }).then(() => {}).catch(() => {});
+          }
+        })
+        .catch(() => {});
+
       toast.success(
         category === 'VENDA' ? `Venda de ${valueDisplay} registrada!` :
         category === 'PERDIDO' ? 'Atendimento encerrado como perdido' :

@@ -253,6 +253,181 @@ Deno.serve(async (req) => {
     // UAZAPI sends EventType field
     const eventType = payload.EventType || payload.eventType || payload.event || ''
 
+    // ── M17 F4: Handle poll_update events ───────────────────────────────
+    if (eventType === 'poll_update') {
+      try {
+        const pollData = payload.data || payload.message || payload
+        const messageId = pollData.messageId || pollData.message_id || ''
+        const voterJid = pollData.voter || pollData.voterJid || ''
+        const selectedOptions: string[] = pollData.selectedOptions || pollData.selected_options || []
+        const instanceName = payload.instanceName || payload.instance || ''
+
+        if (!messageId || !voterJid || selectedOptions.length === 0) {
+          log.warn('poll_update: missing data', { messageId, voterJid, selectedOptions })
+          return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'poll_incomplete' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        // Find poll_message by UAZAPI message_id
+        const { data: pollMsg } = await supabase
+          .from('poll_messages')
+          .select('id, conversation_id, instance_id, auto_tags, funnel_id')
+          .eq('message_id', messageId)
+          .maybeSingle()
+
+        if (!pollMsg) {
+          log.info('poll_update: no matching poll_message', { messageId })
+          return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'poll_not_found' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        // Resolve contact from voter JID
+        const cleanJid = voterJid.includes('@') ? voterJid : `${voterJid}@s.whatsapp.net`
+        const { data: contact } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('jid', cleanJid)
+          .maybeSingle()
+
+        // Upsert poll_response (ON CONFLICT voter_jid)
+        await supabase
+          .from('poll_responses')
+          .upsert({
+            poll_message_id: pollMsg.id,
+            voter_jid: cleanJid,
+            contact_id: contact?.id || null,
+            selected_options: selectedOptions,
+            voted_at: new Date().toISOString(),
+          }, { onConflict: 'poll_message_id,voter_jid' })
+
+        // D2: Auto-tags — apply configured tags based on selected options
+        const autoTags: Record<string, string> = pollMsg.auto_tags || {}
+        if (pollMsg.conversation_id && Object.keys(autoTags).length > 0) {
+          const { data: convData } = await supabase
+            .from('conversations')
+            .select('tags')
+            .eq('id', pollMsg.conversation_id)
+            .single()
+
+          const existing: string[] = convData?.tags || []
+          const tagMap = new Map<string, string>()
+          for (const t of existing) tagMap.set(t.split(':')[0], t)
+
+          for (const option of selectedOptions) {
+            const tagValue = autoTags[option]
+            if (tagValue) tagMap.set(tagValue.split(':')[0], tagValue)
+          }
+
+          const newTags = Array.from(tagMap.values())
+          await supabase
+            .from('conversations')
+            .update({ tags: newTags })
+            .eq('id', pollMsg.conversation_id)
+        }
+
+        // Trigger automation engine if poll belongs to a funnel
+        if (pollMsg.funnel_id) {
+          try {
+            const { executeAutomationRules } = await import('../_shared/automationEngine.ts')
+            await executeAutomationRules(
+              pollMsg.funnel_id,
+              'poll_answered',
+              { poll_id: pollMsg.id, options: selectedOptions },
+              pollMsg.conversation_id || undefined,
+              supabase
+            )
+          } catch (err) {
+            log.warn('poll_update: automation error (non-critical)', { error: (err as Error).message })
+          }
+        }
+
+        // Insert as conversation_message so helpdesk shows the vote
+        if (pollMsg.conversation_id) {
+          await supabase.from('conversation_messages').insert({
+            conversation_id: pollMsg.conversation_id,
+            direction: 'incoming',
+            content: selectedOptions.join(', '),
+            media_type: 'text',
+            external_id: `poll_vote_${Date.now()}`,
+          })
+
+          // Trigger AI debounce if conversation has AI enabled
+          try {
+            const { data: conv } = await supabase
+              .from('conversations')
+              .select('status_ia, instance_id')
+              .eq('id', pollMsg.conversation_id)
+              .single()
+
+            if (conv && (conv.status_ia === 'ligada' || conv.status_ia === 'shadow')) {
+              const debounceUrl = Deno.env.get('SUPABASE_URL') + '/functions/v1/ai-agent-debounce'
+              const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
+              fetchWithTimeout(debounceUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+                body: JSON.stringify({
+                  conversation_id: pollMsg.conversation_id,
+                  instance_id: conv.instance_id,
+                  message_text: selectedOptions.join(', '),
+                }),
+              }).catch(() => {}) // fire-and-forget
+            }
+          } catch { /* non-critical */ }
+        }
+
+        // M17 F5: NPS bad note → notify managers
+        if ((pollMsg as any).is_nps) {
+          const BAD_OPTIONS = ['Ruim', 'Pessimo', 'Péssimo']
+          const hasBadNote = selectedOptions.some((o: string) => BAD_OPTIONS.some(b => o.toLowerCase() === b.toLowerCase()))
+          if (hasBadNote && pollMsg.conversation_id) {
+            try {
+              // Load agent to check poll_nps_notify_on_bad
+              const { data: agentConf } = await supabase
+                .from('ai_agents')
+                .select('poll_nps_notify_on_bad')
+                .eq('instance_id', pollMsg.instance_id)
+                .maybeSingle()
+
+              if (agentConf?.poll_nps_notify_on_bad !== false) {
+                // Get inbox managers for this instance
+                const { data: managers } = await supabase
+                  .from('inbox_users')
+                  .select('user_id, inboxes!inner(instance_id)')
+                  .eq('inboxes.instance_id', pollMsg.instance_id)
+                  .eq('role', 'gerente')
+
+                for (const mgr of (managers || [])) {
+                  await supabase.from('notifications' as any).insert({
+                    user_id: mgr.user_id,
+                    type: 'nps_bad_note',
+                    title: 'NPS negativo recebido',
+                    message: `Lead avaliou atendimento como "${selectedOptions.join(', ')}"`,
+                    metadata: { poll_id: pollMsg.id, conversation_id: pollMsg.conversation_id, options: selectedOptions },
+                    read: false,
+                  }).then(() => {}).catch(() => {})
+                }
+                log.info('NPS bad note: managers notified', { pollId: pollMsg.id, options: selectedOptions, managersCount: (managers || []).length })
+              }
+            } catch (err) {
+              log.warn('NPS notify error (non-critical)', { error: (err as Error).message })
+            }
+          }
+        }
+
+        log.info('poll_update processed', { pollId: pollMsg.id, voter: cleanJid, options: selectedOptions })
+        return new Response(JSON.stringify({ ok: true, poll_processed: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      } catch (err) {
+        log.error('poll_update error', { error: (err as Error).message })
+        return new Response(JSON.stringify({ ok: true, error: 'poll_update_failed' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
     // Only process message events
     if (eventType !== 'messages') {
       log.info('Ignoring event type', { eventType })

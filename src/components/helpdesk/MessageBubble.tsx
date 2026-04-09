@@ -1,7 +1,7 @@
 import { useState, useMemo, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatBR } from '@/lib/dateUtils';
-import { ImageIcon, ExternalLink, FileText, Download, Loader2, LayoutGrid, Link, Phone, MessageSquare, User, ChevronRight, UserPlus, Copy, Reply } from 'lucide-react';
+import { ImageIcon, ExternalLink, FileText, Download, Loader2, LayoutGrid, BarChart3, Link, Phone, MessageSquare, User, ChevronRight, UserPlus, Copy, Reply } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { supabase } from '@/integrations/supabase/client';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -43,6 +43,18 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
     } catch {
       return null;
     }
+  }, [message.media_type, message.media_url]);
+
+  // M17 F4: Parse poll data from media_url when media_type is 'poll'
+  const pollData = useMemo(() => {
+    if (message.media_type !== 'poll' || !message.media_url) return null;
+    try {
+      return JSON.parse(message.media_url) as {
+        question?: string;
+        options?: string[];
+        selectable_count?: number;
+      };
+    } catch { return null; }
   }, [message.media_type, message.media_url]);
 
   // Parse contact (vCard) data from media_url when media_type is 'contact'
@@ -389,7 +401,30 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
           </div>
         )}
 
-        {message.media_type !== 'document' && message.media_type !== 'carousel' && message.media_type !== 'contact' && message.content && typeof message.content === 'string' && (
+        {/* M17 F4: Poll */}
+        {message.media_type === 'poll' && pollData && (
+          <div className="mb-1 min-w-[200px]">
+            <p className="font-medium mb-2 flex items-center gap-1.5 text-sm">
+              <BarChart3 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              {pollData.question}
+            </p>
+            <div className="space-y-1">
+              {pollData.options?.map((opt, idx) => (
+                <div key={idx} className="flex items-center gap-2 text-xs p-1.5 rounded bg-muted/30 border border-border">
+                  <span className="w-4 h-4 rounded-full border border-muted-foreground/40 shrink-0 flex items-center justify-center text-[9px]">
+                    {pollData.selectable_count === 0 ? '☐' : '○'}
+                  </span>
+                  <span className="flex-1">{opt}</span>
+                </div>
+              ))}
+            </div>
+            {pollData.selectable_count === 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1">Selecao multipla</p>
+            )}
+          </div>
+        )}
+
+        {message.media_type !== 'document' && message.media_type !== 'carousel' && message.media_type !== 'contact' && message.media_type !== 'poll' && message.content && typeof message.content === 'string' && (
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         )}
         {message.content && typeof message.content === 'object' && (

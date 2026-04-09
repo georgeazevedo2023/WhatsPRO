@@ -26,6 +26,13 @@ export interface Funnel {
   settings: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // M17 F2: Funis Agênticos
+  funnel_prompt: string | null;
+  handoff_rule: 'so_se_pedir' | 'apos_n_msgs' | 'nunca' | null;
+  handoff_department_id: string | null;
+  handoff_max_messages: number | null;
+  // M17 F3: Perfil de Atendimento
+  profile_id: string | null;
 }
 
 export interface FunnelWithMetrics extends Funnel {
@@ -54,6 +61,13 @@ export interface CreateFunnelInput {
   handoff_department?: string;
   max_messages_before_handoff?: number;
   settings?: Record<string, unknown>;
+  // M17 F2: Funis Agênticos
+  funnel_prompt?: string;
+  handoff_rule?: 'so_se_pedir' | 'apos_n_msgs' | 'nunca';
+  handoff_department_id?: string;
+  handoff_max_messages?: number;
+  // M17 F3: Perfil de Atendimento
+  profile_id?: string;
 }
 
 // Configuracao de cada tipo de funil

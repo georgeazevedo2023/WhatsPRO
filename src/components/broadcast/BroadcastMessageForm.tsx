@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MessageSquare, Image, LayoutGrid } from 'lucide-react';
+import { MessageSquare, Image, LayoutGrid, BarChart3 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/emoji-picker';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
@@ -10,6 +10,7 @@ import { ScheduleMessageDialog } from '@/components/group/ScheduleMessageDialog'
 import { TemplateSelector } from './TemplateSelector';
 import MessagePreview from './MessagePreview';
 import { CarouselEditor, CarouselData, createEmptyCard } from './CarouselEditor';
+import { PollEditor, PollData, createEmptyPoll } from './PollEditor';
 import { uploadCarouselImage } from '@/lib/uploadCarouselImage';
 import BroadcastProgressModal from './BroadcastProgressModal';
 import BroadcastMediaTab from './BroadcastMediaTab';
@@ -87,6 +88,9 @@ const BroadcastMessageForm = ({ instance, selectedGroups, onComplete, initialDat
     return { message: '', cards: [createEmptyCard(), createEmptyCard()] };
   });
 
+  // M17 F4: Poll state
+  const [pollData, setPollData] = useState<PollData>(createEmptyPoll);
+
   // ── Computed values ──────────────────────────────────────────────
   const totalMembers = selectedGroups.reduce((acc, g) => acc + g.size, 0);
   const totalRegularMembers = selectedGroups.reduce(
@@ -135,6 +139,9 @@ const BroadcastMessageForm = ({ instance, selectedGroups, onComplete, initialDat
     } else if (activeTab === 'carousel') {
       await broadcast.sendCarousel({ carouselData });
       setCarouselData({ message: '', cards: [createEmptyCard(), createEmptyCard()] });
+    } else if (activeTab === 'poll') {
+      await broadcast.sendPoll({ pollData });
+      setPollData(createEmptyPoll());
     } else {
       const mediaData = selectedFile ? await fileToBase64(selectedFile) : mediaUrl.trim();
       await broadcast.sendMedia({ mediaData, mediaType, caption, isPtt, filename, mediaUrl });
@@ -171,8 +178,10 @@ const BroadcastMessageForm = ({ instance, selectedGroups, onComplete, initialDat
     carouselData.cards.every(c => c.buttons.every(btn =>
       btn.label.trim() && (btn.type !== 'URL' || btn.url?.trim()) && (btn.type !== 'CALL' || btn.phone?.trim())
     ));
-  const canSend = (isTextValid || isMediaValid || isCarouselValid) && selectedGroups.length > 0 &&
-    !(excludeAdmins && activeTab !== 'carousel' && selectedParticipants.size === 0);
+  const isPollValid = activeTab === 'poll' && pollData.question.trim().length > 0 &&
+    pollData.options.length >= 2 && pollData.options.every(o => o.trim().length > 0);
+  const canSend = (isTextValid || isMediaValid || isCarouselValid || isPollValid) && selectedGroups.length > 0 &&
+    !(excludeAdmins && activeTab !== 'carousel' && activeTab !== 'poll' && selectedParticipants.size === 0);
   const canSchedule = activeTab === 'text'
     ? !!(message.trim() && !isOverLimit && selectedGroups.length > 0)
     : activeTab === 'media'
@@ -266,7 +275,7 @@ const BroadcastMessageForm = ({ instance, selectedGroups, onComplete, initialDat
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ActiveTab)}>
-            <TabsList className="grid w-full grid-cols-3 mb-4">
+            <TabsList className="grid w-full grid-cols-4 mb-4">
               <TabsTrigger value="text" className="flex items-center gap-2">
                 <MessageSquare className="w-4 h-4" />
                 Texto
@@ -278,6 +287,10 @@ const BroadcastMessageForm = ({ instance, selectedGroups, onComplete, initialDat
               <TabsTrigger value="carousel" className="flex items-center gap-2">
                 <LayoutGrid className="w-4 h-4" />
                 Carrossel
+              </TabsTrigger>
+              <TabsTrigger value="poll" className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" />
+                Enquete
               </TabsTrigger>
             </TabsList>
 
@@ -315,7 +328,11 @@ const BroadcastMessageForm = ({ instance, selectedGroups, onComplete, initialDat
               <CarouselEditor value={carouselData} onChange={setCarouselData} disabled={broadcast.isSending} />
             </TabsContent>
 
-            {activeTab !== 'carousel' && (
+            <TabsContent value="poll" className="space-y-4">
+              <PollEditor value={pollData} onChange={setPollData} disabled={broadcast.isSending} />
+            </TabsContent>
+
+            {activeTab !== 'carousel' && activeTab !== 'poll' && (
               <MessagePreview
                 type={activeTab === 'text' ? 'text' : mediaType}
                 text={activeTab === 'text' ? message : caption}

@@ -11,7 +11,7 @@ import type { ScheduleConfig } from '@/components/group/ScheduleMessageDialog';
 import type { MediaType } from '@/lib/broadcastSender';
 import {
   MAX_MESSAGE_LENGTH, GROUP_DELAY_MS,
-  sendToNumber, sendMediaToNumber, sendCarouselToNumber,
+  sendToNumber, sendMediaToNumber, sendCarouselToNumber, sendPollToNumber,
   fileToBase64, getRandomDelay as getRandomDelayMs,
 } from '@/lib/broadcastSender';
 
@@ -37,6 +37,7 @@ export interface SendMediaParams {
   mediaUrl: string;
 }
 export interface SendCarouselParams { carouselData: CarouselData }
+export interface SendPollParams { pollData: import('@/components/broadcast/PollEditor').PollData }
 
 export interface UseBroadcastSendReturn {
   progress: SendProgress;
@@ -53,6 +54,7 @@ export interface UseBroadcastSendReturn {
   sendText: (p: SendTextParams) => Promise<void>;
   sendMedia: (p: SendMediaParams) => Promise<void>;
   sendCarousel: (p: SendCarouselParams) => Promise<void>;
+  sendPoll: (p: SendPollParams) => Promise<void>;
   scheduleText: (p: SendTextParams & { config: ScheduleConfig }) => Promise<void>;
   scheduleMedia: (p: SendMediaParams & { config: ScheduleConfig }) => Promise<void>;
 }
@@ -514,6 +516,67 @@ export function useBroadcastSend(params: UseBroadcastSendParams): UseBroadcastSe
   }, [instance.id, selectedGroups, excludeAdmins, uniqueRegularMembers, selectedParticipants, randomDelay]);
 
   // ══════════════════════════════════════════════════════════════════
+  // M17 F4: Send Poll
+  // ══════════════════════════════════════════════════════════════════
+  const sendPoll = useCallback(async ({ pollData }: SendPollParams) => {
+    if (!pollData.question.trim() || pollData.options.length < 2) {
+      toast.error('Enquete precisa de pergunta e pelo menos 2 opcoes'); return;
+    }
+    if (selectedGroups.length === 0) {
+      toast.error('Selecione pelo menos um grupo'); return;
+    }
+    setIsSending(true);
+    try {
+      const accessToken = await getAuthToken();
+      const targets: string[] = [];
+      for (const group of selectedGroups) {
+        if (excludeAdmins && uniqueRegularMembers.length > 0) {
+          const members = selectedParticipants.size > 0
+            ? uniqueRegularMembers.filter(m => selectedParticipants.has(m.jid))
+            : uniqueRegularMembers;
+          targets.push(...members.map(m => m.jid));
+        } else {
+          targets.push(group.id);
+        }
+      }
+      const total = targets.length;
+      setProgress({ current: 0, total, status: 'sending', successCount: 0, failCount: 0 });
+
+      const imageUrl = pollData.imageBeforePoll && pollData.imageFile
+        ? await fileToBase64(pollData.imageFile)
+        : pollData.imageBeforePoll && pollData.imageUrl
+          ? pollData.imageUrl
+          : undefined;
+
+      for (let i = 0; i < total; i++) {
+        if (cancelRef.current) break;
+        while (pauseRef.current) await delay(200);
+        try {
+          await sendPollToNumber(
+            instance.id, targets[i],
+            pollData.question, pollData.options.filter(o => o.trim()),
+            pollData.selectableCount, accessToken, imageUrl
+          );
+          setProgress(p => ({ ...p, current: i + 1, successCount: p.successCount + 1 }));
+        } catch {
+          setProgress(p => ({ ...p, current: i + 1, failCount: p.failCount + 1 }));
+        }
+        if (i < total - 1) {
+          const d = randomDelay === 'none' ? GROUP_DELAY_MS : getRandomDelayMs(randomDelay);
+          await delay(d);
+        }
+      }
+      setProgress(p => ({ ...p, status: cancelRef.current ? 'cancelled' : 'completed' }));
+      if (!cancelRef.current) toast.success(`Enquete enviada para ${total} destinatarios`);
+    } catch (error) {
+      console.error('Error sending poll broadcast:', error);
+      toast.error('Erro ao enviar enquete');
+      setProgress(p => ({ ...p, status: 'error' }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.id, selectedGroups, excludeAdmins, uniqueRegularMembers, selectedParticipants, randomDelay]);
+
+  // ══════════════════════════════════════════════════════════════════
   // Scheduling
   // ══════════════════════════════════════════════════════════════════
 
@@ -634,7 +697,7 @@ export function useBroadcastSend(params: UseBroadcastSendParams): UseBroadcastSe
     progress, elapsedTime, remainingTime, estimatedTime,
     isSending, isScheduling, formatDuration,
     handlePause, handleResume, handleCancel, handleCloseProgress,
-    sendText, sendMedia, sendCarousel,
+    sendText, sendMedia, sendCarousel, sendPoll,
     scheduleText, scheduleMedia,
   };
 }

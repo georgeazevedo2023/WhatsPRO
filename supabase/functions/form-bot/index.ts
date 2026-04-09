@@ -2,6 +2,7 @@ import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { upsertLeadFromFormData } from '../_shared/leadHelper.ts'
+import { executeAutomationRules } from '../_shared/automationEngine.ts'
 
 const supabase = createServiceClient()
 const log = createLogger('form-bot')
@@ -75,6 +76,11 @@ function validateAnswer(fieldType: string, value: string, rules: Record<string, 
       })
     }
     case 'yes_no': return /^(sim|não|nao|s|n)$/i.test(v)
+    // M17 F4: Poll field — validate that response matches one of the options
+    case 'poll': {
+      const options = (rules?.options as string[]) ?? []
+      return options.some(o => o.toLowerCase() === v.toLowerCase())
+    }
     case 'signature': {
       const expected = (rules?.expected_value as string) ?? 'ACEITO'
       return v === expected
@@ -102,6 +108,11 @@ function normalizeAnswer(fieldType: string, value: string, rules: Record<string,
         if (!isNaN(idx) && idx >= 1 && idx <= options.length) return options[idx - 1]
         return p.trim()
       })
+    }
+    // M17 F4: Poll field — return exact option text (case-insensitive match)
+    case 'poll': {
+      const options = (rules?.options as string[]) ?? []
+      return options.find(o => o.toLowerCase() === v.toLowerCase()) || v
     }
     default: return v
   }
@@ -253,7 +264,29 @@ Deno.serve(async (req) => {
       const fields = (form as { form_fields: Array<{ field_type: string; label: string; required: boolean; position: number }> }).form_fields ?? []
       const firstField = fields.sort((a, b) => a.position - b.position)[0]
       if (firstField) {
-        await sendWhatsAppMessage(instance_id, chatId, firstField.label)
+        // M17 F4: Poll field — send native poll for first question too
+        if (firstField.field_type === 'poll' && (firstField as any).validation_rules?.options?.length >= 2) {
+          try {
+            const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
+            const { data: inst } = await supabase.from('instances').select('token').eq('id', instance_id).maybeSingle()
+            if (inst?.token) {
+              await fetchWithTimeout(`${uazapiUrl}/send/poll`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'token': inst.token },
+                body: JSON.stringify({
+                  number: chatId,
+                  question: firstField.label,
+                  options: (firstField as any).validation_rules.options,
+                  selectableCount: (firstField as any).validation_rules?.multi ? 0 : 1,
+                }),
+              })
+            }
+          } catch {
+            await sendWhatsAppMessage(instance_id, chatId, firstField.label)
+          }
+        } else {
+          await sendWhatsAppMessage(instance_id, chatId, firstField.label)
+        }
       }
 
       log.info('Form session created', { formId: form.id, sessionId: session.id })
@@ -406,6 +439,28 @@ Deno.serve(async (req) => {
           }
         }
 
+        // ── Trigger automation engine (form_completed) ──────────────
+        try {
+          const formSlugForEngine = (form as { slug: string }).slug
+          const { data: linkedFunnel } = await supabase
+            .from('funnels')
+            .select('id')
+            .eq('form_id', session.form_id)
+            .maybeSingle()
+
+          if (linkedFunnel?.id) {
+            await executeAutomationRules(
+              linkedFunnel.id,
+              'form_completed',
+              { form_slug: formSlugForEngine },
+              conversation_id ?? null,
+              supabase,
+            ).catch(() => {}) // fire-and-forget, don't block
+          }
+        } catch (err) {
+          log.error('Automation engine error (non-critical)', { error: (err as Error).message })
+        }
+
         log.info('Form completed', { formId: session.form_id, sessionId: session.id })
         return new Response(JSON.stringify({ ok: true, completed: true }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -422,8 +477,37 @@ Deno.serve(async (req) => {
 
       // Send next question
       const nextField = fields[nextIndex]
-      const questionText = nextField.label + (nextField.required ? '' : '\n_(opcional — você pode pular digitando "pular")_')
-      await sendWhatsAppMessage(instance_id, chatId, questionText)
+      // M17 F4: Poll field — send native WhatsApp poll instead of text
+      if (nextField.field_type === 'poll' && nextField.validation_rules?.options) {
+        const pollOptions = (nextField.validation_rules.options as string[]) || []
+        if (pollOptions.length >= 2) {
+          try {
+            const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
+            const { data: inst } = await supabase.from('instances').select('token').eq('id', instance_id).maybeSingle()
+            if (inst?.token) {
+              await fetchWithTimeout(`${uazapiUrl}/send/poll`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'token': inst.token },
+                body: JSON.stringify({
+                  number: chatId,
+                  question: nextField.label,
+                  options: pollOptions, // D7: NEVER numbered — clean names only
+                  selectableCount: nextField.validation_rules?.multi ? 0 : 1,
+                }),
+              })
+            }
+          } catch (err) {
+            // Fallback: send as text question if poll fails
+            const questionText = nextField.label + '\n' + pollOptions.join('\n')
+            await sendWhatsAppMessage(instance_id, chatId, questionText)
+          }
+        } else {
+          await sendWhatsAppMessage(instance_id, chatId, nextField.label)
+        }
+      } else {
+        const questionText = nextField.label + (nextField.required ? '' : '\n_(opcional — você pode pular digitando "pular")_')
+        await sendWhatsAppMessage(instance_id, chatId, questionText)
+      }
     }
 
     return new Response(JSON.stringify({ ok: true }), {

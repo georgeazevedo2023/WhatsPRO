@@ -2,7 +2,7 @@
 title: Roadmap
 tags: [roadmap, milestones, fases, status]
 sources: [.planning/ROADMAP.md, .planning/STATE.md, CLAUDE.md]
-updated: 2026-04-08
+updated: 2026-04-09
 ---
 
 # Roadmap
@@ -58,9 +58,27 @@ updated: 2026-04-08
 | F5: Import + Polish | ✅ Shipped | ImportExistingDialog, botao "Importar existente", rotas antigas como sub-items |
 | Polish: Dashboard + Jornada + Intelligence | ✅ Shipped | KPI "Funis Ativos", FunnelConversionChart, funnel_entry na timeline, LeadFunnelCard, filtro por funil na Intelligence |
 
+## M17: Plataforma Inteligente — 4 Pilares (COMPLETO ✅)
+
+> Motor de Automação + Funis Agênticos + Perfis & Integração + Enquetes + NPS
+
+| Fase | Nome | Status | O que faz |
+|------|------|--------|-----------|
+| F1 | Motor de Automação | ✅ Shipped (2026-04-08) | Tabela automation_rules, automationEngine.ts (7 gatilhos, 4 condições, 5 ações), Tab "Automações" no FunnelDetail, form-bot integrado, 6 testes |
+| F2 | Funis Agênticos | ✅ Shipped (2026-04-08) | funnel_prompt + handoff_rule por funil, `<funnel_instructions>` no AI Agent, Tab "Agente IA" no FunnelDetail |
+| F3 | Perfis & Integração | ✅ Shipped (2026-04-09) | Agent Profiles (unifica sub-agents + funnel_prompt), tabela agent_profiles, ProfilesConfig UI, seletor de perfil no FunnelDetail, ai-agent profile loading, backward compat |
+| F4 | Enquetes (Polls) | ✅ Shipped (2026-04-09) | poll_messages/responses, proxy send-poll, webhook poll_update, tool send_poll (9a), broadcast tab Enquete + PollEditor, form-bot field_type poll, helpdesk poll render, automationEngine send_poll |
+| F5 | NPS + Métricas | ✅ Shipped (2026-04-09) | NPS automático pós-resolve (delay configurável), nota ruim→notifica gerente, PollMetricsCard + PollNpsChart dashboard, PollConfigSection admin, notifications table, triggerNpsIfEnabled |
+
+**Ordem:** F1→F2→F3→F4→F5 (motor primeiro, enquetes depois — cada feature é apenas mais uma ação/gatilho no motor)
+**Pré-requisito UAZAPI:** Só na F4 (Task 4.1 teste ao vivo). F1-F3 não dependem de UAZAPI.
+**Módulos afetados:** AI Agent, Broadcast, Forms, Funis, Webhook, Helpdesk, Dashboard, Kanban/CRM (8 módulos)
+**Decisões aprovadas (10):** D1 (imagem=checkbox), D2 (tags=IA+editável), D3 (activateFunnel centralizado), D4 (prompt por funil), D5 (transbordo=dept+timeout), D6 (NPS=pós-resolve+notifica), D7 (form-bot poll, NUNCA opções numeradas), D8 (motor automação MVP, tags+etiquetas como gatilhos), D9 (Motor+Agêntico ambos dentro do Funil — cérebro=global, funil=por contexto), D10 (Agent Profiles — unifica sub-agents+funnel_prompt)
+**Plano completo:** [[wiki/plano-enquetes-polls]]
+
 ## Módulos Implementados
 
-16 módulos (M1-M16) implementados. Ver [[wiki/modulos]].
+17 módulos (M1-M17) implementados. Ver [[wiki/modulos]].
 
 ## Links
 

@@ -509,6 +509,56 @@ Deno.serve(async (req) => {
         )
       }
 
+      // M17 F4: Enquetes nativas do WhatsApp
+      case 'send-poll': {
+        if (!instanceToken || !groupjid || !body.question || !body.options) {
+          return new Response(
+            JSON.stringify({ error: 'Instance, groupjid, question and options required' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+        if (!Array.isArray(body.options) || body.options.length < 2 || body.options.length > 12) {
+          return new Response(
+            JSON.stringify({ error: 'Options must be an array with 2-12 items' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+        if (String(body.question).length > 255) {
+          return new Response(
+            JSON.stringify({ error: 'Question too long (max 255 characters)' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+        if (body.options.some((o: string) => String(o).length > 100)) {
+          return new Response(
+            JSON.stringify({ error: 'Each option max 100 characters' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+
+        const pollBody = {
+          number: groupjid,
+          question: String(body.question).trim(),
+          options: body.options.map((o: string) => String(o).trim()),
+          selectableCount: body.selectableCount ?? 1,
+        }
+
+        const pollResponse = await fetchWithTimeout(`${uazapiUrl}/send/poll`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', token: instanceToken },
+          body: JSON.stringify(pollBody),
+        })
+
+        const pollText = await pollResponse.text()
+        let pollResult: unknown
+        try { pollResult = JSON.parse(pollText) } catch { pollResult = { raw: pollText } }
+
+        return new Response(
+          JSON.stringify(pollResult),
+          { status: pollResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
       case 'check-numbers': {
         if (!instanceToken || !body.phones || !Array.isArray(body.phones)) {
           return new Response(

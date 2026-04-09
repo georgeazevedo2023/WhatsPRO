@@ -2,7 +2,7 @@
 title: Módulos
 tags: [modulos, features, helpdesk, crm, leads, broadcast, funis]
 sources: [CLAUDE.md, PRD.md, docs/CONTEXTO_PROJETO.md]
-updated: 2026-04-08
+updated: 2026-04-09
 ---
 
 # Módulos
@@ -105,7 +105,57 @@ updated: 2026-04-08
 - ImportExistingDialog: vincular recursos existentes a funis
 - OriginBadge suporta 'funil' (laranja)
 
+## M17 — Plataforma Inteligente ✅ COMPLETO
+
+> Status: **F1-F5 Shipped (2026-04-08 a 2026-04-09)** — Milestone completo.
+> Plano: [[wiki/plano-enquetes-polls]] | UAZAPI: [[wiki/uazapi-polls-interativos]]
+
+### F1 — Motor de Automação ✅ Shipped (2026-04-08)
+- Tabela `automation_rules` (funnel_id FK, trigger_type, condition_type, action_type, configs JSONB, RLS)
+- `automationEngine.ts` shared: `executeAutomationRules()` — 7 gatilhos, 4 condições, 6 ações
+- Tab "Automações" no FunnelDetail com CRUD visual + AutomationRuleEditor dialog
+- form-bot integrado: dispara `form_completed` após conclusão
+
+### F2 — Funis Agênticos ✅ Shipped (2026-04-08)
+- `funnel_prompt` + `handoff_rule` + `handoff_department_id` + `handoff_max_messages` na tabela funnels
+- ai-agent injeta `<funnel_instructions>` no system prompt (prioridade máxima)
+- Tab "Agente IA" no FunnelDetail
+
+### F3 — Perfis & Integração ✅ Shipped (2026-04-09)
+- Tabela `agent_profiles` — pacotes reutilizáveis de prompt + handoff rules
+- Unifica sub-agents (JSONB) + funnel_prompt em 1 conceito
+- `funnels.profile_id` FK → seletor dropdown no FunnelDetail
+- ProfilesConfig substitui SubAgentsConfig na tab Inteligência
+- ai-agent: profileData > funnelData > agent em handoff. `<profile_instructions>` última seção
+- Sub-agents deprecados com guard `if (!profileData)` — backward compat 100%
+
+### F4 — Enquetes (Polls) ✅ Shipped (2026-04-09)
+- Tabelas `poll_messages` + `poll_responses` + RLS
+- uazapi-proxy: action `send-poll` (2-12 opções, 255 chars max)
+- whatsapp-webhook: handler `poll_update` (upsert, auto-tags D2, automation trigger, AI debounce)
+- AI Agent: tool `send_poll` (9a, sideEffectTools) + broadcastEvent
+- Broadcast: tab "Enquete" + PollEditor (D1 image checkbox)
+- form-bot: field_type `poll` (envio nativo + validate + normalize)
+- Helpdesk: media_type='poll' rendering com BarChart3 + options cards
+- automationEngine: action `send_poll` implementada (substituiu placeholder)
+
+### F5 — NPS + Métricas ✅ Shipped (2026-04-09)
+- 5 campos NPS em ai_agents (enabled, delay, question, options, notify_on_bad)
+- `is_nps` flag em poll_messages + tabela `notifications` para alertas
+- PollConfigSection admin (NPS toggle, delay, pergunta, opções, notificação)
+- PollMetricsCard (4 KPIs) + PollNpsChart (distribuição NPS) no Dashboard
+- usePollMetrics hook (totalPolls, totalVotes, responseRate, npsAvg, distribution)
+- triggerNpsIfEnabled() no automationEngine (delay + guard sentimento:negativo)
+- TicketResolutionDrawer agenda NPS via job_queue após resolver
+- Nota ruim (Ruim/Péssimo) → notifica gerentes da inbox
+
+### Decisões aprovadas (10 — D1 a D10)
+- D1-D9: ver [[wiki/plano-enquetes-polls]]
+- D10: Agent Profiles (unifica sub-agents + funnel_prompt) — ver [[wiki/decisoes-chave]]
+
 ## Links
 
 - [[wiki/ai-agent]] — Agente IA em profundidade
 - [[wiki/roadmap]] — Status e próximos módulos
+- [[wiki/plano-enquetes-polls]] — Plano de enquetes (sprints, tasks, schema)
+- [[wiki/uazapi-polls-interativos]] — UAZAPI mensagens interativas

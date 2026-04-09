@@ -35,7 +35,7 @@ export interface InitialData {
 }
 
 export type MediaType = 'image' | 'video' | 'audio' | 'file';
-export type ActiveTab = 'text' | 'media' | 'carousel';
+export type ActiveTab = 'text' | 'media' | 'carousel' | 'poll';
 
 // ─── Sender Functions ────────────────────────────────────────────────────────
 
@@ -152,6 +152,38 @@ export const getRandomDelay = (randomDelay: 'none' | '5-10' | '10-20', baseDelay
   if (randomDelay === 'none') return baseDelay;
   const [min, max] = randomDelay === '5-10' ? [5000, 10000] : [10000, 20000];
   return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
+// M17 F4: Send poll to a single number
+export const sendPollToNumber = async (
+  instanceId: string,
+  recipientJid: string,
+  question: string,
+  options: string[],
+  selectableCount: number,
+  accessToken: string,
+  imageUrl?: string,
+) => {
+  // D1: Image before poll (protocol limitation — can't embed)
+  if (imageUrl) {
+    await uazapiProxyRaw(accessToken, {
+      action: 'send-media',
+      instance_id: instanceId,
+      groupjid: recipientJid,
+      mediaUrl: imageUrl,
+      mediaType: 'image',
+      caption: '',
+    });
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  return uazapiProxyRaw(accessToken, {
+    action: 'send-poll',
+    instance_id: instanceId,
+    groupjid: recipientJid,
+    question,
+    options,
+    selectableCount,
+  });
 };
 
 export const getAcceptedTypes = (mediaType: MediaType): string => {

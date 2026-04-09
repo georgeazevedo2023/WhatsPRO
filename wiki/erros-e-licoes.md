@@ -2,7 +2,7 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-07
+updated: 2026-04-09
 ---
 
 # Erros e Lições
@@ -36,6 +36,9 @@ updated: 2026-04-07
 | 19 | NUNCA duplicar FIELD_MAP — usar `leadHelper.ts` compartilhado | Integrações |
 | 20 | Bio lead captures DEVEM criar contact + lead_profile real — dados isolados são invisíveis | Bio Link |
 | 21 | Todo sistema de captação DEVE setar `lead_profiles.origin` e tags `origem:X` | Atribuição |
+| 22 | Edge functions admin-* DEVEM usar `getDynamicCorsHeaders(req)` e `verify_jwt=false` — gateway sem CORS headers bloqueia localhost e domínios diferentes | CORS |
+| 23 | CORS estático (`browserCorsHeaders`) não funciona com múltiplas origens — usar `getDynamicCorsHeaders(req)` que checa Origin vs whitelist + localhost | CORS |
+| 24 | `instances.id` é TEXT (não UUID) — FK para instances deve usar TEXT | DB |
 
 ---
 
@@ -121,5 +124,14 @@ updated: 2026-04-07
 **Causa:** Cada edge function foi desenvolvida em milestone separado (M12, M13) e copiou o código.
 **Correção:** Extraído para `_shared/leadHelper.ts` com `FORM_FIELD_MAP`, `upsertContactFromPhone()` e `upsertLeadFromFormData()`. Ambas as funções agora importam do módulo compartilhado.
 **Regra 19:** NUNCA duplicar FIELD_MAP ou lógica de upsert de lead — usar `leadHelper.ts`.
+
+### FK type mismatch — instances.id é TEXT, não UUID (2026-04-09)
+
+**O que:** Migration poll_messages falhava com "Key columns instance_id and id are of incompatible types: uuid and text".
+**Causa:** `public.instances.id` é TEXT (não UUID). A migration usava `instance_id UUID REFERENCES instances(id)`.
+**Correção:** Alterado para `instance_id TEXT NOT NULL REFERENCES instances(id)`.
+**Regra 24:** Sempre verificar o tipo real da coluna referenciada antes de criar FK. `instances.id` é TEXT.
+
+---
 
 *Adicionar novos erros acima desta linha, seguindo o formato: O que → Causa → Correção → Regra*

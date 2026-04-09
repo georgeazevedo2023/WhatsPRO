@@ -47,6 +47,72 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_profiles: {
+        Row: {
+          agent_id: string
+          created_at: string | null
+          enabled: boolean | null
+          handoff_department_id: string | null
+          handoff_max_messages: number | null
+          handoff_message: string | null
+          handoff_rule: string | null
+          id: string
+          is_default: boolean | null
+          name: string
+          position: number | null
+          prompt: string
+          slug: string
+          updated_at: string | null
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string | null
+          enabled?: boolean | null
+          handoff_department_id?: string | null
+          handoff_max_messages?: number | null
+          handoff_message?: string | null
+          handoff_rule?: string | null
+          id?: string
+          is_default?: boolean | null
+          name: string
+          position?: number | null
+          prompt?: string
+          slug: string
+          updated_at?: string | null
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string | null
+          enabled?: boolean | null
+          handoff_department_id?: string | null
+          handoff_max_messages?: number | null
+          handoff_message?: string | null
+          handoff_rule?: string | null
+          id?: string
+          is_default?: boolean | null
+          name?: string
+          position?: number | null
+          prompt?: string
+          slug?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_profiles_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_profiles_handoff_department_id_fkey"
+            columns: ["handoff_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_knowledge: {
         Row: {
           agent_id: string
@@ -376,6 +442,11 @@ export type Database = {
           openai_api_key: string | null
           out_of_hours_message: string | null
           personality: string | null
+          poll_nps_delay_minutes: number | null
+          poll_nps_enabled: boolean | null
+          poll_nps_notify_on_bad: boolean | null
+          poll_nps_options: Json | null
+          poll_nps_question: string | null
           prompt_sections: Json | null
           returning_greeting_message: string | null
           sub_agents: Json | null
@@ -428,6 +499,11 @@ export type Database = {
           openai_api_key?: string | null
           out_of_hours_message?: string | null
           personality?: string | null
+          poll_nps_delay_minutes?: number | null
+          poll_nps_enabled?: boolean | null
+          poll_nps_notify_on_bad?: boolean | null
+          poll_nps_options?: Json | null
+          poll_nps_question?: string | null
           prompt_sections?: Json | null
           returning_greeting_message?: string | null
           sub_agents?: Json | null
@@ -480,6 +556,11 @@ export type Database = {
           openai_api_key?: string | null
           out_of_hours_message?: string | null
           personality?: string | null
+          poll_nps_delay_minutes?: number | null
+          poll_nps_enabled?: boolean | null
+          poll_nps_notify_on_bad?: boolean | null
+          poll_nps_options?: Json | null
+          poll_nps_question?: string | null
           prompt_sections?: Json | null
           returning_greeting_message?: string | null
           sub_agents?: Json | null
@@ -549,6 +630,62 @@ export type Database = {
             columns: ["instance_id"]
             isOneToOne: false
             referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      automation_rules: {
+        Row: {
+          action_config: Json | null
+          action_type: string
+          condition_config: Json | null
+          condition_type: string | null
+          created_at: string | null
+          enabled: boolean | null
+          funnel_id: string
+          id: string
+          name: string
+          position: number | null
+          trigger_config: Json | null
+          trigger_type: string
+          updated_at: string | null
+        }
+        Insert: {
+          action_config?: Json | null
+          action_type: string
+          condition_config?: Json | null
+          condition_type?: string | null
+          created_at?: string | null
+          enabled?: boolean | null
+          funnel_id: string
+          id?: string
+          name: string
+          position?: number | null
+          trigger_config?: Json | null
+          trigger_type: string
+          updated_at?: string | null
+        }
+        Update: {
+          action_config?: Json | null
+          action_type?: string
+          condition_config?: Json | null
+          condition_type?: string | null
+          created_at?: string | null
+          enabled?: boolean | null
+          funnel_id?: string
+          id?: string
+          name?: string
+          position?: number | null
+          trigger_config?: Json | null
+          trigger_type?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automation_rules_funnel_id_fkey"
+            columns: ["funnel_id"]
+            isOneToOne: false
+            referencedRelation: "funnels"
             referencedColumns: ["id"]
           },
         ]
@@ -1512,15 +1649,20 @@ export type Database = {
           created_by: string | null
           description: string | null
           form_id: string | null
+          funnel_prompt: string | null
           handoff_department: string | null
+          handoff_department_id: string | null
+          handoff_max_messages: number | null
           handoff_message: string | null
           handoff_message_outside_hours: string | null
+          handoff_rule: string | null
           icon: string | null
           id: string
           instance_id: string
           kanban_board_id: string | null
           max_messages_before_handoff: number | null
           name: string
+          profile_id: string | null
           settings: Json | null
           slug: string
           status: string | null
@@ -1536,15 +1678,20 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           form_id?: string | null
+          funnel_prompt?: string | null
           handoff_department?: string | null
+          handoff_department_id?: string | null
+          handoff_max_messages?: number | null
           handoff_message?: string | null
           handoff_message_outside_hours?: string | null
+          handoff_rule?: string | null
           icon?: string | null
           id?: string
           instance_id: string
           kanban_board_id?: string | null
           max_messages_before_handoff?: number | null
           name: string
+          profile_id?: string | null
           settings?: Json | null
           slug: string
           status?: string | null
@@ -1560,15 +1707,20 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           form_id?: string | null
+          funnel_prompt?: string | null
           handoff_department?: string | null
+          handoff_department_id?: string | null
+          handoff_max_messages?: number | null
           handoff_message?: string | null
           handoff_message_outside_hours?: string | null
+          handoff_rule?: string | null
           icon?: string | null
           id?: string
           instance_id?: string
           kanban_board_id?: string | null
           max_messages_before_handoff?: number | null
           name?: string
+          profile_id?: string | null
           settings?: Json | null
           slug?: string
           status?: string | null
@@ -1598,6 +1750,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "funnels_handoff_department_id_fkey"
+            columns: ["handoff_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "funnels_instance_id_fkey"
             columns: ["instance_id"]
             isOneToOne: false
@@ -1609,6 +1768,13 @@ export type Database = {
             columns: ["kanban_board_id"]
             isOneToOne: false
             referencedRelation: "kanban_boards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funnels_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "agent_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -2411,6 +2577,39 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          created_at: string | null
+          id: string
+          message: string | null
+          metadata: Json | null
+          read: boolean | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          message?: string | null
+          metadata?: Json | null
+          read?: boolean | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          message?: string | null
+          metadata?: Json | null
+          read?: boolean | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       playground_evaluations: {
         Row: {
           agent_id: string | null
@@ -2513,6 +2712,118 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      poll_messages: {
+        Row: {
+          auto_tags: Json | null
+          conversation_id: string | null
+          created_at: string | null
+          created_by: string | null
+          funnel_id: string | null
+          id: string
+          image_url: string | null
+          instance_id: string
+          is_nps: boolean | null
+          message_id: string | null
+          options: string[]
+          question: string
+          selectable_count: number
+        }
+        Insert: {
+          auto_tags?: Json | null
+          conversation_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          funnel_id?: string | null
+          id?: string
+          image_url?: string | null
+          instance_id: string
+          is_nps?: boolean | null
+          message_id?: string | null
+          options: string[]
+          question: string
+          selectable_count?: number
+        }
+        Update: {
+          auto_tags?: Json | null
+          conversation_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          funnel_id?: string | null
+          id?: string
+          image_url?: string | null
+          instance_id?: string
+          is_nps?: boolean | null
+          message_id?: string | null
+          options?: string[]
+          question?: string
+          selectable_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "poll_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "poll_messages_funnel_id_fkey"
+            columns: ["funnel_id"]
+            isOneToOne: false
+            referencedRelation: "funnels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "poll_messages_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      poll_responses: {
+        Row: {
+          contact_id: string | null
+          id: string
+          poll_message_id: string
+          selected_options: string[]
+          voted_at: string | null
+          voter_jid: string
+        }
+        Insert: {
+          contact_id?: string | null
+          id?: string
+          poll_message_id: string
+          selected_options: string[]
+          voted_at?: string | null
+          voter_jid: string
+        }
+        Update: {
+          contact_id?: string | null
+          id?: string
+          poll_message_id?: string
+          selected_options?: string[]
+          voted_at?: string | null
+          voter_jid?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "poll_responses_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "poll_responses_poll_message_id_fkey"
+            columns: ["poll_message_id"]
+            isOneToOne: false
+            referencedRelation: "poll_messages"
             referencedColumns: ["id"]
           },
         ]

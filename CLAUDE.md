@@ -60,6 +60,17 @@ Se pular, PARE e volte ao passo 1.
 - **Após DEPENDÊNCIA:** wiki/arquitetura.md + log.md
 - **Antes de DEPLOY:** seguir wiki/deploy-checklist.md → registrar em log.md
 
+### FORMATO OBRIGATÓRIO PARA DISCUSSÃO DE DECISÕES
+
+Quando apresentar uma questão/dúvida para o usuário decidir, SEMPRE usar este formato:
+
+1. **Contexto** — O que é isso e por que importa (1 parágrafo didático)
+2. **Problema** — O que precisa ser decidido e quais as implicações (1 parágrafo)
+3. **Solução** — Como funciona na prática com exemplo concreto (1 parágrafo)
+4. **Casos de uso** — 4 exemplos reais de como seria usado
+5. **Opções** — Listar as alternativas com prós/contras e a **recomendação** destacada
+6. **Documentação** — Toda resposta do usuário DEVE ser documentada imediatamente no vault (plano, decisões, log)
+
 ### CONVENÇÕES
 
 - Wikilinks: `[[wiki/pagina]]`
@@ -283,11 +294,12 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - TTS preview no admin: botão de teste de voz funciona quando GEMINI_API_KEY está na system_settings (SecretsTab). Edge Functions leem dos secrets do Supabase (Deno.env), admin frontend lê de system_settings. Ambos precisam estar configurados.
 - Handoff text discard: when handoff_to_human tool executes, any LLM-generated text is discarded — lead receives only the configured handoff_message
 - Handoff by hours: ai_agents.handoff_message_outside_hours — separate message for outside business hours. Business hours use weekly schedule: ai_agents.business_hours JSONB {"mon":{"open":true,"start":"08:00","end":"18:00"}, ...}
-- Sub-agent routing by tags: motivo:compra→sales, motivo:suporte→support, motivo:financeiro→handoff. Only injects relevant sub-agent prompt instead of all 5.
+- Agent Profiles (M17 F3): tabela `agent_profiles` — pacotes reutilizáveis de prompt + handoff rules. Funis apontam via `funnels.profile_id` FK. Default profile para conversas sem funil. Priority: profile > funnel > agent. `<profile_instructions>` injetado como ÚLTIMA seção do prompt. ProfilesConfig na tab Inteligência. FunnelDetail tab IA = seletor de perfil.
+- Sub-agent routing (DEPRECATED by M17 F3): motivo:compra→sales, motivo:suporte→support. Only fires when `!profileData` (backward compat). Use Agent Profiles instead.
 - Tag taxonomy (3 levels): motivo (intent), interesse (category from catalog), produto (specific product). Enforcement: VALID_KEYS whitelist, VALID_MOTIVOS set, VALID_OBJECOES set. Auto-extracts interesse from search_products results.
 - ValidatorMetrics component: score avg, PASS/REWRITE/BLOCK rates, score distribution, top violations with severity, AI suggestions
 - Validator rigor levels: moderado (score>=8 PASS), rigoroso (>=9), maximo (only 10). Config: ai_agents.validator_enabled, validator_model, validator_rigor
-- AI Agent Tools (8): search_products, send_carousel, send_media, handoff_to_human, assign_label, set_tags, move_kanban, update_lead_profile
+- AI Agent Tools (9): search_products, send_carousel, send_media, handoff_to_human, assign_label, set_tags, move_kanban, update_lead_profile, send_poll
 - Qualification retries: max_qualification_retries (default 2) — search_fail:N tag tracks failed searches. N >= max → force handoff. Resets on product found.
 - Enrichment flow: max_enrichment_questions (default 2) — when search returns 0 AND lead is well-qualified (interesse:X tag exists or 3+ query terms), agent enters enrichment phase: asks contextual questions (acabamento, marca_preferida, quantidade, area) before handoff. Tags: enrich_count:N, qualificacao_completa:true. Handoff includes qualification_chain: "Nome > Interesse > Produto > Acabamento > Marca".
 - Enrichment tags: acabamento, marca_preferida, quantidade, area, aplicacao, enrich_count, qualificacao_completa — all in VALID_KEYS. buildEnrichmentInstructions() generates contextual suggestions per category. buildQualificationChain() builds structured chain for handoff reason + lead_profiles.notes.
@@ -300,9 +312,9 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - max_lead_messages: auto-handoff apos N msgs do lead (default 8). Atomic counter via increment_lead_msg_count RPC.
 - Campaign context: tag campanha:NAME on conversation → loads utm_campaigns.ai_template + ai_custom_text into system prompt
 - context_long_enabled (Memoria do Lead): loads lead_profiles (full_name, city, interests, ticket, objections, conversation_summaries) into prompt
-- Shared modules (16): cors.ts, fetchWithTimeout.ts, circuitBreaker.ts, llmProvider.ts, constants.ts, logger.ts, agentHelpers.ts, auth.ts, supabaseClient.ts, carousel.ts, rateLimit.ts, validatorAgent.ts, ttsProviders.ts, response.ts, aiRuntime.ts, leadHelper.ts
-- Admin AI Agent components (19): GeneralConfig, BrainConfig, CatalogConfig, CatalogTable, CatalogProductForm, CsvProductImport, BatchScrapeImport, KnowledgeConfig, RulesConfig, GuardrailsConfig, VoiceConfig, ExtractionConfig, MetricsConfig, ValidatorMetrics, SubAgentsConfig, BlockedNumbersConfig, FollowUpConfig, BusinessInfoConfig, PromptStudio
-- Admin AI Agent tabs: Setup (GeneralConfig+BusinessInfo), Prompt Studio, Inteligencia (Brain+SubAgents+Extraction), Catalogo, Conhecimento, Seguranca (Rules+Guardrails+BlockedNumbers), Canais (Voice+FollowUp), Metricas (Metrics+ValidatorMetrics)
+- Shared modules (17): cors.ts, fetchWithTimeout.ts, circuitBreaker.ts, llmProvider.ts, constants.ts, logger.ts, agentHelpers.ts, auth.ts, supabaseClient.ts, carousel.ts, rateLimit.ts, validatorAgent.ts, ttsProviders.ts, response.ts, aiRuntime.ts, leadHelper.ts, automationEngine.ts
+- Admin AI Agent components (20): GeneralConfig, BrainConfig, CatalogConfig, CatalogTable, CatalogProductForm, CsvProductImport, BatchScrapeImport, KnowledgeConfig, RulesConfig, GuardrailsConfig, VoiceConfig, ExtractionConfig, MetricsConfig, ValidatorMetrics, ProfilesConfig, BlockedNumbersConfig, FollowUpConfig, BusinessInfoConfig, PromptStudio, PollConfigSection
+- Admin AI Agent tabs: Setup (GeneralConfig+BusinessInfo), Prompt Studio, Inteligencia (Brain+Profiles+Extraction), Catalogo, Conhecimento, Seguranca (Rules+Guardrails+BlockedNumbers), Canais (Voice+FollowUp), Metricas (Metrics+ValidatorMetrics+PollConfigSection)
 - Batch history: e2e_test_batches (UUID PK) → e2e_test_runs.batch_uuid FK. runAllE2e() creates batch row at start, completes it after loop. useE2eBatchHistory/useE2eBatchRuns/useCreateBatch/useCompleteBatch in src/hooks/useE2eBatchHistory.ts
 - BatchHistoryTab: 5th tab in AIAgentPlayground, shows last 30 batches per agent, expandable run detail, score bar (green>=80%, yellow>=60%, red<60%)
 - M2 F1 composite_score formula (simple): Math.round((passed/total)*100) — full weighted formula comes in F3
@@ -338,7 +350,14 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA. 
 - Funnel tag: `funil:SLUG` setada por form-public, bio-public, whatsapp-webhook. AI Agent detecta e injeta `<funnel_context>` no prompt.
 - Funnel handoff: prioridade funil.handoff_message > agent.handoff_message. Funil pode customizar max_messages_before_handoff e handoff_department.
 - Funnel templates: `funnelTemplates.ts` — kanban columns, bio defaults, campaign defaults, form template mapping por tipo.
-- FunnelDetail: pagina com KPIs, kanban visual, 3 tabs (Canais, Formulario, Config). Metricas agregadas via useFunnelMetrics.
+- FunnelDetail: pagina com KPIs, kanban visual, 5 tabs (Canais, Formulario, Automacoes, IA, Config). Metricas agregadas via useFunnelMetrics. Tab Automacoes = motor Gatilho>Condicao>Acao (M17). Tab IA = roteiro agentico + regra transbordo (M17). Analogia corpo humano: cerebro (AI Agent) = global 1x, esqueleto (funil) = instintos/reflexos por contexto Nx.
 - FunnelConversionChart: grafico horizontal no Dashboard — Visitas→Capturas→Leads→Conversoes agregado de funis ativos.
 - LeadFunnelCard: card no LeadDetail mostrando funil ativo + etapa kanban + dias na etapa.
 - ImportExistingDialog: dialog que permite vincular campanhas/bios/forms/boards existentes a um novo funil.
+- M17 Plataforma Inteligente (F1+F2+F3+F4+F5 ✅ COMPLETO): 4 pilares — Motor, Funis Agênticos, Perfis & Integração, Enquetes. 10 decisões aprovadas, 5 fases, 8 módulos afetados.
+- Motor de Automação (M17 F1 ✅): Tabela automation_rules + automationEngine.ts (7 gatilhos, 4 condições, 5 ações). Tab "Automações" no FunnelDetail com CRUD visual. useAutomationRules hook. AutomationRuleEditor dialog. form-bot chama executeAutomationRules após form_completed. 6 testes passando.
+- Funis Agênticos (M17 F2 ✅): funnel_prompt + handoff_rule (so_se_pedir/apos_n_msgs/nunca) + handoff_max_messages na tabela funnels. `<funnel_instructions>` injetado no ai-agent com prioridade máxima. Tab "Agente IA" no FunnelDetail com textarea + selects + save.
+- Perfis & Integração (M17 F3 ✅): Tabela agent_profiles (prompt + handoff rules reutilizáveis). Unifica sub-agents + funnel_prompt. funnels.profile_id FK. ProfilesConfig no admin. FunnelDetail tab IA = seletor de perfil. ai-agent: profileData > funnelData > agent em handoff. Sub-agents deprecados com guard `if (!profileData)`. Decisão D10.
+- Enquetes/Polls (M17 F4 ✅): Enquetes nativas WhatsApp via UAZAPI /send/poll. Tabelas poll_messages + poll_responses. Proxy send-poll action. Webhook poll_update handler (upsert responses, auto-tags D2, automation trigger, AI debounce). AI Agent tool send_poll (9a, sideEffectTools). Broadcast tab "Enquete" + PollEditor (D1 image checkbox). Form-bot field_type 'poll' (envio nativo). Helpdesk media_type='poll' rendering. AutomationEngine send_poll action (substituiu placeholder). Limites: 2-12 opções, 255 chars question, 100 chars/opção.
+- NPS + Metricas (M17 F5 ✅): NPS automatico pos-resolve (5 campos ai_agents: poll_nps_enabled/delay/question/options/notify_on_bad). is_nps flag em poll_messages. PollConfigSection admin (tab Metricas). PollMetricsCard + PollNpsChart dashboard. Nota ruim → notifica gerentes via notifications table. triggerNpsIfEnabled() no automationEngine. TicketResolutionDrawer agenda NPS via job_queue. Guard: sentimento:negativo → nao envia.
+- NUNCA enviar opções numeradas ("1-Casa, 2-Apto") — sempre nomes limpos (Casa, Apartamento). Vale para enquetes, campos select do form-bot, e qualquer listagem.

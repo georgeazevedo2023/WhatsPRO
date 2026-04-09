@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.5.0 | **Última atualização**: 2026-04-08 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 49 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total
+> **Versão**: 7.9.0 | **Última atualização**: 2026-04-09 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 53 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente COMPLETO (Motor+Perfis+Enquetes+NPS)
 
 ## Visão Geral
 
@@ -39,6 +39,67 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.9.0 (2026-04-09) — M17 F5: NPS + Métricas (Fase Final)
+
+- 5 campos NPS em `ai_agents`: poll_nps_enabled, poll_nps_delay_minutes, poll_nps_question, poll_nps_options, poll_nps_notify_on_bad
+- `is_nps` flag em poll_messages para distinguir NPS de enquetes normais
+- Tabela `notifications` para alertas de nota ruim (NPS)
+- PollConfigSection: admin configura NPS (toggle, delay, pergunta, opções, notificação)
+- PollMetricsCard: 4 KPIs no dashboard (total enquetes, votos, taxa resposta, NPS médio)
+- PollNpsChart: distribuição NPS com barras coloridas (Excelente→Péssimo)
+- usePollMetrics hook: agrega poll_messages + poll_responses via React Query
+- triggerNpsIfEnabled() no automationEngine: NPS com delay, guard sentimento:negativo
+- TicketResolutionDrawer: agenda NPS via job_queue fire-and-forget após resolver
+- Webhook: nota ruim (Ruim/Péssimo) → notifica gerentes da inbox via notifications
+
+### v7.8.0 (2026-04-09) — M17 F4: Enquetes/Polls (WhatsApp Nativo)
+
+- Tabelas `poll_messages` + `poll_responses` com RLS + indices
+- uazapi-proxy: nova action `send-poll` (valida 2-12 opções, max 255 chars)
+- whatsapp-webhook: handler `poll_update` (upsert responses, auto-tags D2, automation trigger, AI debounce)
+- AI Agent: tool `send_poll` (9a tool, sideEffectTools, broadcastEvent, save poll_messages)
+- Broadcast: 4a tab "Enquete" + PollEditor (D1 image before checkbox) + sendPollToNumber
+- form-bot: field_type `poll` (validate + normalize + envio nativo via /send/poll)
+- Helpdesk: media_type='poll' rendering com BarChart3 + options cards
+- automationEngine: action `send_poll` implementada (substituiu placeholder F1)
+- AutomationRuleEditor: send_poll habilitado + campos question/options/selectable_count
+
+### v7.7.0 (2026-04-09) — M17 F3: Perfis de Atendimento (Agent Profiles)
+
+- Tabela `agent_profiles` (prompt + handoff rules reutilizáveis por contexto)
+- Unifica sub-agents (JSONB hardcoded) + funnel_prompt em 1 conceito
+- `funnels.profile_id` FK → seletor dropdown no FunnelDetail tab IA
+- ProfilesConfig substitui SubAgentsConfig na tab Inteligência do AI Agent admin
+- ai-agent: profileData > funnelData > agent em handoff (rule, message, department)
+- `<profile_instructions>` injetado como ÚLTIMA seção do prompt (prioridade máxima)
+- Sub-agents deprecados com guard `if (!profileData)` — backward compat 100%
+- Data migration: sub_agents JSONB → agent_profiles rows, funnel_prompt → profiles + FK
+- Decisão D10: inspirado no Intercom Fin (Roles + Procedures)
+
+### v7.6.0 (2026-04-08) — M17 F1+F2: Motor de Automação + Funis Agênticos
+
+**M17 F1 — Motor de Automação:**
+- Tabela `automation_rules` (funnel_id FK, trigger_type, condition_type, action_type, configs JSONB, RLS)
+- `automationEngine.ts` shared: `executeAutomationRules()` — 7 gatilhos, 4 condições, 5 ações
+- 7 gatilhos: card_moved, poll_answered, form_completed, lead_created, conversation_resolved, tag_added, label_applied
+- 4 condições: always, tag_contains, funnel_is, business_hours (customizável)
+- 5 ações: send_message (UAZAPI + persist DB), move_card, add_tag (key replace), activate_ai, handoff (SHADOW)
+- Tab "Automações" no FunnelDetail: lista CRUD com Gatilho→Condição→Ação, toggle inline, badges
+- `AutomationRuleEditor`: dialog com sub-campos condicionais por tipo de gatilho/condição/ação
+- `useAutomationRules`: CRUD completo (list/create/update/delete), queryKey ['automation_rules', funnelId]
+- form-bot integrado: dispara `form_completed` fire-and-forget após conclusão de formulário
+- 6 testes de unidade passando (vitest)
+
+**M17 F2 — Funis Agênticos:**
+- Novos campos em `funnels`: `funnel_prompt`, `handoff_rule`, `handoff_department_id`, `handoff_max_messages`
+- ai-agent: lê `funnel_prompt` → injeta `<funnel_instructions>` no system prompt (prioridade máxima)
+- Lógica handoff_rule: `nunca`=Infinity msgs, `apos_n_msgs`=handoff_max_messages, `so_se_pedir`=default
+- Tab "Agente IA" no FunnelDetail: textarea roteiro agêntico + select regra transbordo + N msgs + save
+- FunnelDetail agora tem 5 tabs: Canais, Formulario, Automações, Agente IA, Configuracao
+- types.ts regenerado com novos tipos (automation_rules, novos campos funnels)
+
+**Nota:** F3-F5 implementados em v7.7.0-v7.9.0 (2026-04-09).
 
 ### v7.5.0 (2026-04-08) — M16 Funis: Fusao Total (5 fases + 5 polish)
 
