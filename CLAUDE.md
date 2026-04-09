@@ -131,7 +131,7 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 - **CI/CD**: GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
 - **Portainer**: Stack "whatspro" on Hetzner CX42 (65.108.51.109)
 
-## Edge Functions (30 total)
+## Edge Functions (31 total)
 Located in `supabase/functions/`. Each uses Deno runtime.
 - JWT verification: `verify_jwt = true` on most functions, `false` on webhooks (whatsapp-webhook, fire-outgoing-webhook, go, health-check) and public (form-public)
 - Shared CORS config in `supabase/functions/_shared/cors.ts`
