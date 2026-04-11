@@ -18,8 +18,8 @@ export async function buildContext(
 ): Promise<FlowContext | null> {
   const [lead, stepConfig, exitRules] = await Promise.all([
     fetchLeadContext(state.lead_id),
-    fetchStepConfig(state.current_step_id),
-    fetchExitRules(state.current_step_id),
+    fetchStepConfig(state.flow_step_id),
+    fetchExitRules(state.flow_step_id),
   ])
 
   if (!lead) {

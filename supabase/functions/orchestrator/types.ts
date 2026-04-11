@@ -20,7 +20,7 @@ export interface ActiveFlowState {
   id: string                     // flow_states.id
   flow_id: string
   flow_version: number
-  current_step_id: string | null
+  flow_step_id: string | null
   status: 'active' | 'completed' | 'handoff' | 'abandoned'
   step_data: StepData
   lead_id: string

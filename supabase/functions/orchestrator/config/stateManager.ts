@@ -15,45 +15,54 @@ const supabase = createServiceClient()
 export async function createFlowState(
   leadId: string,
   flowId: string,
+  instanceId: string,
   flowVersion: number,
   firstStepId: string | null,
+  conversationId?: string,
 ): Promise<ActiveFlowState | null> {
   const { data, error } = await supabase
     .from('flow_states')
     .insert({
       lead_id: leadId,
       flow_id: flowId,
+      instance_id: instanceId,          // Fix: NOT NULL sem default
       flow_version: flowVersion,
-      current_step_id: firstStepId,
+      flow_step_id: firstStepId,        // Fix: era current_step_id
       status: 'active',
       step_data: {},
+      ...(conversationId ? { conversation_id: conversationId } : {}),
     })
     .select('*')
-    .single()
+    .maybeSingle()                       // Fix: era .single() → crash se insert falha
 
   if (error) {
     console.error('[stateManager] createFlowState error:', error.message)
     return null
   }
-  return data as ActiveFlowState
+  return data as ActiveFlowState | null
 }
 
-// ── Atualiza step_data e/ou current_step_id (patch parcial) ─────────────────
+// ── Atualiza step_data e/ou flow_step_id (patch parcial) ─────────────────────
 
 export async function updateFlowState(
   stateId: string,
   patch: {
-    current_step_id?: string | null
+    flow_step_id?: string | null        // Fix: era current_step_id
     status?: ActiveFlowState['status']
     step_data_patch?: Partial<StepData>
   },
 ): Promise<boolean> {
   // Busca step_data atual para merge
-  const { data: current } = await supabase
+  const { data: current, error: fetchError } = await supabase
     .from('flow_states')
     .select('step_data')
     .eq('id', stateId)
-    .single()
+    .maybeSingle()                       // Fix: era .single() → crash se row não existe
+
+  if (fetchError) {
+    console.error('[stateManager] updateFlowState fetch error:', fetchError.message)
+    return false
+  }
 
   const mergedStepData = {
     ...(current?.step_data ?? {}),
@@ -63,7 +72,7 @@ export async function updateFlowState(
   const update: Record<string, unknown> = {
     last_activity_at: new Date().toISOString(),
   }
-  if (patch.current_step_id !== undefined) update.current_step_id = patch.current_step_id
+  if (patch.flow_step_id !== undefined) update.flow_step_id = patch.flow_step_id  // Fix
   if (patch.status !== undefined) update.status = patch.status
   if (patch.step_data_patch) update.step_data = mergedStepData
 
@@ -89,18 +98,27 @@ export async function finalizeFlowState(
 }
 
 // ── Registra evento no flow_events ───────────────────────────────────────────
+// Válidos: flow_started | step_entered | step_exited | intent_detected |
+//          handoff_triggered | tool_called | validator_flagged |
+//          flow_completed | flow_abandoned | error
 
 export async function logFlowEvent(
   flowStateId: string,
+  flowId: string,                        // Fix: obrigatório (NOT NULL FK)
+  instanceId: string,                    // Fix: obrigatório (NOT NULL FK)
   leadId: string,
   eventType: string,
   eventData: Record<string, unknown> = {},
+  stepId?: string | null,
 ): Promise<void> {
   const { error } = await supabase.from('flow_events').insert({
     flow_state_id: flowStateId,
+    flow_id: flowId,                     // Fix: campo obrigatório
+    instance_id: instanceId,             // Fix: campo obrigatório
     lead_id: leadId,
     event_type: eventType,
-    event_data: eventData,
+    input: Object.keys(eventData).length > 0 ? eventData : null,  // Fix: era event_data (não existe)
+    ...(stepId ? { step_id: stepId } : {}),
   })
 
   if (error) {

@@ -14,7 +14,7 @@
 
 import { getDynamicCorsHeaders } from '../_shared/cors.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
-import { resolveFlow, getActiveFlowState } from './config/flowResolver.ts'
+import { resolveFlow } from './config/flowResolver.ts'
 import { buildContext, fetchFirstStep } from './config/contextBuilder.ts'
 import {
   createFlowState,
@@ -24,7 +24,7 @@ import {
   applySubagentResult,
 } from './config/stateManager.ts'
 import { dispatchSubagent } from './subagents/index.ts'
-import { loadMemory, validateResponse, trackMetrics } from './services/index.ts'
+import { trackMetrics } from './services/index.ts'
 import type { OrchestratorInput, ActiveFlowState, SubagentResult } from './types.ts'
 
 const supabase = createServiceClient()
@@ -77,8 +77,10 @@ Deno.serve(async (req: Request) => {
       state = await createFlowState(
         leadId,
         resolved.flowId,
+        input.instance_id,              // Fix: instance_id NOT NULL
         flow?.version ?? 1,
         firstStep?.id ?? null,
+        input.conversation_id,          // opcional
       )
 
       if (!state) {
@@ -86,7 +88,15 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({ error: 'State creation failed' }, 500, corsHeaders)
       }
 
-      await logFlowEvent(state.id, leadId, 'flow_started', { flow_id: resolved.flowId })
+      await logFlowEvent(
+        state.id,
+        resolved.flowId,                // Fix: flow_id NOT NULL
+        input.instance_id,              // Fix: instance_id NOT NULL
+        leadId,
+        'flow_started',
+        { trigger: 'new_conversation' },
+        state.flow_step_id,             // Fix: era current_step_id
+      )
     }
 
     // ── Monta contexto (S5: injeta memória aqui) ──────────────────────────────
@@ -104,33 +114,58 @@ Deno.serve(async (req: Request) => {
     await applySubagentResult(state, result)
 
     // ── Log do evento ─────────────────────────────────────────────────────────
-    await logFlowEvent(state.id, leadId, 'subagent_called', {
-      status: result.status,
-      step_id: state.current_step_id,
-      has_response: !!result.response_text,
-    })
+    await logFlowEvent(
+      state.id,
+      resolved.flowId,                  // Fix: flow_id NOT NULL
+      input.instance_id,                // Fix: instance_id NOT NULL
+      leadId,
+      'tool_called',                    // Fix: era 'subagent_called' (não está no CHECK)
+      { status: result.status, has_response: !!result.response_text },
+      state.flow_step_id,               // Fix: era current_step_id
+    )
 
     // ── Processa status do subagente ──────────────────────────────────────────
     switch (result.status) {
       case 'advance': {
         // S4: avança para próximo step via next_step logic
-        await handleAdvance(state, result)
+        await handleAdvance(state, result, resolved.flowId, input.instance_id, leadId)
         break
       }
       case 'handoff': {
         await finalizeFlowState(state.id, 'handoff')
-        await logFlowEvent(state.id, leadId, 'handoff_triggered', {
-          exit_rule: result.exit_rule_triggered,
-        })
+        await logFlowEvent(
+          state.id,
+          resolved.flowId,
+          input.instance_id,
+          leadId,
+          'handoff_triggered',
+          { exit_rule: result.exit_rule_triggered },
+          state.flow_step_id,
+        )
         break
       }
       case 'complete': {
         await finalizeFlowState(state.id, 'completed')
-        await logFlowEvent(state.id, leadId, 'flow_completed', {})
+        await logFlowEvent(
+          state.id,
+          resolved.flowId,
+          input.instance_id,
+          leadId,
+          'flow_completed',
+          {},
+        )
         break
       }
       case 'error': {
         console.error('[orchestrator] Subagent error:', result.error)
+        await logFlowEvent(
+          state.id,
+          resolved.flowId,
+          input.instance_id,
+          leadId,
+          'error',
+          { message: result.error ?? 'unknown' },
+        )
         break
       }
       case 'continue':
@@ -169,23 +204,35 @@ Deno.serve(async (req: Request) => {
 
 // ── Advance: avança lead para o próximo step ──────────────────────────────────
 
-async function handleAdvance(state: ActiveFlowState, result: SubagentResult): Promise<void> {
+async function handleAdvance(
+  state: ActiveFlowState,
+  result: SubagentResult,
+  flowId: string,
+  instanceId: string,
+  leadId: string,
+): Promise<void> {
   if (!result.exit_rule_triggered) return
 
   const action = result.exit_rule_triggered.action
 
   if (action === 'next_step') {
     // S4: implementar lógica de next_step_id via flow_steps.position
-    // Por ora: mantém no step atual com step_data_patch registrando o avanço
+    // Por ora: step_data registra o avanço pendente
     await updateFlowState(state.id, {
-      step_data_patch: { _advanced_at: new Date().toISOString() },
+      step_data_patch: { _pending_advance_at: new Date().toISOString() },
     })
+    await logFlowEvent(state.id, flowId, instanceId, leadId, 'step_exited', {
+      action,
+      exit_rule: result.exit_rule_triggered.trigger,
+    }, state.flow_step_id)
   } else if (action === 'handoff_human' || action === 'handoff_department' || action === 'handoff_manager') {
     await finalizeFlowState(state.id, 'handoff')
+    await logFlowEvent(state.id, flowId, instanceId, leadId, 'handoff_triggered', { action }, state.flow_step_id)
   } else if (action === 'tag_and_close') {
     await finalizeFlowState(state.id, 'completed')
+    await logFlowEvent(state.id, flowId, instanceId, leadId, 'flow_completed', { action })
   }
-  // outro_flow, followup, do_nothing → S4+
+  // another_flow, followup, do_nothing → S4+
 }
 
 // ── Resolve lead_id a partir de conversation_id ───────────────────────────────
