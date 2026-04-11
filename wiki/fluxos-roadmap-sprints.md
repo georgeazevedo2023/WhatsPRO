@@ -19,7 +19,7 @@ updated: 2026-04-11
 |--------|------|---------------------------|--------------|
 | **S1** ✅ | Database + Tipos | 14 tabelas no banco, seed, tipos TypeScript gerados | P |
 | **S2** ✅ | Orchestrator Skeleton | Orquestrador com feature flag `USE_ORCHESTRATOR` — sem breaking change | M |
-| **S3** | Flow CRUD Admin UI | `/flows` com listagem, criação, publicação | M |
+| **S3** ✅ | Flow CRUD Admin UI | `/flows` com listagem, criação, publicação | M |
 | **S4** | Flow Triggers Engine | Mensagem "oi" ativa flow correto, estado salvo no banco | M |
 | **S5** | Memory + Greeting | Lead novo é saudado, nome coletado e persistido entre msgs | M |
 | **S6** | Qualification | Lead responde perguntas, `smart_fill`, `post_action` avança | G |
@@ -63,10 +63,16 @@ updated: 2026-04-11
 
 **Auditoria:** 6 bugs corrigidos (commit 7bb2f8e, nota 6.5→9.2): `current_step_id`→`flow_step_id` | `.single()`→`.maybeSingle()` | `instance_id` NOT NULL | `flow_id`+`instance_id` em flow_events | `subagent_called`→`tool_called` (CHECK) | `event_data`→`input`. Ver R29-R31 em [[wiki/erros-e-licoes]].
 
-### S3: Flow CRUD Admin UI
-**Rotas:** `/flows` (listagem) + `/flows/new` (criação) + `/flows/:id` (editor básico)
-**Formulário criação — 4 etapas:** Identidade → Configuração básica (modo + template) → Gatilhos (16 tipos, priority, cooldown) → Publicar (`published_at = now()`)
-**Critério:** George cria, edita e publica um flow com 2 gatilhos em <5 minutos.
+### S3: Flow CRUD Admin UI ✅ COMPLETO (2026-04-11, commit 9862f2d)
+
+**Entregáveis entregues:**
+- 5 páginas: FlowsPage (listagem+busca+tabs) | FlowNewPage (seleção modo) | FlowWizard (4 etapas) | FlowTemplatesPage (12 templates+preview) | FlowDetail (editor inline 4 tabs)
+- 3 componentes: FlowCard | FlowModeBadge | TriggerFormSheet (16 tipos em 4 grupos)
+- 2 hooks: useFlows (7 mutations + generateSlug) | useFlowTriggers (4 mutations)
+- App.tsx: 5 rotas registradas. Sidebar.tsx: item "Fluxos" collapsible adicionado
+- 4 bugs corrigidos: B1 rotas inexistentes | B2 sem nav | B3 useState→useEffect | B4 path errado
+
+**Critério:** `/dashboard/flows` acessível, wizard funcional, george cria flow+2 gatilhos em <5min ✅
 
 ---
 

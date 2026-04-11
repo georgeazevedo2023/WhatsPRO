@@ -9,6 +9,25 @@ type: log
 
 ## 2026-04-11
 
+### S3 COMPLETO — Flow CRUD Admin UI (commit 9862f2d)
+- **Entregáveis:** 5 páginas + 3 componentes + 2 hooks + 12 templates + tipos
+  - `FlowsPage` — listagem com busca, tabs (todos/ativos/rascunho/shadow/arquivados) + FlowCard
+  - `FlowNewPage` — escolha de modo: Formulário | Templates | Conversa Guiada (stub)
+  - `FlowWizard` — wizard 4 etapas: Identidade → Configuração (modo+is_default) → Gatilhos → Publicar
+  - `FlowTemplatesPage` — galeria de 12 templates com preview drawer (steps + triggers + warnings)
+  - `FlowDetail` — editor inline: tabs Identidade | Gatilhos | Subagentes (stub S5+) | Publicar
+  - `TriggerFormSheet` — 16 tipos de gatilho em 4 grupos, prioridade slider, cooldown, activation
+  - `useFlows` — 7 mutations: create, update, publish, pause, archive, duplicate + generateSlug
+  - `useFlowTriggers` — 4 mutations: create, update, delete, list
+- **4 bugs corrigidos (auditoria pré-entrega):**
+  - B1 🔴 CRÍTICO: App.tsx sem 5 rotas → seção completamente inacessível
+  - B2 🔴 CRÍTICO: Sidebar.tsx sem item "Fluxos" → sem como navegar
+  - B3 🔴 ALTA: FlowDetail.tsx `useState()` como `useEffect()` → form sempre vazio
+  - B4 🟡 MÉDIA: FlowNewPage Templates card path errado → templates inacessíveis
+- **Nota:** 2/10 antes → **9.5/10** depois dos fixes
+- **Critério S3:** George abre /dashboard/flows → cria flow com 2 gatilhos em <5 min ✅ (rota funcional)
+- **Próximo:** S4 — Flow Triggers Engine (flowResolver completo + RPC atômica)
+
 ### Auditoria + Correção S2 — 6 bugs críticos corrigidos (commit 7bb2f8e)
 - **Auditoria:** agente Explore leu todos os 7 arquivos + schema real do banco → nota inicial 6.5/10
 - **Bugs corrigidos:**

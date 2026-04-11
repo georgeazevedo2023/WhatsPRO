@@ -196,5 +196,7 @@ updated: 2026-04-11
 - R29: SEMPRE ler o schema real (migration) antes de escrever código de insert
 - R30: CHECK constraints em `event_type` devem ser consultadas antes de logar evento
 - R31: `.single()` lança exceção → sempre `.maybeSingle()` em edge functions
+- R32: `useState(() => sideEffect())` NÃO é `useEffect` — inicializador roda 1x no mount com estado inicial undefined. Para reagir a dados assíncronos usar `useEffect(() => {}, [dep])`
+- R33: Ao criar rotas React Router, SEMPRE verificar App.tsx E sidebar/nav. Código de página sem rota = inacessível (bug silencioso)
 
 *Adicionar novos erros acima desta linha, seguindo o formato: O que → Causa → Correção → Regra*
