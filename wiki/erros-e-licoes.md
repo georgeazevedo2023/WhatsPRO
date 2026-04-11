@@ -43,6 +43,9 @@ updated: 2026-04-09
 | 26 | `ALLOWED_ORIGIN` DEVE existir nos Secrets do Supabase em produção — sem ele, CORS usa fallback hardcoded errado e bloqueia TODAS as requisições do frontend | Deploy |
 | 27 | Edge functions chamadas pelo browser DEVEM usar `getDynamicCorsHeaders(req)` — `browserCorsHeaders` é estático e falha quando o domínio real difere do fallback | CORS |
 | 28 | NUNCA usar `now()` ou funções VOLATILE em predicado de índice parcial — PostgreSQL exige IMMUTABLE. Filtro temporal vai na query, não no `CREATE INDEX ... WHERE` | DB |
+| 29 | SEMPRE verificar schema real do banco antes de escrever código de insert — nomes de coluna divergentes causam erro silencioso (`.maybeSingle()` retorna null) | Orchestrator |
+| 30 | Supabase `flow_events.event_type` tem CHECK constraint — NUNCA inserir tipo fora da lista. Verificar migration antes de logar evento. | Orchestrator |
+| 31 | `.single()` lança exceção se 0 ou >1 rows — SEMPRE usar `.maybeSingle()` em edge functions seguido de `if (error)` check explícito | DB |
 
 ---
 
@@ -171,5 +174,27 @@ updated: 2026-04-09
 **Causa:** PostgreSQL exige que funções em predicados de índice parcial sejam IMMUTABLE. `now()` é VOLATILE — muda a cada chamada. O predicado de índice é avaliado na criação, não na query.
 **Correção:** Predicado simplificado para `WHERE expires_at IS NULL` (IMMUTABLE). Filtro dinâmico `expires_at > now()` movido para as queries que consultam o índice.
 **Regra 28:** NUNCA usar `now()`, `CURRENT_TIMESTAMP` ou qualquer função VOLATILE em predicados de índice parcial (`WHERE` do `CREATE INDEX`). O filtro temporal vai na query, não no índice.
+
+### S2 Orchestrator — 6 bugs críticos encontrados na auditoria (2026-04-11)
+
+**O que:** Após commit 367b4b0 (S2 Orchestrator skeleton), auditoria encontrou 6 bugs que impediriam qualquer insert no banco.
+
+**Bugs encontrados:**
+1. `current_step_id` em vez de `flow_step_id` (4 arquivos) — campo não existe na tabela
+2. `.single()` em `updateFlowState` → crash se state não encontrado
+3. `.single()` em `createFlowState` → pode crashar em race condition
+4. `instance_id` NOT NULL ausente no insert de `flow_states`
+5. `flow_id` + `instance_id` NOT NULL ausentes no insert de `flow_events`
+6. `event_type: 'subagent_called'` violaria CHECK constraint — tipo inválido (correto: `tool_called`)
+7. Coluna `event_data` não existe em `flow_events` — campo correto é `input` JSONB
+
+**Causa raiz:** Tipos definidos sem validar contra schema real do banco. Nomes de colunas inventados (`current_step_id`, `event_data`) sem conferir migration. CHECK constraint não consultada.
+
+**Correção:** Commit 7bb2f8e — `flow_step_id` em todos os arquivos, `.maybeSingle()` + error check, campos NOT NULL incluídos, `tool_called` como event_type, `input` JSONB em vez de `event_data`.
+
+**Regras:**
+- R29: SEMPRE ler o schema real (migration) antes de escrever código de insert
+- R30: CHECK constraints em `event_type` devem ser consultadas antes de logar evento
+- R31: `.single()` lança exceção → sempre `.maybeSingle()` em edge functions
 
 *Adicionar novos erros acima desta linha, seguindo o formato: O que → Causa → Correção → Regra*

@@ -39,11 +39,10 @@ updated: 2026-04-11
 **Entregáveis entregues:**
 - 4 migrations aplicadas no banco e versionadas localmente (renomeadas para alinhar com timestamps DB):
   `20260411190719` definition_tables | `20260411190751` state_memory | `20260411190828` shadow_tables | `20260411190905` infra_tables
-- `20260411190906_fluxos_v3_seed.sql` — SDR Comercial: 2 steps (greeting+qualification BANT) + 3 triggers (keyword P:10, lead_created P:5, message_received P:1)
+- `20260411190906_fluxos_v3_seed.sql` — SDR: 2 steps (greeting+qualification BANT) + 3 triggers (keyword P:10, lead_created P:5, message_received P:1). Draft `20260411145300` deletado.
 - `types.ts` regenerado: 4943 linhas, 14/14 novas tabelas presentes
-- **Fix extra:** arquivo `20260411145300_fluxos_v3_infra_tables.sql` (draft duplicado) deletado
 
-**Critérios verificados:** `SELECT COUNT(*) FROM flows = 1` ✅ · `steps = 2` ✅ · `triggers = 3` ✅ · `npx tsc --noEmit` exit 0 ✅
+**Critérios:** flows=1 ✅ · steps=2 ✅ · triggers=3 ✅ · `npx tsc --noEmit` exit 0 ✅
 
 ### S2: Orchestrator Skeleton + Feature Flag ✅ COMPLETO (2026-04-11, commit 367b4b0)
 
@@ -61,6 +60,8 @@ updated: 2026-04-11
 - Deploy: orchestrator (verify_jwt=false) + whatsapp-webhook ✅
 
 **Critério verificado:** `USE_ORCHESTRATOR = 'false'` ✅ → 100% tráfego vai para ai-agent-debounce, zero mensagens afetadas. S12 adiciona `instances.use_orchestrator BOOL` por instância.
+
+**Auditoria:** 6 bugs corrigidos (commit 7bb2f8e, nota 6.5→9.2): `current_step_id`→`flow_step_id` | `.single()`→`.maybeSingle()` | `instance_id` NOT NULL | `flow_id`+`instance_id` em flow_events | `subagent_called`→`tool_called` (CHECK) | `event_data`→`input`. Ver R29-R31 em [[wiki/erros-e-licoes]].
 
 ### S3: Flow CRUD Admin UI
 **Rotas:** `/flows` (listagem) + `/flows/new` (criação) + `/flows/:id` (editor básico)
@@ -196,5 +197,4 @@ Checklist: tem flow publicado? ✓ | triggers ativos? ✓ | testou shadow 24h? �
 | 8 subagentes | S5(greeting) S6(qualification) S8(sales,support) S10(survey,followup,handoff) S11(custom) | ✅ 100% |
 | 5 serviços | S5(memory) S7(intentDetector) S9(validator,metrics,shadow) | ✅ 100% |
 | Feature flag | S2(skeleton) S12(por instância) | ✅ G4 coberto |
-| Contratos TypeScript | S4(types.ts) S5(subagents/types.ts) S6(QualificationConfig) | ✅ G3 coberto |
-| Admin UI | S3(CRUD) S10(galeria templates) S11(editor completo) S12(métricas) | ✅ G5 parcial |
+| Contratos TypeScript + Admin UI | S4(types.ts) S5(subagents) S6(QualificationConfig) · S3(CRUD) S10(templates) S11(editor) S12(métricas) | ✅ coberto |

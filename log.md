@@ -9,6 +9,21 @@ type: log
 
 ## 2026-04-11
 
+### Auditoria + Correção S2 — 6 bugs críticos corrigidos (commit 7bb2f8e)
+- **Auditoria:** agente Explore leu todos os 7 arquivos + schema real do banco → nota inicial 6.5/10
+- **Bugs corrigidos:**
+  1. `current_step_id` → `flow_step_id` em 4 arquivos (schema mismatch — coluna não existe)
+  2. `.single()` → `.maybeSingle()` + `error check` em `updateFlowState` (crash se row não existe)
+  3. `.single()` → `.maybeSingle()` em `createFlowState` (crash em race condition)
+  4. `instance_id` NOT NULL adicionado ao insert de `flow_states` (sem ele: 23 erro DB)
+  5. `flow_id` + `instance_id` NOT NULL adicionados ao insert de `flow_events`
+  6. `'subagent_called'` → `'tool_called'` (violaria CHECK constraint — tipo inválido)
+  7. `event_data` → `input` JSONB (coluna `event_data` não existe em `flow_events`)
+- **Nota pós-fix:** 9.2/10
+- **Documentado:** R29+R30+R31 + histórico S2 em `wiki/erros-e-licoes.md` (200 linhas)
+- **Vault:** roadmap-sprints.md (auditoria + nota), erros-e-licoes.md (R29-R31 + histórico)
+- **Redeploy:** orchestrator republishado com fixes — TypeScript 0 erros
+
 ### S2 COMPLETO — Orchestrator Skeleton + Feature Flag (commit 367b4b0)
 - **F1 — 7 arquivos orchestrator criados:**
   - `types.ts` — 9 interfaces: OrchestratorInput, ActiveFlowState, StepData, LeadContext, FlowContext, ExitRule, SubagentResult, SubagentMedia, SubagentHandler
