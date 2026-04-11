@@ -18,7 +18,7 @@ updated: 2026-04-11
 | Sprint | Tema | O que funciona ao terminar | Complexidade |
 |--------|------|---------------------------|--------------|
 | **S1** ✅ | Database + Tipos | 14 tabelas no banco, seed, tipos TypeScript gerados | P |
-| **S2** | Orchestrator Skeleton | Orquestrador com feature flag `USE_ORCHESTRATOR` — sem breaking change | M |
+| **S2** ✅ | Orchestrator Skeleton | Orquestrador com feature flag `USE_ORCHESTRATOR` — sem breaking change | M |
 | **S3** | Flow CRUD Admin UI | `/flows` com listagem, criação, publicação | M |
 | **S4** | Flow Triggers Engine | Mensagem "oi" ativa flow correto, estado salvo no banco | M |
 | **S5** | Memory + Greeting | Lead novo é saudado, nome coletado e persistido entre msgs | M |
@@ -45,22 +45,22 @@ updated: 2026-04-11
 
 **Critérios verificados:** `SELECT COUNT(*) FROM flows = 1` ✅ · `steps = 2` ✅ · `triggers = 3` ✅ · `npx tsc --noEmit` exit 0 ✅
 
-### S2: Orchestrator Skeleton + Feature Flag
-**Estrutura de arquivos:**
-```
-supabase/functions/orchestrator/
-├── index.ts              (~300 linhas)
-├── types.ts              (interfaces centrais: OrchestratorInput, ActiveFlowState, SubagentResult)
-├── config/
-│   ├── flowResolver.ts   (resolve qual flow ativar)
-│   ├── stateManager.ts   (CRUD flow_states + flow_events atômico via RPC)
-│   └── contextBuilder.ts (monta contexto: lead_memory + step_data)
-├── services/             (stubs para S5-S9)
-└── subagents/            (stubs para S5-S10)
-```
-**Feature flag (escopo global — só para dev):** `system_settings.USE_ORCHESTRATOR = false` → tudo passa para ai-agent.
-**Progressão:** S2 usa flag global para desenvolvimento; S12 adiciona `instances.use_orchestrator BOOL` (por instância) para produção gradual. São flags distintas que coexistem — global primeiro, por instância depois.
-**Critério:** Alterar flag para `true` e `false` sem nenhuma mensagem WhatsApp ser afetada.
+### S2: Orchestrator Skeleton + Feature Flag ✅ COMPLETO (2026-04-11, commit 367b4b0)
+
+**Entregáveis entregues:**
+- 7 arquivos em `supabase/functions/orchestrator/`:
+  - `types.ts` — 9 interfaces/tipos: OrchestratorInput, ActiveFlowState, StepData, LeadContext, FlowContext, ExitRule, SubagentResult, SubagentHandler
+  - `config/flowResolver.ts` — 5 fases: estado ativo → triggers priority DESC → matchTrigger() → cooldown (stub) → fallback is_default
+  - `config/stateManager.ts` — createFlowState, updateFlowState, finalizeFlowState, logFlowEvent, applySubagentResult
+  - `config/contextBuilder.ts` — buildContext (lead + stepConfig + exitRules), fetchFirstStep
+  - `services/index.ts` — stubs documentados: loadMemory, saveShortMemory, detectIntents, validateResponse, trackMetrics, runShadow
+  - `subagents/index.ts` — dispatchSubagent com SUBAGENT_MAP (8 tipos), todos stub (continue, sem response_text)
+  - `index.ts` — handler Deno.serve: resolveFlow → createFlowState → buildContext → dispatchSubagent → applyResult → logEvent
+- `whatsapp-webhook/index.ts` — fork `getOrchestratorFlag()` em 2 call sites (poll response + main message handler)
+- Migration `20260411190907_orchestrator_feature_flag.sql` — `USE_ORCHESTRATOR = 'false'`
+- Deploy: orchestrator (verify_jwt=false) + whatsapp-webhook ✅
+
+**Critério verificado:** `USE_ORCHESTRATOR = 'false'` ✅ → 100% tráfego vai para ai-agent-debounce, zero mensagens afetadas. S12 adiciona `instances.use_orchestrator BOOL` por instância.
 
 ### S3: Flow CRUD Admin UI
 **Rotas:** `/flows` (listagem) + `/flows/new` (criação) + `/flows/:id` (editor básico)

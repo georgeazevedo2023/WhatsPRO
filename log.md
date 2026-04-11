@@ -9,6 +9,27 @@ type: log
 
 ## 2026-04-11
 
+### S2 COMPLETO — Orchestrator Skeleton + Feature Flag (commit 367b4b0)
+- **F1 — 7 arquivos orchestrator criados:**
+  - `types.ts` — 9 interfaces: OrchestratorInput, ActiveFlowState, StepData, LeadContext, FlowContext, ExitRule, SubagentResult, SubagentMedia, SubagentHandler
+  - `config/flowResolver.ts` — 5 fases resolve: ativo → triggers priority → matchTrigger (keyword/message_received/lead_created) → cooldown stub → fallback is_default
+  - `config/stateManager.ts` — CRUD: createFlowState, updateFlowState (merge step_data), finalizeFlowState, logFlowEvent, applySubagentResult
+  - `config/contextBuilder.ts` — buildContext (lead + stepConfig + exitRules), fetchFirstStep por position ASC
+  - `services/index.ts` — stubs S5-S11: loadMemory, saveShortMemory, detectIntents, validateResponse, trackMetrics, runShadow
+  - `subagents/index.ts` — dispatchSubagent + SUBAGENT_MAP (8 tipos), todos stub → status: 'continue', sem response_text
+  - `index.ts` — handler completo: resolveLeadId → resolveFlow → createFlowState → buildContext → dispatchSubagent → applyResult → logEvent → 5 cases (continue/advance/handoff/complete/error)
+- **F2 — whatsapp-webhook fork em 2 call sites:**
+  - `getOrchestratorFlag()` — lê `system_settings.USE_ORCHESTRATOR`, fallback false (seguro)
+  - Call site 1 (poll response, linha ~365): fork debounce ↔ orchestrator com `message_type: 'poll_response'`
+  - Call site 2 (main message, linha ~1103): fork debounce ↔ orchestrator com `message_text + message_type + media_url`
+- **F3 — Deploy + verificação:**
+  - orchestrator deployado: verify_jwt=false (função interna)
+  - whatsapp-webhook deployado: fork ativo
+  - `SELECT value FROM system_settings WHERE key='USE_ORCHESTRATOR'` = `'false'` ✅
+- **Critério S2:** flag=false → 100% tráfego para ai-agent-debounce. Zero mensagens afetadas. ✅
+- **Vault:** fluxos-roadmap-sprints.md (S2 ✅ + entregáveis detalhados) + roadmap.md (S2→S3)
+- **Próximo:** S3 — Flow CRUD Admin UI (`/flows` listagem + criação + publicação)
+
 ### S1 COMPLETO — Database + Tipos TypeScript (commit e084c87)
 - **F0:** 4 migrations renomeadas (20260415000000x → 20260411190719/51/28/05) para alinhar com DB. Evita falha futura em `db push`.
 - **F1:** Seed `20260411190906_fluxos_v3_seed.sql` criado e aplicado via MCP. DO block idempotente.
