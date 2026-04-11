@@ -96,7 +96,7 @@ Camada 0: TOOLS (execucao)       → "execute a acao" (search, carousel, poll, h
 ```
 Admin config → poll_nps_enabled=true
 Conversa resolvida → TicketResolutionDrawer → job_queue (nps_send, delay)
-process-jobs → triggerNpsIfEnabled() → UAZAPI /send/poll → poll_messages (is_nps=true)
+process-jobs → triggerNpsIfEnabled() → UAZAPI /send/menu (type=poll) → poll_messages (is_nps=true)
 Lead vota → webhook poll_update → poll_responses → auto-tags → notify gerente (se nota ruim)
 ```
 

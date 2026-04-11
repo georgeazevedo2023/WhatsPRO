@@ -1,9 +1,8 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca, funis]
+tags: [decisoes, regras, padroes, seguranca, funis, automacao, polls, perfis, nps, fluxos-unificados]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-09
-tags: [decisoes, regras, padroes, seguranca, funis, automacao, polls, perfis, nps]
+updated: 2026-04-11
 ---
 
 # Decisões-Chave
@@ -68,50 +67,96 @@ Ao alterar feature do AI Agent, sincronizar:
 - Edge functions admin-* DEVEM usar `getDynamicCorsHeaders(req)` e `verify_jwt=false`
 - `ALLOWED_ORIGIN` suporta comma-separated: `https://crm.wsmart.com.br,https://app.whatspro.com.br`
 
-## Formato de Discussão de Decisões (2026-04-08)
+## Formato de Discussão (2026-04-08): Contexto → Problema → Solução → 4 casos → Opções+recomendação → Documentar no vault
 
-Ao apresentar questões para o usuário decidir, SEMPRE usar:
-1. **Contexto** — O que é e por que importa (didático)
-2. **Problema** — O que decidir e implicações
-3. **Solução** — Como funciona com exemplo concreto
-4. **Casos de uso** — 4 exemplos reais
-5. **Opções** — Alternativas + **recomendação** destacada
-6. **Documentação** — Resposta documentada imediatamente no vault
+## UI Funil = Cockpit (D9) + Motor Automacao (D8, 2026-04-08)
 
-## Arquitetura de UI — Funil é o Cockpit (D9, 2026-04-08)
+- FunnelDetail: 5 tabs — Canais, Formulario, Automacoes, IA, Config. AI Agent page = config GLOBAL
+- Motor: Gatilho>Condicao>Acao. 7 gatilhos, 4 condicoes, 5 acoes. `automation_rules`. `automationEngine.ts`
 
-- Motor de Automação + Funis Agênticos = ambos dentro do FunnelDetail
-- AI Agent page = config GLOBAL (personalidade, catálogo, regras gerais, voz, validator)
-- Funil page = config POR FUNIL (canais, formulário, automações, IA, config)
-- Analogia: cérebro (AI Agent) é um só, mas cada situação (funil) tem seus próprios instintos e reflexos
-- FunnelDetail: 5 tabs — Canais, Formulário, Automações (reflexos), IA (instintos), Config
+## Shadow Mode — 4 Modos Operacao (D17, 2026-04-11)
 
-## Motor de Automação — Regras (D8, 2026-04-08)
+- **4 modos:** IA Ativa (IA conversa) | IA Assistente (IA sugere) | Shadow (IA observa) | Desligado
+- **Shadow:** 7 dimensoes: Lead, Vendedor, Objecao(7 tipos), Produto, Gestor, Resposta(escalada), Follow-up(deteccao+resgate)
+- **5o servico:** Shadow Analyzer. Batch 5min (~R$1,60/dia/vendedor). Nao responde, so extrai
+- **Wiki:** [[wiki/fluxos-shadow-mode]]
 
-- **Modelo:** Gatilho > Condição > Ação (inspirado em Chatwoot/n8n)
-- **UI:** Tab "Automações" dentro do FunnelDetail (NÃO é página separada)
-- **7 gatilhos MVP:** card movido, enquete respondida, formulário completo, lead criado, conversa resolvida, tag adicionada, etiqueta aplicada
-- **4 condições:** sempre, tag contém, funil é, horário comercial
-- **5 ações:** enviar enquete, enviar mensagem, mover card, adicionar tag, ativar IA/transbordo
-- Tabela: `automation_rules` (funnel_id FK, trigger_type, condition_type, action_type, configs JSONB)
-- Backend: `automationEngine.ts` shared — chamado por webhook, ai-agent, form-bot, kanban move
+## Formatacao (D7): NUNCA opcoes numeradas, SEMPRE nomes limpos — enquetes, selects, listagens
 
-## Regras de Formatação de Opções (D7, 2026-04-08)
+## Agent Profiles (D10, 2026-04-09)
 
-- **NUNCA** enviar opções numeradas ("1-Casa, 2-Apto, 3-Comercial")
-- **SEMPRE** listar nomes limpos: "Casa, Apartamento, Sala Comercial"
-- Vale para enquetes nativas, campos select do form-bot, e qualquer listagem de opções
+- **Conceito:** Pacote reutilizavel prompt + handoff. Substitui sub-agents + funnel_prompt
+- **Tabela:** `agent_profiles` (agent_id FK, name, slug, prompt, handoff_rule/max_messages/department_id/message, is_default)
+- **Prioridade:** profileData > funnelData > agent. Prompt: `<profile_instructions>` ultima secao
+- **Roteamento:** funil.profile_id → perfil. Sem funil → is_default=true. Backward compat: sub-agents so se !profileData
 
-## Agent Profiles — Perfis de Atendimento (D10, 2026-04-09)
+## Fluxos Unificados v3.0 (D11, 2026-04-11)
 
-- **Conceito:** Pacote reutilizável de prompt + regras de handoff. Substitui sub-agents + funnel_prompt.
-- **Tabela:** `agent_profiles` (agent_id FK, name, slug, prompt, handoff_rule, handoff_max_messages, handoff_department_id, handoff_message, is_default, enabled)
-- **Prioridade:** `profileData > funnelData > agent` em TODOS os paths de handoff (trigger, message_limit, department)
-- **Injeção no prompt:** `<profile_instructions>` como ÚLTIMA seção (prioridade máxima)
-- **Roteamento:** funil.profile_id → perfil do funil. Sem funil → perfil is_default=true do agente.
-- **Backward compat:** Sub-agents (TAG_TO_MODE) só rodam quando `!profileData`. funnel_prompt é fallback quando perfil não tem prompt.
-- **Admin:** ProfilesConfig na tab Inteligência. FunnelDetail tab IA = dropdown de perfil.
-- **Inspiração:** Intercom Fin (Roles + Procedures)
+- **Decisao:** Unificar 17 modulos em "Fluxos" — interface unica com 3 modos (Conversa Guiada, Formulario, Templates)
+- **12 templates:** Vitrine, Lancamento, Carrinho, Cardapio, Sorteio, SDR, Evento, Suporte, Agendamento, Pos-venda, Politica, Imobiliaria
+- **Mapeamento:** Bio Link/UTM = Gatilho, Forms/Catalogo = Tool, Agent Profiles = Subagente, Motor = Motor, Dashboard = Metricas
+- **Ordem:** 1. Formulario → 2. Templates → 3. Conversa Guiada
+- **Wiki:** [[wiki/fluxos-visao-arquitetura]]
+
+## Forms Absorvido (D16, 2026-04-11)
+
+- **Decisao:** P12 Forms ABSORVIDO. P1 ganhou field_types(16)+collect_mode+smart_fill (7→10 sub-params). P9 ganhou lead_magnet+standalone_form (15→17 sub-params). Total: 14→13 params.
+
+## Detector Unificado de Intents (D15, 2026-04-11)
+
+- **Decisao:** Keywords e Intents NAO sao sistemas separados. Unificar em 1 detector com 3 camadas progressivas
+- **13 intents por prioridade:** Cancelamento > Pessoa > Suporte > Reclamacao > Produto > Orcamento > Status > Agendamento > FAQ > Promocao > B2B > Continuacao > Generico
+- **Camada 1 Normalizacao (~5ms, R$0):** 50+ abreviacoes WhatsApp, remocao acentos, dedup letras, emojis como sinal
+- **Camada 2 Fuzzy Match (~10ms, R$0):** Levenshtein distance (threshold ≤2 para ≥5 letras), Soundex portugues, dicionario sinonimos por intent
+- **Camada 3 Semantico (~200ms, R$0.001):** LLM leve, so quando ambiguo (~20% das msgs). Prompt curto 100 tokens
+- **Intent Pessoa (6 sub-params):** Detecta nome/depto/funcao, verifica disponibilidade, preferred_agent persistente, angry_detection
+- **Intent Produto (7 sub-params):** Busca catalogo imediata, bypass qualificacao, auto_calculate quantidade, recompra via memoria longa, comparacao
+- **Ambiguidade:** 2+ intents na mesma msg → responde ambos. Conflito → prioridade
+- **Impacto Param 6 Gatilhos:** trigger_config muda de keywords para intents com keywords como boost
+- **Performance:** 80% resolve sem LLM (~15ms), 20% precisa LLM (~200ms). Custo medio R$0,0002/msg
+- **Wiki:** [[wiki/fluxos-detector-intents]]
+
+## 4 Servicos de Infraestrutura (D14, 2026-04-11)
+
+- **Decisao:** Adicionar 4 servicos (nao subagentes) ao pipeline do orquestrador
+- **Memory:** Curta (cache/sessao: summary, products_shown, intents) + Longa (banco/permanente: profile, purchases, preferences, sessions)
+- **Audio:** STT entrada (Whisper/Scribe) + TTS saida (ElevenLabs/Kokoro). 4 modos: always, mirror, never, ask
+- **Validator:** Verificacoes auto (tamanho, idioma, prompt leak, preco, repeticao) + LLM score (0-10) + brand voice + fact-check catalogo + shadow mode
+- **Metrics:** Cronometro envolvente. Breakdown por camada (50ms recog + 100ms mem + 800ms LLM + 200ms valid + 500ms TTS). 3 dimensoes: lead, IA, atendente
+- **Pipeline:** Metrics.start → Audio.STT → Memory.load → Rota → Subagente → Validator → Audio.TTS → Envio → Metrics.end
+- **Wiki:** [[wiki/fluxos-servicos]]
+
+## Transbordo Distribuido + Exit Rules (D13, 2026-04-11)
+
+- **Decisao:** Transbordo NAO e etapa separada no final. Cada subagente tem exit_rules embutidos
+- **Padrao:** exit_rule = { trigger, message, action } — trigger dispara saida, message pro lead, action = destino
+- **Destinos:** next_subagent, handoff_human, handoff_department, handoff_manager, followup, another_flow, tag_and_close, do_nothing
+- **Obrigatorio:** pelo menos 1 exit rule por subagente (previne loop infinito)
+- **final_handoff:** fallback quando fluxo termina naturalmente sem exit rule disparar
+- **Arquitetura:** mudou de 5 etapas (Gatilho→Condicao→Acao→Transbordo→Metricas) para 4 etapas + Reconhecimento
+- **Reconhecimento:** Etapa 0 do Orquestrador (banco SQL, sem LLM, ~50ms). Saudacao e Subagente #1
+- **Saudacao:** 6 sub-parametros. extract_name toggle (ativo vs passivo). context_depth (minimal/standard/deep). LLM so quando deep
+- **Produtos:** 8 sub-parametros. Filtros, display, carrossel, recomendacao (exact/smart/upsell)
+
+## Orquestrador + Subagentes (D12, 2026-04-11)
+
+- **Decisao:** Refatorar ai-agent monolito (~2600 linhas) para orquestrador leve (~300 linhas) + subagentes especializados (~200 linhas cada)
+- **Subagentes:** greeting, qualification, sales, support, handoff, followup, survey, custom
+- **Ciclo:** receiveMessage → resolveFlow → buildContext → executeAgent → processResult → advanceFlow
+- **Ganho:** Prompt LLM de ~3000 palavras → ~300-500 (80% menor, mais barato, mais rapido, mais preciso)
+- **Contrato:** Cada subagente recebe config + lead_context + flow_state. Retorna status + resultado estruturado
+- **Parametro Qualificacao:** 7 sub-parametros (questions, max_questions, required_count, mode, fallback_retries, post_action, context_vars)
+- **Fase MVP:** Sub-parametros 1-6. Fase 2: score + perguntas condicionais + tipos resposta
+- **Wiki:** [[wiki/fluxos-visao-arquitetura]] (secoes 6-8) — plano-fluxos-unificados.md foi reorganizado
+
+## Schema Banco — Fluxos v3.0 (G1, 2026-04-11)
+
+- **14 tabelas** em 4 grupos: Definição (flows/steps/triggers) | Estado (states/events/memory) | Shadow (extractions/metrics/pending/followups) | Infra (intents/security/validator/media)
+- **Padrão FK:** `instance_id TEXT REFERENCES instances(id)` — NUNCA `inbox_id UUID`
+- **Versioning:** `flows.version + flow_states.flow_version` — lead não quebra se admin editar fluxo ativo
+- **Shadow:** `flow_followups` (≠ `follow_up_executions` que já existe). 4 tabelas infra eram ausentes no schema original
+- **RLS:** 3 políticas padrão em todas: super_admins + inbox_members + service_role
+- **Wiki:** [[wiki/fluxos-banco-dados]]
 
 ## Arquivos HIGH RISK (nunca tocar sem aprovação)
 
@@ -120,8 +165,28 @@ Ao apresentar questões para o usuário decidir, SEMPRE usar:
 - `supabase/functions/e2e-test/index.ts`
 - `src/integrations/supabase/types.ts`
 
+## Reorganizacao Documentacao (2026-04-10)
+
+CLAUDE.md 373→96 linhas. Conteúdo migrado: [[RULES.md]] (regras) | [[ARCHITECTURE.md]] (stack) | [[PATTERNS.md]] (padrões).
+**Regra:** NUNCA inflar CLAUDE.md — orquestrador, não enciclopédia. Detalhes: [[wiki/arquitetura-docs]].
+
+## G5 — UX Admin Fluxos v3.0 (2026-04-11)
+
+- **Config subagentes:** Formulário dinâmico por tipo (3-5 campos chave) + toggle "⚙ Avançado (JSON)". Não JSON bruto puro — usuário médio não é dev.
+- **Config serviços:** Defaults globais por instância + aparece contextualmente nos params relevantes (Memory TTL → P1, Audio → P3, Validator → P5). Admin nunca vê "Memory Service" — vê linguagem de negócio.
+- **Exit Rules:** 5 presets configuráveis (max_messages, sem_resposta, intent_cancelamento, qualificacao_concluida, timeout) + "Regra personalizada (JSON)" para casos custom. Visual builder completo fica para S13+.
+- **Conversa Guiada:** Split-screen chat + preview live (Supabase Realtime). IA usa contexto da instância. `flow_patch` incremental. `guided_sessions` TTL 24h — admin retoma de onde parou.
+- **5 telas:** /flows | /flows/new (3 modos) | /flows/new Formulário 4 etapas | /flows/new Conversa Guiada | /flows/:id FlowEditor 5 tabs | /flows/:id/metrics
+- **Wiki:** [[wiki/fluxos-wireframes-admin]]
+
+## DT1 — custom_fields Location (2026-04-11)
+
+- **Decisão:** `lead_profiles.custom_fields JSONB` — dado de negócio, não memória de IA
+- **Coluna já existe** desde migration `20260322135030` com `DEFAULT '{}'` — S6 não precisa de migration
+- **Escrita:** `UPDATE lead_profiles SET custom_fields = custom_fields || $answers WHERE id = $lead_id`
+- **Leitura (smart_fill):** `lead_profiles.custom_fields[field_name]` + verifica `smart_fill_max_age_days`
+- **Razão:** sobrevive reset de contexto IA, visível no CRM/helpdesk, filtrável em campanhas
+
 ## Links
 
-- [[wiki/erros-e-licoes]] — Erros para não repetir
-- [[wiki/ai-agent]] — Regras do agente
-- [[wiki/arquitetura]] — Stack
+[[wiki/erros-e-licoes]] | [[wiki/ai-agent]] | [[wiki/arquitetura]] | [[wiki/arquitetura-docs]] | [[wiki/fluxos-banco-dados]] | [[wiki/fluxos-wireframes-admin]]

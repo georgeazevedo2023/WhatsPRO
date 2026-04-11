@@ -39,10 +39,34 @@ updated: 2026-04-09
 | 22 | Edge functions admin-* DEVEM usar `getDynamicCorsHeaders(req)` e `verify_jwt=false` — gateway sem CORS headers bloqueia localhost e domínios diferentes | CORS |
 | 23 | CORS estático (`browserCorsHeaders`) não funciona com múltiplas origens — usar `getDynamicCorsHeaders(req)` que checa Origin vs whitelist + localhost | CORS |
 | 24 | `instances.id` é TEXT (não UUID) — FK para instances deve usar TEXT | DB |
+| 25 | Endpoint UAZAPI para interativos é `/send/menu` (type=poll/list/quickreply), NÃO `/send/poll` — validar com curl antes de implementar | UAZAPI |
+| 26 | `ALLOWED_ORIGIN` DEVE existir nos Secrets do Supabase em produção — sem ele, CORS usa fallback hardcoded errado e bloqueia TODAS as requisições do frontend | Deploy |
+| 27 | Edge functions chamadas pelo browser DEVEM usar `getDynamicCorsHeaders(req)` — `browserCorsHeaders` é estático e falha quando o domínio real difere do fallback | CORS |
+| 28 | NUNCA usar `now()` ou funções VOLATILE em predicado de índice parcial — PostgreSQL exige IMMUTABLE. Filtro temporal vai na query, não no `CREATE INDEX ... WHERE` | DB |
 
 ---
 
 ## Histórico de Erros
+
+### CORS bloqueava envio de mensagens do Helpdesk (2026-04-09)
+
+**O que:** Atendente não conseguia enviar mensagens pelo Helpdesk. Banner "Failed to fetch" no topo. Console mostrava erro CORS: `Access-Control-Allow-Origin: https://euljumefltljegknaw.s.supabase.co` (Supabase URL) em vez de `https://crm.wsmart.com.br` (domínio real).
+
+**Causa raiz (2 problemas simultâneos):**
+1. `uazapi-proxy/index.ts` usava `browserCorsHeaders` (estático) em vez de `getDynamicCorsHeaders(req)` (dinâmico). O header estático sempre retornava o fallback hardcoded.
+2. O secret `ALLOWED_ORIGIN` **nunca foi criado** nos Secrets do Supabase. Sem ele, `cors.ts` caía no fallback `https://app.whatspro.com.br` — que não era o domínio real `crm.wsmart.com.br`.
+
+**Correção:**
+1. `uazapi-proxy/index.ts` linha 1: trocado `import { browserCorsHeaders as corsHeaders }` por `import { getDynamicCorsHeaders }`. No handler: `const corsHeaders = getDynamicCorsHeaders(req)`.
+2. Secret criado: `npx supabase secrets set ALLOWED_ORIGIN=https://crm.wsmart.com.br`
+3. Deploy: `npx supabase functions deploy uazapi-proxy`
+
+**Regras preventivas:**
+- R26: `ALLOWED_ORIGIN` DEVE existir nos Secrets em produção
+- R27: Edge functions browser-facing DEVEM usar `getDynamicCorsHeaders(req)`
+- Checklist de deploy: verificar se `ALLOWED_ORIGIN` está configurado
+
+**Nota:** 12 outras edge functions ainda usam `browserCorsHeaders` estático. Funcionam porque o Supabase gateway trata CORS automaticamente para elas. Mas `uazapi-proxy` falhava porque faz fetch externo (UAZAPI) que demora e o gateway pode não aplicar CORS no preflight.
 
 ### Duplicate greeting (pré v1.0)
 
@@ -132,6 +156,20 @@ updated: 2026-04-09
 **Correção:** Alterado para `instance_id TEXT NOT NULL REFERENCES instances(id)`.
 **Regra 24:** Sempre verificar o tipo real da coluna referenciada antes de criar FK. `instances.id` é TEXT.
 
+### UAZAPI endpoint errado para polls — /send/poll não existe (2026-04-09)
+
+**O que:** Todas as funcionalidades de poll (proxy, AI Agent, automação, NPS, form-bot) retornavam 405 Method Not Allowed. Polls nunca funcionaram em produção.
+**Causa:** O código usava `POST /send/poll` mas esse endpoint não existe no UAZAPI. O endpoint correto é `POST /send/menu` com `type: 'poll'`. Além disso, campos são diferentes: `question`→`text`, `options`→`choices`.
+**Correção:** 6 edits em 4 arquivos — alterado endpoint + payload em uazapi-proxy, ai-agent, automationEngine (2x) e form-bot (2x). Testado ao vivo com sucesso.
+**Regra 25:** SEMPRE validar endpoints UAZAPI com curl antes de implementar. A documentação interna pode estar desatualizada — conferir em docs.uazapi.com. O endpoint unificado para mensagens interativas é `/send/menu` com campo `type` (poll, list, quickreply).
+
 ---
+
+### PostgreSQL IMMUTABLE em índice parcial — `now()` proibido (2026-04-11)
+
+**O que:** Migration `20260415000001` falharia em produção com `ERROR: functions in index predicate must be marked IMMUTABLE`. O índice `idx_lead_memory_lookup` usava `WHERE expires_at IS NULL OR expires_at > now()`.
+**Causa:** PostgreSQL exige que funções em predicados de índice parcial sejam IMMUTABLE. `now()` é VOLATILE — muda a cada chamada. O predicado de índice é avaliado na criação, não na query.
+**Correção:** Predicado simplificado para `WHERE expires_at IS NULL` (IMMUTABLE). Filtro dinâmico `expires_at > now()` movido para as queries que consultam o índice.
+**Regra 28:** NUNCA usar `now()`, `CURRENT_TIMESTAMP` ou qualquer função VOLATILE em predicados de índice parcial (`WHERE` do `CREATE INDEX`). O filtro temporal vai na query, não no índice.
 
 *Adicionar novos erros acima desta linha, seguindo o formato: O que → Causa → Correção → Regra*

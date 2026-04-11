@@ -45,7 +45,7 @@ Agente IA que qualifica leads e vende produtos via WhatsApp, sem intervencao hum
 - **Campanhas UTM** — Links, QR codes, metricas, landing pages, attribution guards
 - **Bio Link (M14)** — Linktree-style com captacao de leads e contexto AI
 - **Funis (M16)** — Orquestra campanhas + bio + forms + kanban. 7 tipos de funil.
-- **Enquetes (M17 F4)** — Enquetes nativas WhatsApp (poll) via UAZAPI /send/poll
+- **Enquetes (M17 F4)** — Enquetes nativas WhatsApp (poll) via UAZAPI /send/menu
 
 ### Analytics
 - **Dashboard** — KPIs, performance por agente, metricas de funil, **NPS**
@@ -59,9 +59,22 @@ Agente IA que qualifica leads e vende produtos via WhatsApp, sem intervencao hum
 - **CI/CD:** GitHub Actions → ghcr.io → Portainer stack
 - **Versao:** 7.9.0 (2026-04-09)
 
+## Numeros do Projeto
+
+| Metrica | Valor |
+|---------|-------|
+| Modulos implementados | 17 |
+| Sub-funcionalidades documentadas | 187 |
+| Edge functions | 31 |
+| Milestones shipped | 7 (v1.0 a M17) |
+| Wikis detalhadas | 17 documentos |
+| Versao | 7.9.0 (2026-04-09) |
+
 ## Links
 
+- [[wiki/visao-geral-completa]] — Visao geral completa com jornada, numeros, stack, documentacao
 - [[wiki/ai-agent]] — Detalhes do agente IA
 - [[wiki/modulos]] — Todos os modulos em detalhe
 - [[wiki/arquitetura]] — Stack tecnica
 - [[wiki/roadmap]] — Status e proximos passos
+- [[wiki/arquitetura-docs]] — Como a documentacao se organiza
