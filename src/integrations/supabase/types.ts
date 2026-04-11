@@ -1409,6 +1409,522 @@ export type Database = {
           },
         ]
       }
+      flow_events: {
+        Row: {
+          cost_breakdown: Json | null
+          created_at: string
+          error: string | null
+          event_type: string
+          flow_id: string
+          flow_state_id: string
+          id: string
+          input: Json | null
+          instance_id: string
+          lead_id: string
+          output: Json | null
+          step_id: string | null
+          subagent_type: string | null
+          timing_breakdown: Json | null
+        }
+        Insert: {
+          cost_breakdown?: Json | null
+          created_at?: string
+          error?: string | null
+          event_type: string
+          flow_id: string
+          flow_state_id: string
+          id?: string
+          input?: Json | null
+          instance_id: string
+          lead_id: string
+          output?: Json | null
+          step_id?: string | null
+          subagent_type?: string | null
+          timing_breakdown?: Json | null
+        }
+        Update: {
+          cost_breakdown?: Json | null
+          created_at?: string
+          error?: string | null
+          event_type?: string
+          flow_id?: string
+          flow_state_id?: string
+          id?: string
+          input?: Json | null
+          instance_id?: string
+          lead_id?: string
+          output?: Json | null
+          step_id?: string | null
+          subagent_type?: string | null
+          timing_breakdown?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_events_flow_id_fkey"
+            columns: ["flow_id"]
+            isOneToOne: false
+            referencedRelation: "flows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_events_flow_state_id_fkey"
+            columns: ["flow_state_id"]
+            isOneToOne: false
+            referencedRelation: "flow_states"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_events_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_events_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "flow_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_followups: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          detected_phrase: string | null
+          detection_type: string
+          done_at: string | null
+          escalation_level: number
+          id: string
+          instance_id: string
+          lead_id: string
+          score_decay_rate: number
+          seller_id: string | null
+          status: string
+          suggested_date: string | null
+          suggested_message: string | null
+          updated_at: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          detected_phrase?: string | null
+          detection_type: string
+          done_at?: string | null
+          escalation_level?: number
+          id?: string
+          instance_id: string
+          lead_id: string
+          score_decay_rate?: number
+          seller_id?: string | null
+          status?: string
+          suggested_date?: string | null
+          suggested_message?: string | null
+          updated_at?: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          detected_phrase?: string | null
+          detection_type?: string
+          done_at?: string | null
+          escalation_level?: number
+          id?: string
+          instance_id?: string
+          lead_id?: string
+          score_decay_rate?: number
+          seller_id?: string | null
+          status?: string
+          suggested_date?: string | null
+          suggested_message?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_followups_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_followups_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_followups_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_followups_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_security_events: {
+        Row: {
+          action_taken: string
+          auto_resolved: boolean | null
+          conversation_id: string
+          created_at: string
+          details: Json
+          event_type: string
+          id: string
+          instance_id: string
+          lead_id: string
+          resolved_at: string | null
+          resolved_by: string | null
+          severity: string
+        }
+        Insert: {
+          action_taken: string
+          auto_resolved?: boolean | null
+          conversation_id: string
+          created_at?: string
+          details?: Json
+          event_type: string
+          id?: string
+          instance_id: string
+          lead_id: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+        }
+        Update: {
+          action_taken?: string
+          auto_resolved?: boolean | null
+          conversation_id?: string
+          created_at?: string
+          details?: Json
+          event_type?: string
+          id?: string
+          instance_id?: string
+          lead_id?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_security_events_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_security_events_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_security_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_states: {
+        Row: {
+          completed_at: string | null
+          completed_steps: string[]
+          conversation_id: string | null
+          created_at: string
+          flow_id: string
+          flow_step_id: string | null
+          flow_version: number
+          id: string
+          instance_id: string
+          last_activity_at: string
+          lead_id: string
+          started_at: string
+          status: string
+          step_data: Json
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          completed_steps?: string[]
+          conversation_id?: string | null
+          created_at?: string
+          flow_id: string
+          flow_step_id?: string | null
+          flow_version?: number
+          id?: string
+          instance_id: string
+          last_activity_at?: string
+          lead_id: string
+          started_at?: string
+          status?: string
+          step_data?: Json
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          completed_steps?: string[]
+          conversation_id?: string | null
+          created_at?: string
+          flow_id?: string
+          flow_step_id?: string | null
+          flow_version?: number
+          id?: string
+          instance_id?: string
+          last_activity_at?: string
+          lead_id?: string
+          started_at?: string
+          status?: string
+          step_data?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_states_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_states_flow_id_fkey"
+            columns: ["flow_id"]
+            isOneToOne: false
+            referencedRelation: "flows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_states_flow_step_id_fkey"
+            columns: ["flow_step_id"]
+            isOneToOne: false
+            referencedRelation: "flow_steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_states_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_states_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_steps: {
+        Row: {
+          created_at: string
+          exit_rules: Json
+          flow_id: string
+          id: string
+          is_active: boolean
+          name: string
+          position: number
+          step_config: Json
+          subagent_type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          exit_rules?: Json
+          flow_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          position?: number
+          step_config?: Json
+          subagent_type: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          exit_rules?: Json
+          flow_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          position?: number
+          step_config?: Json
+          subagent_type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_steps_flow_id_fkey"
+            columns: ["flow_id"]
+            isOneToOne: false
+            referencedRelation: "flows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_triggers: {
+        Row: {
+          activation: string
+          cooldown_minutes: number
+          created_at: string
+          fallback_flow_id: string | null
+          flow_id: string
+          id: string
+          instance_id: string
+          is_active: boolean
+          priority: number
+          trigger_config: Json
+          trigger_type: string
+          updated_at: string
+        }
+        Insert: {
+          activation?: string
+          cooldown_minutes?: number
+          created_at?: string
+          fallback_flow_id?: string | null
+          flow_id: string
+          id?: string
+          instance_id: string
+          is_active?: boolean
+          priority?: number
+          trigger_config?: Json
+          trigger_type: string
+          updated_at?: string
+        }
+        Update: {
+          activation?: string
+          cooldown_minutes?: number
+          created_at?: string
+          fallback_flow_id?: string | null
+          flow_id?: string
+          id?: string
+          instance_id?: string
+          is_active?: boolean
+          priority?: number
+          trigger_config?: Json
+          trigger_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_triggers_fallback_flow_id_fkey"
+            columns: ["fallback_flow_id"]
+            isOneToOne: false
+            referencedRelation: "flows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_triggers_flow_id_fkey"
+            columns: ["flow_id"]
+            isOneToOne: false
+            referencedRelation: "flows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_triggers_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flows: {
+        Row: {
+          config: Json
+          created_at: string
+          created_by: string | null
+          description: string | null
+          funnel_id: string | null
+          id: string
+          instance_id: string
+          is_default: boolean
+          mode: string
+          name: string
+          published_at: string | null
+          slug: string
+          status: string
+          template_id: string | null
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          funnel_id?: string | null
+          id?: string
+          instance_id: string
+          is_default?: boolean
+          mode?: string
+          name: string
+          published_at?: string | null
+          slug: string
+          status?: string
+          template_id?: string | null
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          funnel_id?: string | null
+          id?: string
+          instance_id?: string
+          is_default?: boolean
+          mode?: string
+          name?: string
+          published_at?: string | null
+          slug?: string
+          status?: string
+          template_id?: string | null
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flows_funnel_id_fkey"
+            columns: ["funnel_id"]
+            isOneToOne: false
+            referencedRelation: "funnels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flows_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       follow_up_executions: {
         Row: {
           agent_id: string | null
@@ -1929,6 +2445,85 @@ export type Database = {
         }
         Relationships: []
       }
+      intent_detections: {
+        Row: {
+          action_taken: string | null
+          confidence: number
+          conversation_id: string
+          created_at: string
+          detected_intent: string
+          detection_layer: string
+          fuzzy_score: number | null
+          id: string
+          instance_id: string
+          lead_id: string
+          llm_used: boolean
+          matched_keywords: string[]
+          message_text: string | null
+          normalized_text: string | null
+          processing_time_ms: number
+          secondary_intents: string[]
+        }
+        Insert: {
+          action_taken?: string | null
+          confidence: number
+          conversation_id: string
+          created_at?: string
+          detected_intent: string
+          detection_layer: string
+          fuzzy_score?: number | null
+          id?: string
+          instance_id: string
+          lead_id: string
+          llm_used?: boolean
+          matched_keywords?: string[]
+          message_text?: string | null
+          normalized_text?: string | null
+          processing_time_ms?: number
+          secondary_intents?: string[]
+        }
+        Update: {
+          action_taken?: string | null
+          confidence?: number
+          conversation_id?: string
+          created_at?: string
+          detected_intent?: string
+          detection_layer?: string
+          fuzzy_score?: number | null
+          id?: string
+          instance_id?: string
+          lead_id?: string
+          llm_used?: boolean
+          matched_keywords?: string[]
+          message_text?: string | null
+          normalized_text?: string | null
+          processing_time_ms?: number
+          secondary_intents?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intent_detections_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intent_detections_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intent_detections_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       job_queue: {
         Row: {
           attempts: number
@@ -2431,6 +3026,63 @@ export type Database = {
         }
         Relationships: []
       }
+      lead_memory: {
+        Row: {
+          created_at: string
+          data: Json
+          expires_at: string | null
+          id: string
+          instance_id: string
+          lead_id: string
+          memory_type: string
+          scope: string
+          tokens_saved: number
+          ttl_seconds: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          expires_at?: string | null
+          id?: string
+          instance_id: string
+          lead_id: string
+          memory_type: string
+          scope?: string
+          tokens_saved?: number
+          ttl_seconds?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          expires_at?: string | null
+          id?: string
+          instance_id?: string
+          lead_id?: string
+          memory_type?: string
+          scope?: string
+          tokens_saved?: number
+          ttl_seconds?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_memory_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_memory_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_profiles: {
         Row: {
           address: Json | null
@@ -2535,6 +3187,80 @@ export type Database = {
           },
         ]
       }
+      media_library: {
+        Row: {
+          alt_text: string | null
+          created_at: string
+          created_by: string | null
+          file_size_bytes: number | null
+          file_type: string
+          file_url: string
+          height: number | null
+          id: string
+          instance_id: string
+          is_public: boolean
+          mime_type: string | null
+          name: string
+          nano_banana_prompt: string | null
+          nano_banana_type: string | null
+          source: string
+          tags: string[]
+          updated_at: string
+          used_in: Json
+          width: number | null
+        }
+        Insert: {
+          alt_text?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_size_bytes?: number | null
+          file_type: string
+          file_url: string
+          height?: number | null
+          id?: string
+          instance_id: string
+          is_public?: boolean
+          mime_type?: string | null
+          name: string
+          nano_banana_prompt?: string | null
+          nano_banana_type?: string | null
+          source?: string
+          tags?: string[]
+          updated_at?: string
+          used_in?: Json
+          width?: number | null
+        }
+        Update: {
+          alt_text?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_size_bytes?: number | null
+          file_type?: string
+          file_url?: string
+          height?: number | null
+          id?: string
+          instance_id?: string
+          is_public?: boolean
+          mime_type?: string | null
+          name?: string
+          nano_banana_prompt?: string | null
+          nano_banana_type?: string | null
+          source?: string
+          tags?: string[]
+          updated_at?: string
+          used_in?: Json
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "media_library_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_templates: {
         Row: {
           carousel_data: Json | null
@@ -2609,6 +3335,89 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      pending_responses: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          escalation_level: number
+          first_unanswered_at: string
+          id: string
+          instance_id: string
+          last_customer_message_at: string
+          lead_id: string
+          priority_score: number
+          rescue_message: string | null
+          rescue_sent_at: string | null
+          resolved_at: string | null
+          seller_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          escalation_level?: number
+          first_unanswered_at?: string
+          id?: string
+          instance_id: string
+          last_customer_message_at?: string
+          lead_id: string
+          priority_score?: number
+          rescue_message?: string | null
+          rescue_sent_at?: string | null
+          resolved_at?: string | null
+          seller_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          escalation_level?: number
+          first_unanswered_at?: string
+          id?: string
+          instance_id?: string
+          last_customer_message_at?: string
+          lead_id?: string
+          priority_score?: number
+          rescue_message?: string | null
+          rescue_sent_at?: string | null
+          resolved_at?: string | null
+          seller_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_responses_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_responses_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_responses_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_responses_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       playground_evaluations: {
         Row: {
@@ -3047,6 +3856,121 @@ export type Database = {
           },
         ]
       }
+      shadow_extractions: {
+        Row: {
+          batch_id: string
+          conversation_id: string
+          created_at: string
+          dimension: string
+          extracted_data: Json
+          id: string
+          instance_id: string
+          lead_id: string | null
+          model_used: string | null
+          processed_at: string
+          processing_cost_brl: number
+        }
+        Insert: {
+          batch_id: string
+          conversation_id: string
+          created_at?: string
+          dimension: string
+          extracted_data?: Json
+          id?: string
+          instance_id: string
+          lead_id?: string | null
+          model_used?: string | null
+          processed_at?: string
+          processing_cost_brl?: number
+        }
+        Update: {
+          batch_id?: string
+          conversation_id?: string
+          created_at?: string
+          dimension?: string
+          extracted_data?: Json
+          id?: string
+          instance_id?: string
+          lead_id?: string | null
+          model_used?: string | null
+          processed_at?: string
+          processing_cost_brl?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadow_extractions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadow_extractions_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadow_extractions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shadow_metrics: {
+        Row: {
+          computed_at: string
+          created_at: string
+          id: string
+          instance_id: string
+          metrics: Json
+          period_date: string
+          period_type: string
+          seller_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          computed_at?: string
+          created_at?: string
+          id?: string
+          instance_id: string
+          metrics?: Json
+          period_date: string
+          period_type: string
+          seller_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          computed_at?: string
+          created_at?: string
+          id?: string
+          instance_id?: string
+          metrics?: Json
+          period_date?: string
+          period_type?: string
+          seller_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadow_metrics_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shadow_metrics_seller_id_fkey"
+            columns: ["seller_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shift_report_configs: {
         Row: {
           created_at: string
@@ -3412,6 +4336,79 @@ export type Database = {
           },
         ]
       }
+      validator_logs: {
+        Row: {
+          auto_checks: Json
+          brand_voice_check: Json | null
+          changes_made: string | null
+          conversation_id: string
+          created_at: string
+          factcheck_catalog: Json | null
+          final_action: string
+          flow_state_id: string
+          id: string
+          instance_id: string
+          llm_score: number | null
+          llm_used: boolean
+          processing_time_ms: number
+          response_text: string | null
+        }
+        Insert: {
+          auto_checks?: Json
+          brand_voice_check?: Json | null
+          changes_made?: string | null
+          conversation_id: string
+          created_at?: string
+          factcheck_catalog?: Json | null
+          final_action: string
+          flow_state_id: string
+          id?: string
+          instance_id: string
+          llm_score?: number | null
+          llm_used?: boolean
+          processing_time_ms?: number
+          response_text?: string | null
+        }
+        Update: {
+          auto_checks?: Json
+          brand_voice_check?: Json | null
+          changes_made?: string | null
+          conversation_id?: string
+          created_at?: string
+          factcheck_catalog?: Json | null
+          final_action?: string
+          flow_state_id?: string
+          id?: string
+          instance_id?: string
+          llm_score?: number | null
+          llm_used?: boolean
+          processing_time_ms?: number
+          response_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "validator_logs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "validator_logs_flow_state_id_fkey"
+            columns: ["flow_state_id"]
+            isOneToOne: false
+            referencedRelation: "flow_states"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "validator_logs_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_forms: {
         Row: {
           agent_id: string
@@ -3581,6 +4578,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      cleanup_expired_lead_memory: { Args: never; Returns: number }
       cleanup_old_e2e_runs: { Args: never; Returns: undefined }
       complete_job: {
         Args: { p_error?: string; p_job_id: string; p_status?: string }
@@ -3777,6 +4775,16 @@ export type Database = {
       update_lead_count_from_entries: {
         Args: { p_database_id: string }
         Returns: undefined
+      }
+      upsert_lead_short_memory: {
+        Args: {
+          p_data: Json
+          p_instance_id: string
+          p_lead_id: string
+          p_scope: string
+          p_ttl_seconds?: number
+        }
+        Returns: string
       }
     }
     Enums: {
