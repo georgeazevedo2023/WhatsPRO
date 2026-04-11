@@ -136,4 +136,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-11 — G5 Wireframes: 5 telas, 4 arquivos, 10 estados + 10 edge cases. G2 Roadmap: 12 sprints. G1 Schema: 14 tabelas. 15 wikis fluxos.*
+*Ultima atualizacao: 2026-04-11 — S1 ✅ DB+seed+types (commit e084c87). G5 Wireframes: 5 telas. G1 Schema: 14 tabelas. 15 wikis fluxos. Próximo: S2 Orchestrator.*

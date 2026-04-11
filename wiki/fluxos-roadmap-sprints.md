@@ -17,7 +17,7 @@ updated: 2026-04-11
 
 | Sprint | Tema | O que funciona ao terminar | Complexidade |
 |--------|------|---------------------------|--------------|
-| **S1** | Database + Tipos | 14 tabelas no banco, seed, tipos TypeScript gerados | P |
+| **S1** ✅ | Database + Tipos | 14 tabelas no banco, seed, tipos TypeScript gerados | P |
 | **S2** | Orchestrator Skeleton | Orquestrador com feature flag `USE_ORCHESTRATOR` — sem breaking change | M |
 | **S3** | Flow CRUD Admin UI | `/flows` com listagem, criação, publicação | M |
 | **S4** | Flow Triggers Engine | Mensagem "oi" ativa flow correto, estado salvo no banco | M |
@@ -34,15 +34,16 @@ updated: 2026-04-11
 
 ## Camada 1 — Foundation (S1-S3)
 
-### S1: Database + Tipos TypeScript
-**Entregáveis:**
-- Aplicar 4 migrations em ordem: `20260415000000` → `000001` → `000002` → `000003`
-- ⚠ `20260411145300` (infra tables) referenciam `flow_states` — aplicar DEPOIS de `000001`
-- `supabase/migrations/20260416000000_fluxos_v3_seed.sql` — **CRIAR EM S1** (arquivo não existe) — 1 flow SDR com 2 steps + 3 triggers
-- `npx supabase gen types typescript` → reflete 14 tabelas novas
-- Verificação RLS: `service_role` acessa tudo, `auth.uid()` só vê sua instância
+### S1: Database + Tipos TypeScript ✅ COMPLETO (2026-04-11, commit e084c87)
 
-**Critérios:** `SELECT COUNT(*) FROM flows` retorna 1 (seed). TypeScript 0 erros.
+**Entregáveis entregues:**
+- 4 migrations aplicadas no banco e versionadas localmente (renomeadas para alinhar com timestamps DB):
+  `20260411190719` definition_tables | `20260411190751` state_memory | `20260411190828` shadow_tables | `20260411190905` infra_tables
+- `20260411190906_fluxos_v3_seed.sql` — SDR Comercial: 2 steps (greeting+qualification BANT) + 3 triggers (keyword P:10, lead_created P:5, message_received P:1)
+- `types.ts` regenerado: 4943 linhas, 14/14 novas tabelas presentes
+- **Fix extra:** arquivo `20260411145300_fluxos_v3_infra_tables.sql` (draft duplicado) deletado
+
+**Critérios verificados:** `SELECT COUNT(*) FROM flows = 1` ✅ · `steps = 2` ✅ · `triggers = 3` ✅ · `npx tsc --noEmit` exit 0 ✅
 
 ### S2: Orchestrator Skeleton + Feature Flag
 **Estrutura de arquivos:**
