@@ -2,7 +2,7 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-09
+updated: 2026-04-11
 ---
 
 # Erros e Lições
