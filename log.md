@@ -9,6 +9,15 @@ type: log
 
 ## 2026-04-11
 
+### S1 COMPLETO — Database + Tipos TypeScript (commit e084c87)
+- **F0:** 4 migrations renomeadas (20260415000000x → 20260411190719/51/28/05) para alinhar com DB. Evita falha futura em `db push`.
+- **F1:** Seed `20260411190906_fluxos_v3_seed.sql` criado e aplicado via MCP. DO block idempotente.
+- **F2:** Verificação SQL: `flows=1, steps=2, triggers=3` ✅
+- **F3:** `types.ts` regenerado via MCP: 4943 linhas, 14 novas tabelas presentes ✅
+- **F4:** `npx tsc --noEmit` → exit code 0 ✅
+- **Commits:** e084c87 (S1 code) + eeaaff0 (vault design completo)
+- **Próximo:** S2 — Orchestrator Skeleton + feature flag `USE_ORCHESTRATOR`
+
 ### Auditoria Vault + Fechamento de Gaps (6 gaps corrigidos)
 - **Gap 1 — wikilink quebrado:** `plano-fluxos-unificados.md` não existe → corrigido para `fluxos-visao-arquitetura.md` em decisoes-chave.md
 - **Gap 2 — roadmap.md desatualizado:** M18 Fluxos v3.0 adicionado como próximo milestone
