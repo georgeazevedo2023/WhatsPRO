@@ -56,6 +56,11 @@ const BioLinksPage = lazy(() => import("./pages/dashboard/BioLinksPage"));
 const FunnelsPage = lazy(() => import("./pages/dashboard/FunnelsPage"));
 const FunnelWizard = lazy(() => import("./pages/dashboard/FunnelWizard"));
 const FunnelDetail = lazy(() => import("./pages/dashboard/FunnelDetail"));
+const FlowsPage = lazy(() => import("./pages/dashboard/FlowsPage"));
+const FlowNewPage = lazy(() => import("./pages/dashboard/FlowNewPage"));
+const FlowWizard = lazy(() => import("./pages/dashboard/FlowWizard"));
+const FlowTemplatesPage = lazy(() => import("./pages/dashboard/FlowTemplatesPage"));
+const FlowDetail = lazy(() => import("./pages/dashboard/FlowDetail"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -252,6 +257,11 @@ const AppRoutes = () => {
         <Route path="funnels" element={<AdminRoute><ErrorBoundary section="Funis"><Suspense fallback={<PageLoader />}><FunnelsPage /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="funnels/new" element={<AdminRoute><ErrorBoundary section="Novo Funil"><Suspense fallback={<PageLoader />}><FunnelWizard /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="funnels/:id" element={<AdminRoute><ErrorBoundary section="Funil"><Suspense fallback={<PageLoader />}><FunnelDetail /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="flows" element={<AdminRoute><ErrorBoundary section="Fluxos"><Suspense fallback={<PageLoader />}><FlowsPage /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="flows/new" element={<AdminRoute><ErrorBoundary section="Novo Fluxo"><Suspense fallback={<PageLoader />}><FlowNewPage /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="flows/new/wizard" element={<AdminRoute><ErrorBoundary section="Wizard Fluxo"><Suspense fallback={<PageLoader />}><FlowWizard /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="flows/new/templates" element={<AdminRoute><ErrorBoundary section="Templates Fluxo"><Suspense fallback={<PageLoader />}><FlowTemplatesPage /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="flows/:id" element={<AdminRoute><ErrorBoundary section="Fluxo"><Suspense fallback={<PageLoader />}><FlowDetail /></Suspense></ErrorBoundary></AdminRoute>} />
         {/* Redirect legacy/bookmarked URLs */}
         <Route path="leads-broadcast" element={<Navigate to="/dashboard/broadcast/leads" replace />} />
       </Route>

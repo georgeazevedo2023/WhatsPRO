@@ -86,6 +86,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [helpdeskOpen, setHelpdeskOpen] = useState(false);
   const [funnelsOpen, setFunnelsOpen] = useState(false);
+  const [flowsOpen, setFlowsOpen] = useState(false);
   const [aiAgentOpen, setAiAgentOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
@@ -109,6 +110,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
     || location.pathname.startsWith('/dashboard/campaigns')
     || location.pathname.startsWith('/dashboard/bio-links')
     || location.pathname === '/dashboard/forms';
+  const isFlowsActive = location.pathname.startsWith('/dashboard/flows');
   const isAiAgentActive = location.pathname.startsWith('/dashboard/ai-agent');
   const isAdminActive = location.pathname.startsWith('/dashboard/admin');
   const isDocsActive = ['/dashboard/docs', '/dashboard/roadmap', '/dashboard/backup'].some(p => location.pathname.startsWith(p));
@@ -550,6 +552,20 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
             {renderSubItem('/dashboard/campaigns', 'Campanhas', Megaphone)}
             {renderSubItem('/dashboard/bio-links', 'Bio Link', Link2)}
             {renderSubItem('/dashboard/forms', 'Formularios', FileText)}
+          </>
+        )}
+
+        {/* Fluxos - Collapsible (super admin only) */}
+        {isSuperAdmin && renderCollapsible(
+          Wand2,
+          'Fluxos',
+          flowsOpen,
+          setFlowsOpen,
+          isFlowsActive,
+          '/dashboard/flows',
+          <>
+            {renderSubItem('/dashboard/flows', 'Todos os fluxos', Wand2)}
+            {renderSubItem('/dashboard/flows/new', 'Novo fluxo', Plus)}
           </>
         )}
 
