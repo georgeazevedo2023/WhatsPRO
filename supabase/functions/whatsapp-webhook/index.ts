@@ -22,6 +22,23 @@ function normalizeMediaType(raw: string): string {
 
 const webhookModuleLog = createLogger('whatsapp-webhook')
 
+// ── USE_ORCHESTRATOR feature flag (S2) ────────────────────────────────────────
+// Lê system_settings.USE_ORCHESTRATOR. Falso por padrão (seguro).
+// S2: global false → todo tráfego vai para ai-agent-debounce.
+// S12: adiciona instances.use_orchestrator por instância.
+async function getOrchestratorFlag(): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'USE_ORCHESTRATOR')
+      .maybeSingle()
+    return data?.value === 'true'
+  } catch {
+    return false // fallback seguro: usa debounce
+  }
+}
+
 async function getMediaLink(messageId: string, instanceToken: string, isAudio: boolean = false): Promise<{ url: string; mimetype?: string } | null> {
   try {
     webhookModuleLog.info('Calling /message/download', { messageId, isAudio })
@@ -362,16 +379,28 @@ Deno.serve(async (req) => {
               .single()
 
             if (conv && (conv.status_ia === 'ligada' || conv.status_ia === 'shadow')) {
-              const debounceUrl = Deno.env.get('SUPABASE_URL') + '/functions/v1/ai-agent-debounce'
+              const useOrchestrator = await getOrchestratorFlag()
+              const baseUrl = Deno.env.get('SUPABASE_URL')!
               const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
-              fetchWithTimeout(debounceUrl, {
+              const targetUrl = useOrchestrator
+                ? `${baseUrl}/functions/v1/orchestrator`
+                : `${baseUrl}/functions/v1/ai-agent-debounce`
+              const targetPayload = useOrchestrator
+                ? {
+                    conversation_id: pollMsg.conversation_id,
+                    instance_id: conv.instance_id,
+                    message_text: selectedOptions.join(', '),
+                    message_type: 'poll_response',
+                  }
+                : {
+                    conversation_id: pollMsg.conversation_id,
+                    instance_id: conv.instance_id,
+                    message_text: selectedOptions.join(', '),
+                  }
+              fetchWithTimeout(targetUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
-                body: JSON.stringify({
-                  conversation_id: pollMsg.conversation_id,
-                  instance_id: conv.instance_id,
-                  message_text: selectedOptions.join(', '),
-                }),
+                body: JSON.stringify(targetPayload),
               }).catch(() => {}) // fire-and-forget
             }
           } catch { /* non-critical */ }
@@ -1099,25 +1128,47 @@ Deno.serve(async (req) => {
         .maybeSingle()
 
       if (aiAgent) {
-        log.info('AI Agent active, triggering debounce', { conversationId: conversation.id })
-        backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${ANON_KEY}`,
-          },
-          body: JSON.stringify({
-            conversation_id: conversation.id,
-            instance_id: instance.id,
-            contact_jid: contactJid,
-            message: {
-              content,
-              media_type: mediaType,
-              media_url: mediaUrl || null,
-              direction: 'incoming',
+        const useOrchestrator = await getOrchestratorFlag()
+
+        if (useOrchestrator) {
+          // S2+: Orchestrator skeleton (não envia mensagem ao lead ainda)
+          log.info('AI Agent active, triggering orchestrator', { conversationId: conversation.id })
+          backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/orchestrator`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${ANON_KEY}`,
             },
-          }),
-        }).catch(err => log.error('AI Agent debounce call failed', { error: (err as Error).message })))
+            body: JSON.stringify({
+              conversation_id: conversation.id,
+              instance_id: instance.id,
+              message_text: content ?? '',
+              message_type: mediaType || 'text',
+              media_url: mediaUrl || null,
+            }),
+          }).catch(err => log.error('Orchestrator call failed', { error: (err as Error).message })))
+        } else {
+          // Default: ai-agent-debounce (produção atual)
+          log.info('AI Agent active, triggering debounce', { conversationId: conversation.id })
+          backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${ANON_KEY}`,
+            },
+            body: JSON.stringify({
+              conversation_id: conversation.id,
+              instance_id: instance.id,
+              contact_jid: contactJid,
+              message: {
+                content,
+                media_type: mediaType,
+                media_url: mediaUrl || null,
+                direction: 'incoming',
+              },
+            }),
+          }).catch(err => log.error('AI Agent debounce call failed', { error: (err as Error).message })))
+        }
       }
     }
 
