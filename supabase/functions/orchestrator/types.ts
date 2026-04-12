@@ -133,7 +133,7 @@ export interface SubagentResult {
 }
 
 export interface SubagentMedia {
-  type: 'image' | 'carousel' | 'poll'
+  type: 'image' | 'carousel' | 'poll' | 'menu'
   /** URL direta da imagem (type=image) */
   url?: string
   /** Texto/caption da mensagem */
@@ -142,6 +142,10 @@ export interface SubagentMedia {
   cards?: CarouselCardPayload[]
   /** Opções de poll (type=poll) */
   poll_options?: string[]
+  /** Título da lista de opções (type=menu, UAZAPI /send/menu) */
+  menu_title?: string
+  /** Rodapé da lista de opções (type=menu) */
+  menu_footer?: string
 }
 
 export interface CarouselCardPayload {
@@ -182,6 +186,81 @@ export interface SupportConfig {
   max_unanswered?: number                // default: 2 → handoff
   enable_llm_formulation?: boolean       // default: true
   post_action?: 'next_step' | 'handoff' | 'tag_and_close'
+}
+
+// ── Validator (S9) ──────────────────────────────────────────────────────────
+
+export interface ValidatorIssue {
+  check: string         // 'size_ok', 'no_prompt_leak', etc.
+  action: 'pass' | 'correct' | 'block'
+  detail?: string
+}
+
+export interface ValidationResult {
+  passed: boolean
+  corrected_text?: string
+  issues: ValidatorIssue[]
+}
+
+// ── Metrics Timer (S9) ──────────────────────────────────────────────────────
+
+export interface TimerBreakdown {
+  intent_ms: number
+  resolve_ms: number
+  context_ms: number
+  subagent_ms: number
+  validator_ms: number
+  send_ms: number
+  total_ms: number
+}
+
+export interface CostBreakdown {
+  llm_tokens: number
+  llm_cost_brl: number
+  intent_layer: number
+}
+
+// ── Survey Config (step_config do subagente survey — S10) ──────────────────
+
+export interface SurveyQuestion {
+  text: string
+  options: string[]
+  type?: 'poll' | 'text'
+  is_nps?: boolean
+}
+
+export interface SurveyConfig {
+  questions: SurveyQuestion[]
+  max_retries?: number                     // default 2
+  completion_message?: string              // "Obrigado pela resposta!"
+  post_action?: 'next_step' | 'handoff' | 'tag_and_close'
+}
+
+// ── Followup Config (step_config do subagente followup — S10) ──────────────
+
+export interface FollowupConfig {
+  delay_hours?: number                     // default 24
+  message_template?: string                // "Oi {name}, voltando sobre..."
+  max_escalations?: number                 // default 3
+  escalation_delays?: number[]             // [24, 48, 168] hours
+  post_action?: 'complete' | 'tag_and_close'
+}
+
+// ── Handoff Config (step_config do subagente handoff — S10) ─────────────────
+
+export interface HandoffConfig {
+  message?: string                         // "Vou transferir você para um atendente"
+  briefing_depth?: 'minimal' | 'standard' | 'full'
+  department_id?: string
+  assign_to?: string
+  post_action?: 'handoff_human' | 'handoff_department' | 'handoff_manager'
+}
+
+// ── Guided Session Messages (S11) ────────────────────────────────────────────
+export interface GuidedMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
 }
 
 // ── Contrato de cada Subagente ───────────────────────────────────────────────

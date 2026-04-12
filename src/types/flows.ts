@@ -7,6 +7,44 @@ export type FlowTrigger = Database['public']['Tables']['flow_triggers']['Row']
 export type FlowTriggerInsert = Database['public']['Tables']['flow_triggers']['Insert']
 export type FlowTriggerUpdate = Database['public']['Tables']['flow_triggers']['Update']
 
+// FlowStep (da tabela flow_steps — auto-generated em src/integrations/supabase/types.ts)
+export type FlowStep = Database['public']['Tables']['flow_steps']['Row']
+export type FlowStepInsert = Database['public']['Tables']['flow_steps']['Insert']
+export type FlowStepUpdate = Database['public']['Tables']['flow_steps']['Update']
+
+// Tipos válidos de subagente (8 tipos, conforme CHECK constraint do banco)
+export type SubagentType =
+  | 'greeting'
+  | 'qualification'
+  | 'sales'
+  | 'support'
+  | 'survey'
+  | 'followup'
+  | 'handoff'
+  | 'custom'
+
+export const SUBAGENT_TYPE_LABELS: Record<SubagentType, string> = {
+  greeting:      'Saudação',
+  qualification: 'Qualificação',
+  sales:         'Vendas',
+  support:       'Suporte',
+  survey:        'Enquete',
+  followup:      'Follow-up',
+  handoff:       'Atendente Humano',
+  custom:        'Personalizado',
+}
+
+export const SUBAGENT_TYPE_DESCRIPTIONS: Record<SubagentType, string> = {
+  greeting:      'Coleta nome e saúda o lead na primeira mensagem',
+  qualification: 'Faz perguntas e preenche dados do lead',
+  sales:         'Apresenta produtos do catálogo com fotos',
+  support:       'Responde dúvidas via base de conhecimento',
+  survey:        'Coleta resposta via menu de opções UAZAPI',
+  followup:      'Agenda mensagem automática após N horas',
+  handoff:       'Transfere para atendente humano com briefing completo',
+  custom:        'Lógica personalizada via step_config JSON',
+}
+
 export type FlowMode = 'active' | 'assistant' | 'shadow' | 'off'
 export type FlowStatus = 'active' | 'paused' | 'archived'
 

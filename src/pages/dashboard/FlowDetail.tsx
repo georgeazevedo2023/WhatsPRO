@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, AlertTriangle, Plus, Trash2, Layers } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +18,8 @@ import {
 } from '@/hooks/useFlowTriggers'
 import { FlowModeBadge } from '@/components/flows/FlowModeBadge'
 import { TriggerFormSheet } from '@/components/flows/TriggerFormSheet'
+import { FlowStepsPanel } from '@/components/flows/FlowStepsPanel'
+import { FlowIntelPanel } from '@/components/flows/FlowIntelPanel'
 import { TRIGGER_TYPE_LABELS, FLOW_MODE_LABELS } from '@/types/flows'
 import type { FlowMode, FlowTrigger, TriggerType } from '@/types/flows'
 import type { TriggerFormData } from '@/components/flows/TriggerFormSheet'
@@ -184,6 +186,7 @@ export default function FlowDetail() {
               )}
             </TabsTrigger>
             <TabsTrigger value="subagentes">Subagentes</TabsTrigger>
+            <TabsTrigger value="inteligencia">Inteligência</TabsTrigger>
             <TabsTrigger value="publicar">Publicar</TabsTrigger>
           </TabsList>
 
@@ -330,17 +333,14 @@ export default function FlowDetail() {
             />
           </TabsContent>
 
-          {/* ── Tab: Subagentes (stub S5+) ── */}
+          {/* ── Tab: Subagentes ── */}
           <TabsContent value="subagentes" className="mt-4">
-            <div className="flex flex-col items-center justify-center py-16 text-center border-2 border-dashed rounded-lg">
-              <Layers className="h-12 w-12 text-muted-foreground/30 mb-4" />
-              <h3 className="font-medium text-muted-foreground mb-1">Subagentes</h3>
-              <p className="text-sm text-muted-foreground max-w-sm">
-                A configuração de subagentes estará disponível em S5.
-                Greeting, Qualification, Sales e Support serão configuráveis aqui.
-              </p>
-              <Badge variant="secondary" className="mt-3">Disponível em breve</Badge>
-            </div>
+            <FlowStepsPanel flowId={id!} />
+          </TabsContent>
+
+          {/* ── Tab: Inteligência ── */}
+          <TabsContent value="inteligencia" className="mt-4">
+            <FlowIntelPanel flowId={id!} />
           </TabsContent>
 
           {/* ── Tab: Publicar ── */}

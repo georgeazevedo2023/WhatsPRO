@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ClipboardList, Zap, MessageSquare, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { GuidedFlowBuilderModal, type DraftFlow } from '@/components/flows/GuidedFlowBuilderModal'
+import { useInstances } from '@/hooks/useInstances'
 
 interface ModeCard {
   icon: React.ReactNode
@@ -37,14 +39,21 @@ const MODE_CARDS: ModeCard[] = [
     description: 'A IA monta o fluxo em uma conversa interativa',
     details: 'Descreva seu objetivo em linguagem natural e a IA configura tudo automaticamente.',
     bestFor: 'Usuários que preferem descrever',
-    path: '',
-    disabled: true,
-    comingSoon: true,
+    path: '__guided__',
   },
 ]
 
 export default function FlowNewPage() {
   const navigate = useNavigate()
+  const { instances } = useInstances()
+  const [guidedOpen, setGuidedOpen] = useState(false)
+  const [instanceId, setInstanceId] = useState('')
+
+  useEffect(() => {
+    if (instances?.length && !instanceId) {
+      setInstanceId(instances[0].id)
+    }
+  }, [instances])
 
   return (
     <div className="min-h-screen bg-background">
@@ -74,7 +83,11 @@ export default function FlowNewPage() {
                   ? 'opacity-50 cursor-not-allowed border-border bg-muted/30'
                   : 'cursor-pointer border-border hover:border-primary hover:shadow-md bg-card'
               }`}
-              onClick={() => !card.disabled && navigate(card.path)}
+              onClick={() => {
+            if (card.disabled) return
+            if (card.path === '__guided__') { setGuidedOpen(true); return }
+            navigate(card.path)
+          }}
             >
               {card.comingSoon && (
                 <Badge className="absolute top-3 right-3 text-xs" variant="secondary">
@@ -96,7 +109,7 @@ export default function FlowNewPage() {
 
               {!card.disabled && (
                 <Button className="mt-4 w-full" size="sm">
-                  Selecionar
+                  {card.path === '__guided__' ? 'Iniciar conversa' : 'Selecionar'}
                 </Button>
               )}
               {card.disabled && (
@@ -108,6 +121,17 @@ export default function FlowNewPage() {
           ))}
         </div>
       </div>
+
+      <GuidedFlowBuilderModal
+        open={guidedOpen}
+        onOpenChange={setGuidedOpen}
+        instanceId={instanceId}
+        onApply={(_draft: DraftFlow) => {
+          // Por ora navega para o wizard — S12 implementará criação automática do flow
+          setGuidedOpen(false)
+          navigate('/dashboard/flows/new/wizard?mode=form')
+        }}
+      />
     </div>
   )
 }
