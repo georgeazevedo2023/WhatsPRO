@@ -9,6 +9,20 @@ type: log
 
 ## 2026-04-12
 
+### fix(leads): clear context não limpava flow_states → greeting skip + handoff duplicado
+
+**Bugs reportados:** após ia_cleared, agente não enviava saudação e disparava handoff duplicado.
+
+**Causa raiz:** `clearContextMutation` não finalizava `flow_states`. Se o lead tinha um estado ativo no orchestrator, a próxima mensagem continuava do passo anterior (já após o greeting), e poderia re-disparar o handoff.
+
+**Correção:** adicionado `UPDATE flow_states SET status='abandoned' WHERE lead_id=X AND status IN ('active','handoff')` em dois locais:
+- `src/pages/dashboard/Leads.tsx` (clearContextMutation)
+- `src/pages/dashboard/LeadDetail.tsx` (handleClearContext)
+
+Bonus: `Leads.tsx` também não incluía `custom_fields: {}` no upsert do lead_profile (agora incluído, alinhando com LeadDetail.tsx).
+
+**R53 criada:** `clearContextMutation` DEVE finalizar flow_states ao limpar contexto.
+
 ### Auditoria do vault + feat inbox_id no FlowWizard
 
 **Auditoria (commits ef466b9 + 64bcfef):**
@@ -41,6 +55,28 @@ Gaps detectados e corrigidos:
 - `.planning/` (codebase, phases M2, prereqs, research)
 - `.claude/skills/ui-ux-pro-max/`
 - `wiki/erros-e-licoes.md` R45+R46
+
+---
+
+### fix(leads): kpiAtendidoIA usa tags da conversa atual (commit 306b5c7)
+
+`kpiAtendidoIA` usava `tags` agregadas de TODAS as conversas → `ia:shadow` de conversa antiga contaminava novas. Corrigido: usa `latestConv.tags` apenas.
+
+---
+
+### fix(leads): KPI datas/duração + tipo_cliente tag-based (commit 4848d53)
+
+- `latestConv` agora ordena por `created_at DESC` (conversa mais recente criada, não mais recente por mensagem)
+- Duração >24h: formato `Xd Yh` em vez de `Xh` (evita "523h")
+- Novo card violeta "Tipo de Cliente" no KPI grid — lê `tipo_cliente:X` de tags ou `extractedData`
+- **BUG**: `update_lead_profile` não tem parâmetro `custom_fields` — instrução corrigida no DB para usar `set_tags tipo_cliente:X`
+- DB: `prompt_sections.additional` + `tags_labels` atualizados (R50 em erros-e-licoes)
+
+---
+
+### fix(leads): KPI Produto exibia '—' — filtro _interno (commit 6af187f)
+
+Filtro `!t.endsWith('_interno')` comparava a string completa da tag (ex: `produto:piso_ceramica_interno`) que terminava com `_interno` e excluía. Removido (R51 em erros-e-licoes).
 
 ---
 

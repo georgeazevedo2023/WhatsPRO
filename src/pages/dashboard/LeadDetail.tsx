@@ -338,6 +338,16 @@ const LeadDetail = () => {
         await supabase.from('ai_agent_logs').delete().in('conversation_id', convIds);
       }
 
+      // Finalize active/handoff flow_states (orchestrator path)
+      // Without this, the orchestrator continues from the previous step (skipping greeting)
+      // and may re-trigger handoff on the first message after ia_cleared.
+      if (leadProfile?.id) {
+        await supabase.from('flow_states')
+          .update({ status: 'abandoned', completed_at: new Date().toISOString() })
+          .eq('lead_id', leadProfile.id)
+          .in('status', ['active', 'handoff']);
+      }
+
       // Also unblock IA on this contact (clear ia_blocked_instances)
       if (contact) {
         await supabase.from('contacts').update({ ia_blocked_instances: [] }).eq('id', contact.id);

@@ -210,7 +210,7 @@ const Leads = () => {
     toggleIaMutation.mutate({ contactId: lead.contact_id, updatedBlocked });
   }, [selectedInstanceId, toggleIaMutation]);
 
-  // useMutation — clear context for a lead (tags, summary, profile, ia_blocked, ai_agent_logs)
+  // useMutation — clear context for a lead (tags, summary, profile, ia_blocked, ai_agent_logs, flow_states)
   const clearContextMutation = useMutation({
     mutationFn: async ({ lead }: { lead: LeadData }) => {
       const convIds = lead.conversations.map((c: { id: string }) => c.id);
@@ -220,6 +220,7 @@ const Leads = () => {
         contact_id: lead.contact_id,
         conversation_summaries: [], interests: null, notes: null,
         reason: null, full_name: null, average_ticket: null,
+        custom_fields: {},
       }, { onConflict: 'contact_id' });
 
       // Clear conversations: replace tags with ia_cleared marker, clear ai_summary, reactivate IA
@@ -228,6 +229,17 @@ const Leads = () => {
       if (convIds.length > 0) {
         await supabase.from('conversations').update({ tags: [clearedTag], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
         await supabase.from('ai_agent_logs').delete().in('conversation_id', convIds);
+      }
+
+      // Finalize active/handoff flow_states (orchestrator path)
+      // Without this, the orchestrator continues from the previous step (skipping greeting)
+      // and may re-trigger handoff on the first message after ia_cleared.
+      const leadProfileId = lead.lead_profile?.id;
+      if (leadProfileId) {
+        await supabase.from('flow_states')
+          .update({ status: 'abandoned', completed_at: new Date().toISOString() })
+          .eq('lead_id', leadProfileId)
+          .in('status', ['active', 'handoff']);
       }
 
       // Unblock IA on this contact

@@ -59,6 +59,11 @@ updated: 2026-04-12
 | 46 | Campos `corrected_text` calculados em check functions DEVEM ser propagados na issue — `applyCorrection` não tem acesso ao contexto, precisa do texto pré-calculado | Validator |
 | 47 | Greeting subagent NUNCA usa `greeting_message` quando `lead.lead_name` é conhecido — independente de `sessionsCount`. Leads migrados do ai-agent antigo têm nome mas `sessionsCount=0`; Case C enviava template com "com quem eu falo?" para lead já identificado | Greeting |
 | 48 | Após handoff, `smart_fill` completa qualificação imediatamente na próxima mensagem (respostas em `long_memory.profile`) → dispara handoff novamente → mensagem duplicada. Fix: guard no orchestrator verifica `flow_states WHERE status='handoff' AND completed_at >= now()-4h` antes de criar novo flow | Orchestrator |
+| 49 | `kpiAtendidoIA` NUNCA usar tags agregadas de todas as conversas — herda `ia:shadow` de conversas antigas. SEMPRE usar `latestConv.tags` (conversa mais recente) | Frontend |
+| 50 | `update_lead_profile` NÃO tem parâmetro `custom_fields` — campos customizados (ex: tipo_cliente) DEVEM usar `set_tags chave:valor`. Instrução em `additional` não basta: adicionar em `tags_labels` para garantir prioridade de execução | AI Agent |
+| 51 | Filtro de tag por string completa (`t.endsWith('_interno')`) exclui tags válidas como `produto:piso_ceramica_interno` — o sufixo está no VALOR, não na chave. Filtrar o valor após split (`:`) ou remover o filtro | Frontend |
+| 52 | Regras de extração em `prompt_sections.additional` são baixa prioridade — o agente as ignora quando há flow ativo. Regras de `set_tags` DEVEM estar em `tags_labels` para execução imediata | AI Agent |
+| 53 | `clearContextMutation` DEVE finalizar `flow_states` ('active' e 'handoff') para o lead. Sem isso, após ia_cleared o orchestrator continua do passo anterior (skip greeting) e pode re-disparar handoff. Fix: `UPDATE flow_states SET status='abandoned' WHERE lead_id=X AND status IN ('active','handoff')` | Orchestrator |
 
 ---
 
