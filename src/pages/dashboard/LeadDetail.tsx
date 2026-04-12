@@ -398,7 +398,7 @@ const LeadDetail = () => {
 
   // KPI — Resumo do Atendimento (most recent conversation)
   const latestConv = conversations[0] ?? null;
-  const kpiProdutos = tags.filter(t => t.startsWith('produto:') && !t.endsWith('_interno')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
+  const kpiProdutos = tags.filter(t => t.startsWith('produto:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
   const kpiInteresses = tags.filter(t => t.startsWith('interesse:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
   const kpiItens = [...new Set([...kpiProdutos, ...kpiInteresses])];
   const kpiProdutoFalta = tags.find(t => t.startsWith('marca_indisponivel:'))?.split(':').slice(1).join(':').replace(/_/g, ' ').replace(/,\s*/g, ', ') ?? null;
