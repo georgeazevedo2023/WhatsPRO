@@ -2,7 +2,7 @@
 title: Fluxos v3.0 — Roadmap de Sprints (Fatias Verticais)
 tags: [roadmap, sprints, implementacao, orquestrador, fluxos]
 sources: [4-agentes-paralelos-2026-04-11]
-updated: 2026-04-11
+updated: 2026-04-12
 ---
 
 # Fluxos v3.0 — Roadmap de Sprints
@@ -35,33 +35,10 @@ updated: 2026-04-11
 ## Camada 1 — Foundation (S1-S3)
 
 ### S1: Database + Tipos TypeScript ✅ COMPLETO (2026-04-11, commit e084c87)
-
-**Entregáveis entregues:**
-- 4 migrations aplicadas no banco e versionadas localmente (renomeadas para alinhar com timestamps DB):
-  `20260411190719` definition_tables | `20260411190751` state_memory | `20260411190828` shadow_tables | `20260411190905` infra_tables
-- `20260411190906_fluxos_v3_seed.sql` — SDR: 2 steps (greeting+qualification BANT) + 3 triggers (keyword P:10, lead_created P:5, message_received P:1). Draft `20260411145300` deletado.
-- `types.ts` regenerado: 4943 linhas, 14/14 novas tabelas presentes
-
-**Critérios:** flows=1 ✅ · steps=2 ✅ · triggers=3 ✅ · `npx tsc --noEmit` exit 0 ✅
+4 migrations aplicadas, seed SDR (2 steps + 3 triggers), `types.ts` 4943 linhas, 14/14 tabelas, `npx tsc --noEmit` exit 0 ✅ — detalhes em [[wiki/log-arquivo-2026-04-11-fluxos-v3-s1s2]].
 
 ### S2: Orchestrator Skeleton + Feature Flag ✅ COMPLETO (2026-04-11, commit 367b4b0)
-
-**Entregáveis entregues:**
-- 7 arquivos em `supabase/functions/orchestrator/`:
-  - `types.ts` — 9 interfaces/tipos: OrchestratorInput, ActiveFlowState, StepData, LeadContext, FlowContext, ExitRule, SubagentResult, SubagentHandler
-  - `config/flowResolver.ts` — 5 fases: estado ativo → triggers priority DESC → matchTrigger() → cooldown (stub) → fallback is_default
-  - `config/stateManager.ts` — createFlowState, updateFlowState, finalizeFlowState, logFlowEvent, applySubagentResult
-  - `config/contextBuilder.ts` — buildContext (lead + stepConfig + exitRules), fetchFirstStep
-  - `services/index.ts` — stubs documentados: loadMemory, saveShortMemory, detectIntents, validateResponse, trackMetrics, runShadow
-  - `subagents/index.ts` — dispatchSubagent com SUBAGENT_MAP (8 tipos), todos stub (continue, sem response_text)
-  - `index.ts` — handler Deno.serve: resolveFlow → createFlowState → buildContext → dispatchSubagent → applyResult → logEvent
-- `whatsapp-webhook/index.ts` — fork `getOrchestratorFlag()` em 2 call sites (poll response + main message handler)
-- Migration `20260411190907_orchestrator_feature_flag.sql` — `USE_ORCHESTRATOR = 'false'`
-- Deploy: orchestrator (verify_jwt=false) + whatsapp-webhook ✅
-
-**Critério verificado:** `USE_ORCHESTRATOR = 'false'` ✅ → 100% tráfego vai para ai-agent-debounce, zero mensagens afetadas. S12 adiciona `instances.use_orchestrator BOOL` por instância.
-
-**Auditoria:** 6 bugs corrigidos (commit 7bb2f8e, nota 6.5→9.2): `current_step_id`→`flow_step_id` | `.single()`→`.maybeSingle()` | `instance_id` NOT NULL | `flow_id`+`instance_id` em flow_events | `subagent_called`→`tool_called` (CHECK) | `event_data`→`input`. Ver R29-R31 em [[wiki/erros-e-licoes]].
+7 arquivos orchestrator criados (types, flowResolver, stateManager, contextBuilder, services/stubs, subagents/stubs, index), fork whatsapp-webhook (2 call sites), `USE_ORCHESTRATOR='false'` ✅ — 6 bugs corrigidos pós-auditoria (commit 7bb2f8e, 6.5→9.2), R29-R31 em [[wiki/erros-e-licoes]] — detalhes em [[wiki/log-arquivo-2026-04-11-fluxos-v3-s1s2]].
 
 ### S3: Flow CRUD Admin UI ✅ COMPLETO (2026-04-11, commit 9862f2d)
 
@@ -90,11 +67,9 @@ updated: 2026-04-11
 
 **E2E:** "oi" → `flow_state.status=active`, `flow_step_id=<greeting>`, `message_count=1` ✅
 
-**`flowResolver.ts` — 5 fases (implementadas):** (1) triggers por `priority DESC` → (2) lead em flow ativo? retorna → (3) `matchTrigger()` por tipo (MVP: keyword|intent|message_received|lead_created) → (4) checar cooldown → (5) fallback `is_default=true`
+**Race condition:** resolvida via `uq_flow_states_active_lead_flow` (unique index já existia) + `INSERT ON CONFLICT DO NOTHING RETURNING` — sem migration adicional necessária.
 
-**Migration adicional:** `20260416000000_fn_create_flow_state.sql` — RPC atômico `create_flow_state_atomic()` (INSERT em `flow_states` + `flow_events` na mesma transação — evita race condition)
-
-**Critério:** `SELECT * FROM flow_states WHERE lead_id = $LEAD` retorna 1 row `status=active` após "oi".
+**Critério:** `SELECT * FROM flow_states WHERE lead_id = $LEAD` retorna 1 row `status=active` após "oi" ✅ validado via curl.
 
 ### S5: Memory Service + Greeting Subagent
 **`services/memory.ts`:** `loadLeadContext()` + `saveSessionMemory()` (usa RPC `upsert_lead_short_memory`) + `updateLeadLongMemory()`

@@ -2,7 +2,7 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-11
+updated: 2026-04-12
 ---
 
 # Erros e Lições
@@ -189,9 +189,7 @@ updated: 2026-04-11
 7. Coluna `event_data` não existe em `flow_events` — campo correto é `input` JSONB
 
 **Causa raiz:** Tipos definidos sem validar contra schema real do banco. Nomes de colunas inventados (`current_step_id`, `event_data`) sem conferir migration. CHECK constraint não consultada.
-
 **Correção:** Commit 7bb2f8e — `flow_step_id` em todos os arquivos, `.maybeSingle()` + error check, campos NOT NULL incluídos, `tool_called` como event_type, `input` JSONB em vez de `event_data`.
-
 **Regras:**
 - R29: SEMPRE ler o schema real (migration) antes de escrever código de insert
 - R30: CHECK constraints em `event_type` devem ser consultadas antes de logar evento
@@ -200,5 +198,3 @@ updated: 2026-04-11
 - R35: FKs em flow_states: `lead_id → lead_profiles.id` (não contacts.id). Para resolver lead de uma conversa: `conversations.contact_id → lead_profiles.contact_id → lead_profiles.id`
 - R32: `useState(() => sideEffect())` NÃO é `useEffect` — inicializador roda 1x no mount com estado inicial undefined. Para reagir a dados assíncronos usar `useEffect(() => {}, [dep])`
 - R33: Ao criar rotas React Router, SEMPRE verificar App.tsx E sidebar/nav. Código de página sem rota = inacessível (bug silencioso)
-
-*Adicionar novos erros acima desta linha, seguindo o formato: O que → Causa → Correção → Regra*

@@ -1,6 +1,6 @@
 ---
 title: WhatsPRO — Master Index
-updated: 2026-04-11
+updated: 2026-04-12
 type: index
 ---
 
@@ -71,7 +71,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/fluxos-detector-intents]] | 167 | 13 intents, 3 camadas, normalizacao BR |
 | [[wiki/fluxos-shadow-mode]] | ~120 | Shadow Mode: 7 dimensoes, objecoes, follow-up, resgate, gestor |
 | [[wiki/fluxos-banco-dados]] | 199 | Schema banco: 14 tabelas, 4 grupos, 4 migrations, padroes RLS |
-| [[wiki/fluxos-roadmap-sprints]] | ~200 | 12 sprints em 4 camadas, fatias verticais, DTs, riscos, cobertura |
+| [[wiki/fluxos-roadmap-sprints]] | ~193 | 12 sprints em 4 camadas, fatias verticais, DTs, riscos, cobertura |
 | [[wiki/fluxos-wireframes-admin]] | 84 | G5 Wireframes — indice das 5 telas (4 arquivos especializados) |
 | [[wiki/fluxos-wireframes-listagem]] | 105 | /flows listagem + /flows/new selecao de modo |
 | [[wiki/fluxos-wireframes-wizard]] | 139 | Wizard formulario 4 etapas + galeria 12 templates |
@@ -136,4 +136,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-11 — S1 ✅ DB+seed+types (commit e084c87). G5 Wireframes: 5 telas. G1 Schema: 14 tabelas. 15 wikis fluxos. Próximo: S2 Orchestrator.*
+*Ultima atualizacao: 2026-04-12 — S1 ✅ S2 ✅ S3 ✅ S4 ✅ (commits e084c87, 367b4b0, 9862f2d, 75b1cb9). Camada 1 + Triggers Engine completos. USE_ORCHESTRATOR=false (S12 migra por instância). Próximo: S5 Memory + Greeting.*
