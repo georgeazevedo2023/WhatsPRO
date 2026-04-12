@@ -177,6 +177,24 @@ Deno.serve(async (req: Request) => {
       )
     }
 
+    // ── S9: Log intent_detected (para FlowIntelPanel) ───────────────────────────
+    if (intents.primary) {
+      await logFlowEvent(
+        state.id,
+        resolved.flowId,
+        input.instance_id,
+        leadId,
+        'intent_detected',
+        {
+          intent: intents.primary.intent,
+          confidence: intents.primary.confidence,
+          layer: intents.primary.layer,
+          processing_time_ms: intents.processing_time_ms,
+        },
+        state.flow_step_id,
+      )
+    }
+
     // ── Monta contexto (S5: memória, S7: intents) ──────────────────────────────
     const context = await buildContext(input, state, intents)
 

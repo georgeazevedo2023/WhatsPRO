@@ -99,6 +99,7 @@ export function FlowIntelPanel({ flowId }: FlowIntelPanelProps) {
   }, 0)
 
   // Top intents — event_type === 'intent_detected', lê input.intent
+  // (logado pelo orchestrator após S9 fix)
   const intentCounts: Record<string, number> = {}
   events.forEach((e) => {
     if (e.event_type === 'intent_detected') {
@@ -110,15 +111,19 @@ export function FlowIntelPanel({ flowId }: FlowIntelPanelProps) {
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5)
 
-  // Validator stats (últimas 24h)
+  // Validator stats (últimas 24h) — event_type === 'validator_flagged'
+  // issues[].action: 'block' → bloqueado | 'correct' → corrigido (sem block)
   const cutoff24h = new Date(Date.now() - 86_400_000)
   const recent = events.filter((e) => new Date(e.created_at) > cutoff24h)
-  const validatorCorrections = recent.filter(
-    (e) => e.event_type === 'validator_corrected'
-  ).length
-  const validatorBlocks = recent.filter(
-    (e) => e.event_type === 'validator_blocked'
-  ).length
+  const validatorFlagged = recent.filter((e) => e.event_type === 'validator_flagged')
+  const validatorBlocks = validatorFlagged.filter((e) => {
+    const issues = (e.input as { issues?: Array<{ action: string }> } | null)?.issues ?? []
+    return issues.some((i) => i.action === 'block')
+  }).length
+  const validatorCorrections = validatorFlagged.filter((e) => {
+    const issues = (e.input as { issues?: Array<{ action: string }> } | null)?.issues ?? []
+    return issues.length > 0 && issues.every((i) => i.action === 'correct')
+  }).length
 
   // 10 eventos mais recentes
   const recentEvents = events.slice(0, 10)

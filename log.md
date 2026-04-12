@@ -9,6 +9,62 @@ type: log
 
 ## 2026-04-12
 
+### Auditoria S9-S11 + 2 bugs críticos corrigidos
+
+**Auditoria completa de S9 (Validator+Metrics+Shadow), S10 (Survey+Followup+Handoff), S11 (Conversa Guiada+FlowEditor).**
+
+**5 bugs encontrados (2 críticos, 2 médios, 1 baixo):**
+
+**BUG-2 CRÍTICO (corrigido) — `survey.ts`: schema mismatch UI vs backend**
+- `StepConfigForm.tsx` salva `{title, options[]}` (formato flat)
+- `survey.ts` esperava `{questions: SurveyQuestion[]}` → `normalizeQuestions()` sempre retornava `[]` → survey completava imediatamente sem enviar nenhuma pergunta
+- Fix: adicionado `normalizeQuestions(config)` que converte formato flat para `SurveyQuestion[]`. `SurveyConfig` agora aceita `title?`, `options?`, `tag_prefix?` além de `questions?`
+
+**BUG-4 CRÍTICO (corrigido) — `FlowIntelPanel`: top intents e validator stats sempre vazios**
+- Painel buscava `event_type === 'intent_detected'` (nunca logado) e `validator_corrected`/`validator_blocked` (não existem no CHECK)
+- Fix 1: `orchestrator/index.ts` agora loga `intent_detected` com `{intent, confidence, layer, processing_time_ms}` após ter o `state.id`
+- Fix 2: `FlowIntelPanel.tsx` validator stats agora lê de `validator_flagged` + classifica `issues[].action === 'block'` vs `'correct'`
+
+**Bugs pendentes (médios):**
+- BUG-1: `validator.ts:264` — `applyCorrection` para `name_frequency_ok` retorna `text` sem aplicar correção
+- BUG-3: `process-flow-followups:175` — next_step usa `position = currentPosition + 1` (frágil com gaps)
+- BUG-5: `guided-flow-builder/index.ts:88` — `.single()` crasha se sessão expirou (R31)
+
+**Arquivos: 3 editados. tsc --noEmit = 0 erros ✅**
+
+---
+
+### S10 COMPLETO — Auditoria + 3 bugs corrigidos (Templates + Survey + Followup + Handoff)
+
+**Sprint S10 — Camada 4 do M18 Fluxos v3.0**
+
+**Subagentes backend (3 novos):**
+- `supabase/functions/orchestrator/subagents/survey.ts`: envia enquetes via UAZAPI /send/menu, fuzzy match de respostas, NPS tag (nps_score:X), retry/pula pergunta, 2 tipos (poll/text)
+- `supabase/functions/orchestrator/subagents/followup.ts`: agenda follow-up futuro em step_data, escalation levels, farewell imediato, max_escalations guard
+- `supabase/functions/orchestrator/subagents/handoff.ts`: 3 níveis de briefing (minimal/standard/full), atribui dept/user, tags handoff:human/department/manager
+
+**Cron + Orchestrator:**
+- `supabase/functions/process-flow-followups/index.ts`: cron horário, busca flow_states com followup pendente, envia /send/text, executa post_action
+- `orchestrator/index.ts`: `sendMenuToLead()` (type=list) + `sendPollToLead()` (type=poll); handleMediaSend expandido
+
+**Templates instaláveis (1 clique):**
+- `src/data/flowTemplates.ts`: FlowInstallDefinition + 4 FLOW_INSTALL_DEFINITIONS (vitrine/sdr-bant/suporte/pos-venda)
+- `src/hooks/useInstallTemplate.ts`: mutation RPC install_flow_template → retorna UUID do flow criado
+- `src/pages/dashboard/FlowTemplatesPage.tsx`: badge verde + botão Instalar + navega /flows/:id
+
+**Migrations:**
+- `20260415000003_install_flow_template.sql`: RPC atômica (cria flow+steps+triggers em 1 transação, rollback automático)
+- `20260415000004_s10_register_flow_followups_cron.sql`: cron hourly do process-flow-followups
+
+**3 bugs corrigidos na auditoria:**
+- BUG-1 (`survey.ts`): enviava response_text E media.caption → mensagem duplicada para o lead → removido response_text do poll branch
+- BUG-2 (`followup.ts`): retornava status:'complete' → flow_state ficava 'completed' e cron não encontrava → corrigido para status:'continue'
+- BUG-3 (migrations): faltava migration de registro do cron process-flow-followups → criada 20260415000004
+
+**Arquivos: 9 novos + 3 editados = 12 arquivos. tsc --noEmit = 0 erros ✅**
+
+---
+
 ### S8+S9+S10 COMPLETOS — commits 943caff + 0d3f228
 
 **Commit 1 (943caff): S8+S9 — Sales/Support/Validator/Metrics/Shadow + S10 subagentes backend**

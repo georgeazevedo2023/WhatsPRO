@@ -24,7 +24,12 @@ export interface SurveyQuestion {
 }
 
 export interface SurveyConfig {
-  questions: SurveyQuestion[]
+  questions?: SurveyQuestion[]
+  // Formato flat (vem do StepConfigForm da UI)
+  title?: string
+  options?: string[]
+  tag_prefix?: string
+  // ─────────────────────────────────────────────
   max_retries?: number              // default: 2
   completion_message?: string       // default: "Obrigado pela resposta!"
   post_action?: 'next_step' | 'handoff' | 'tag_and_close'  // default: next_step
@@ -33,6 +38,28 @@ export interface SurveyConfig {
 const DEFAULTS = {
   max_retries: 2,
   completion_message: 'Obrigado pela resposta!',
+}
+
+// ── Normaliza config: aceita formato estruturado {questions[]} ou flat {title, options[]} ──
+// O StepConfigForm salva formato flat; fluxos programáticos usam questions[].
+
+function normalizeQuestions(config: SurveyConfig): SurveyQuestion[] {
+  // Formato estruturado — prioritário
+  if (config.questions && config.questions.length > 0) {
+    return config.questions
+  }
+
+  // Formato flat (StepConfigForm): title + options[]
+  const flatOptions = config.options ?? []
+  if (flatOptions.length > 0) {
+    return [{
+      text: config.title ?? 'Qual é a sua resposta?',
+      options: flatOptions,
+      is_nps: config.tag_prefix === 'nps',
+    }]
+  }
+
+  return []
 }
 
 // ── Handler principal ───────────────────────────────────────────────────────
@@ -44,7 +71,7 @@ export async function surveySubagent(
   const { flow_state } = context
   const messageText = context.input.message_text ?? ''
 
-  const questions     = config.questions ?? []
+  const questions     = normalizeQuestions(config)
   const maxRetries    = config.max_retries ?? DEFAULTS.max_retries
   const completionMsg = config.completion_message ?? DEFAULTS.completion_message
 
@@ -212,7 +239,6 @@ function buildQuestionResult(
   // Perguntas tipo poll (default) → envia como media poll
   return {
     status: 'continue',
-    response_text: question.text,
     media: {
       type: 'poll',
       caption: question.text,
