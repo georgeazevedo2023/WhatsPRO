@@ -333,7 +333,7 @@ const LeadDetail = () => {
       // IMPORTANT: ia_cleared:TIMESTAMP resets the handoff message counter in ai-agent
       const clearedTag = `ia_cleared:${new Date().toISOString()}`;
       if (convIds.length > 0) {
-        await supabase.from('conversations').update({ tags: [clearedTag], ai_summary: null, status_ia: STATUS_IA.LIGADA }).in('id', convIds);
+        await supabase.from('conversations').update({ tags: [clearedTag], ai_summary: null, status_ia: STATUS_IA.LIGADA, lead_msg_count: 0 }).in('id', convIds);
         // Delete ai_agent_logs
         await supabase.from('ai_agent_logs').delete().in('conversation_id', convIds);
       }

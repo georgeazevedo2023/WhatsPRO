@@ -9,6 +9,12 @@ type: log
 
 ## 2026-04-12
 
+### fix(leads): clear context não resetava lead_msg_count → handoff imediato na 1ª msg
+
+**Causa raiz real:** `conversations.lead_msg_count` não era resetado pelo clear context. A migration tem comentário "Reset on ia_cleared" mas o reset nunca foi implementado. A primeira mensagem após ia_cleared incrementava o counter que já estava no limite → `increment_lead_msg_count` RPC retornava valor ≥ MAX_LEAD_MESSAGES → handoff disparava antes mesmo do greeting.
+
+**Correção:** adicionado `lead_msg_count: 0` no `conversations.update()` em Leads.tsx e LeadDetail.tsx. R54 documentada.
+
 ### fix(leads): clear context não limpava flow_states → greeting skip + handoff duplicado
 
 **Bugs reportados:** após ia_cleared, agente não enviava saudação e disparava handoff duplicado.

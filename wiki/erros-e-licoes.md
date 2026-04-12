@@ -64,6 +64,7 @@ updated: 2026-04-12
 | 51 | Filtro de tag por string completa (`t.endsWith('_interno')`) exclui tags válidas como `produto:piso_ceramica_interno` — o sufixo está no VALOR, não na chave. Filtrar o valor após split (`:`) ou remover o filtro | Frontend |
 | 52 | Regras de extração em `prompt_sections.additional` são baixa prioridade — o agente as ignora quando há flow ativo. Regras de `set_tags` DEVEM estar em `tags_labels` para execução imediata | AI Agent |
 | 53 | `clearContextMutation` DEVE finalizar `flow_states` ('active' e 'handoff') para o lead. Sem isso, após ia_cleared o orchestrator continua do passo anterior (skip greeting) e pode re-disparar handoff. Fix: `UPDATE flow_states SET status='abandoned' WHERE lead_id=X AND status IN ('active','handoff')` | Orchestrator |
+| 54 | `clearContextMutation` DEVE resetar `lead_msg_count: 0` no update de conversations. A migration diz "Reset on ia_cleared" mas o reset nunca foi implementado. Sem isso, a primeira mensagem após clear já excede o limite → handoff dispara antes do greeting | AI Agent |
 
 ---
 
