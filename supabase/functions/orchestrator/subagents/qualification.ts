@@ -101,6 +101,7 @@ export async function qualificationSubagent(
             questions, answers, longProfile, smartFill, maxAgeDays,
             lead.lead_id, flow_state.instance_id, requiredCount, exit_rules,
             answers,  // sem salvar nada novo
+            lead.custom_fields ?? {},
           )
           return {
             ...nextResult,
@@ -139,6 +140,7 @@ export async function qualificationSubagent(
         questions, newAnswers, longProfile, smartFill, maxAgeDays,
         lead.lead_id, flow_state.instance_id, requiredCount, exit_rules,
         newAnswers,
+        lead.custom_fields ?? {},
       )
 
       return {
@@ -149,7 +151,7 @@ export async function qualificationSubagent(
           retry_count: 0,
           last_subagent: 'qualification',
         },
-        lead_profile_patch: buildLeadProfilePatch(newAnswers, lead.custom_fields),
+        lead_profile_patch: buildLeadProfilePatch(newAnswers, lead.custom_fields ?? {}),
       }
     }
   }
@@ -159,14 +161,14 @@ export async function qualificationSubagent(
   // Verifica exit rule max_messages
   const maxMsgRule = findExitRule(exit_rules, 'max_messages')
   if (maxMsgRule && messageCount >= ((maxMsgRule.value as number) ?? maxMessages)) {
-    return buildExitResult(maxMsgRule, answers)
+    return buildExitResult(maxMsgRule, answers, lead.custom_fields ?? {})
   }
 
   // Verifica se já completou via long_memory (smart_fill preencheu tudo)
   const requiredAnswered = countRequiredAnswered(questions, answers, longProfile, smartFill, maxAgeDays)
   if (requiredCount > 0 && requiredAnswered >= requiredCount) {
     const completeRule = findExitRule(exit_rules, 'qualification_complete')
-    if (completeRule) return buildExitResult(completeRule, answers)
+    if (completeRule) return buildExitResult(completeRule, answers, lead.custom_fields ?? {})
   }
 
   // Pega próxima pergunta
@@ -174,6 +176,7 @@ export async function qualificationSubagent(
     questions, answers, longProfile, smartFill, maxAgeDays,
     lead.lead_id, flow_state.instance_id, requiredCount, exit_rules,
     answers,
+    lead.custom_fields ?? {},
   )
 }
 
@@ -190,6 +193,7 @@ async function pickNextQuestion(
   requiredCount: number,
   exitRules: ExitRule[],
   newAnswers: Record<string, unknown>,
+  customFields: Record<string, unknown>,
 ): Promise<SubagentResult> {
   // Filtra perguntas ainda não respondidas (considerando smart_fill)
   const unanswered = questions.filter((q) => !isAnswered(q.key, newAnswers, longProfile, smartFill, maxAgeDays))
@@ -197,7 +201,7 @@ async function pickNextQuestion(
   if (unanswered.length === 0) {
     // Todas respondidas → qualification_complete
     const completeRule = findExitRule(exitRules, 'qualification_complete')
-    if (completeRule) return buildExitResult(completeRule, newAnswers)
+    if (completeRule) return buildExitResult(completeRule, newAnswers, customFields)
 
     // Sem exit rule configurada → avança por padrão
     return {
@@ -208,7 +212,7 @@ async function pickNextQuestion(
         waiting_for: undefined,
         last_subagent: 'qualification',
       },
-      lead_profile_patch: { custom_fields: newAnswers },
+      lead_profile_patch: buildLeadProfilePatch(newAnswers, customFields),
     }
   }
 
@@ -217,7 +221,7 @@ async function pickNextQuestion(
     const answered = countRequiredAnswered(questions, newAnswers, longProfile, smartFill, maxAgeDays)
     if (answered >= requiredCount) {
       const completeRule = findExitRule(exitRules, 'qualification_complete')
-      if (completeRule) return buildExitResult(completeRule, newAnswers)
+      if (completeRule) return buildExitResult(completeRule, newAnswers, customFields)
     }
   }
 
@@ -405,7 +409,7 @@ function buildRetryMessage(question: QualificationQuestion): string {
 
 // ── Monta ExitResult a partir de uma exit_rule ────────────────────────────────
 
-function buildExitResult(rule: ExitRule, answers: Record<string, unknown>): SubagentResult {
+function buildExitResult(rule: ExitRule, answers: Record<string, unknown>, customFields: Record<string, unknown>): SubagentResult {
   const isHandoff = rule.action === 'handoff_human' ||
                     rule.action === 'handoff_department' ||
                     rule.action === 'handoff_manager'
@@ -419,7 +423,7 @@ function buildExitResult(rule: ExitRule, answers: Record<string, unknown>): Suba
       waiting_for: undefined,
       last_subagent: 'qualification',
     },
-    lead_profile_patch: buildLeadProfilePatch(answers, {}),
+    lead_profile_patch: buildLeadProfilePatch(answers, customFields),
   }
 }
 

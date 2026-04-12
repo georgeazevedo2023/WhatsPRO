@@ -3,6 +3,7 @@ import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { upsertLeadFromFormData } from '../_shared/leadHelper.ts'
 import { executeAutomationRules } from '../_shared/automationEngine.ts'
+import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 
 const supabase = createServiceClient()
 const log = createLogger('form-bot')
@@ -254,7 +255,7 @@ Deno.serve(async (req) => {
           retries: 0,
         })
         .select()
-        .single()
+        .maybeSingle()
 
       if (sessionErr) throw sessionErr
 
@@ -395,7 +396,7 @@ Deno.serve(async (req) => {
           session_id: session.id,
           contact_id: session.contact_id,
           data: newData,
-        }).select().single()
+        }).select().maybeSingle()
 
         // Send completion message
         await sendWhatsAppMessage(instance_id, chatId, (form as { completion_message: string }).completion_message)
@@ -417,7 +418,7 @@ Deno.serve(async (req) => {
             .from('conversations')
             .select('tags')
             .eq('id', conversation_id)
-            .single()
+            .maybeSingle()
           const existing: string[] = convData?.tags || []
           const tagMap = new Map<string, string>()
           for (const t of existing) tagMap.set(t.split(':')[0], t)

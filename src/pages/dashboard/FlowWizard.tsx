@@ -365,7 +365,7 @@ export default function FlowWizard() {
             <TriggerFormSheet
               open={sheetOpen}
               onOpenChange={setSheetOpen}
-              trigger={editingTrigger as any}
+              trigger={editingTrigger}
               onSave={handleSaveTrigger}
             />
           </div>
@@ -440,7 +440,7 @@ export default function FlowWizard() {
               <ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           ) : (
-            <Button onClick={handleCreate} disabled={isCreating}>
+            <Button onClick={handleCreate} disabled={isCreating || triggers.length === 0} title={triggers.length === 0 ? 'Adicione ao menos um gatilho para publicar' : undefined}>
               {isCreating ? 'Criando...' : 'Criar Fluxo'}
               <Check className="h-4 w-4 ml-1" />
             </Button>

@@ -97,12 +97,16 @@ export default function FunnelDetail() {
   // Sync local state when funnel data changes (navigation between funnels)
   useEffect(() => {
     if (funnel) {
-      setLocalProfileId(funnel.profile_id ?? null);
-      setLocalPrompt(funnel.funnel_prompt ?? '');
-      setLocalHandoffRule(funnel.handoff_rule ?? 'so_se_pedir');
-      setLocalHandoffMaxMsgs(funnel.handoff_max_messages ?? 8);
+      try {
+        setLocalProfileId(funnel.profile_id ?? null);
+        setLocalPrompt(funnel.funnel_prompt ?? '');
+        setLocalHandoffRule(funnel.handoff_rule ?? 'so_se_pedir');
+        setLocalHandoffMaxMsgs(funnel.handoff_max_messages ?? 8);
+      } catch (err) {
+        console.error('[FunnelDetail] sync error:', err);
+      }
     }
-  }, [funnel?.id]);
+  }, [funnel?.id, funnel?.profile_id, funnel?.funnel_prompt, funnel?.handoff_rule, funnel?.handoff_max_messages]);
 
   if (isLoading) {
     return <div className="p-6 animate-pulse"><div className="h-8 w-48 bg-muted rounded" /></div>;

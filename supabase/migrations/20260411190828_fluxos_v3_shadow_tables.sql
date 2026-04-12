@@ -104,13 +104,19 @@ CREATE TABLE IF NOT EXISTS shadow_metrics (
 
   computed_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-  -- Upsert ao recalcular: NULL seller_id (instância toda) é tratado como valor único
-  -- Nota: NULLS NOT DISTINCT requer PostgreSQL 15+
-  CONSTRAINT uq_shadow_metrics_period
-    UNIQUE NULLS NOT DISTINCT (instance_id, seller_id, period_type, period_date)
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Unicidade: sem seller (global da instância) — PG14 compatível (dois índices parciais)
+-- Substitui UNIQUE NULLS NOT DISTINCT (PG15+) que é incompatível com Supabase PG14
+CREATE UNIQUE INDEX IF NOT EXISTS uq_shadow_metrics_period_global
+  ON shadow_metrics(instance_id, period_type, period_date)
+  WHERE seller_id IS NULL;
+
+-- Unicidade: com seller (por vendedor)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_shadow_metrics_period_seller
+  ON shadow_metrics(instance_id, seller_id, period_type, period_date)
+  WHERE seller_id IS NOT NULL;
 
 CREATE TRIGGER update_shadow_metrics_updated_at
   BEFORE UPDATE ON shadow_metrics

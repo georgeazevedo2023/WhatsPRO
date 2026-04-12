@@ -95,6 +95,7 @@ export default function FunnelWizard() {
   const canProceed = () => {
     if (step === 0) return !!selectedType;
     if (step === 1) return name.trim().length > 0 && !!instanceId;
+    if (step === 2) return createKanban || createForm || createBio || createCampaign;
     return true;
   };
 

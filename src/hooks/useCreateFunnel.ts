@@ -9,6 +9,7 @@ import type { FunnelType } from '@/types/funnels';
 import { FUNNEL_TYPE_CONFIGS, generateFunnelSlug } from '@/types/funnels';
 import { FUNNEL_KANBAN_COLUMNS, FUNNEL_BIO_DEFAULTS, FUNNEL_CAMPAIGN_DEFAULTS, FUNNEL_FORM_TEMPLATE } from '@/data/funnelTemplates';
 import { FORM_TEMPLATES } from '@/types/forms';
+import type { FormTemplateType } from '@/types/forms';
 
 export interface CreateFunnelWizardInput {
   name: string;
@@ -119,7 +120,7 @@ export function useCreateFunnelWizard() {
 
       if (shouldCreateForm) {
         const templateKey = FUNNEL_FORM_TEMPLATE[input.type];
-        const template = templateKey ? (FORM_TEMPLATES as Record<string, { welcome_message?: string; completion_message?: string; fields?: Array<{ field_type: string; label: string; required: boolean; field_key: string; validation_rules?: Record<string, unknown> }> }>)[templateKey] : undefined;
+        const template = templateKey ? FORM_TEMPLATES.find(t => t.type === (templateKey as FormTemplateType)) : undefined;
 
         formSlug = slug;
         const { data: form, error: formErr } = await supabase
@@ -145,7 +146,7 @@ export function useCreateFunnelWizard() {
 
         // Criar campos do template
         if (template?.fields && template.fields.length > 0) {
-          const fieldInserts = template.fields.map((f: { field_type: string; label: string; required: boolean; field_key: string; validation_rules?: Record<string, unknown> }, idx: number) => ({
+          const fieldInserts = template.fields.map((f, idx) => ({
             form_id: form.id,
             position: idx,
             field_type: f.field_type,

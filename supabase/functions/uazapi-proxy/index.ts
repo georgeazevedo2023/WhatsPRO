@@ -54,9 +54,9 @@ async function resolveInstanceToken(
     .from('instances')
     .select('token')
     .eq('id', instanceId)
-    .single()
+    .maybeSingle()
 
-  if (error || !instance) {
+  if (error || !instance?.token) {
     log.error('Instance not found', { instanceId, error: error?.message })
     return null
   }
@@ -694,7 +694,7 @@ Deno.serve(async (req) => {
           .from('instances')
           .select('token')
           .eq('id', body.instanceId)
-          .single()
+          .maybeSingle()
 
         if (instError || !inst) {
           return new Response(

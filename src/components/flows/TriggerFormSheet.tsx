@@ -28,7 +28,7 @@ import type { FlowTrigger, TriggerType, TriggerActivation } from '@/types/flows'
 interface TriggerFormSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  trigger?: FlowTrigger | null        // se preenchido, modo edição
+  trigger?: FlowTrigger | TriggerFormData | null  // se preenchido, modo edição
   onSave: (data: TriggerFormData) => void
   loading?: boolean
 }
