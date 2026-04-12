@@ -1,5 +1,5 @@
 // =============================================================================
-// Orchestrator — Entry Point (S2 skeleton)
+// Orchestrator — Entry Point (S4)
 // Recebe OrchestratorInput do whatsapp-webhook e orquestra:
 //   resolveFlow → createFlowState → buildContext → dispatchSubagent
 //   → apply result → log event → respond
@@ -54,7 +54,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Fase 1-5: Resolve fluxo ativo ────────────────────────────────────────
-    const resolved = await resolveFlow(input.instance_id, leadId, input.message_text ?? '')
+    const isLeadCreated = input.message_type === 'lead_created'
+    const resolved = await resolveFlow(
+      input.instance_id,
+      leadId,
+      input.message_text ?? '',
+      isLeadCreated,
+    )
 
     if (!resolved) {
       console.log('[orchestrator] No flow resolved for instance:', input.instance_id)
@@ -202,7 +208,9 @@ Deno.serve(async (req: Request) => {
   }
 })
 
-// ── Advance: avança lead para o próximo step ──────────────────────────────────
+// ── Advance: avança lead para o próximo step ─────────────────────────────────
+// Busca o próximo step pelo position > current → atualiza flow_step_id.
+// Se não existe próximo step → fluxo concluído.
 
 async function handleAdvance(
   state: ActiveFlowState,
@@ -214,38 +222,137 @@ async function handleAdvance(
   if (!result.exit_rule_triggered) return
 
   const action = result.exit_rule_triggered.action
+  const exitTrigger = result.exit_rule_triggered.trigger
 
-  if (action === 'next_step') {
-    // S4: implementar lógica de next_step_id via flow_steps.position
-    // Por ora: step_data registra o avanço pendente
-    await updateFlowState(state.id, {
-      step_data_patch: { _pending_advance_at: new Date().toISOString() },
-    })
-    await logFlowEvent(state.id, flowId, instanceId, leadId, 'step_exited', {
-      action,
-      exit_rule: result.exit_rule_triggered.trigger,
-    }, state.flow_step_id)
-  } else if (action === 'handoff_human' || action === 'handoff_department' || action === 'handoff_manager') {
+  // Handoff actions
+  if (action === 'handoff_human' || action === 'handoff_department' || action === 'handoff_manager') {
     await finalizeFlowState(state.id, 'handoff')
-    await logFlowEvent(state.id, flowId, instanceId, leadId, 'handoff_triggered', { action }, state.flow_step_id)
-  } else if (action === 'tag_and_close') {
-    await finalizeFlowState(state.id, 'completed')
-    await logFlowEvent(state.id, flowId, instanceId, leadId, 'flow_completed', { action })
+    await logFlowEvent(state.id, flowId, instanceId, leadId, 'handoff_triggered',
+      { action, exit_rule: exitTrigger, exit_message: result.exit_rule_triggered.message },
+      state.flow_step_id,
+    )
+    return
   }
-  // another_flow, followup, do_nothing → S4+
+
+  // Completar e fechar
+  if (action === 'tag_and_close') {
+    await finalizeFlowState(state.id, 'completed')
+    await logFlowEvent(state.id, flowId, instanceId, leadId, 'flow_completed',
+      { action, tags: result.tags_to_set },
+    )
+    return
+  }
+
+  // do_nothing — permanece no step
+  if (action === 'do_nothing') return
+
+  // next_step — avança para o próximo step pelo position
+  if (action === 'next_step') {
+    await logFlowEvent(state.id, flowId, instanceId, leadId, 'step_exited',
+      { action, exit_rule: exitTrigger }, state.flow_step_id,
+    )
+
+    const nextStep = await fetchNextStep(flowId, state.flow_step_id)
+
+    if (nextStep) {
+      // Avança para o próximo step
+      await updateFlowState(state.id, {
+        flow_step_id: nextStep.id,
+        completed_steps_append: state.flow_step_id ?? undefined,
+        step_data_patch: { message_count: 0 },  // reseta contador do step
+      })
+      await logFlowEvent(state.id, flowId, instanceId, leadId, 'step_entered',
+        { step_type: nextStep.subagent_type, position: nextStep.position }, nextStep.id,
+      )
+    } else {
+      // Não existe próximo step → fluxo concluído
+      await updateFlowState(state.id, {
+        completed_steps_append: state.flow_step_id ?? undefined,
+      })
+      await finalizeFlowState(state.id, 'completed')
+      await logFlowEvent(state.id, flowId, instanceId, leadId, 'flow_completed',
+        { reason: 'no_next_step' },
+      )
+    }
+    return
+  }
+
+  // another_flow → S10+  |  followup → S10+
+  // Por ora: loga e ignora
+  await logFlowEvent(state.id, flowId, instanceId, leadId, 'step_exited',
+    { action, exit_rule: exitTrigger, note: 'action_not_implemented_yet' }, state.flow_step_id,
+  )
 }
 
-// ── Resolve lead_id a partir de conversation_id ───────────────────────────────
+// ── Busca o próximo step do fluxo por posição ─────────────────────────────────
 
-async function resolveLeadId(conversationId: string, instanceId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('conversations')
-    .select('lead_id')
-    .eq('id', conversationId)
-    .eq('instance_id', instanceId)
+async function fetchNextStep(
+  flowId: string,
+  currentStepId: string | null,
+): Promise<{ id: string; subagent_type: string; position: number } | null> {
+  // Descobre a posição do step atual
+  let currentPosition = -1
+
+  if (currentStepId) {
+    const { data: current } = await supabase
+      .from('flow_steps')
+      .select('position')
+      .eq('id', currentStepId)
+      .maybeSingle()
+    currentPosition = current?.position ?? -1
+  }
+
+  // Busca o próximo step ativo com position > currentPosition
+  const { data: next } = await supabase
+    .from('flow_steps')
+    .select('id, subagent_type, position')
+    .eq('flow_id', flowId)
+    .eq('is_active', true)
+    .gt('position', currentPosition)
+    .order('position', { ascending: true })
+    .limit(1)
     .maybeSingle()
 
-  return data?.lead_id ?? null
+  return next ?? null
+}
+
+// ── Resolve lead_id (lead_profiles.id) a partir de conversation_id ───────────
+// Schema real:
+//   conversations.contact_id → contacts.id
+//   conversations.inbox_id   → inboxes.id (inboxes.instance_id = instância)
+//   lead_profiles.contact_id → contacts.id
+//   flow_states.lead_id      → lead_profiles.id
+
+async function resolveLeadId(conversationId: string, instanceId: string): Promise<string | null> {
+  // Passo 1: busca contact_id + inbox da conversa
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('contact_id, inbox_id')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  if (!conv?.contact_id || !conv?.inbox_id) return null
+
+  // Passo 2: valida que o inbox pertence à instância correta
+  const { data: inbox } = await supabase
+    .from('inboxes')
+    .select('instance_id')
+    .eq('id', conv.inbox_id)
+    .maybeSingle()
+
+  if (!inbox || inbox.instance_id !== instanceId) {
+    console.warn('[orchestrator] Inbox não pertence à instância:', instanceId)
+    return null
+  }
+
+  // Passo 3: busca lead_profile.id pelo contact_id
+  const { data: profile } = await supabase
+    .from('lead_profiles')
+    .select('id')
+    .eq('contact_id', conv.contact_id)
+    .maybeSingle()
+
+  return profile?.id ?? null
 }
 
 // ── Helper de resposta JSON ───────────────────────────────────────────────────

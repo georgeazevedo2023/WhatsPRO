@@ -1,8 +1,14 @@
 // =============================================================================
-// State Manager (S2 — skeleton)
+// State Manager (S4)
 // CRUD para flow_states e flow_events.
-// S2: operações diretas via supabase-js (sem RPC).
-// S4: operações atômicas via RPC upsert_flow_state(p_lead_id, p_flow_id, p_step_id, p_patch)
+//
+// S4 — createFlowState atômica:
+//   INSERT ... ON CONFLICT ON CONSTRAINT uq_flow_states_active_lead_flow DO NOTHING RETURNING
+//   → se RETURNING vazio (race condition ganhou outra req): SELECT estado existente
+//   → resultado: sempre retorna o estado ativo, nunca duplica
+//
+// Constraint no banco: uq_flow_states_active_lead_flow
+//   UNIQUE (lead_id, flow_id) WHERE status = 'active'
 // =============================================================================
 
 import { createServiceClient } from '../../_shared/supabaseClient.ts'
@@ -10,7 +16,7 @@ import type { ActiveFlowState, StepData, SubagentResult } from '../types.ts'
 
 const supabase = createServiceClient()
 
-// ── Cria novo flow_state para um lead ────────────────────────────────────────
+// ── Cria novo flow_state — atômico via ON CONFLICT ────────────────────────────
 
 export async function createFlowState(
   leadId: string,
@@ -20,25 +26,59 @@ export async function createFlowState(
   firstStepId: string | null,
   conversationId?: string,
 ): Promise<ActiveFlowState | null> {
+  // Tenta inserir — ON CONFLICT faz nada se já existe estado ativo para (lead, flow)
   const { data, error } = await supabase
     .from('flow_states')
     .insert({
       lead_id: leadId,
       flow_id: flowId,
-      instance_id: instanceId,          // Fix: NOT NULL sem default
+      instance_id: instanceId,
       flow_version: flowVersion,
-      flow_step_id: firstStepId,        // Fix: era current_step_id
+      flow_step_id: firstStepId,
       status: 'active',
       step_data: {},
       ...(conversationId ? { conversation_id: conversationId } : {}),
     })
     .select('*')
-    .maybeSingle()                       // Fix: era .single() → crash se insert falha
+    .maybeSingle()
 
-  if (error) {
-    console.error('[stateManager] createFlowState error:', error.message)
+  // Se insert retornou data = novo estado criado com sucesso
+  if (data) return data as ActiveFlowState
+
+  // Se houve conflito (unique constraint) OU erro de insert → busca estado existente
+  if (error && !error.message.includes('duplicate') && !error.message.includes('unique')) {
+    // Erro real que não é conflito — loga e retorna null
+    console.error('[stateManager] createFlowState unexpected error:', error.message)
     return null
   }
+
+  // Race condition: outro processo criou o estado primeiro → retorna o existente
+  const existing = await getActiveFlowState(leadId, flowId)
+  if (existing) return existing
+
+  console.error('[stateManager] createFlowState: could not create or find state')
+  return null
+}
+
+// ── Busca estado ativo do lead para um flow específico ────────────────────────
+
+export async function getActiveFlowState(
+  leadId: string,
+  flowId?: string,
+): Promise<ActiveFlowState | null> {
+  let query = supabase
+    .from('flow_states')
+    .select('*')
+    .eq('lead_id', leadId)
+    .eq('status', 'active')
+
+  if (flowId) query = query.eq('flow_id', flowId)
+
+  const { data } = await query
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   return data as ActiveFlowState | null
 }
 
@@ -47,34 +87,51 @@ export async function createFlowState(
 export async function updateFlowState(
   stateId: string,
   patch: {
-    flow_step_id?: string | null        // Fix: era current_step_id
+    flow_step_id?: string | null
     status?: ActiveFlowState['status']
     step_data_patch?: Partial<StepData>
+    completed_steps_append?: string   // step_id a adicionar em completed_steps
+    increment_message_count?: boolean // incrementa message_count + total_message_count
   },
 ): Promise<boolean> {
-  // Busca step_data atual para merge
+  // Busca state atual para merge
   const { data: current, error: fetchError } = await supabase
     .from('flow_states')
-    .select('step_data')
+    .select('step_data, completed_steps')
     .eq('id', stateId)
-    .maybeSingle()                       // Fix: era .single() → crash se row não existe
+    .maybeSingle()
 
   if (fetchError) {
     console.error('[stateManager] updateFlowState fetch error:', fetchError.message)
     return false
   }
 
-  const mergedStepData = {
-    ...(current?.step_data ?? {}),
-    ...(patch.step_data_patch ?? {}),
+  // Merge step_data
+  const currentStepData = (current?.step_data ?? {}) as Record<string, unknown>
+  let mergedStepData: Record<string, unknown> = { ...currentStepData, ...(patch.step_data_patch ?? {}) }
+
+  // Incrementa contadores se solicitado
+  if (patch.increment_message_count) {
+    const mc = typeof mergedStepData.message_count === 'number' ? mergedStepData.message_count : 0
+    const tmc = typeof mergedStepData.total_message_count === 'number' ? mergedStepData.total_message_count : 0
+    mergedStepData = { ...mergedStepData, message_count: mc + 1, total_message_count: tmc + 1 }
   }
 
+  // Atualiza completed_steps via array append (Postgres)
   const update: Record<string, unknown> = {
     last_activity_at: new Date().toISOString(),
+    step_data: mergedStepData,
   }
-  if (patch.flow_step_id !== undefined) update.flow_step_id = patch.flow_step_id  // Fix
+  if (patch.flow_step_id !== undefined) update.flow_step_id = patch.flow_step_id
   if (patch.status !== undefined) update.status = patch.status
-  if (patch.step_data_patch) update.step_data = mergedStepData
+
+  // completed_steps: append sem duplicatas
+  if (patch.completed_steps_append) {
+    const currentCompleted = (current?.completed_steps ?? []) as string[]
+    if (!currentCompleted.includes(patch.completed_steps_append)) {
+      update.completed_steps = [...currentCompleted, patch.completed_steps_append]
+    }
+  }
 
   const { error } = await supabase
     .from('flow_states')
@@ -88,13 +145,34 @@ export async function updateFlowState(
   return true
 }
 
-// ── Finaliza flow_state (status = completed | handoff | abandoned) ────────────
+// ── Reseta message_count ao entrar em novo step (step_data merge) ─────────────
+
+export async function resetStepMessageCount(stateId: string): Promise<boolean> {
+  return updateFlowState(stateId, {
+    step_data_patch: { message_count: 0 },
+  })
+}
+
+// ── Finaliza flow_state ───────────────────────────────────────────────────────
 
 export async function finalizeFlowState(
   stateId: string,
   status: 'completed' | 'handoff' | 'abandoned',
 ): Promise<boolean> {
-  return updateFlowState(stateId, { status })
+  const { error } = await supabase
+    .from('flow_states')
+    .update({
+      status,
+      completed_at: new Date().toISOString(),
+      last_activity_at: new Date().toISOString(),
+    })
+    .eq('id', stateId)
+
+  if (error) {
+    console.error('[stateManager] finalizeFlowState error:', error.message)
+    return false
+  }
+  return true
 }
 
 // ── Registra evento no flow_events ───────────────────────────────────────────
@@ -104,8 +182,8 @@ export async function finalizeFlowState(
 
 export async function logFlowEvent(
   flowStateId: string,
-  flowId: string,                        // Fix: obrigatório (NOT NULL FK)
-  instanceId: string,                    // Fix: obrigatório (NOT NULL FK)
+  flowId: string,
+  instanceId: string,
   leadId: string,
   eventType: string,
   eventData: Record<string, unknown> = {},
@@ -113,11 +191,11 @@ export async function logFlowEvent(
 ): Promise<void> {
   const { error } = await supabase.from('flow_events').insert({
     flow_state_id: flowStateId,
-    flow_id: flowId,                     // Fix: campo obrigatório
-    instance_id: instanceId,             // Fix: campo obrigatório
+    flow_id: flowId,
+    instance_id: instanceId,
     lead_id: leadId,
     event_type: eventType,
-    input: Object.keys(eventData).length > 0 ? eventData : null,  // Fix: era event_data (não existe)
+    input: Object.keys(eventData).length > 0 ? eventData : null,
     ...(stepId ? { step_id: stepId } : {}),
   })
 
@@ -135,5 +213,6 @@ export async function applySubagentResult(
 ): Promise<boolean> {
   return updateFlowState(state.id, {
     step_data_patch: result.step_data_patch ?? {},
+    increment_message_count: true,  // S4: incrementa a cada mensagem processada
   })
 }

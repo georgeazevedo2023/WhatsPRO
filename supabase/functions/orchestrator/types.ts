@@ -24,17 +24,28 @@ export interface ActiveFlowState {
   status: 'active' | 'completed' | 'handoff' | 'abandoned'
   step_data: StepData
   lead_id: string
+  instance_id: string
+  conversation_id: string | null
+  completed_steps: string[]      // uuid[] — steps já concluídos neste flow
   started_at: string
+  completed_at: string | null
   last_activity_at: string
 }
 
 export interface StepData {
-  qualification_answers?: Record<string, unknown>
-  products_shown?: string[]
-  intents_detected?: string[]
-  session_summary?: string
+  // Progresso e rastreamento (default do banco)
+  message_count: number          // msgs neste step
+  total_message_count: number    // msgs no fluxo inteiro
+  last_subagent: string | null
+  intent_history: string[]
+  products_shown: string[]
+  context_vars: Record<string, unknown>
+  // Dados de qualificação
+  qualification_answers: Record<string, unknown>
+  // Controle de fluxo
   waiting_for?: string           // ex: 'name', 'answer', 'selection'
   retry_count?: number
+  session_summary?: string
   [key: string]: unknown
 }
 
