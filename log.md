@@ -217,7 +217,9 @@ tsc = 0 erros ✅
 
 **Fix:** `tipo_cliente` adicionado ao `VALID_KEYS` (`index.ts:1936`). Instrução no prompt garante que a extração ocorra.
 
-**R55+R56 documentadas em erros-e-licoes.md. tsc 0 erros ✅ | 427 testes passando ✅**
+**R56+R57 documentadas em erros-e-licoes.md. tsc 0 erros ✅ | 427 testes passando ✅**
+
+**Deploy:** ai-agent ✅ (2026-04-12 — 14 assets, project euljumeflwtljegknawy)
 
 ---
 
