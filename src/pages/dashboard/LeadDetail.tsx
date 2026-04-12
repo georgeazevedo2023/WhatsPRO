@@ -396,12 +396,13 @@ const LeadDetail = () => {
     f.section === 'custom' || (!f.section && ['email', 'documento', 'profissao', 'site'].includes(f.key))
   );
 
-  // KPI — Resumo do Atendimento (most recent conversation)
-  const latestConv = conversations[0] ?? null;
+  // KPI — Resumo do Atendimento (most recently CREATED conversation, not most recently messaged)
+  const latestConv = [...conversations].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
   const kpiProdutos = tags.filter(t => t.startsWith('produto:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
   const kpiInteresses = tags.filter(t => t.startsWith('interesse:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
   const kpiItens = [...new Set([...kpiProdutos, ...kpiInteresses])];
   const kpiProdutoFalta = tags.find(t => t.startsWith('marca_indisponivel:'))?.split(':').slice(1).join(':').replace(/_/g, ' ').replace(/,\s*/g, ', ') ?? null;
+  const kpiTipoCliente = tags.find(t => t.startsWith('tipo_cliente:'))?.split(':').slice(1).join(':').replace(/_/g, ' ') ?? extractedData['tipo_cliente'] ?? null;
   const kpiAtendidoIA = tags.some(t => t === 'ia:shadow') ? 'Shadow' : (tags.some(t => t.startsWith('motivo:') || t.startsWith('produto:') || t.startsWith('interesse:')) ? 'Sim' : 'Não');
   const fmtKpi = (iso: string | null | undefined, mode: 'time' | 'date') => {
     if (!iso) return '—';
@@ -417,8 +418,10 @@ const LeadDetail = () => {
     const end = latestConv.last_message_at ? new Date(latestConv.last_message_at).getTime() : Date.now();
     const mins = Math.round((end - start) / 60000);
     if (mins < 60) return `${mins}min`;
-    const h = Math.floor(mins / 60); const m = mins % 60;
-    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+    const h = Math.floor(mins / 60);
+    if (h < 24) { const m = mins % 60; return m > 0 ? `${h}h ${m}min` : `${h}h`; }
+    const d = Math.floor(h / 24); const rh = h % 24;
+    return rh > 0 ? `${d}d ${rh}h` : `${d}d`;
   })();
 
   // Lead engagement score (0–100)
@@ -584,6 +587,10 @@ const LeadDetail = () => {
                 <div className="flex flex-col gap-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-2">
                   <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400/70"><ShoppingCart className="w-2.5 h-2.5" />Produto</span>
                   <span className="text-xs font-medium text-emerald-300 leading-tight truncate" title={kpiItens[0] ?? '—'}>{kpiItens[0] ?? '—'}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-violet-500/10 border border-violet-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-400/70"><Bot className="w-2.5 h-2.5" />Tipo de Cliente</span>
+                  <span className="text-xs font-medium text-violet-300 leading-tight truncate" title={kpiTipoCliente ?? '—'}>{kpiTipoCliente ?? '—'}</span>
                 </div>
                 <div className="flex flex-col gap-0.5 rounded-md bg-red-500/10 border border-red-500/20 px-2.5 py-2">
                   <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-red-400/70"><AlertCircle className="w-2.5 h-2.5" />Em falta</span>
