@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ContactAvatar } from '@/components/helpdesk/ContactAvatar';
-import { User, ShieldBan, Calendar, Phone, MapPin, Globe, Link2, FileText, Megaphone, Target } from 'lucide-react';
+import { User, ShieldBan, Calendar, Phone, MapPin, Globe, Link2, FileText, Megaphone, Target, Flame } from 'lucide-react';
 import { ORIGIN_OPTIONS } from './types';
 import type { ExtractionField, InstanceOption } from './types';
 
@@ -35,6 +35,7 @@ interface LeadProfileSectionProps {
   editDocument: string;
   setEditDocument: (v: string) => void;
   onToggleBlockInstance: (instanceId: string) => void;
+  leadScore?: number;
 }
 
 /** M15 — Visual badge showing lead origin (campanha, bio, formulario, organic) */
@@ -86,15 +87,30 @@ export function LeadProfileSection({
   contact, leadProfile, extractionFields, extractedData, instances,
   editOrigin, setEditOrigin, editBirthDate, setEditBirthDate,
   editEmail, setEditEmail, editDocument, setEditDocument,
-  onToggleBlockInstance,
+  onToggleBlockInstance, leadScore,
 }: LeadProfileSectionProps) {
   const lp = leadProfile || {};
   const profileFields = extractionFields.filter(f =>
     f.section === 'profile' || (!f.section && ['nome', 'cidade', 'bairro', 'interesses', 'orcamento', 'aniversario'].includes(f.key))
   );
 
+  const scoreColor = leadScore !== undefined
+    ? leadScore >= 70 ? 'text-emerald-400' : leadScore >= 40 ? 'text-amber-400' : 'text-red-400'
+    : '';
+  const scoreBorderColor = leadScore !== undefined
+    ? leadScore >= 70 ? 'border-emerald-500/40' : leadScore >= 40 ? 'border-amber-500/40' : 'border-red-500/40'
+    : '';
+  const scoreBg = leadScore !== undefined
+    ? leadScore >= 70 ? 'bg-emerald-500/10' : leadScore >= 40 ? 'bg-amber-500/10' : 'bg-red-500/10'
+    : '';
+  const scoreLabel = leadScore !== undefined
+    ? leadScore >= 70 ? 'Quente' : leadScore >= 40 ? 'Morno' : 'Frio'
+    : '';
+
   return (
-    <Card>
+    <Card className="overflow-hidden">
+      {/* Gradient accent stripe */}
+      <div className="h-1.5 bg-gradient-to-r from-primary/80 via-primary/40 to-transparent" />
       <CardHeader className="pb-4">
         <CardTitle className="text-base flex items-center gap-2">
           <User className="w-4 h-4 text-primary" />
@@ -102,7 +118,7 @@ export function LeadProfileSection({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
-        {/* Header with avatar */}
+        {/* Header with avatar + score */}
         <div className="flex items-start gap-4">
           <ContactAvatar src={contact.profile_pic_url} name={contact.display_name} size={80} />
           <div className="flex-1 min-w-0">
@@ -130,6 +146,14 @@ export function LeadProfileSection({
               )}
             </div>
           </div>
+          {/* Lead score badge */}
+          {leadScore !== undefined && (
+            <div className={`flex flex-col items-center justify-center w-[52px] h-[52px] rounded-full border-2 shrink-0 ${scoreBg} ${scoreBorderColor}`}>
+              <Flame className={`w-3 h-3 mb-0.5 ${scoreColor}`} />
+              <span className={`text-sm font-bold leading-none ${scoreColor}`}>{leadScore}</span>
+              <span className={`text-[9px] font-medium mt-0.5 ${scoreColor}`}>{scoreLabel}</span>
+            </div>
+          )}
         </div>
 
         {/* Extracted data from tags */}

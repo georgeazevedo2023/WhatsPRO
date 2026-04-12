@@ -17,7 +17,7 @@ import { LeadFilesSection } from '@/components/leads/LeadFilesSection';
 import { LeadJourneyTimeline } from '@/components/leads/LeadJourneyTimeline';
 import { LeadFunnelCard } from '@/components/leads/LeadFunnelCard';
 import { ConversationModal } from '@/components/leads/ConversationModal';
-import { ArrowLeft, MapPin, Settings2, Trash2, Loader2, Save, Contact2, ExternalLink, Activity } from 'lucide-react';
+import { ArrowLeft, MapPin, Settings2, Trash2, Loader2, Save, Contact2, ExternalLink, Activity, ShoppingCart, AlertCircle, Bot, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import type { ActionEvent, MediaFile } from '@/components/leads/types';
@@ -396,6 +396,45 @@ const LeadDetail = () => {
     f.section === 'custom' || (!f.section && ['email', 'documento', 'profissao', 'site'].includes(f.key))
   );
 
+  // KPI — Resumo do Atendimento (most recent conversation)
+  const latestConv = conversations[0] ?? null;
+  const kpiProdutos = tags.filter(t => t.startsWith('produto:') && !t.endsWith('_interno')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
+  const kpiInteresses = tags.filter(t => t.startsWith('interesse:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
+  const kpiItens = [...new Set([...kpiProdutos, ...kpiInteresses])];
+  const kpiProdutoFalta = tags.find(t => t.startsWith('marca_indisponivel:'))?.split(':').slice(1).join(':').replace(/_/g, ' ').replace(/,\s*/g, ', ') ?? null;
+  const kpiAtendidoIA = tags.some(t => t === 'ia:shadow') ? 'Shadow' : (tags.some(t => t.startsWith('motivo:') || t.startsWith('produto:') || t.startsWith('interesse:')) ? 'Sim' : 'Não');
+  const fmtKpi = (iso: string | null | undefined, mode: 'time' | 'date') => {
+    if (!iso) return '—';
+    return mode === 'time'
+      ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      : new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  };
+  const kpiInicio = latestConv ? `${fmtKpi(latestConv.created_at, 'date')} ${fmtKpi(latestConv.created_at, 'time')}` : '—';
+  const kpiFim = latestConv?.last_message_at ? `${fmtKpi(latestConv.last_message_at, 'date')} ${fmtKpi(latestConv.last_message_at, 'time')}` : '—';
+  const kpiDuracao = (() => {
+    if (!latestConv) return '—';
+    const start = new Date(latestConv.created_at).getTime();
+    const end = latestConv.last_message_at ? new Date(latestConv.last_message_at).getTime() : Date.now();
+    const mins = Math.round((end - start) / 60000);
+    if (mins < 60) return `${mins}min`;
+    const h = Math.floor(mins / 60); const m = mins % 60;
+    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  })();
+
+  // Lead engagement score (0–100)
+  const leadScore = (() => {
+    let s = 0;
+    if (lp?.full_name || contact.name) s += 10;
+    if (lp?.email || editEmail) s += 10;
+    if (tags.some(t => t.startsWith('motivo:'))) s += 10;
+    if (kpiItens.length > 0) s += 15;
+    s += Math.min(conversations.length * 5, 20);
+    s += Math.min(lp?.total_interactions || 0, 15);
+    if (lp?.city || extractedData['cidade']) s += 10;
+    if (kanbanData) s += 10;
+    return Math.min(s, 100);
+  })();
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
       {/* Back button + save status */}
@@ -443,6 +482,7 @@ const LeadDetail = () => {
             editDocument={editDocument}
             setEditDocument={setEditDocument}
             onToggleBlockInstance={handleToggleBlockInstance}
+            leadScore={leadScore}
           />
 
           {/* Address Section */}
@@ -530,6 +570,44 @@ const LeadDetail = () => {
               </CardContent>
             </Card>
           )}
+
+          {/* Resumo do Atendimento — KPI grid */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Activity className="w-4 h-4 text-primary" />
+                Resumo do Atendimento
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-2 gap-1.5">
+                <div className="flex flex-col gap-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400/70"><ShoppingCart className="w-2.5 h-2.5" />Produto</span>
+                  <span className="text-xs font-medium text-emerald-300 leading-tight truncate" title={kpiItens[0] ?? '—'}>{kpiItens[0] ?? '—'}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-red-500/10 border border-red-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-red-400/70"><AlertCircle className="w-2.5 h-2.5" />Em falta</span>
+                  <span className="text-xs font-medium text-red-300 leading-tight truncate" title={kpiProdutoFalta ?? '—'}>{kpiProdutoFalta ?? '—'}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Início</span>
+                  <span className="text-xs font-medium text-slate-300 leading-tight">{kpiInicio}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Fim</span>
+                  <span className="text-xs font-medium text-slate-300 leading-tight">{kpiFim}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-400/70"><Clock className="w-2.5 h-2.5" />Duração</span>
+                  <span className="text-xs font-medium text-amber-300 leading-tight">{kpiDuracao}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-primary/10 border border-primary/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary/70"><Bot className="w-2.5 h-2.5" />Atendido por IA</span>
+                  <span className={`text-xs font-medium leading-tight ${kpiAtendidoIA === 'Sim' ? 'text-primary' : kpiAtendidoIA === 'Shadow' ? 'text-yellow-400' : 'text-muted-foreground'}`}>{kpiAtendidoIA}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* History Section */}
           <LeadHistorySection
