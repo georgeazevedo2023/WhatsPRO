@@ -91,7 +91,7 @@ export async function followupSubagent(
   }
 
   return {
-    status: 'complete',
+    status: 'continue',
     response_text: DEFAULTS.farewell,
     step_data_patch: {
       followup_scheduled_at: scheduledFor,

@@ -194,6 +194,7 @@ export interface ValidatorIssue {
   check: string         // 'size_ok', 'no_prompt_leak', etc.
   action: 'pass' | 'correct' | 'block'
   detail?: string
+  corrected_text?: string  // texto já corrigido pelo check — usado em applyCorrection
 }
 
 export interface ValidationResult {

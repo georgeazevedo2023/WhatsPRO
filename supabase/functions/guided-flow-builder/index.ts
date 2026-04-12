@@ -84,7 +84,7 @@ serve(async (req: Request) => {
         .from('guided_sessions')
         .select('messages, expires_at')
         .eq('id', sessionId)
-        .single()
+        .maybeSingle()
 
       if (session && new Date(session.expires_at) > new Date()) {
         currentMessages = session.messages as typeof currentMessages

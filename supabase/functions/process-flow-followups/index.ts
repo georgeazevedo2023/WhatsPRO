@@ -176,8 +176,10 @@ Deno.serve(async (req: Request) => {
             .from('flow_steps')
             .select('id')
             .eq('flow_id', state.flow_id)
-            .eq('position', currentPosition + 1)
+            .gt('position', currentPosition)
             .eq('is_active', true)
+            .order('position', { ascending: true })
+            .limit(1)
             .maybeSingle()
 
           if (nextStep) {

@@ -199,6 +199,7 @@ function checkNameFrequency(text: string, context: FlowContext): ValidatorIssue 
     check: 'name_frequency_ok',
     action: 'correct',
     detail: `Nome "${name}" aparecia ${matches.length}x, corrigido para 1x`,
+    corrected_text: corrected,
   }
 }
 
@@ -266,11 +267,8 @@ function applyCorrection(text: string, issue: ValidatorIssue): string {
       return corrected
     }
 
-    case 'name_frequency_ok': {
-      // Já calculado no check mas recalculamos para segurança
-      const nameMatch = text.match(/\b\w+\b/) // simplificado
-      return text // correção complexa — retorna original por segurança
-    }
+    case 'name_frequency_ok':
+      return issue.corrected_text ?? text
 
     case 'emoji_count_ok': {
       let kept = 0
