@@ -61,20 +61,13 @@ export async function greetingSubagent(
     })
   }
 
-  // ── Case B: Lead retornante com nome → known_lead_message ───────────────────
-  if (sessionsCount > 0 && lead.lead_name) {
-    const template = config.known_lead_message ?? DEFAULTS.known_lead
-    return {
-      status: 'advance',
-      response_text: personalize(template, lead.lead_name),
-      exit_rule_triggered: { trigger: 'greeting_done', action: 'next_step' },
-      step_data_patch: { last_subagent: 'greeting' },
-    }
-  }
-
-  // ── Case C: Lead novo com nome → greeting personalizado ─────────────────────
+  // ── Case B+C: Lead com nome conhecido → nunca perguntar "com quem falo?" ────
+  // B: sessionsCount > 0 (retornante no orchestrator)
+  // C: sessionsCount = 0 mas nome já salvo (migrado do ai-agent antigo, ou captado
+  //    via bio/form antes de contatar o WhatsApp) — tratar como retornante para
+  //    evitar enviar greeting_message que pode incluir "com quem eu falo?"
   if (lead.lead_name) {
-    const template = config.greeting_message ?? DEFAULTS.greeting
+    const template = config.known_lead_message ?? DEFAULTS.known_lead
     return {
       status: 'advance',
       response_text: personalize(template, lead.lead_name),
