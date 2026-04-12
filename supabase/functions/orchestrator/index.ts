@@ -146,6 +146,24 @@ Deno.serve(async (req: Request) => {
     let state: ActiveFlowState | null = resolved.state
 
     if (!state) {
+      // Guard: se houve handoff recente (últimas 4h), não reiniciar o fluxo.
+      // O lead está com atendente humano — o orchestrator não deve re-engajar.
+      // smart_fill completaria a qualificação imediatamente (respostas em long_memory)
+      // e dispararia handoff novamente, causando mensagem duplicada.
+      const recentHandoff = await supabase
+        .from('flow_states')
+        .select('id')
+        .eq('lead_id', leadId)
+        .eq('status', 'handoff')
+        .gte('completed_at', new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle()
+
+      if (recentHandoff.data) {
+        console.log('[orchestrator] post-handoff guard: lead em handoff recente, ignorando mensagem:', leadId)
+        return jsonResponse({ ok: true, skipped: 'post_handoff' }, 200, corsHeaders)
+      }
+
       // Lead não tinha fluxo ativo → cria novo estado
       const firstStep = await fetchFirstStep(resolved.flowId)
 
