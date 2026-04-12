@@ -1,8 +1,8 @@
 ---
 title: Módulos
-tags: [modulos, features, helpdesk, crm, leads, broadcast, funis]
+tags: [modulos, features, helpdesk, crm, leads, broadcast, funis, fluxos]
 sources: [CLAUDE.md, PRD.md, docs/CONTEXTO_PROJETO.md]
-updated: 2026-04-09
+updated: 2026-04-12
 ---
 
 # Módulos
@@ -66,6 +66,18 @@ updated: 2026-04-09
 - Max 3 retries por campo
 - Webhook externo POST ao completar
 - 12 templates built-in
+
+## M14 — Bio Link ✅
+
+- Página pública Linktree-style com slug único (bio-public edge fn sem JWT)
+- 3 templates visuais: simples, shopping, negocio
+- 5 tipos de botão: url, whatsapp, form, social, catalog
+- Agendamento de botões (starts_at / ends_at)
+- Botão tipo catálogo puxa produtos do `ai_agent_products`
+- Opções visuais: fonte, espaçamento, capa
+- Captação de leads: formulário inline configurável → contact + lead_profile
+- Injeção de `<bio_context>` no AI Agent quando lead vem do Bio Link
+- Analytics por página/botão em `bio_analytics`
 
 ## M13 — Campanhas + Formulários + Funil Conversacional ✅
 
@@ -153,9 +165,45 @@ updated: 2026-04-09
 - D1-D9: ver [[wiki/plano-enquetes-polls]]
 - D10: Agent Profiles (unifica sub-agents + funnel_prompt) — ver [[wiki/decisoes-chave]]
 
+## M18 — Fluxos v3.0 ✅ COMPLETO (2026-04-12)
+
+> Orquestrador de fluxos conversacionais que unifica 17 módulos em experiência única. 12 sprints em 4 camadas.
+
+### Infra (S1-S3)
+- 14 tabelas: `flow_definitions`, `flow_steps`, `flow_triggers`, `flow_states`, `flow_events`, `lead_short_memory`, `lead_long_memory`, `flow_step_executions`, `guided_sessions`, `flow_report_shares`, `flow_followups` + updates
+- Feature flag `USE_ORCHESTRATOR` + migração gradual por instância (`instances.use_orchestrator`)
+- Admin UI: FlowsPage, FlowWizard (4 etapas), FlowTemplatesPage (12 templates), FlowDetail (6 tabs)
+
+### Engine (S4-S6)
+- Flow Triggers: resolução por keyword/tag/form/bio/utm/api/schedule — sem breaking change no ai-agent
+- Memory Service: short (TTL 1h, RPC) + long (perfil persistente)
+- Greeting Subagent (P0): 4 casos — retornante/novo-com-nome/sem-nome/coleta-nome
+- Qualification Subagent (P1): 16 tipos de campo, smart_fill (pula perguntas já respondidas), mode adaptive/fixed
+
+### Intelligence (S7-S9)
+- Intent Detector 3 camadas: L1 normalização BR (~5ms) → L2 fuzzy+Soundex (~12ms) → L3 LLM semântico (~200ms, só se L2 <70)
+- Sales Subagent: busca 3 camadas (ILIKE→AND→fuzzy), 1 foto→send/media, 2+→carousel, anti-repetição
+- Support Subagent: word overlap scoring, 3 faixas confiança, knowledge base
+- Validator (10 checks, 0 tokens): size, language, prompt_leak, price, repetition, greeting_repeat, name_freq, emoji, markdown, PII
+- Metrics: 6 timing marks por request, cost_breakdown por camada, salvo em `flow_events`
+- Shadow Mode: pipeline roda sem enviar — coleta dados sem risco
+
+### Completion (S10-S12)
+- Survey Subagent: UAZAPI `/send/menu`, fuzzy match respostas, NPS tags automáticas
+- Followup Subagent: agenda em `step_data`, cron hourly `process-flow-followups`
+- Handoff Subagent: briefing minimal/standard/full, assign dept/user, tags handoff:X
+- Templates instaláveis (1 clique): RPC atômica `install_flow_template` — rollback automático
+- Conversa Guiada: `guided-flow-builder` edge fn, gpt-4.1-mini, sessão 24h, draft_flow JSON
+- FlowEditor 6 tabs: Identidade | Gatilhos | Subagentes (drag-and-drop) | Inteligência | Publicar | **Métricas**
+- FlowMetricsPanel: KPIs, funil de conversão, timing breakdown, top 10 intents, botão Compartilhar (token 30 dias)
+- Rollback automático: 3 falhas em 5min → `use_orchestrator=false` automático
+- E2E test script: 5 cenários, score 0-100, threshold ≥80
+
 ## Links
 
 - [[wiki/ai-agent]] — Agente IA em profundidade
 - [[wiki/roadmap]] — Status e próximos módulos
 - [[wiki/plano-enquetes-polls]] — Plano de enquetes (sprints, tasks, schema)
 - [[wiki/uazapi-polls-interativos]] — UAZAPI mensagens interativas
+- [[wiki/casos-de-uso/fluxos-detalhado]] — M18 casos de uso completos
+- [[wiki/fluxos-visao-arquitetura]] — Arquitetura e templates de fluxos

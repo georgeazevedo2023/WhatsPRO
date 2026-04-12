@@ -58,7 +58,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |
 | [[wiki/log-arquivo-2026-04-04-a-09]] | Log historico arquivado |
 
-## Wiki — Fluxos v3.0 (design em andamento)
+## Wiki — Fluxos v3.0 (✅ Shipped 2026-04-12 — 12/12 sprints)
 
 | Pagina | Linhas | Resumo |
 |--------|--------|--------|
@@ -98,6 +98,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/casos-de-uso/funis-detalhado]] | 13 | Wizard 4 passos, 7 tipos, auto-criacao tudo, motor automacao (7+4+6), funis agenticos, perfis IA, metricas, tag funil:SLUG, kanban visual |
 | [[wiki/casos-de-uso/motor-automacao-detalhado]] | 9 | 7 gatilhos detalhados, 4 condicoes, 6 acoes, fluxo execucao, editor visual, CRUD hooks, NPS trigger, tratamento erros |
 | [[wiki/casos-de-uso/enquetes-nps-detalhado]] | 10 | 4 canais envio, UAZAPI /send/menu, rastreamento votos, auto-tags D2, NPS automatico, notificacao nota ruim, dashboard metricas, config admin |
+| [[wiki/casos-de-uso/fluxos-detalhado]] | 18 | Fluxos v3.0 M18: orquestrador, 12 sprints, 8 subagentes, validator, shadow, metricas, templates, migração por instância, E2E |
 | [[wiki/casos-de-uso/agendamentos-detalhado]] | 6 | Unico/recorrente (diario/semanal/mensal), delay anti-ban, tipos agendaveis, gestao status, edge function processamento |
 | [[wiki/casos-de-uso/dashboard-detalhado]] | 8 | KPIs principais, graficos, performance atendentes, tempo resposta IA/humano, Intelligence (analise IA), filtros, shift reports |
 | [[wiki/casos-de-uso/agent-qa-detalhado]] | 8 | Batches, 30+ cenarios, score composto (4 fatores), aprovacao humana, regressao, ciclo automatizado, playground, historico |
@@ -136,4 +137,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-12 — S1-S9 ✅. Camadas 1+2+3 completas (9/12 sprints). USE_ORCHESTRATOR=false (S12 migra por instância). Próximo: S10 Templates + Survey/Followup/Handoff.*
+*Ultima atualizacao: 2026-04-12 — M18 Fluxos v3.0 COMPLETO ✅ 12/12 sprints. Orquestrador em producao com migração por instância, rollback automático, métricas e E2E. Próximo milestone: a definir.*

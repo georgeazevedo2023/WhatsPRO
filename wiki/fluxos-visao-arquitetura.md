@@ -2,7 +2,7 @@
 title: Fluxos Unificados — Visao e Arquitetura
 tags: [arquitetura, fluxos, orquestrador, subagentes, templates]
 sources: [discussao-chat-2026-04-11]
-updated: 2026-04-11
+updated: 2026-04-12
 ---
 
 # Fluxos Unificados — Visao e Arquitetura

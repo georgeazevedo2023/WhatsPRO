@@ -79,7 +79,7 @@ updated: 2026-04-12
 
 ## Módulos Implementados
 
-17 módulos (M1-M17) implementados. Ver [[wiki/modulos]].
+18 módulos (M1-M18) implementados. Ver [[wiki/modulos]].
 
 ## Links
 
