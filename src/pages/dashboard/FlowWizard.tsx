@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select'
 import { useAuth } from '@/contexts/AuthContext'
 import { useInstances } from '@/hooks/useInstances'
+import { useInboxes } from '@/hooks/useInboxes'
 import { useCreateFlow, generateSlug } from '@/hooks/useFlows'
 import { useCreateFlowTrigger } from '@/hooks/useFlowTriggers'
 import { TriggerFormSheet } from '@/components/flows/TriggerFormSheet'
@@ -36,6 +37,7 @@ export default function FlowWizard() {
   const templateId = searchParams.get('template')
   const { isSuperAdmin } = useAuth()
   const { instances } = useInstances()
+  const { inboxes } = useInboxes()
 
   const [step, setStep] = useState(0)
 
@@ -44,6 +46,7 @@ export default function FlowWizard() {
   const [slug, setSlug] = useState('')
   const [description, setDescription] = useState('')
   const [instanceId, setInstanceId] = useState('')
+  const [inboxId, setInboxId] = useState('')
 
   // Etapa 2 — Config
   const [mode, setMode] = useState<FlowMode>('active')
@@ -67,6 +70,15 @@ export default function FlowWizard() {
       setInstanceId(instances[0].id)
     }
   }, [instances])
+
+  // Inboxes filtradas pela instância selecionada
+  const filteredInboxes = inboxes?.filter((inbox) => inbox.instance_id === instanceId) ?? []
+
+  // Limpa inbox quando instância muda
+  const handleInstanceChange = (value: string) => {
+    setInstanceId(value)
+    setInboxId('')
+  }
 
   // Pré-popula do template
   useEffect(() => {
@@ -127,6 +139,7 @@ export default function FlowWizard() {
       slug: slug.trim(),
       description: description.trim() || null,
       instance_id: instanceId,
+      inbox_id: inboxId && inboxId !== 'all' ? inboxId : null,
       mode,
       is_default: isDefault,
       funnel_id: funnelId || null,
@@ -236,7 +249,7 @@ export default function FlowWizard() {
 
             <div className="space-y-1.5">
               <Label>Instância <span className="text-destructive">*</span></Label>
-              <Select value={instanceId} onValueChange={setInstanceId}>
+              <Select value={instanceId} onValueChange={handleInstanceChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione a instância" />
                 </SelectTrigger>
@@ -248,6 +261,38 @@ export default function FlowWizard() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Caixa de entrada</Label>
+              <Select
+                value={inboxId}
+                onValueChange={setInboxId}
+                disabled={!instanceId || filteredInboxes.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      !instanceId
+                        ? 'Selecione a instância primeiro'
+                        : filteredInboxes.length === 0
+                        ? 'Nenhuma caixa nesta instância'
+                        : 'Todas as caixas (opcional)'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as caixas</SelectItem>
+                  {filteredInboxes.map((inbox) => (
+                    <SelectItem key={inbox.id} value={inbox.id}>
+                      {inbox.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Opcional. Restringe o fluxo a uma caixa específica da instância.
+              </p>
             </div>
           </div>
         )}
@@ -390,6 +435,14 @@ export default function FlowWizard() {
                 <span className="text-muted-foreground">Instância</span>
                 <span className="font-medium">
                   {instances?.find((i) => i.id === instanceId)?.name ?? instanceId}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Caixa de entrada</span>
+                <span className="font-medium">
+                  {inboxId && inboxId !== 'all'
+                    ? (inboxes?.find((b) => b.id === inboxId)?.name ?? inboxId)
+                    : 'Todas'}
                 </span>
               </div>
               <div className="flex justify-between">

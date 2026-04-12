@@ -1861,6 +1861,7 @@ export type Database = {
           description: string | null
           funnel_id: string | null
           id: string
+          inbox_id: string | null
           instance_id: string
           is_default: boolean
           mode: string
@@ -1879,6 +1880,7 @@ export type Database = {
           description?: string | null
           funnel_id?: string | null
           id?: string
+          inbox_id?: string | null
           instance_id: string
           is_default?: boolean
           mode?: string
@@ -1897,6 +1899,7 @@ export type Database = {
           description?: string | null
           funnel_id?: string | null
           id?: string
+          inbox_id?: string | null
           instance_id?: string
           is_default?: boolean
           mode?: string
@@ -1914,6 +1917,13 @@ export type Database = {
             columns: ["funnel_id"]
             isOneToOne: false
             referencedRelation: "funnels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flows_inbox_id_fkey"
+            columns: ["inbox_id"]
+            isOneToOne: false
+            referencedRelation: "inboxes"
             referencedColumns: ["id"]
           },
           {
