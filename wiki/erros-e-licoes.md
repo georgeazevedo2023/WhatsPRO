@@ -46,6 +46,9 @@ updated: 2026-04-12
 | 29 | SEMPRE verificar schema real do banco antes de escrever código de insert — nomes de coluna divergentes causam erro silencioso (`.maybeSingle()` retorna null) | Orchestrator |
 | 30 | Supabase `flow_events.event_type` tem CHECK constraint — NUNCA inserir tipo fora da lista. Verificar migration antes de logar evento. | Orchestrator |
 | 31 | `.single()` lança exceção se 0 ou >1 rows — SEMPRE usar `.maybeSingle()` em edge functions seguido de `if (error)` check explícito | DB |
+| 36 | PostgREST `.upsert({ onConflict: 'col_a,col_b,col_c' })` falha — PostgREST não resolve constraint pelo nome das colunas. Usar RPC com `INSERT … ON CONFLICT (col_a, col_b, col_c) DO UPDATE` | Orchestrator |
+| 37 | Não passar `step_data: {}` no insert de `flow_states` — sobrescreve o DEFAULT do banco. Omitir o campo para que `message_count: 0` e demais defaults sejam aplicados pelo PostgreSQL | Orchestrator |
+| 38 | Sempre usar `?? 0` ao ler `step_data.message_count` — mesmo com DEFAULT, dados antigos podem ter o campo ausente | Orchestrator |
 
 ---
 
@@ -70,36 +73,6 @@ updated: 2026-04-12
 - Checklist de deploy: verificar se `ALLOWED_ORIGIN` está configurado
 
 **Nota:** 12 outras edge functions ainda usam `browserCorsHeaders` estático. Funcionam porque o Supabase gateway trata CORS automaticamente para elas. Mas `uazapi-proxy` falhava porque faz fetch externo (UAZAPI) que demora e o gateway pode não aplicar CORS no preflight.
-
-### Duplicate greeting (pré v1.0)
-
-**O que:** Greeting duplicado quando debounce disparava múltiplas chamadas simultâneas.
-**Causa:** Sem lock atômico no greeting.
-**Correção:** greeting_sent check nos últimos 30s + save-first lock.
-**Regra:** Greeting race guard obrigatório.
-
-### Debounce retry criando execuções duplicadas
-
-**O que:** Retry no 500 do ai-agent causava duplicação de respostas.
-**Causa:** 500 é timeout do gateway Supabase (~25s), não crash — a função continua rodando.
-**Correção:** Removido retry completamente.
-**Regra 6:** Debounce NO RETRY on 500.
-
-### Clear context com tags vazias
-
-**O que:** `tags = []` quebrava o handoff counter, causando handoff imediato na próxima mensagem.
-**Causa:** Lógica de contagem dependia de tags não-vazias.
-**Correção:** `tags = ['ia_cleared:TIMESTAMP']` ao invés de `[]`.
-**Regra 9:** NUNCA usar tags vazias em clear context.
-
-### Shadow sobrescrevendo nome do lead
-
-**O que:** "Obrigado Pedro!" fazia shadow mode sobrescrever nome do lead com nome do vendedor.
-**Causa:** Shadow extraía qualquer nome mencionado na conversa.
-**Correção:** Shadow NUNCA sobrescreve full_name existente no lead_profile.
-**Regra 10:** Shadow name protection.
-
----
 
 ### form-bot retries NaN — bypass silencioso de validação (2026-04-06)
 
@@ -198,3 +171,15 @@ updated: 2026-04-12
 - R35: FKs em flow_states: `lead_id → lead_profiles.id` (não contacts.id). Para resolver lead de uma conversa: `conversations.contact_id → lead_profiles.contact_id → lead_profiles.id`
 - R32: `useState(() => sideEffect())` NÃO é `useEffect` — inicializador roda 1x no mount com estado inicial undefined. Para reagir a dados assíncronos usar `useEffect(() => {}, [dep])`
 - R33: Ao criar rotas React Router, SEMPRE verificar App.tsx E sidebar/nav. Código de página sem rota = inacessível (bug silencioso)
+
+---
+
+### S5 Orchestrator — 3 bugs em Memory Service + Greeting (2026-04-12)
+
+**B#1 — `getStepType` lia campo inexistente:** `context.step_config.step_type` (undefined) → sempre despachava para stub 'custom'. Corrigido: `contextBuilder` injeta `subagent_type` no `step_config`; `getStepType` lê `subagent_type`.
+
+**B#2 — PostgREST `.upsert({ onConflict: 'col,col,col' })` falha:** `"there is no unique or exclusion constraint matching"`. PostgREST não resolve constraint por lista de colunas. Solução: criar RPC `upsert_lead_long_memory` com `INSERT … ON CONFLICT (lead_id, memory_type, scope)` — idêntica à `upsert_lead_short_memory` mas sem TTL. R36 preventivo.
+
+**B#3 — `step_data: {}` no insert sobrescreve DEFAULT:** `createFlowState` passava `step_data: {}`, sobrescrevendo o DEFAULT do banco `{message_count: 0, ...}`. Resultado: `message_count = undefined`. Check `isFirstMessage = (message_count === 0)` → false → `upsertLongMemory` nunca chamada. Correção dupla: (1) remover `step_data` do insert; (2) `?? 0` no check. R37+R38 preventivos.
+
+**E2E validado (commit 935fb3f):** Case B (sessions_count++), Case C (greeting+UAZAPI), Case D (pede nome→continue), Case A (extrai nome ASCII→advance, salva full_name + long_memory).

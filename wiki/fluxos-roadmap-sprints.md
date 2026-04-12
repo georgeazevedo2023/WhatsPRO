@@ -21,7 +21,7 @@ updated: 2026-04-12
 | **S2** ✅ | Orchestrator Skeleton | Orquestrador com feature flag `USE_ORCHESTRATOR` — sem breaking change | M |
 | **S3** ✅ | Flow CRUD Admin UI | `/flows` com listagem, criação, publicação | M |
 | **S4** ✅ | Flow Triggers Engine | Mensagem "oi" ativa flow correto, estado salvo no banco | M |
-| **S5** | Memory + Greeting | Lead novo é saudado, nome coletado e persistido entre msgs | M |
+| **S5** ✅ | Memory + Greeting | Lead novo é saudado, nome coletado e persistido entre msgs | M |
 | **S6** | Qualification | Lead responde perguntas, `smart_fill`, `post_action` avança | G |
 | **S7** | Intent Detector | "qro tinta" → `produto` com confidence 0.95, 3 camadas | M |
 | **S8** | Sales + Support | Carrossel de produtos; FAQ sem LLM, handoff se confidence<0.8 | M |
@@ -71,12 +71,17 @@ updated: 2026-04-12
 
 **Critério:** `SELECT * FROM flow_states WHERE lead_id = $LEAD` retorna 1 row `status=active` após "oi" ✅ validado via curl.
 
-### S5: Memory Service + Greeting Subagent
-**`services/memory.ts`:** `loadLeadContext()` + `saveSessionMemory()` (usa RPC `upsert_lead_short_memory`) + `updateLeadLongMemory()`
+### S5: Memory Service + Greeting Subagent ✅ COMPLETO (2026-04-12, commit 935fb3f)
 
-**`subagents/greeting.ts` — P0 (6 sub-params):** Estado `waiting_name` em `step_data`; nome extraído da próxima msg → `lead_profiles.name` + `long_memory`; `context_depth: minimal` (0 tokens); `sessions_count===0` → novo | `>0` → retornante
+**`services/memory.ts`:** `loadMemory` (short+long) | `saveShortMemory` (RPC `upsert_lead_short_memory`, TTL 1h) | `upsertLongMemory` (RPC `upsert_lead_long_memory` — fix B#2 PostgREST) | `saveLeadName`
 
-**Contrato:** `SubagentInput<GreetingConfig>` → `GreetingResult extends SubagentResult`
+**`subagents/greeting.ts` — P0 (6 sub-params):** 4 casos: B=retornante (sessionsCount>0+nome→known_lead_message) | C=novo com nome→greeting personalizado | D=sem nome→ask_name+waiting_for:'name' | A=coleta nome→extractName (patterns BR + heurística ≤40chars)
+
+**`services/index.ts`:** Memory real. `detectIntents`/`validateResponse`/`trackMetrics` stubs (S7/S8/S9).
+
+**3 bugs corrigidos:** B#1 getStepType lia `step_type` (undefined) | B#2 PostgREST onConflict falha (R36) | B#3 `step_data:{}` sobrescreve DEFAULT banco (R37+R38). Migration `20260415000001`.
+
+**E2E validado:** sessions_count++ | greeting+UAZAPI | pede nome | extrai nome ASCII → full_name+long_memory.profile ✅
 
 ### S6: Qualification Subagent *(maior sprint — complexidade G)*
 **`subagents/qualification.ts` — P1 (10 sub-params):**
