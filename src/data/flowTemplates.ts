@@ -165,3 +165,315 @@ export const TEMPLATE_CATEGORIES = [
   { id: 'atendimento', label: 'Atendimento' },
   { id: 'nicho', label: 'Nicho' },
 ]
+
+// ── Tipos para instalação via RPC install_flow_template ──────────────────────
+
+export interface FlowInstallStep {
+  subagent_type: string
+  position: number
+  step_config: Record<string, unknown>
+  exit_rules: Array<{
+    trigger: string
+    value?: number | string
+    message?: string
+    action: string
+  }>
+  is_active: boolean
+}
+
+export interface FlowInstallTrigger {
+  trigger_type: string
+  trigger_config: Record<string, unknown>
+  priority: number
+  is_active: boolean
+}
+
+export interface FlowInstallDefinition {
+  template_id: string
+  default_name: string
+  default_slug: string
+  description: string
+  steps: FlowInstallStep[]
+  triggers: FlowInstallTrigger[]
+}
+
+// ── 4 Templates MVP instaláveis com 1 clique ─────────────────────────────────
+
+export const FLOW_INSTALL_DEFINITIONS: Record<string, FlowInstallDefinition> = {
+  vitrine: {
+    template_id: 'vitrine',
+    default_name: 'Vitrine de Produtos',
+    default_slug: 'vitrine-de-produtos',
+    description: 'Atendimento automático com catálogo, busca inteligente e pesquisa NPS ao final.',
+    triggers: [
+      {
+        trigger_type: 'message_received',
+        trigger_config: {},
+        priority: 10,
+        is_active: true,
+      },
+    ],
+    steps: [
+      {
+        subagent_type: 'greeting',
+        position: 0,
+        step_config: {
+          greeting_message: 'Ola! Bem-vindo a nossa loja! Como posso ajudar?',
+          collect_name: true,
+          context_depth: 'minimal',
+        },
+        exit_rules: [
+          { trigger: 'max_messages', value: 3, action: 'next_step' },
+          { trigger: 'greeting_done', action: 'next_step' },
+        ],
+        is_active: true,
+      },
+      {
+        subagent_type: 'sales',
+        position: 1,
+        step_config: {
+          recommendation_mode: 'smart',
+          max_products_per_search: 5,
+          max_search_failures: 3,
+          enable_follow_up_llm: true,
+          auto_tag_interest: true,
+        },
+        exit_rules: [
+          { trigger: 'max_messages', value: 15, action: 'next_step' },
+          { trigger: 'search_fail', value: 3, message: 'Vou transferir para um atendente.', action: 'handoff_human' },
+        ],
+        is_active: true,
+      },
+      {
+        subagent_type: 'survey',
+        position: 2,
+        step_config: {
+          questions: [
+            {
+              text: 'De 0 a 10, como foi o atendimento?',
+              options: ['0','1','2','3','4','5','6','7','8','9','10'],
+              type: 'poll',
+              is_nps: true,
+            },
+          ],
+          completion_message: 'Obrigado pela avaliacao!',
+          post_action: 'next_step',
+        },
+        exit_rules: [{ trigger: 'survey_complete', action: 'next_step' }],
+        is_active: true,
+      },
+      {
+        subagent_type: 'handoff',
+        position: 3,
+        step_config: { briefing_depth: 'standard' },
+        exit_rules: [
+          { trigger: 'immediate', message: 'Transferindo para um atendente. Obrigado!', action: 'handoff_human' },
+        ],
+        is_active: true,
+      },
+    ],
+  },
+
+  'sdr-bant': {
+    template_id: 'sdr-bant',
+    default_name: 'SDR BANT',
+    default_slug: 'sdr-bant',
+    description: 'Qualificação de leads BANT e handoff automático para vendedor.',
+    triggers: [
+      {
+        trigger_type: 'message_received',
+        trigger_config: {},
+        priority: 10,
+        is_active: true,
+      },
+    ],
+    steps: [
+      {
+        subagent_type: 'greeting',
+        position: 0,
+        step_config: {
+          greeting_message: 'Ola! Que bom que voce entrou em contato. Vou te ajudar!',
+          collect_name: true,
+          context_depth: 'minimal',
+        },
+        exit_rules: [
+          { trigger: 'max_messages', value: 2, action: 'next_step' },
+          { trigger: 'greeting_done', action: 'next_step' },
+        ],
+        is_active: true,
+      },
+      {
+        subagent_type: 'qualification',
+        position: 1,
+        step_config: {
+          mode: 'fixed',
+          smart_fill: true,
+          questions: [
+            { key: 'nome', label: 'Qual seu nome?', type: 'text', required: true },
+            { key: 'empresa', label: 'Qual sua empresa?', type: 'text', required: true },
+            { key: 'orcamento', label: 'Qual seu orcamento aproximado?', type: 'currency_brl', required: true },
+            { key: 'prazo', label: 'Quando pretende comprar?', type: 'select', required: true,
+              options: ['Este mes', 'Proximo trimestre', 'Sem prazo'] },
+          ],
+          required_count: 4,
+          fallback_retries: 2,
+        },
+        exit_rules: [
+          { trigger: 'qualification_complete', action: 'next_step' },
+          { trigger: 'max_messages', value: 10, message: 'Vou chamar nosso time de vendas.', action: 'handoff_human' },
+        ],
+        is_active: true,
+      },
+      {
+        subagent_type: 'handoff',
+        position: 2,
+        step_config: { briefing_depth: 'full' },
+        exit_rules: [
+          { trigger: 'immediate', message: 'Perfeito! Transferindo para um especialista. Ate ja!', action: 'handoff_human' },
+        ],
+        is_active: true,
+      },
+    ],
+  },
+
+  suporte: {
+    template_id: 'suporte',
+    default_name: 'Suporte Técnico',
+    default_slug: 'suporte-tecnico',
+    description: 'Triagem com base de conhecimento, handoff automático e NPS.',
+    triggers: [
+      {
+        trigger_type: 'intent',
+        trigger_config: { intents: ['suporte', 'reclamacao'], min_confidence: 70 },
+        priority: 20,
+        is_active: true,
+      },
+    ],
+    steps: [
+      {
+        subagent_type: 'greeting',
+        position: 0,
+        step_config: {
+          greeting_message: 'Ola! Sou o assistente de suporte. Como posso ajudar?',
+          collect_name: false,
+          context_depth: 'minimal',
+        },
+        exit_rules: [
+          { trigger: 'max_messages', value: 2, action: 'next_step' },
+          { trigger: 'greeting_done', action: 'next_step' },
+        ],
+        is_active: true,
+      },
+      {
+        subagent_type: 'support',
+        position: 1,
+        step_config: {
+          confidence_high: 0.80,
+          confidence_medium: 0.50,
+          max_unanswered: 2,
+          enable_llm_formulation: true,
+        },
+        exit_rules: [
+          { trigger: 'max_messages', value: 10, action: 'next_step' },
+          { trigger: 'unanswered', value: 2, message: 'Vou transferir para um especialista.', action: 'handoff_human' },
+        ],
+        is_active: true,
+      },
+      {
+        subagent_type: 'survey',
+        position: 2,
+        step_config: {
+          questions: [
+            {
+              text: 'De 0 a 10, como foi o suporte?',
+              options: ['0','1','2','3','4','5','6','7','8','9','10'],
+              type: 'poll',
+              is_nps: true,
+            },
+          ],
+          completion_message: 'Obrigado pela avaliacao!',
+          post_action: 'next_step',
+        },
+        exit_rules: [{ trigger: 'survey_complete', action: 'next_step' }],
+        is_active: true,
+      },
+      {
+        subagent_type: 'handoff',
+        position: 3,
+        step_config: { briefing_depth: 'standard' },
+        exit_rules: [
+          { trigger: 'immediate', message: 'Transferindo para atendente. Obrigado pela paciencia!', action: 'handoff_human' },
+        ],
+        is_active: true,
+      },
+    ],
+  },
+
+  'pos-venda': {
+    template_id: 'pos-venda',
+    default_name: 'Pós-Venda',
+    default_slug: 'pos-venda',
+    description: 'NPS pós-compra, pergunta aberta e follow-up automático em 7 dias.',
+    triggers: [
+      {
+        trigger_type: 'tag_added',
+        trigger_config: { tag: 'etapa:pos-venda' },
+        priority: 15,
+        is_active: true,
+      },
+    ],
+    steps: [
+      {
+        subagent_type: 'greeting',
+        position: 0,
+        step_config: {
+          greeting_message: 'Ola! Obrigado pela sua compra. Queremos saber como foi sua experiencia!',
+          known_lead_message: 'Ola, {name}! Obrigado pela sua compra. Como foi a experiencia?',
+          collect_name: false,
+          context_depth: 'minimal',
+        },
+        exit_rules: [
+          { trigger: 'max_messages', value: 2, action: 'next_step' },
+          { trigger: 'greeting_done', action: 'next_step' },
+        ],
+        is_active: true,
+      },
+      {
+        subagent_type: 'survey',
+        position: 1,
+        step_config: {
+          questions: [
+            {
+              text: 'De 0 a 10, qual a chance de nos recomendar?',
+              options: ['0','1','2','3','4','5','6','7','8','9','10'],
+              type: 'poll',
+              is_nps: true,
+            },
+            {
+              text: 'O que podemos melhorar?',
+              options: [],
+              type: 'text',
+            },
+          ],
+          completion_message: 'Muito obrigado pelo feedback!',
+          post_action: 'next_step',
+        },
+        exit_rules: [{ trigger: 'survey_complete', action: 'next_step' }],
+        is_active: true,
+      },
+      {
+        subagent_type: 'followup',
+        position: 2,
+        step_config: {
+          delay_hours: 168,
+          message_template: 'Oi {name}! Voltando para saber se esta tudo certo com sua compra. Podemos ajudar?',
+          max_escalations: 2,
+          escalation_delays: [168, 336],
+          post_action: 'complete',
+        },
+        exit_rules: [{ trigger: 'followup_scheduled', action: 'complete' }],
+        is_active: true,
+      },
+    ],
+  },
+}

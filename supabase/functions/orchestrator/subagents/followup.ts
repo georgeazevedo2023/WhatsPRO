@@ -1,21 +1,26 @@
 // =============================================================================
 // Followup Subagent (S10)
-// Agenda follow-up para entrega futura via tabela flow_followups.
+// Agenda follow-up futuro via step_data. Envia mensagem de despedida imediata
+// e agenda mensagem futura para o cron process-flow-followups.
 //
 // Fluxo:
-//   1. Calcula delay_hours (default 24h) a partir de config ou escalation_delays
+//   1. Calcula delay baseado em escalation_level + escalation_delays
 //   2. Resolve message_template com {name} do lead
-//   3. Insere registro em flow_followups (status='pending')
-//   4. Retorna status='complete' com tag followup:scheduled
+//   3. Armazena followup_scheduled_at + followup_message + followup_sent=false no step_data
+//   4. Retorna status='complete' com farewell message + tag followup:scheduled
+//
+// Estágio 2 (cron process-flow-followups):
+//   - Query: flow_states WHERE step_data->>'followup_scheduled_at' <= now()
+//            AND (step_data->>'followup_sent')::bool IS DISTINCT FROM true
+//   - Envia followup_message via UAZAPI
+//   - Marca followup_sent = true, avança step
 //
 // Regras:
-//   - Usa createServiceClient para INSERT direto
-//   - NUNCA envia o follow-up imediatamente — apenas agenda
-//   - Track followup_id + scheduled_for no step_data
+//   - NUNCA insere em flow_followups (tabela exclusiva do Shadow Mode)
+//   - SEMPRE armazena schedule em step_data (R36: PostgREST onConflict não funciona por colunas)
 //   - Respeita max_escalations para evitar spam
 // =============================================================================
 
-import { createServiceClient } from '../../_shared/supabaseClient.ts'
 import type { SubagentInput, SubagentResult } from '../types.ts'
 
 // ── Config do subagente Followup ────────────────────────────────────────────
@@ -23,7 +28,7 @@ import type { SubagentInput, SubagentResult } from '../types.ts'
 export interface FollowupConfig {
   delay_hours?: number            // default: 24 (envia follow-up após 24h)
   message_template?: string       // "Oi {name}, tudo bem? Voltando sobre..."
-  max_escalations?: number        // default: 3 (desiste após 3 tentativas)
+  max_escalations?: number        // default: 3 (desiste após 3 tentativas sem resposta)
   escalation_delays?: number[]    // [24, 48, 168] horas entre tentativas
   post_action?: 'complete' | 'tag_and_close'  // default: 'complete'
 }
@@ -50,7 +55,7 @@ export async function followupSubagent(
   const messageTemplate  = config.message_template ?? DEFAULTS.message_template
   const postAction       = config.post_action ?? 'complete'
 
-  // ── Verifica escalation level atual ────────────────────────────────────────
+  // ── Verifica nível de escalation atual ──────────────────────────────────
   const currentLevel = (flow_state.step_data.escalation_level as number) ?? 0
 
   if (currentLevel >= maxEscalations) {
@@ -63,66 +68,35 @@ export async function followupSubagent(
     }
   }
 
-  // ── Calcula delay baseado no nivel de escalation ───────────────────────────
+  // ── Calcula delay baseado no nível de escalation ─────────────────────────
   const effectiveDelay = currentLevel < escalationDelays.length
     ? escalationDelays[currentLevel]
     : delayHours
 
-  // ── Resolve template com dados do lead ─────────────────────────────────────
+  // ── Resolve template com dados do lead ───────────────────────────────────
   const leadName = lead.lead_name ?? ''
-  const suggestedMessage = personalize(messageTemplate, leadName)
+  const followupMessage = personalize(messageTemplate, leadName)
 
-  // ── Calcula data agendada ──────────────────────────────────────────────────
+  // ── Calcula data agendada ─────────────────────────────────────────────────
   const scheduledFor = new Date(Date.now() + effectiveDelay * 60 * 60 * 1000).toISOString()
 
-  // ── Insere na flow_followups ───────────────────────────────────────────────
-  const supabase = createServiceClient()
-
-  const { data: followup, error } = await supabase
-    .from('flow_followups')
-    .insert({
-      instance_id: flow_state.instance_id,
-      conversation_id: context.input.conversation_id,
-      lead_id: lead.lead_id,
-      detection_type: 'flow_followup',
-      suggested_date: scheduledFor,
-      suggested_message: suggestedMessage,
-      status: 'pending',
-      escalation_level: currentLevel,
-      score_decay_rate: 2,
-    })
-    .select('id')
-    .single()
-
-  if (error) {
-    console.error('[followup] insert error:', error.message)
-    return {
-      status: 'error',
-      error: `followup_insert_failed: ${error.message}`,
-      step_data_patch: { last_subagent: 'followup' },
-    }
-  }
-
-  const followupId = followup?.id ?? null
-
   console.log(
-    `[followup] scheduled: id=${followupId}, lead=${lead.lead_id}, delay=${effectiveDelay}h, level=${currentLevel}`,
+    `[followup] scheduled: lead=${lead.lead_id}, delay=${effectiveDelay}h, at=${scheduledFor}, level=${currentLevel}`,
   )
 
-  // ── Monta resultado ────────────────────────────────────────────────────────
-  const status = postAction === 'tag_and_close' ? 'complete' : 'complete'
-
+  // ── Monta resultado — armazena no step_data, cron envia depois ─────────
   const tags: string[] = ['followup:scheduled']
   if (postAction === 'tag_and_close') {
     tags.push('followup:closed')
   }
 
   return {
-    status,
+    status: 'complete',
     response_text: DEFAULTS.farewell,
     step_data_patch: {
-      followup_id: followupId,
-      scheduled_for: scheduledFor,
+      followup_scheduled_at: scheduledFor,
+      followup_message: followupMessage,
+      followup_sent: false,
       escalation_level: currentLevel + 1,
       last_subagent: 'followup',
     },
@@ -130,7 +104,7 @@ export async function followupSubagent(
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function personalize(template: string, name: string): string {
   return template.replace(/\{name\}/g, name).trim()

@@ -674,6 +674,47 @@ async function sendCarouselToLead(
   return false
 }
 
+// ── S10: Envia lista/menu via UAZAPI /send/menu (type: list) ────────────────
+
+async function sendMenuToLead(
+  token: string,
+  leadJid: string,
+  text: string,
+  choices: string[],
+  title?: string,
+  footer?: string,
+): Promise<boolean> {
+  const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') ?? 'https://wsmart.uazapi.com'
+
+  try {
+    const body: Record<string, unknown> = {
+      number: leadJid,
+      text,
+      choices,
+      type: 'list',
+    }
+    if (title) body.title = title
+    if (footer) body.footer = footer
+
+    const res = await fetchWithTimeout(`${uazapiUrl}/send/menu`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', token },
+      body: JSON.stringify(body),
+    }, 10000)
+
+    if (!res.ok) {
+      const errBody = await res.text()
+      console.error('[orchestrator] sendMenu UAZAPI error:', res.status, errBody)
+      return false
+    }
+    console.log('[orchestrator] sendMenu OK:', leadJid)
+    return true
+  } catch (err) {
+    console.error('[orchestrator] sendMenu fetch error:', err)
+    return false
+  }
+}
+
 // ── S10: Envia poll via UAZAPI /send/menu (type: poll) ──────────────────────
 
 async function sendPollToLead(
@@ -751,6 +792,12 @@ async function handleMediaSend(
     mediaType = 'poll'
     mediaUrl = JSON.stringify({ question, options: media.poll_options })
     msgContent = question
+  } else if (media.type === 'menu' && media.poll_options?.length) {
+    const text = media.caption ?? ''
+    sent = await sendMenuToLead(token, leadJid, text, media.poll_options, media.menu_title, media.menu_footer)
+    mediaType = 'menu'
+    mediaUrl = JSON.stringify({ text, choices: media.poll_options })
+    msgContent = text
   }
 
   // INSERT conversation_messages + broadcastEvent (mesmo padrão do ai-agent)

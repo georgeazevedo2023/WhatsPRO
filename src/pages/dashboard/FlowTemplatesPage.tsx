@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Zap, Layers, AlertTriangle, X } from 'lucide-react'
+import { ArrowLeft, Zap, Layers, AlertTriangle, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -10,21 +10,53 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { FLOW_TEMPLATES, TEMPLATE_CATEGORIES } from '@/data/flowTemplates'
+import { toast } from 'sonner'
+import { FLOW_TEMPLATES, TEMPLATE_CATEGORIES, FLOW_INSTALL_DEFINITIONS } from '@/data/flowTemplates'
 import { TRIGGER_TYPE_LABELS } from '@/types/flows'
 import type { FlowTemplate } from '@/data/flowTemplates'
+import { useInstallTemplate } from '@/hooks/useInstallTemplate'
+import { useInstances } from '@/hooks/useInstances'
 
 export default function FlowTemplatesPage() {
   const navigate = useNavigate()
   const [category, setCategory] = useState<string>('todos')
   const [preview, setPreview] = useState<FlowTemplate | null>(null)
+  const [installingId, setInstallingId] = useState<string | null>(null)
+
+  const { instances } = useInstances()
+  const { mutate: installTemplate } = useInstallTemplate()
 
   const filtered = category === 'todos'
     ? FLOW_TEMPLATES
     : FLOW_TEMPLATES.filter((t) => t.category === category)
 
   const handleUseTemplate = (template: FlowTemplate) => {
-    navigate(`/dashboard/flows/new/wizard?mode=form&template=${template.id}`)
+    const isInstallable = !!FLOW_INSTALL_DEFINITIONS[template.id]
+
+    if (isInstallable) {
+      const instanceId = instances?.[0]?.id
+      if (!instanceId) {
+        toast.error('Nenhuma instância disponível. Configure uma instância primeiro.')
+        return
+      }
+      setInstallingId(template.id)
+      installTemplate(
+        { templateId: template.id, instanceId },
+        {
+          onSuccess: (flowId) => {
+            setPreview(null)
+            toast.success(`"${template.name}" instalado com sucesso!`)
+            navigate(`/dashboard/flows/${flowId}`)
+          },
+          onError: (err) => {
+            toast.error(`Erro ao instalar: ${err instanceof Error ? err.message : 'Tente novamente.'}`)
+          },
+          onSettled: () => setInstallingId(null),
+        },
+      )
+    } else {
+      navigate(`/dashboard/flows/new/wizard?mode=form&template=${template.id}`)
+    }
   }
 
   return (
@@ -83,7 +115,12 @@ export default function FlowTemplatesPage() {
                 </span>
               </div>
 
-              {template.compatibility_warnings?.length ? (
+              {FLOW_INSTALL_DEFINITIONS[template.id] ? (
+                <div className="flex items-center gap-1 text-xs text-green-700 bg-green-50 rounded p-2 mb-3">
+                  <Zap className="h-3 w-3 shrink-0" />
+                  Instala em 1 clique
+                </div>
+              ) : template.compatibility_warnings?.length ? (
                 <div className="flex items-center gap-1 text-xs text-yellow-700 bg-yellow-50 rounded p-2 mb-3">
                   <AlertTriangle className="h-3 w-3 shrink-0" />
                   {template.compatibility_warnings[0]}
@@ -102,9 +139,12 @@ export default function FlowTemplatesPage() {
                 <Button
                   size="sm"
                   className="flex-1 text-xs"
+                  disabled={installingId === template.id}
                   onClick={() => handleUseTemplate(template)}
                 >
-                  Usar
+                  {installingId === template.id ? (
+                    <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Instalando...</>
+                  ) : FLOW_INSTALL_DEFINITIONS[template.id] ? 'Instalar' : 'Usar'}
                 </Button>
               </div>
             </div>
@@ -172,8 +212,14 @@ export default function FlowTemplatesPage() {
                 </div>
               ) : null}
 
-              <Button className="w-full" onClick={() => handleUseTemplate(preview)}>
-                Usar este template
+              <Button
+                className="w-full"
+                disabled={installingId === preview.id}
+                onClick={() => handleUseTemplate(preview)}
+              >
+                {installingId === preview.id ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Instalando...</>
+                ) : FLOW_INSTALL_DEFINITIONS[preview.id] ? '⚡ Instalar agora' : 'Usar este template'}
               </Button>
             </div>
           )}
