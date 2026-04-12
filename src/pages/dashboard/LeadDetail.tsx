@@ -403,7 +403,9 @@ const LeadDetail = () => {
   const kpiItens = [...new Set([...kpiProdutos, ...kpiInteresses])];
   const kpiProdutoFalta = tags.find(t => t.startsWith('marca_indisponivel:'))?.split(':').slice(1).join(':').replace(/_/g, ' ').replace(/,\s*/g, ', ') ?? null;
   const kpiTipoCliente = tags.find(t => t.startsWith('tipo_cliente:'))?.split(':').slice(1).join(':').replace(/_/g, ' ') ?? extractedData['tipo_cliente'] ?? null;
-  const kpiAtendidoIA = tags.some(t => t === 'ia:shadow') ? 'Shadow' : (tags.some(t => t.startsWith('motivo:') || t.startsWith('produto:') || t.startsWith('interesse:')) ? 'Sim' : 'Não');
+  // Shadow/IA check usa APENAS tags da conversa mais recente (não agregadas — evita herdar ia:shadow de conversas antigas)
+  const latestConvTags = latestConv?.tags ?? [];
+  const kpiAtendidoIA = latestConvTags.some(t => t.startsWith('ia:shadow')) ? 'Shadow' : (latestConvTags.some(t => t.startsWith('motivo:') || t.startsWith('produto:') || t.startsWith('interesse:')) ? 'Sim' : 'Não');
   const fmtKpi = (iso: string | null | undefined, mode: 'time' | 'date') => {
     if (!iso) return '—';
     return mode === 'time'
