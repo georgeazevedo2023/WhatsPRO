@@ -9,6 +9,55 @@ type: log
 
 ## 2026-04-12
 
+### S8+S9+S10 COMPLETOS — commits 943caff + 0d3f228
+
+**Commit 1 (943caff): S8+S9 — Sales/Support/Validator/Metrics/Shadow + S10 subagentes backend**
+
+S8 — Sales + Support Subagents (já existiam como ??, formalizados):
+- `subagents/sales.ts` (358 linhas): busca 3 camadas (ILIKE→AND→fuzzy RPC), 1 foto→send/media, 2+→carousel, `products_shown[]` anti-repetição, follow-up LLM leve, exit rules, 8 sub-params
+- `subagents/support.ts` (227 linhas): word overlap scoring, 3 faixas confiança (>=0.80/0.50/0), `unanswered_count`→handoff, 5 sub-params
+- `services/intentDetector.ts` (S7 não commitado, incluído aqui)
+
+S9 — Validator + Metrics + Shadow (já existiam como ??, formalizados):
+- `services/validator.ts` (230 linhas): 10 checks sem LLM (size/language/prompt_leak/price/repetition/greeting/name_freq/emoji/markdown/pii), 3 ações (pass/correct/block), 3 falhas→auto handoff
+- `services/metrics.ts` (55 linhas): createTimer→6 marks→finalize, `flow_events.timing_breakdown+cost_breakdown`
+- `stateManager.ts`: logFlowEvent aceita timingBreakdown+costBreakdown opcionais
+- `index.ts`: shadow gate, corrected_text no send, last_response salvo, validator_failures tracking
+
+S10 subagentes backend:
+- `subagents/survey.ts`: multi-question poll, fuzzy match opções, NPS tags auto, retry/skip per pergunta
+- `subagents/followup.ts` (versão CORRIGIDA — ver bug abaixo): armazena schedule em step_data, sem flow_followups
+- `subagents/handoff.ts`: briefing minimal/standard/full, department/assign, tags handoff:X
+- `orchestrator/templates.ts`: 4 templates backend (Vitrine/SDR-BANT/Suporte/Pós-Venda)
+- `migrations/20260415000003_install_flow_template.sql`: RPC atômica install_flow_template (rollback, p_publish)
+- `subagents/index.ts`: wiring completo survey+followup+handoff → handlers reais
+
+**Bug encontrado e corrigido: followup.ts usava flow_followups com CHECK constraint inválida**
+- `flow_followups.detection_type` só aceita 7 valores de shadow mode — `'flow_followup'` violava o constraint
+- Solução: armazenar schedule em `step_data` (followup_scheduled_at, followup_message, followup_sent)
+- R44 adicionado em erros-e-licoes.md
+
+**Commit 2 (0d3f228): S10 completo — Templates instalaveis + Menu Media + Cron Followup**
+
+Templates 1-clique:
+- `src/data/flowTemplates.ts`: FlowInstallDefinition + FLOW_INSTALL_DEFINITIONS (4 MVPs com steps/triggers/config completos)
+- `src/hooks/useInstallTemplate.ts`: mutation → RPC `install_flow_template`, retorna UUID do flow criado
+- `FlowTemplatesPage.tsx`: badge "Instala em 1 clique" (verde), botão "Instalar" com Loader2 loading state, navega para `/flows/:id` após sucesso
+
+Menu media (UAZAPI /send/menu type:list):
+- `orchestrator/index.ts`: `sendMenuToLead()` com title/footer opcionais
+- `handleMediaSend`: case `'menu'` → `sendMenuToLead(token, jid, text, choices, title, footer)`
+
+Cron `process-flow-followups`:
+- `supabase/functions/process-flow-followups/index.ts`: cron horário (verifyCronOrService)
+- Query: `flow_states` WHERE `followup_scheduled_at <= now()` AND `followup_sent != true` AND `subagent_type=followup`
+- Busca jid via `lead_profiles→contacts`, token via `instances`
+- Envia `/send/text`, marca `followup_sent=true`, executa post_action (next_step/complete/handoff)
+
+**tsc --noEmit = 0 erros em ambos os commits ✅**
+
+---
+
 ### S11 COMPLETO — Conversa Guiada + FlowEditor (commit 15007ff)
 
 **Método:** 3 agentes paralelos (A1 backend, A2 steps panel, A3 UI avançada) + integração main.

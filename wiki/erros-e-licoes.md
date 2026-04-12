@@ -54,6 +54,7 @@ updated: 2026-04-12
 | 41 | `FORM_TEMPLATES` é `FormTemplate[]` (array) — NUNCA acessar como `Record<string, T>[key]`. Usar `.find(t => t.type === key)` | Frontend |
 | 42 | `.single()` em queries de top-level (ai_agents, conversations, contacts) crasha se ID inválido — SEMPRE `.maybeSingle()` + null check nas queries principais do ai-agent | Edge Fn |
 | 43 | `useEffect` dependency array DEVE incluir todos os campos usados no efeito, não só o `.id` — campos diferentes com mesmo id não disparam re-sync | React |
+| 44 | `flow_followups.detection_type` tem CHECK com 7 valores de shadow mode — NUNCA inserir `'flow_followup'` ou qualquer valor fora da lista. Followups do orquestrador DEVEM usar `step_data` (followup_scheduled_at + followup_message + followup_sent) | Orchestrator |
 
 ---
 

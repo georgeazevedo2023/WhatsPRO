@@ -18,7 +18,7 @@ updated: 2026-04-12
 | M14 Bio Link | ✅ Shipped (2026-04-06) | Linktree-style: 3 templates, 5 tipos de botão, agendamento, produto do catálogo, opções visuais, captação de leads, contexto AI, analytics |
 | M15 Integração Funis F1+F2 | ✅ Shipped (2026-04-07) | Bio→Lead real, leadHelper shared, bio_context AI Agent, badge origem, journey timeline, "Usado em" forms, campaign leads |
 | M16 Funis (Fusao Total) F1-F5 | ✅ Shipped (2026-04-07) | Tabela funnels, sidebar unificada (3→1), wizard auto-criacao 7 tipos, `<funnel_context>` AI Agent, handoff por funil, tag funil:SLUG em 3 edge functions, FunnelDetail com metricas+kanban, OriginBadge funil, import recursos existentes |
-| **M18 Fluxos v3.0** | 🟡 S11 ✅ → S12 próximo | Unifica 17 módulos em experiência "Fluxos". 12 sprints (S1-S12). S1-S9 ✅ S11 ✅. S10 pendente (survey/followup/handoff backend). Próximo: S12 Métricas + E2E + Migração. Sprints: [[wiki/fluxos-roadmap-sprints]] |
+| **M18 Fluxos v3.0** | 🟡 S10+S11 ✅ → S12 próximo | Unifica 17 módulos em experiência "Fluxos". 12 sprints (S1-S12). S1-S11 ✅ (todos). Próximo: S12 Métricas + E2E + Migração por instância. Sprints: [[wiki/fluxos-roadmap-sprints]] |
 
 ## Milestone 2: Agent QA Framework (concluído)
 
