@@ -1,12 +1,12 @@
 // =============================================================================
-// Context Builder (S2 — skeleton)
-// Monta FlowContext a partir do lead, flow_state, step_config e exit_rules.
-// S2: busca dados básicos do lead e do step (sem memória).
-// S5: Memory Service injeta short_memory + long_memory aqui.
+// Context Builder (S5)
+// Monta FlowContext a partir do lead, flow_state, step_config, exit_rules
+// e memória curta/longa (Memory Service real — S5).
 // =============================================================================
 
 import { createServiceClient } from '../../_shared/supabaseClient.ts'
 import type { ActiveFlowState, FlowContext, LeadContext, ExitRule, OrchestratorInput } from '../types.ts'
+import { loadMemory } from '../services/memory.ts'
 
 const supabase = createServiceClient()
 
@@ -16,16 +16,21 @@ export async function buildContext(
   input: OrchestratorInput,
   state: ActiveFlowState,
 ): Promise<FlowContext | null> {
-  const [lead, stepConfig, exitRules] = await Promise.all([
+  const [lead, stepConfig, exitRules, memory] = await Promise.all([
     fetchLeadContext(state.lead_id),
     fetchStepConfig(state.flow_step_id),
     fetchExitRules(state.flow_step_id),
+    loadMemory(state.lead_id, state.instance_id),   // S5: Memory Service real
   ])
 
   if (!lead) {
     console.error('[contextBuilder] Lead not found:', state.lead_id)
     return null
   }
+
+  // S5: injeta memória no contexto do lead
+  lead.short_memory = memory.short_memory
+  lead.long_memory  = memory.long_memory
 
   return {
     input,
@@ -45,7 +50,7 @@ export async function buildContext(
 async function fetchLeadContext(leadId: string): Promise<LeadContext | null> {
   const { data: profile } = await supabase
     .from('lead_profiles')
-    .select('id, full_name, contact_id, custom_fields, tags, origin, contacts(phone, name)')
+    .select('id, full_name, contact_id, custom_fields, tags, origin, contacts(phone, name, jid)')
     .eq('id', leadId)
     .maybeSingle()
 
@@ -53,18 +58,19 @@ async function fetchLeadContext(leadId: string): Promise<LeadContext | null> {
 
   const contact = Array.isArray(profile.contacts)
     ? profile.contacts[0]
-    : profile.contacts as { phone?: string; name?: string } | null
+    : profile.contacts as { phone?: string; name?: string; jid?: string } | null
 
   return {
     lead_id: profile.id,
     lead_name: profile.full_name ?? contact?.name ?? null,
     lead_phone: contact?.phone ?? '',
+    lead_jid: contact?.jid ?? '',   // S5: usado pelo sendToLead em UAZAPI
     custom_fields: (profile.custom_fields as Record<string, unknown>) ?? {},
     tags: Array.isArray(profile.tags)
       ? (profile.tags as string[])
       : Object.keys((profile.tags as Record<string, unknown>) ?? {}),
     origin: profile.origin ?? null,
-    // short_memory / long_memory: injetados pelo Memory Service (S5)
+    // short_memory / long_memory: injetados após esta chamada em buildContext
   }
 }
 
@@ -75,12 +81,18 @@ async function fetchStepConfig(stepId: string | null): Promise<Record<string, un
 
   const { data: step } = await supabase
     .from('flow_steps')
-    .select('subagent_type, step_config, exit_rules')   // Fix: era step_type (não existe)
+    .select('subagent_type, step_config, exit_rules')
     .eq('id', stepId)
     .maybeSingle()
 
   if (!step) return {}
-  return (step.step_config as Record<string, unknown>) ?? {}
+
+  // Injeta subagent_type no step_config para que getStepType() possa lê-lo
+  // (subagent_type é coluna separada — não fica dentro do JSONB step_config)
+  return {
+    subagent_type: step.subagent_type ?? null,
+    ...((step.step_config as Record<string, unknown>) ?? {}),
+  }
 }
 
 // ── Busca exit_rules do step atual ───────────────────────────────────────────

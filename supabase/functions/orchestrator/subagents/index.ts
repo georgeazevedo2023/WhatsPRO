@@ -1,20 +1,22 @@
 // =============================================================================
-// Subagents Router (S2 — stubs)
-// Despacha para o subagente correto baseado em step_type.
-// S2: todos os subagentes retornam stub (continue, sem mensagem).
+// Subagents Router (S5)
+// Despacha para o subagente correto baseado em subagent_type do step.
+// S5: greeting REAL. Demais: stubs.
 // Implementações reais por sprint:
-//   S5: greeting | S6: qualification | S7: sales | S8: support
-//   S9: survey   | S10: followup     | S11: handoff | S12: custom
+//   S5: greeting ✅ | S6: qualification | S7: sales | S8: support
+//   S9: survey      | S10: followup     | S11: handoff | S12: custom
 // =============================================================================
 
 import type { FlowContext, SubagentResult } from '../types.ts'
+import { greetingSubagent } from './greeting.ts'
+import type { GreetingConfig } from './greeting.ts'
 
-// ── Mapa de step_type → handler ───────────────────────────────────────────────
+// ── Mapa de subagent_type → handler ──────────────────────────────────────────
 
 type SubagentDispatcher = (ctx: FlowContext) => Promise<SubagentResult>
 
 const SUBAGENT_MAP: Record<string, SubagentDispatcher> = {
-  greeting: stubSubagent('greeting'),
+  greeting: (ctx) => greetingSubagent({ context: ctx, config: (ctx.step_config as GreetingConfig) ?? {} }),
   qualification: stubSubagent('qualification'),
   sales: stubSubagent('sales'),
   support: stubSubagent('support'),
@@ -45,8 +47,8 @@ export async function dispatchSubagent(context: FlowContext): Promise<SubagentRe
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getStepType(context: FlowContext): string {
-  // step_config pode conter step_type ou inferir do flow_state
-  return (context.step_config.step_type as string) ?? 'custom'
+  // subagent_type é injetado em step_config pelo contextBuilder (coluna separada no DB)
+  return (context.step_config.subagent_type as string) ?? 'custom'
 }
 
 /** Cria stub dispatcher que loga e retorna continue sem response_text */

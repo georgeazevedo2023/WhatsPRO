@@ -55,6 +55,7 @@ export interface LeadContext {
   lead_id: string
   lead_name: string | null
   lead_phone: string
+  lead_jid: string        // WhatsApp JID (ex: 5511999999999@s.whatsapp.net) — preenchido em S5
   custom_fields: Record<string, unknown>
   tags: string[]
   origin: string | null

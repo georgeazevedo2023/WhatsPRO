@@ -36,7 +36,8 @@ export async function createFlowState(
       flow_version: flowVersion,
       flow_step_id: firstStepId,
       status: 'active',
-      step_data: {},
+      // Não passa step_data: deixa o DEFAULT do banco aplicar
+      // { message_count:0, total_message_count:0, ... } — evita undefined em checks
       ...(conversationId ? { conversation_id: conversationId } : {}),
     })
     .select('*')

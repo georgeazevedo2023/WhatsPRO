@@ -1,14 +1,16 @@
 // =============================================================================
-// Services — Stubs S2
-// Interface pública dos serviços do Orchestrator.
-// S2: stubs que retornam dados vazios / passam direto.
-// Implementações reais: Memory (S5), IntentDetector (S7), Validator (S8),
-//                       Metrics (S9), Shadow (S11)
+// Services — Interface pública dos serviços do Orchestrator.
+// Memory (S5 — REAL), IntentDetector (S7 — stub), Validator (S8 — stub),
+// Metrics (S9 — stub), Shadow (S11 — stub)
 // =============================================================================
 
 import type { FlowContext, SubagentResult } from '../types.ts'
+import {
+  loadMemory as _loadMemory,
+  saveShortMemory as _saveShortMemory,
+} from './memory.ts'
 
-// ── Memory Service (S5) ───────────────────────────────────────────────────────
+// ── Memory Service (S5 — REAL) ────────────────────────────────────────────────
 
 export interface MemorySnapshot {
   short_memory: Record<string, unknown>
@@ -17,22 +19,22 @@ export interface MemorySnapshot {
 
 /**
  * Carrega memória curta e longa do lead.
- * S2: stub — retorna objetos vazios.
- * S5: lê lead_memory (short) e lead_long_memory (long).
+ * S5: lê lead_memory WHERE memory_type IN ('short','long') AND não expirada.
  */
-export async function loadMemory(_leadId: string): Promise<MemorySnapshot> {
-  return { short_memory: {}, long_memory: {} }
+export async function loadMemory(leadId: string, instanceId: string): Promise<MemorySnapshot> {
+  return _loadMemory(leadId, instanceId)
 }
 
 /**
- * Salva memória curta após interação.
- * S2: no-op.
+ * Salva memória curta após interação (merge + TTL 1h via RPC).
+ * S5: upsert em lead_memory via upsert_lead_short_memory RPC.
  */
 export async function saveShortMemory(
-  _leadId: string,
-  _patch: Record<string, unknown>,
+  leadId: string,
+  instanceId: string,
+  patch: Record<string, unknown>,
 ): Promise<void> {
-  // S5: upsert em lead_memory
+  return _saveShortMemory(leadId, instanceId, patch)
 }
 
 // ── Intent Detector Service (S7) ─────────────────────────────────────────────

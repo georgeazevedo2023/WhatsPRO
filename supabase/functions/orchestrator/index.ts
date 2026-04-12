@@ -24,8 +24,8 @@ import {
   applySubagentResult,
 } from './config/stateManager.ts'
 import { dispatchSubagent } from './subagents/index.ts'
-import { trackMetrics } from './services/index.ts'
-import type { OrchestratorInput, ActiveFlowState, SubagentResult } from './types.ts'
+import { validateResponse, trackMetrics } from './services/index.ts'
+import type { OrchestratorInput, ActiveFlowState, SubagentResult, FlowContext } from './types.ts'
 
 const supabase = createServiceClient()
 
@@ -119,6 +119,27 @@ Deno.serve(async (req: Request) => {
     // ── Aplica resultado no state ─────────────────────────────────────────────
     await applySubagentResult(state, result)
 
+    // ── Aplica lead_profile_patch (ex: full_name coletado pelo greeting) ──────
+    if (result.lead_profile_patch && Object.keys(result.lead_profile_patch).length > 0) {
+      const { error: patchErr } = await supabase
+        .from('lead_profiles')
+        .update(result.lead_profile_patch)
+        .eq('id', leadId)
+      if (patchErr) {
+        console.error('[orchestrator] lead_profile_patch error:', patchErr.message)
+      }
+    }
+
+    // ── Envia resposta ao lead via UAZAPI (S5+) ───────────────────────────────
+    if (result.response_text && context) {
+      const validation = await validateResponse(result.response_text, context)
+      if (validation.passed) {
+        await sendToLead(input.instance_id, context.lead.lead_jid, result.response_text)
+      } else {
+        console.warn('[orchestrator] validator rejected response:', validation.issues)
+      }
+    }
+
     // ── Log do evento ─────────────────────────────────────────────────────────
     await logFlowEvent(
       state.id,
@@ -180,13 +201,6 @@ Deno.serve(async (req: Request) => {
         break
     }
 
-    // ── S2: NÃO envia mensagem ao lead ────────────────────────────────────────
-    // S5+: validar com validator → chamar UAZAPI send/text
-    // if (result.response_text) {
-    //   const validation = await validateResponse(result.response_text, context)
-    //   if (validation.passed) await sendToLead(input, result.response_text)
-    // }
-
     // ── Métricas (S9) ─────────────────────────────────────────────────────────
     await trackMetrics(resolved.flowId, 'message_processed')
 
@@ -196,8 +210,7 @@ Deno.serve(async (req: Request) => {
         flow_id: resolved.flowId,
         state_id: state.id,
         subagent_status: result.status,
-        // S2: response_text existe no resultado mas não é enviado ao lead
-        _dev_response_text: result.response_text ?? null,
+        message_sent: !!result.response_text,
       },
       200,
       corsHeaders,
@@ -353,6 +366,53 @@ async function resolveLeadId(conversationId: string, instanceId: string): Promis
     .maybeSingle()
 
   return profile?.id ?? null
+}
+
+// ── Envia mensagem de texto ao lead via UAZAPI ────────────────────────────────
+// Busca o token da instância e faz POST em /send/text.
+// Silencia erros (best-effort) — não propaga para não quebrar o fluxo.
+
+async function sendToLead(
+  instanceId: string,
+  leadJid: string,
+  text: string,
+): Promise<void> {
+  if (!leadJid) {
+    console.warn('[orchestrator] sendToLead: leadJid vazio — mensagem não enviada')
+    return
+  }
+
+  // Busca token da instância
+  const { data: instance } = await supabase
+    .from('instances')
+    .select('token')
+    .eq('id', instanceId)
+    .maybeSingle()
+
+  if (!instance?.token) {
+    console.error('[orchestrator] sendToLead: token da instância não encontrado:', instanceId)
+    return
+  }
+
+  const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') ?? 'https://wsmart.uazapi.com'
+  const delay = Math.min(5000, Math.max(1000, text.length * 40))  // typing delay como ai-agent
+
+  try {
+    const res = await fetch(`${uazapiUrl}/send/text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', token: instance.token },
+      body: JSON.stringify({ number: leadJid, text, delay }),
+    })
+
+    if (!res.ok) {
+      const body = await res.text()
+      console.error('[orchestrator] sendToLead UAZAPI error:', res.status, body)
+    } else {
+      console.log('[orchestrator] sendToLead OK:', leadJid, '|', text.slice(0, 40))
+    }
+  } catch (err) {
+    console.error('[orchestrator] sendToLead fetch error:', err)
+  }
 }
 
 // ── Helper de resposta JSON ───────────────────────────────────────────────────
