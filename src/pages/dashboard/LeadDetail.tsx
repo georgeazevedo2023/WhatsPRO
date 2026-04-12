@@ -326,6 +326,7 @@ const LeadDetail = () => {
         contact_id: contactId,
         conversation_summaries: [], interests: null, notes: null,
         reason: null, full_name: null, average_ticket: null,
+        custom_fields: {},
       }, { onConflict: 'contact_id' });
 
       // Clear conversations: replace tags with ia_cleared marker, clear ai_summary, reactivate IA
