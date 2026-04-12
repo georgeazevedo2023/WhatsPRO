@@ -22,7 +22,13 @@ Um **Fluxo** é uma automação conversacional completa: define o que acontece d
 ## Sub-funcionalidades (18)
 
 ### 1. Criação via Formulário Direto
-Admin acessa `/flows/new`, escolhe modo "Formulário Direto", preenche 4 etapas (tipo → detalhes → gatilhos → publicar). Fluxo criado em <5 min. Ideal para admins experientes.
+Admin acessa `/flows/new`, escolhe modo "Formulário Direto", preenche 4 etapas:
+- **Identidade:** Nome, Slug (auto-gerado), Descrição, Instância, **Caixa de entrada** (opcional — filtra por instância)
+- **Configuração:** Modo (active/shadow/assistant/off), Fluxo padrão da instância
+- **Gatilhos:** Adicionar/editar/remover gatilhos
+- **Publicar:** Resumo completo + publicar agora ou salvar como rascunho
+
+Fluxo criado em <5 min. Ideal para admins experientes.
 
 ### 2. Criação via Conversa Guiada
 Admin clica "Conversa Guiada", descreve em linguagem natural o que quer ("quero qualificar leads de financiamento de veículos"). IA pergunta, sugere subagentes, configura steps automaticamente. Admin aprova e publica.
@@ -182,7 +188,7 @@ WhatsApp → whatsapp-webhook
 
 | Tabela | Função |
 |--------|--------|
-| `flow_definitions` | Configuração do fluxo (nome, slug, mode, config JSONB) |
+| `flow_definitions` (`flows`) | Configuração do fluxo (nome, slug, mode, inbox_id?, config JSONB) |
 | `flow_steps` | Steps do fluxo (subagent_type, position, step_data, exit_rules) |
 | `flow_triggers` | Gatilhos de ativação (trigger_type, value, conditions) |
 | `flow_states` | Estado por lead (status, current_step, message_count, step_data) |

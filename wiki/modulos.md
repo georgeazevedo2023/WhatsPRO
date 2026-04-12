@@ -171,6 +171,7 @@ updated: 2026-04-12
 
 ### Infra (S1-S3)
 - 14 tabelas: `flow_definitions`, `flow_steps`, `flow_triggers`, `flow_states`, `flow_events`, `lead_short_memory`, `lead_long_memory`, `flow_step_executions`, `guided_sessions`, `flow_report_shares`, `flow_followups` + updates
+- `flows.inbox_id UUID` opcional — filtra fluxo por caixa de entrada dentro da instância (migration 20260416000003)
 - Feature flag `USE_ORCHESTRATOR` + migração gradual por instância (`instances.use_orchestrator`)
 - Admin UI: FlowsPage, FlowWizard (4 etapas), FlowTemplatesPage (12 templates), FlowDetail (6 tabs)
 

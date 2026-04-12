@@ -9,6 +9,73 @@ type: log
 
 ## 2026-04-12
 
+### Auditoria do vault + feat inbox_id no FlowWizard
+
+**Auditoria (commits ef466b9 + 64bcfef):**
+
+Gaps detectados e corrigidos:
+- `index.md` footer: dizia "S1-S9, próximo S10" → corrigido para "M18 completo 12/12"
+- `index.md` seção Fluxos: "design em andamento" → "✅ Shipped 2026-04-12"
+- `wiki/modulos.md`: faltavam M14 (Bio Link) e M18 (Fluxos v3.0) — ambos adicionados completos
+- `wiki/roadmap.md`: "17 módulos" → "18 módulos"
+- `wiki/casos-de-uso/fluxos-detalhado.md`: criado do zero — 18 sub-funcionalidades, fluxo técnico, 12 tabelas, links
+- `wiki/fluxos-visao-arquitetura.md`: updated date corrigido para 2026-04-12
+- Nota vault antes: 7.7/10 → depois: 9.0/10
+
+**feat: inbox_id no FlowWizard (commit 0a824ba):**
+
+- Migration `20260416000003_add_inbox_id_to_flows.sql`: `ALTER TABLE flows ADD COLUMN inbox_id UUID REFERENCES inboxes(id) ON DELETE SET NULL`
+- `types.ts`: Row/Insert/Update + FK relationship adicionados manualmente
+- `FlowWizard.tsx` etapa 1 (Identidade): Select "Caixa de entrada" filtrado pela instância selecionada
+  - Desabilitado se nenhuma instância selecionada
+  - Limpa automaticamente ao trocar instância
+  - Placeholder contextual por estado
+  - Padrão = "Todas as caixas" (salva null)
+- `handleCreate`: passa `inbox_id` (null se "all" ou vazio)
+- Resumo etapa 4: exibe inbox selecionada
+- `tsc --noEmit = 0 erros ✅`
+
+**Artefatos pendentes comitados (commit ef466b9):**
+- `supabase/migrations/20260415000004_s10_register_flow_followups_cron.sql`
+- `supabase/functions/test_e2e_agent.sh`
+- `.planning/` (codebase, phases M2, prereqs, research)
+- `.claude/skills/ui-ux-pro-max/`
+- `wiki/erros-e-licoes.md` R45+R46
+
+---
+
+### Agente IA: Tipo de Cliente configurado no DB (sem commit — config via SQL)
+
+**Agente:** Eletropiso (`174af654`)
+
+**Campo `tipo_cliente` já existia** em `extraction_fields` (section: custom, enabled: true).
+
+**`prompt_sections.additional` atualizado** com instrução completa de inferência:
+Tipos: Lead Novo, Cliente Final, Pintor, Vidraceiro, Serralheiro, Pedreiro, Eletricista, Encanador, Arquiteto/Designer, Loja/Revendedor, Construtora/Empreiteira, Fornecedor.
+Regra: inferir pelas palavras — NUNCA perguntar diretamente.
+
+O campo aparece em **Campos Adicionais** na página do lead quando o agente extrair.
+
+---
+
+### Página do Lead: KPI Atendimento + Score + Embellezamento (commit c58507a)
+
+**`src/pages/dashboard/LeadDetail.tsx`** + **`src/components/leads/LeadProfileSection.tsx`**
+
+Card "Resumo do Atendimento" na coluna direita — grid 2-col, 6 KPIs:
+- **Produto** (verde) — tags `produto:` + `interesse:`
+- **Em falta** (vermelho) — tag `marca_indisponivel:`
+- **Início** (cinza) — `conversation.created_at` dd/mm hh:mm
+- **Fim** (cinza) — `conversation.last_message_at` dd/mm hh:mm
+- **Duração** (âmbar) — diferença min/h
+- **Atendido por IA** (azul/amarelo) — Sim / Shadow / Não
+
+**Score de engajamento 0-100** (computado sem DB change): nome+10, email+10, motivo+10, produto/interesse+15, conversas (5×, max 20), interações (max 15), cidade+10, kanban+10. Badge circular Frio/Morno/Quente no header do perfil.
+
+**Embellezamento:** faixa gradiente `from-primary/80` no topo do card perfil.
+
+---
+
 ### Helpdesk: KPI grid no Contexto IA (commits 6b542b1 + c432fd0)
 
 **`src/components/helpdesk/ContactInfoPanel.tsx`**
