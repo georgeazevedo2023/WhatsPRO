@@ -57,6 +57,8 @@ updated: 2026-04-12
 | 44 | `flow_followups.detection_type` tem CHECK com 7 valores de shadow mode — NUNCA inserir `'flow_followup'` ou qualquer valor fora da lista. Followups do orquestrador DEVEM usar `step_data` (followup_scheduled_at + followup_message + followup_sent) | Orchestrator |
 | 45 | NUNCA buscar próximo step por `position = currentPosition + 1` — frágil se há gaps. Usar `.gt('position', current).order('position asc').limit(1)` → próximo step real | Orchestrator |
 | 46 | Campos `corrected_text` calculados em check functions DEVEM ser propagados na issue — `applyCorrection` não tem acesso ao contexto, precisa do texto pré-calculado | Validator |
+| 47 | Greeting subagent NUNCA usa `greeting_message` quando `lead.lead_name` é conhecido — independente de `sessionsCount`. Leads migrados do ai-agent antigo têm nome mas `sessionsCount=0`; Case C enviava template com "com quem eu falo?" para lead já identificado | Greeting |
+| 48 | Após handoff, `smart_fill` completa qualificação imediatamente na próxima mensagem (respostas em `long_memory.profile`) → dispara handoff novamente → mensagem duplicada. Fix: guard no orchestrator verifica `flow_states WHERE status='handoff' AND completed_at >= now()-4h` antes de criar novo flow | Orchestrator |
 
 ---
 

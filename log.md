@@ -9,6 +9,40 @@ type: log
 
 ## 2026-04-12
 
+### Helpdesk: KPI grid no Contexto IA (commits 6b542b1 + c432fd0)
+
+**`src/components/helpdesk/ContactInfoPanel.tsx`**
+
+Grid 2 colunas acima das tags no bloco "Contexto IA":
+- **Produto** (roxo) — tags `produto:` + `interesse:`
+- **Em falta** (vermelho) — tag `marca_indisponivel:`
+- **Início** (cinza) — `conversation.created_at` dd/mm hh:mm
+- **Fim** (cinza) — `conversation.last_message_at` dd/mm hh:mm
+- **Duração** (âmbar) — diferença início→fim em min/h
+- **Atendido por IA** (azul/amarelo) — Sim / Shadow / Não derivado das tags
+
+tsc = 0 erros ✅
+
+---
+
+### fix(orchestrator): post-handoff guard (commit 64b91a8) + deploy
+
+**Causa:** após handoff, lead enviava "Ok" → novo flow criado → `smart_fill` encontrava respostas antigas em `long_memory.profile` → qualificação completava imediatamente → segundo handoff disparado → mensagem duplicada "Vou te encaminhar...".
+
+**Fix:** antes de `createFlowState`, checa `flow_states WHERE status='handoff' AND completed_at >= now()-4h`. Se encontrado, retorna `{ skipped: 'post_handoff' }` sem criar novo flow nem enviar mensagem. Lead permanece com atendente humano.
+
+**Deploy:** orchestrator ✅ (R48 em erros-e-licoes)
+
+---
+
+### fix(greeting): saudação dupla para leads migrados do ai-agent antigo (commit 460ddd5) + deploy
+
+**Causa:** leads do ai-agent antigo tinham `lead_profiles.full_name` mas `long_memory.sessions_count=0`. Case C disparava `greeting_message` (template com "com quem eu falo?") mesmo com nome conhecido.
+
+**Fix:** Cases B+C unificados — se `lead.lead_name` existe, sempre usa `known_lead_message`. Deploy: orchestrator ✅ (R47 em erros-e-licoes)
+
+---
+
 ### S12 COMPLETO — Métricas + Migração por Instância + Rollback (commit b7017e8)
 
 **M18 Fluxos v3.0 COMPLETO — 12/12 sprints shipped.**
@@ -50,6 +84,20 @@ type: log
 ---
 
 ## 2026-04-12
+
+### fix(greeting): saudação dupla para leads migrados do ai-agent antigo (commit 460ddd5)
+
+**Sintoma:** Lead "Eduardo" (nome salvo no ai-agent antigo em 01/abr) recebeu "Olá! Bem-vindo a Eletropiso, com quem eu falo?" novamente ao enviar mensagem hoje.
+
+**Causa raiz:**
+- ai-agent antigo salvou `lead_profiles.full_name = "Eduardo"` mas NUNCA escreveu `long_memory`
+- Orchestrator via Case C: `sessionsCount = 0` (long_memory vazia) + `lead.lead_name = "Eduardo"` → enviava `greeting_message` (template configurado: "Olá! Bem-vindo a Eletropiso, com quem eu falo?") mesmo com nome conhecido
+
+**Fix (greeting.ts):** Cases B e C unificados — se `lead.lead_name` existe (qualquer origem), sempre usa `known_lead_message`. Evita que `greeting_message` (que pode ter "com quem eu falo?") seja enviado a lead já identificado.
+
+**Deploy:** orchestrator ✅
+
+---
 
 ### BUG-1+BUG-3+BUG-5 corrigidos + deploy orchestrator + guided-flow-builder
 
