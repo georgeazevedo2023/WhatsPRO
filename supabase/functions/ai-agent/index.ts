@@ -1840,13 +1840,14 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           }
           const sc = selectable_count === 0 ? 0 : 1
 
-          const pollRes = await fetchWithTimeout(`${uazapiUrl}/send/poll`, {
+          const pollRes = await fetchWithTimeout(`${uazapiUrl}/send/menu`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'token': instance.token },
             body: JSON.stringify({
               number: contact.jid,
-              question: String(question).substring(0, 255),
-              options: options.map((o: string) => String(o).substring(0, 100)),
+              type: 'poll',
+              text: String(question).substring(0, 255),
+              choices: options.map((o: string) => String(o).substring(0, 100)),
               selectableCount: sc,
             }),
           })

@@ -1,4 +1,4 @@
-import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+import { getDynamicCorsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
@@ -65,6 +65,9 @@ async function resolveInstanceToken(
 }
 
 Deno.serve(async (req) => {
+  // Dynamic CORS — checks Origin against ALLOWED_ORIGIN whitelist
+  const corsHeaders = getDynamicCorsHeaders(req)
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -538,12 +541,13 @@ Deno.serve(async (req) => {
 
         const pollBody = {
           number: groupjid,
-          question: String(body.question).trim(),
-          options: body.options.map((o: string) => String(o).trim()),
+          type: 'poll',
+          text: String(body.question).trim(),
+          choices: body.options.map((o: string) => String(o).trim()),
           selectableCount: body.selectableCount ?? 1,
         }
 
-        const pollResponse = await fetchWithTimeout(`${uazapiUrl}/send/poll`, {
+        const pollResponse = await fetchWithTimeout(`${uazapiUrl}/send/menu`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', token: instanceToken },
           body: JSON.stringify(pollBody),

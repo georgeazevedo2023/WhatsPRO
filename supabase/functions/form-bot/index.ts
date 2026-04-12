@@ -270,13 +270,14 @@ Deno.serve(async (req) => {
             const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
             const { data: inst } = await supabase.from('instances').select('token').eq('id', instance_id).maybeSingle()
             if (inst?.token) {
-              await fetchWithTimeout(`${uazapiUrl}/send/poll`, {
+              await fetchWithTimeout(`${uazapiUrl}/send/menu`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'token': inst.token },
                 body: JSON.stringify({
                   number: chatId,
-                  question: firstField.label,
-                  options: (firstField as any).validation_rules.options,
+                  type: 'poll',
+                  text: firstField.label,
+                  choices: (firstField as any).validation_rules.options,
                   selectableCount: (firstField as any).validation_rules?.multi ? 0 : 1,
                 }),
               })
@@ -485,13 +486,14 @@ Deno.serve(async (req) => {
             const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
             const { data: inst } = await supabase.from('instances').select('token').eq('id', instance_id).maybeSingle()
             if (inst?.token) {
-              await fetchWithTimeout(`${uazapiUrl}/send/poll`, {
+              await fetchWithTimeout(`${uazapiUrl}/send/menu`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'token': inst.token },
                 body: JSON.stringify({
                   number: chatId,
-                  question: nextField.label,
-                  options: pollOptions, // D7: NEVER numbered — clean names only
+                  type: 'poll',
+                  text: nextField.label,
+                  choices: pollOptions, // D7: NEVER numbered — clean names only
                   selectableCount: nextField.validation_rules?.multi ? 0 : 1,
                 }),
               })

@@ -469,7 +469,7 @@ async function executeAction(
       return `handoff_executed: shadow mode${config.department_id ? ` → dept ${config.department_id}` : ''}`
     }
 
-    // ── send_poll (M17 F4: Enquetes/Polls via UAZAPI /send/poll) ──────────────
+    // ── send_poll (M17 F4: Enquetes/Polls via UAZAPI /send/menu type=poll) ──────────────
     case 'send_poll': {
       if (!conversationId) return 'skip: no conversation_id'
       const question = config.question as string | undefined
@@ -510,10 +510,10 @@ async function executeAction(
           await new Promise(r => setTimeout(r, 1500))
         }
 
-        const res = await fetch(`${uazapiUrl}/send/poll`, {
+        const res = await fetch(`${uazapiUrl}/send/menu`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'token': inst.token },
-          body: JSON.stringify({ number: jid, question, options, selectableCount: sc }),
+          body: JSON.stringify({ number: jid, type: 'poll', text: question, choices: options, selectableCount: sc }),
         })
 
         if (res.ok) {
@@ -613,10 +613,10 @@ export async function triggerNpsIfEnabled(
     // Schedule with delay (setTimeout for Deno edge function — fire and forget)
     setTimeout(async () => {
       try {
-        const res = await fetch(`${uazapiUrl}/send/poll`, {
+        const res = await fetch(`${uazapiUrl}/send/menu`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'token': inst.token },
-          body: JSON.stringify({ number: jid, question, options, selectableCount: 1 }),
+          body: JSON.stringify({ number: jid, type: 'poll', text: question, choices: options, selectableCount: 1 }),
         })
 
         if (res.ok) {
