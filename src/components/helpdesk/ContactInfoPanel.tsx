@@ -72,6 +72,12 @@ export const ContactInfoPanel = ({
   const kpiProdutos = convTags.filter(t => t.startsWith('produto:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
   const kpiInteresses = convTags.filter(t => t.startsWith('interesse:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
   const kpiItens = [...kpiProdutos, ...kpiInteresses];
+  const kpiProdutoFalta = convTags.find(t => t.startsWith('marca_indisponivel:'))?.split(':').slice(1).join(':').replace(/_/g, ' ').replace(/,\s*/g, ', ') ?? null;
+  const kpiAtendidoIA = convTags.some(t => t.startsWith('ia:shadow')) ? 'Shadow' : (convTags.some(t => t.startsWith('motivo:') || t.startsWith('produto:') || t.startsWith('interesse:')) ? 'Sim' : 'Não');
+  const fmtTime = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+  const fmtDate = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
+  const kpiInicio = useMemo(() => `${fmtDate(conversation.created_at)} ${fmtTime(conversation.created_at)}`, [conversation.created_at]);
+  const kpiFim = useMemo(() => conversation.last_message_at ? `${fmtDate(conversation.last_message_at as string)} ${fmtTime(conversation.last_message_at as string)}` : '—', [conversation.last_message_at]);
   const kpiTempoMin = useMemo(() => {
     const start = new Date(conversation.created_at).getTime();
     const end = conversation.last_message_at ? new Date(conversation.last_message_at as string).getTime() : Date.now();
@@ -621,44 +627,41 @@ export const ContactInfoPanel = ({
               </div>
             )}
 
-            {/* KPIs — Motivo, Produtos/Interesses, Tempo */}
-            {(kpiMotivo || kpiItens.length > 0) && (
-              <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-border/30">
-                {/* Motivo */}
-                <div className="flex flex-col gap-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 px-2 py-1.5">
-                  <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-blue-400/70">
-                    <Target className="w-2.5 h-2.5" />
-                    Motivo
-                  </span>
-                  <span className="text-[11px] font-medium text-blue-300 leading-tight truncate" title={kpiMotivo ?? '—'}>
-                    {kpiMotivo ?? '—'}
-                  </span>
-                </div>
-
-                {/* Produtos / Interesses */}
-                <div className="flex flex-col gap-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-1.5">
-                  <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-purple-400/70">
-                    <ShoppingCart className="w-2.5 h-2.5" />
-                    Interesse
-                  </span>
-                  <span className="text-[11px] font-medium text-purple-300 leading-tight line-clamp-2" title={kpiItens.join(', ') || '—'}>
-                    {kpiItens.length > 0 ? kpiItens[0] : '—'}
-                    {kpiItens.length > 1 && <span className="text-purple-400/60"> +{kpiItens.length - 1}</span>}
-                  </span>
-                </div>
-
-                {/* Tempo de atendimento */}
-                <div className="flex flex-col gap-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1.5">
-                  <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-amber-400/70">
-                    <Clock className="w-2.5 h-2.5" />
-                    Duração
-                  </span>
-                  <span className="text-[11px] font-medium text-amber-300 leading-tight">
-                    {kpiTempoMin}
-                  </span>
-                </div>
+            {/* KPIs — grid 2 colunas */}
+            <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-border/30">
+              {/* Produto */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-purple-400/70"><ShoppingCart className="w-2.5 h-2.5" />Produto</span>
+                <span className="text-[11px] font-medium text-purple-300 leading-tight truncate" title={kpiItens.join(', ') || '—'}>
+                  {kpiItens.length > 0 ? kpiItens[0] : '—'}{kpiItens.length > 1 && <span className="text-purple-400/60"> +{kpiItens.length - 1}</span>}
+                </span>
               </div>
-            )}
+              {/* Produto em falta */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-red-500/10 border border-red-500/20 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-red-400/70"><AlertCircle className="w-2.5 h-2.5" />Em falta</span>
+                <span className="text-[11px] font-medium text-red-300 leading-tight truncate" title={kpiProdutoFalta ?? '—'}>{kpiProdutoFalta ?? '—'}</span>
+              </div>
+              {/* Início */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Início</span>
+                <span className="text-[11px] font-medium text-slate-300 leading-tight">{kpiInicio}</span>
+              </div>
+              {/* Fim */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Fim</span>
+                <span className="text-[11px] font-medium text-slate-300 leading-tight">{kpiFim}</span>
+              </div>
+              {/* Tempo */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-amber-400/70"><Clock className="w-2.5 h-2.5" />Duração</span>
+                <span className="text-[11px] font-medium text-amber-300 leading-tight">{kpiTempoMin}</span>
+              </div>
+              {/* Atendido por IA */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-primary/10 border border-primary/20 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-primary/70"><Bot className="w-2.5 h-2.5" />Atendido por IA</span>
+                <span className={`text-[11px] font-medium leading-tight ${kpiAtendidoIA === 'Sim' ? 'text-primary' : kpiAtendidoIA === 'Shadow' ? 'text-yellow-400' : 'text-muted-foreground'}`}>{kpiAtendidoIA}</span>
+              </div>
+            </div>
 
             {/* Conversation Tags — formatted as pills */}
             {(conversation as any).tags?.length > 0 && (
