@@ -1,7 +1,7 @@
 // =============================================================================
 // Services — Interface pública dos serviços do Orchestrator.
-// Memory (S5 — REAL), IntentDetector (S7 — REAL), Validator (S8 — stub),
-// Metrics (S9 — stub), Shadow (S11 — stub)
+// Memory (S5 — REAL), IntentDetector (S7 — REAL), Validator (S9 — REAL),
+// Metrics (S9 — REAL), Shadow (S11 — stub)
 // =============================================================================
 
 import type { FlowContext, SubagentResult } from '../types.ts'
@@ -10,6 +10,8 @@ import {
   saveShortMemory as _saveShortMemory,
 } from './memory.ts'
 import { detectIntents as _detectIntents } from './intentDetector.ts'
+import { validateResponse as _validateResponse } from './validator.ts'
+import { createTimer as _createTimer } from './metrics.ts'
 
 // ── Memory Service (S5 — REAL) ────────────────────────────────────────────────
 
@@ -48,40 +50,26 @@ export { type IntentDetectorResult, type DetectedIntent } from '../types.ts'
  */
 export const detectIntents = _detectIntents
 
-// ── Validator Service (S8) ────────────────────────────────────────────────────
+// ── Validator Service (S9 — REAL) ─────────────────────────────────────────────
 
-export interface ValidationResult {
-  passed: boolean
-  corrected_text?: string
-  issues?: string[]
-}
+export { type ValidationResult, type ValidatorIssue } from '../types.ts'
 
 /**
  * Valida e corrige resposta do subagente antes de enviar ao lead.
- * S2: stub — aprova tudo.
- * S8: regras de tom, tamanho, emojis, PII, alucinações.
+ * S9: 10 checks automáticos (size, language, prompt leak, price, repetition,
+ *     greeting, name freq, emoji, markdown, PII). 3 falhas → handoff.
  */
-export async function validateResponse(
-  _responseText: string,
-  _context: FlowContext,
-): Promise<ValidationResult> {
-  return { passed: true }
-}
+export const validateResponse = _validateResponse
 
-// ── Metrics Service (S9) ──────────────────────────────────────────────────────
+// ── Metrics Service (S9 — REAL) ──────────────────────────────────────────────
+
+export { type PipelineTimer } from './metrics.ts'
 
 /**
- * Incrementa counters de uso do fluxo.
- * S2: no-op.
- * S9: upsert em flow_metrics (messages_sent, subagent_calls, etc.)
+ * Timer envolvente que mede cada camada do pipeline.
+ * S9: createTimer → mark → finalize → TimerBreakdown + CostBreakdown.
  */
-export async function trackMetrics(
-  _flowId: string,
-  _event: string,
-  _value?: number,
-): Promise<void> {
-  // S9: INSERT OR INCREMENT
-}
+export const createTimer = _createTimer
 
 // ── Shadow Mode Service (S11) ─────────────────────────────────────────────────
 

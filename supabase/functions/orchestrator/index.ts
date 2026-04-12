@@ -25,7 +25,7 @@ import {
   applySubagentResult,
 } from './config/stateManager.ts'
 import { dispatchSubagent } from './subagents/index.ts'
-import { validateResponse, trackMetrics, detectIntents } from './services/index.ts'
+import { validateResponse, detectIntents, createTimer } from './services/index.ts'
 import type { OrchestratorInput, ActiveFlowState, SubagentResult, FlowContext, IntentDetectorResult } from './types.ts'
 
 const supabase = createServiceClient()
@@ -40,6 +40,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const timer = createTimer()
     const input = (await req.json()) as OrchestratorInput
 
     // Validação mínima do input
@@ -56,6 +57,7 @@ Deno.serve(async (req: Request) => {
 
     // ── S7: Detecta intents ANTES de resolver fluxo ─────────────────────────
     const intents = await detectIntents(input.message_text ?? '')
+    timer.mark('intent')
     console.log(
       '[orchestrator] intents:',
       intents.primary?.intent ?? 'none',
@@ -110,6 +112,8 @@ Deno.serve(async (req: Request) => {
       intents,                      // S7: passa intents para trigger matching
     )
 
+    timer.mark('resolve')
+
     if (!resolved) {
       console.log('[orchestrator] No flow resolved for instance:', input.instance_id)
       return jsonResponse({
@@ -121,6 +125,18 @@ Deno.serve(async (req: Request) => {
         intent_bypass: intents.bypass ?? null,
         intent_ms: intents.processing_time_ms,
       }, 200, corsHeaders)
+    }
+
+    // ── S9: Busca mode do flow (shadow gate) ──────────────────────────────────
+    const { data: flowData } = await supabase
+      .from('flows')
+      .select('mode')
+      .eq('id', resolved.flowId)
+      .maybeSingle()
+    const flowMode = (flowData?.mode as string) ?? 'active'
+    const isShadow = flowMode === 'shadow'
+    if (isShadow) {
+      console.log('[orchestrator] SHADOW MODE — IA não responde ao lead')
     }
 
     // ── Obtém ou cria flow_state ──────────────────────────────────────────────
@@ -164,13 +180,16 @@ Deno.serve(async (req: Request) => {
     // ── Monta contexto (S5: memória, S7: intents) ──────────────────────────────
     const context = await buildContext(input, state, intents)
 
+    timer.mark('context')
+
     if (!context) {
       console.error('[orchestrator] Failed to build context for state:', state.id)
       return jsonResponse({ error: 'Context build failed' }, 500, corsHeaders)
     }
 
-    // ── Despacha subagente (S2: todos são stubs) ──────────────────────────────
+    // ── Despacha subagente ────────────────────────────────────────────────────
     const result: SubagentResult = await dispatchSubagent(context)
+    timer.mark('subagent')
 
     // ── Aplica resultado no state ─────────────────────────────────────────────
     await applySubagentResult(state, result)
@@ -186,20 +205,49 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ── Envia resposta ao lead via UAZAPI (S5+) ───────────────────────────────
+    // ── S9: Valida resposta antes de enviar ──────────────────────────────────
+    let validatorBlocked = false
     if (result.response_text && context) {
       const validation = await validateResponse(result.response_text, context)
-      if (validation.passed) {
-        await sendToLead(input.instance_id, context.lead.lead_jid, result.response_text)
-      } else {
-        console.warn('[orchestrator] validator rejected response:', validation.issues)
+      timer.mark('validator')
+
+      if (!validation.passed) {
+        validatorBlocked = true
+        console.warn('[validator] BLOCKED:', validation.issues.map(i => i.check).join(', '))
+
+        // Log validator_flagged event
+        await logFlowEvent(state.id, resolved.flowId, input.instance_id, leadId,
+          'validator_flagged',
+          { issues: validation.issues, original_text: result.response_text.slice(0, 200) },
+          state.flow_step_id,
+        )
+
+        // Track falhas consecutivas → auto handoff em 3
+        const failures = ((state.step_data as Record<string, unknown>)?.validator_failures as number ?? 0) + 1
+        await updateFlowState(state.id, { step_data_patch: { validator_failures: failures } })
+        if (failures >= 3) {
+          await finalizeFlowState(state.id, 'handoff')
+          await logFlowEvent(state.id, resolved.flowId, input.instance_id, leadId,
+            'handoff_triggered', { reason: 'validator_3_failures', failures }, state.flow_step_id)
+        }
+      } else if (!isShadow) {
+        // Envia ao lead (usa corrected_text se disponível)
+        const textToSend = validation.corrected_text ?? result.response_text
+        await sendToLead(input.instance_id, context.lead.lead_jid, textToSend)
+
+        // Salva last_response para check no_repetition na próxima msg
+        await updateFlowState(state.id, { step_data_patch: { last_response: textToSend, validator_failures: 0 } })
       }
+      // Shadow mode: validator roda mas NÃO envia
+    } else {
+      timer.mark('validator')
     }
 
-    // ── S8: Envia media/carousel ao lead se subagente retornou media ─────────
-    if (result.media && context) {
+    // ── S8: Envia media/carousel (bloqueado em shadow mode) ──────────────────
+    if (result.media && context && !isShadow && !validatorBlocked) {
       await handleMediaSend(input, context, result)
     }
+    timer.mark('send')
 
     // ── Aplica tags na conversa (se subagente pediu) ─────────────────────────
     if (result.tags_to_set?.length && input.conversation_id) {
@@ -216,17 +264,6 @@ Deno.serve(async (req: Request) => {
         .update({ tags: Array.from(tagMap.values()) })
         .eq('id', input.conversation_id)
     }
-
-    // ── Log do evento ─────────────────────────────────────────────────────────
-    await logFlowEvent(
-      state.id,
-      resolved.flowId,                  // Fix: flow_id NOT NULL
-      input.instance_id,                // Fix: instance_id NOT NULL
-      leadId,
-      'tool_called',                    // Fix: era 'subagent_called' (não está no CHECK)
-      { status: result.status, has_response: !!result.response_text },
-      state.flow_step_id,               // Fix: era current_step_id
-    )
 
     // ── Processa status do subagente ──────────────────────────────────────────
     switch (result.status) {
@@ -278,8 +315,27 @@ Deno.serve(async (req: Request) => {
         break
     }
 
-    // ── Métricas (S9) ─────────────────────────────────────────────────────────
-    await trackMetrics(resolved.flowId, 'message_processed')
+    // ── S9: Finaliza métricas e loga com timing/cost ────────────────────────
+    const { timing, cost } = timer.finalize(
+      intents.primary?.layer ?? 0,
+      0,    // TODO: acumular llm_tokens dos subagentes
+      0,    // TODO: acumular llm_cost dos subagentes
+    )
+
+    // ── S9: Log do evento com timing + cost ─────────────────────────────────
+    await logFlowEvent(
+      state.id,
+      resolved.flowId,
+      input.instance_id,
+      leadId,
+      'tool_called',
+      { status: result.status, has_response: !!result.response_text, shadow: isShadow },
+      state.flow_step_id,
+      timing,
+      cost,
+    )
+
+    console.log(`[orchestrator] timing: ${timing.total_ms}ms (intent:${timing.intent_ms} resolve:${timing.resolve_ms} ctx:${timing.context_ms} sub:${timing.subagent_ms} val:${timing.validator_ms} send:${timing.send_ms})`)
 
     return jsonResponse(
       {
@@ -287,12 +343,13 @@ Deno.serve(async (req: Request) => {
         flow_id: resolved.flowId,
         state_id: state.id,
         subagent_status: result.status,
-        message_sent: !!result.response_text,
+        message_sent: !!result.response_text && !isShadow && !validatorBlocked,
+        shadow: isShadow,
         intent: intents.primary?.intent ?? null,
         intent_confidence: intents.primary?.confidence ?? 0,
         intent_layer: intents.primary?.layer ?? 0,
         intent_bypass: intents.bypass ?? null,
-        intent_ms: intents.processing_time_ms,
+        timing_ms: timing.total_ms,
       },
       200,
       corsHeaders,
@@ -617,7 +674,37 @@ async function sendCarouselToLead(
   return false
 }
 
-// ── S8: Handler central de media do subagente ────────────────────────────────
+// ── S10: Envia poll via UAZAPI /send/menu (type: poll) ──────────────────────
+
+async function sendPollToLead(
+  token: string,
+  leadJid: string,
+  text: string,
+  choices: string[],
+): Promise<boolean> {
+  const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') ?? 'https://wsmart.uazapi.com'
+
+  try {
+    const res = await fetchWithTimeout(`${uazapiUrl}/send/menu`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', token },
+      body: JSON.stringify({ number: leadJid, text, choices, type: 'poll' }),
+    }, 10000)
+
+    if (!res.ok) {
+      const body = await res.text()
+      console.error('[orchestrator] sendPoll UAZAPI error:', res.status, body)
+      return false
+    }
+    console.log('[orchestrator] sendPoll OK:', leadJid)
+    return true
+  } catch (err) {
+    console.error('[orchestrator] sendPoll fetch error:', err)
+    return false
+  }
+}
+
+// ── S8/S10: Handler central de media do subagente ───────────────────────────
 
 async function handleMediaSend(
   input: OrchestratorInput,
@@ -658,6 +745,12 @@ async function handleMediaSend(
     mediaType = 'carousel'
     mediaUrl = JSON.stringify({ message, cards: carouselPayload })
     msgContent = message
+  } else if (media.type === 'poll' && media.poll_options?.length) {
+    const question = media.caption ?? ''
+    sent = await sendPollToLead(token, leadJid, question, media.poll_options)
+    mediaType = 'poll'
+    mediaUrl = JSON.stringify({ question, options: media.poll_options })
+    msgContent = question
   }
 
   // INSERT conversation_messages + broadcastEvent (mesmo padrão do ai-agent)

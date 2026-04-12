@@ -136,4 +136,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-12 — S1 ✅ S2 ✅ S3 ✅ S4 ✅ S5 ✅ S6 ✅ S7 ✅. Camadas 1+2+Intelligence(S7) completas. USE_ORCHESTRATOR=false (S12 migra por instância). Próximo: S8 Sales + Support.*
+*Ultima atualizacao: 2026-04-12 — S1-S9 ✅. Camadas 1+2+3 completas (9/12 sprints). USE_ORCHESTRATOR=false (S12 migra por instância). Próximo: S10 Templates + Survey/Followup/Handoff.*

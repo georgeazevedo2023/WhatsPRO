@@ -12,7 +12,7 @@
 // =============================================================================
 
 import { createServiceClient } from '../../_shared/supabaseClient.ts'
-import type { ActiveFlowState, StepData, SubagentResult } from '../types.ts'
+import type { ActiveFlowState, StepData, SubagentResult, TimerBreakdown, CostBreakdown } from '../types.ts'
 
 const supabase = createServiceClient()
 
@@ -189,6 +189,8 @@ export async function logFlowEvent(
   eventType: string,
   eventData: Record<string, unknown> = {},
   stepId?: string | null,
+  timingBreakdown?: TimerBreakdown | null,
+  costBreakdown?: CostBreakdown | null,
 ): Promise<void> {
   const { error } = await supabase.from('flow_events').insert({
     flow_state_id: flowStateId,
@@ -198,6 +200,8 @@ export async function logFlowEvent(
     event_type: eventType,
     input: Object.keys(eventData).length > 0 ? eventData : null,
     ...(stepId ? { step_id: stepId } : {}),
+    ...(timingBreakdown ? { timing_breakdown: timingBreakdown } : {}),
+    ...(costBreakdown ? { cost_breakdown: costBreakdown } : {}),
   })
 
   if (error) {

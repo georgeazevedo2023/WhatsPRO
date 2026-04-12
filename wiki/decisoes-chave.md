@@ -1,8 +1,8 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca, funis, automacao, polls, perfis, nps, fluxos-unificados]
+tags: [decisoes, regras, padroes, seguranca, funis, automacao, polls, perfis, nps, fluxos-unificados, validator, shadow, metrics]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-11
+updated: 2026-04-12
 ---
 
 # Decisões-Chave
@@ -104,16 +104,8 @@ Ao alterar feature do AI Agent, sincronizar:
 
 ## Detector Unificado de Intents (D15, 2026-04-11)
 
-- **Decisao:** Keywords e Intents NAO sao sistemas separados. Unificar em 1 detector com 3 camadas progressivas
-- **13 intents por prioridade:** Cancelamento > Pessoa > Suporte > Reclamacao > Produto > Orcamento > Status > Agendamento > FAQ > Promocao > B2B > Continuacao > Generico
-- **Camada 1 Normalizacao (~5ms, R$0):** 50+ abreviacoes WhatsApp, remocao acentos, dedup letras, emojis como sinal
-- **Camada 2 Fuzzy Match (~10ms, R$0):** Levenshtein distance (threshold ≤2 para ≥5 letras), Soundex portugues, dicionario sinonimos por intent
-- **Camada 3 Semantico (~200ms, R$0.001):** LLM leve, so quando ambiguo (~20% das msgs). Prompt curto 100 tokens
-- **Intent Pessoa (6 sub-params):** Detecta nome/depto/funcao, verifica disponibilidade, preferred_agent persistente, angry_detection
-- **Intent Produto (7 sub-params):** Busca catalogo imediata, bypass qualificacao, auto_calculate quantidade, recompra via memoria longa, comparacao
-- **Ambiguidade:** 2+ intents na mesma msg → responde ambos. Conflito → prioridade
-- **Impacto Param 6 Gatilhos:** trigger_config muda de keywords para intents com keywords como boost
-- **Performance:** 80% resolve sem LLM (~15ms), 20% precisa LLM (~200ms). Custo medio R$0,0002/msg
+- 1 detector, 3 camadas (normalização→fuzzy→LLM). 13 intents por prioridade. Performance real: 100% L2, 0% LLM.
+- trigger_config: intents[] + keywords como boost + min_confidence
 - **Wiki:** [[wiki/fluxos-detector-intents]]
 
 ## 4 Servicos de Infraestrutura (D14, 2026-04-11)
@@ -151,12 +143,30 @@ Ao alterar feature do AI Agent, sincronizar:
 
 ## Schema Banco — Fluxos v3.0 (G1, 2026-04-11)
 
-- **14 tabelas** em 4 grupos: Definição (flows/steps/triggers) | Estado (states/events/memory) | Shadow (extractions/metrics/pending/followups) | Infra (intents/security/validator/media)
-- **Padrão FK:** `instance_id TEXT REFERENCES instances(id)` — NUNCA `inbox_id UUID`
-- **Versioning:** `flows.version + flow_states.flow_version` — lead não quebra se admin editar fluxo ativo
-- **Shadow:** `flow_followups` (≠ `follow_up_executions` que já existe). 4 tabelas infra eram ausentes no schema original
-- **RLS:** 3 políticas padrão em todas: super_admins + inbox_members + service_role
+- 14 tabelas, 4 grupos. FK: `instance_id TEXT`. Versioning: `flows.version + flow_states.flow_version`. RLS: 3 políticas padrão.
 - **Wiki:** [[wiki/fluxos-banco-dados]]
+
+## Shadow Mode — Pipeline sem Envio (D18, 2026-04-12)
+
+- **Decisao:** `flows.mode = 'shadow'` → pipeline roda completo (intent, subagente, validator) mas NÃO envia ao lead
+- **Envios bloqueados:** sendToLead, handleMediaSend — ambos gated por `isShadow`
+- **Logging:** Via `flow_events` com flag `shadow: true` (NÃO em shadow_extractions — batch_id NOT NULL, S11)
+- **Response:** `{ shadow: true, message_sent: false }` — E2E confirmado
+
+## Validator — 3 Ações + Correção Automática (D19, 2026-04-12)
+
+- **3 ações:** `pass` (envia), `correct` (envia texto corrigido), `block` (não envia + loga)
+- **corrected_text:** Aplicado no sendToLead (`validation.corrected_text ?? result.response_text`)
+- **3 falhas consecutivas:** `step_data.validator_failures >= 3` → auto handoff + log
+- **last_response:** Salvo em step_data após cada envio — usado por check `no_repetition`
+- **10 checks:** size, language, prompt_leak, price, repetition, greeting, name_freq, emoji, markdown, pii
+
+## Metrics — Colunas Dedicadas em flow_events (D20, 2026-04-12)
+
+- **Decisao:** Timing e custo salvos em `flow_events.timing_breakdown` e `cost_breakdown` (JSONB dedicados)
+- **NÃO no input JSONB** — input é para dados de evento, timing/cost são metadados de infraestrutura
+- **6 marks:** intent_ms, resolve_ms, context_ms, subagent_ms, validator_ms, send_ms + total_ms
+- **logFlowEvent:** Aceita params opcionais `timingBreakdown?` e `costBreakdown?`
 
 ## Arquivos HIGH RISK (nunca tocar sem aprovação)
 
@@ -172,20 +182,12 @@ CLAUDE.md 373→96 linhas. Conteúdo migrado: [[RULES.md]] (regras) | [[ARCHITEC
 
 ## G5 — UX Admin Fluxos v3.0 (2026-04-11)
 
-- **Config subagentes:** Formulário dinâmico por tipo (3-5 campos chave) + toggle "⚙ Avançado (JSON)". Não JSON bruto puro — usuário médio não é dev.
-- **Config serviços:** Defaults globais por instância + aparece contextualmente nos params relevantes (Memory TTL → P1, Audio → P3, Validator → P5). Admin nunca vê "Memory Service" — vê linguagem de negócio.
-- **Exit Rules:** 5 presets configuráveis (max_messages, sem_resposta, intent_cancelamento, qualificacao_concluida, timeout) + "Regra personalizada (JSON)" para casos custom. Visual builder completo fica para S13+.
-- **Conversa Guiada:** Split-screen chat + preview live (Supabase Realtime). IA usa contexto da instância. `flow_patch` incremental. `guided_sessions` TTL 24h — admin retoma de onde parou.
-- **5 telas:** /flows | /flows/new (3 modos) | /flows/new Formulário 4 etapas | /flows/new Conversa Guiada | /flows/:id FlowEditor 5 tabs | /flows/:id/metrics
+- Config subagentes: form dinâmico + toggle JSON avançado. Exit rules: 5 presets. Conversa Guiada: split-screen chat+preview. 5 telas.
 - **Wiki:** [[wiki/fluxos-wireframes-admin]]
 
 ## DT1 — custom_fields Location (2026-04-11)
 
-- **Decisão:** `lead_profiles.custom_fields JSONB` — dado de negócio, não memória de IA
-- **Coluna já existe** desde migration `20260322135030` com `DEFAULT '{}'` — S6 não precisa de migration
-- **Escrita:** `UPDATE lead_profiles SET custom_fields = custom_fields || $answers WHERE id = $lead_id`
-- **Leitura (smart_fill):** `lead_profiles.custom_fields[field_name]` + verifica `smart_fill_max_age_days`
-- **Razão:** sobrevive reset de contexto IA, visível no CRM/helpdesk, filtrável em campanhas
+- `lead_profiles.custom_fields JSONB` (coluna já existe). Dado de negócio, não memória IA. Sobrevive reset de contexto.
 
 ## Links
 
