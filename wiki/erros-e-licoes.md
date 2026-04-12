@@ -49,6 +49,11 @@ updated: 2026-04-12
 | 36 | PostgREST `.upsert({ onConflict: 'col_a,col_b,col_c' })` falha — PostgREST não resolve constraint pelo nome das colunas. Usar RPC com `INSERT … ON CONFLICT (col_a, col_b, col_c) DO UPDATE` | Orchestrator |
 | 37 | Não passar `step_data: {}` no insert de `flow_states` — sobrescreve o DEFAULT do banco. Omitir o campo para que `message_count: 0` e demais defaults sejam aplicados pelo PostgreSQL | Orchestrator |
 | 38 | Sempre usar `?? 0` ao ler `step_data.message_count` — mesmo com DEFAULT, dados antigos podem ter o campo ausente | Orchestrator |
+| 39 | `UNIQUE NULLS NOT DISTINCT` exige PostgreSQL 15+ — Supabase usa PG14. Usar dois índices parciais: `WHERE seller_id IS NULL` + `WHERE seller_id IS NOT NULL` | DB |
+| 40 | `fetchWithTimeout` não é global no Deno runtime — SEMPRE importar explicitamente de `../_shared/fetchWithTimeout.ts` antes de usar | Edge Fn |
+| 41 | `FORM_TEMPLATES` é `FormTemplate[]` (array) — NUNCA acessar como `Record<string, T>[key]`. Usar `.find(t => t.type === key)` | Frontend |
+| 42 | `.single()` em queries de top-level (ai_agents, conversations, contacts) crasha se ID inválido — SEMPRE `.maybeSingle()` + null check nas queries principais do ai-agent | Edge Fn |
+| 43 | `useEffect` dependency array DEVE incluir todos os campos usados no efeito, não só o `.id` — campos diferentes com mesmo id não disparam re-sync | React |
 
 ---
 

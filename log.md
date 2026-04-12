@@ -9,6 +9,30 @@ type: log
 
 ## 2026-04-12
 
+### Auditoria completa + 13 bug fixes (commits f3e2218 + 1be5ad1)
+
+**Processo:** 3 agentes de auditoria em paralelo (edge functions, DB, frontend) → plano → 3 agentes de implementação em paralelo → tsc 0 erros → commits.
+
+**41 bugs encontrados → 13 críticos/altos corrigidos:**
+- C1 form-bot: `fetchWithTimeout` não importado → polls nunca disparavam
+- C2 ai-agent:71,72,112 `.single()` → `.maybeSingle()` (crash em IDs inválidos)
+- C3 migration `190828`: `UNIQUE NULLS NOT DISTINCT` (PG15+) → 2 índices parciais PG14 + migration fix `20260415000002`
+- C4 `useCreateFunnel:122`: `FORM_TEMPLATES[]` acessado como object → `.find()`
+- C5 `FlowWizard:368`: `as any` removido; `TriggerFormSheet` aceita `TriggerFormData`
+- A1 `qualification:211` sobrescrevia `custom_fields` → merge via `buildLeadProfilePatch`
+- A2 `uazapi-proxy:57,697` `.single()` → `.maybeSingle()`
+- A5 `FunnelDetail:105` dep array `[funnel?.id]` expandido para todos os campos sincronizados
+- A8 `FunnelWizard` canProceed step 2 valida ≥1 recurso
+- M1 `form-bot:257,398,420` `.single()` após insert → `.maybeSingle()`
+- M2 `qualification` `lead.custom_fields ?? {}` em todos os call sites
+- M7 `FlowWizard` botão publicar desabilitado sem triggers
+- M8 `FunnelDetail` useEffect sync com try/catch
+
+**2 falsos positivos identificados:** stateManager (já usava `.maybeSingle()`), ChatPanel (já tinha `.unsubscribe()`)
+**Novas regras:** R39-R43 documentadas em erros-e-licoes.md
+
+---
+
 ### S8 COMPLETO — Sales + Support Subagents
 
 **`subagents/sales.ts` (NOVO — 358 linhas):**
