@@ -1,15 +1,17 @@
 // =============================================================================
-// Subagents Router (S5)
+// Subagents Router (S6)
 // Despacha para o subagente correto baseado em subagent_type do step.
-// S5: greeting REAL. Demais: stubs.
+// S5: greeting REAL. S6: qualification REAL. Demais: stubs.
 // Implementações reais por sprint:
-//   S5: greeting ✅ | S6: qualification | S7: sales | S8: support
-//   S9: survey      | S10: followup     | S11: handoff | S12: custom
+//   S5: greeting ✅ | S6: qualification ✅ | S7: sales | S8: support
+//   S9: survey      | S10: followup        | S11: handoff | S12: custom
 // =============================================================================
 
 import type { FlowContext, SubagentResult } from '../types.ts'
 import { greetingSubagent } from './greeting.ts'
 import type { GreetingConfig } from './greeting.ts'
+import { qualificationSubagent } from './qualification.ts'
+import type { QualificationConfig } from './qualification.ts'
 
 // ── Mapa de subagent_type → handler ──────────────────────────────────────────
 
@@ -17,7 +19,7 @@ type SubagentDispatcher = (ctx: FlowContext) => Promise<SubagentResult>
 
 const SUBAGENT_MAP: Record<string, SubagentDispatcher> = {
   greeting: (ctx) => greetingSubagent({ context: ctx, config: (ctx.step_config as GreetingConfig) ?? {} }),
-  qualification: stubSubagent('qualification'),
+  qualification: (ctx) => qualificationSubagent({ context: ctx, config: (ctx.step_config as QualificationConfig) ?? {} }),
   sales: stubSubagent('sales'),
   support: stubSubagent('support'),
   survey: stubSubagent('survey'),

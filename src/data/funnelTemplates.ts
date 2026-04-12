@@ -136,3 +136,33 @@ export const FUNNEL_FORM_TEMPLATE: Partial<Record<FunnelType, string>> = {
   evento: 'evento',
   atendimento: 'chamado',
 };
+
+// ── UTM Options (PT-BR) ────────────────────────────────────────────
+export const UTM_SOURCE_OPTIONS = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'facebook', label: 'Facebook' },
+  { value: 'google', label: 'Google' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'email', label: 'E-mail' },
+  { value: 'sms', label: 'SMS' },
+  { value: 'site', label: 'Site' },
+  { value: 'panfleto', label: 'Panfleto / Impresso' },
+  { value: 'indicacao', label: 'Indicacao' },
+] as const;
+
+export const UTM_MEDIUM_OPTIONS = [
+  { value: 'organico', label: 'Organico', desc: 'Postagens normais, sem pagar' },
+  { value: 'pago', label: 'Pago', desc: 'Anuncios patrocinados' },
+  { value: 'social', label: 'Rede Social', desc: 'Compartilhamento em redes' },
+  { value: 'email', label: 'E-mail', desc: 'Campanhas de e-mail marketing' },
+  { value: 'indicacao', label: 'Indicacao', desc: 'Link compartilhado por alguem' },
+  { value: 'qrcode', label: 'QR Code', desc: 'Codigo impresso ou digital' },
+  { value: 'link_direto', label: 'Link Direto', desc: 'Link clicado diretamente' },
+] as const;
+
+// Color palette for kanban columns
+export const COLUMN_COLORS = [
+  '#10b981', '#3b82f6', '#f59e0b', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#f97316', '#64748b',
+] as const;

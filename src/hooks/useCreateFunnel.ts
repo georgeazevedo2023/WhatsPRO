@@ -24,6 +24,16 @@ export interface CreateFunnelWizardInput {
   utmMedium?: string;
   aiTemplate?: string;
   destinationPhone?: string;
+  // Custom configuration from wizard
+  kanbanTitle?: string;
+  kanbanColumns?: { name: string; color: string }[];
+  campaignLandingMode?: 'redirect' | 'form';
+  bioTemplate?: 'simples' | 'shopping' | 'negocio';
+  bioTitle?: string;
+  bioDescription?: string;
+  bioButtons?: { type: string; label: string }[];
+  formWelcomeMessage?: string;
+  formCompletionMessage?: string;
 }
 
 export interface CreateFunnelResult {
@@ -73,12 +83,12 @@ export function useCreateFunnelWizard() {
       let kanbanBoardId: string | undefined;
 
       if (shouldCreateKanban) {
-        const columns = FUNNEL_KANBAN_COLUMNS[input.type] || [];
+        const columns = input.kanbanColumns || FUNNEL_KANBAN_COLUMNS[input.type] || [];
         if (columns.length > 0) {
           const { data: board, error: boardErr } = await supabase
             .from('kanban_boards')
             .insert({
-              name: `Funil: ${input.name}`,
+              name: input.kanbanTitle || `Funil: ${input.name}`,
               instance_id: input.instanceId,
               created_by: user.id,
               visibility: 'instance' as const,
@@ -120,8 +130,8 @@ export function useCreateFunnelWizard() {
             slug: formSlug,
             description: input.description || `Formulario do funil ${input.name}`,
             template_type: templateKey || 'custom',
-            welcome_message: template?.welcome_message || 'Ola! Vou te fazer algumas perguntas rapidas.',
-            completion_message: template?.completion_message || 'Obrigado pelas suas respostas!',
+            welcome_message: input.formWelcomeMessage || template?.welcome_message || 'Ola! Vou te fazer algumas perguntas rapidas.',
+            completion_message: input.formCompletionMessage || template?.completion_message || 'Obrigado pelas suas respostas!',
             created_by: user.id,
           })
           .select('id, slug')
@@ -163,9 +173,9 @@ export function useCreateFunnelWizard() {
             instance_id: input.instanceId,
             created_by: user.id,
             slug: bioSlug,
-            title: input.name,
-            description: input.description || '',
-            template: bioDefaults?.template || 'simples',
+            title: input.bioTitle || input.name,
+            description: input.bioDescription || input.description || '',
+            template: input.bioTemplate || bioDefaults?.template || 'simples',
             capture_enabled: bioDefaults?.captureEnabled ?? true,
             capture_fields: bioDefaults?.captureFields || ['name', 'phone'],
             ai_context_enabled: true,
