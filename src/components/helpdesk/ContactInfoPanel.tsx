@@ -65,6 +65,22 @@ export const ContactInfoPanel = ({
 }: ContactInfoPanelProps) => {
   const contact = conversation.contact;
   const name = contact?.name || contact?.phone || 'Desconhecido';
+
+  // KPI computed values
+  const convTags: string[] = (conversation as any).tags ?? [];
+  const kpiMotivo = convTags.find(t => t.startsWith('motivo:'))?.split(':').slice(1).join(':').replace(/_/g, ' ') ?? null;
+  const kpiProdutos = convTags.filter(t => t.startsWith('produto:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
+  const kpiInteresses = convTags.filter(t => t.startsWith('interesse:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
+  const kpiItens = [...kpiProdutos, ...kpiInteresses];
+  const kpiTempoMin = useMemo(() => {
+    const start = new Date(conversation.created_at).getTime();
+    const end = conversation.last_message_at ? new Date(conversation.last_message_at as string).getTime() : Date.now();
+    const mins = Math.round((end - start) / 60000);
+    if (mins < 60) return `${mins}min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  }, [conversation.created_at, conversation.last_message_at]);
   const [manageLabelsOpen, setManageLabelsOpen] = useState(false);
   const [inboxMemberIds, setInboxMemberIds] = useState<string[]>([]);
   const { profiles: agentProfiles } = useUserProfiles({ userIds: inboxMemberIds, enabled: inboxMemberIds.length > 0 });
@@ -602,6 +618,45 @@ export const ContactInfoPanel = ({
                     {leadProfile.notes}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* KPIs — Motivo, Produtos/Interesses, Tempo */}
+            {(kpiMotivo || kpiItens.length > 0) && (
+              <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-border/30">
+                {/* Motivo */}
+                <div className="flex flex-col gap-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 px-2 py-1.5">
+                  <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-blue-400/70">
+                    <Target className="w-2.5 h-2.5" />
+                    Motivo
+                  </span>
+                  <span className="text-[11px] font-medium text-blue-300 leading-tight truncate" title={kpiMotivo ?? '—'}>
+                    {kpiMotivo ?? '—'}
+                  </span>
+                </div>
+
+                {/* Produtos / Interesses */}
+                <div className="flex flex-col gap-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-1.5">
+                  <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-purple-400/70">
+                    <ShoppingCart className="w-2.5 h-2.5" />
+                    Interesse
+                  </span>
+                  <span className="text-[11px] font-medium text-purple-300 leading-tight line-clamp-2" title={kpiItens.join(', ') || '—'}>
+                    {kpiItens.length > 0 ? kpiItens[0] : '—'}
+                    {kpiItens.length > 1 && <span className="text-purple-400/60"> +{kpiItens.length - 1}</span>}
+                  </span>
+                </div>
+
+                {/* Tempo de atendimento */}
+                <div className="flex flex-col gap-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1.5">
+                  <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-amber-400/70">
+                    <Clock className="w-2.5 h-2.5" />
+                    Duração
+                  </span>
+                  <span className="text-[11px] font-medium text-amber-300 leading-tight">
+                    {kpiTempoMin}
+                  </span>
+                </div>
               </div>
             )}
 
