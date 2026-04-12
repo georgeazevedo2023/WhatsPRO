@@ -493,10 +493,22 @@ Deno.serve(async (req) => {
         ? (profileData?.handoff_max_messages ?? funnelData?.handoff_max_messages ?? funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? 8)
         : (funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? 8)
 
-    const { data: counterRow, error: counterErr } = await supabase
-      .rpc('increment_lead_msg_count', { p_conversation_id: conversation_id })
-      .single()
-    const leadMsgCount = counterErr ? 0 : (counterRow?.lead_msg_count ?? 0)
+    // ia_cleared: use message count from sessionStartDt (self-healing — counter may be stale)
+    // No ia_cleared: use atomic counter (no race condition)
+    let leadMsgCount: number
+    if (clearedTags.length > 0) {
+      const [, { count: msgsSinceClear }] = await Promise.all([
+        supabase.rpc('increment_lead_msg_count', { p_conversation_id: conversation_id }).single(),
+        supabase.from('conversation_messages').select('*', { count: 'exact', head: true })
+          .eq('conversation_id', conversation_id).eq('direction', 'incoming').gte('created_at', sessionStartDt),
+      ])
+      leadMsgCount = msgsSinceClear ?? 1
+    } else {
+      const { data: counterRow, error: counterErr } = await supabase
+        .rpc('increment_lead_msg_count', { p_conversation_id: conversation_id })
+        .single()
+      leadMsgCount = counterErr ? 0 : (counterRow?.lead_msg_count ?? 0)
+    }
 
     if (isFinite(MAX_LEAD_MESSAGES) && leadMsgCount >= MAX_LEAD_MESSAGES) {
       log.info('Lead message limit reached — auto handoff', { count: leadMsgCount, max: MAX_LEAD_MESSAGES, handoffRule: effectiveHandoffRule })

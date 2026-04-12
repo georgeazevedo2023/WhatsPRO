@@ -9,6 +9,12 @@ type: log
 
 ## 2026-04-12
 
+### fix(ai-agent): ia_cleared usa contagem de msgs desde sessionStartDt — self-healing
+
+**Problema:** mesmo com `lead_msg_count: 0` no frontend, o counter podia estar desatualizado (race condition, cache, código antigo). A primeira mensagem após ia_cleared disparava handoff imediato.
+
+**Fix server-side (deploy):** quando `clearedTags.length > 0`, o ai-agent agora conta mensagens incoming desde `sessionStartDt` em vez do counter acumulado. Isso é auto-corretivo: funciona mesmo que o frontend não tenha resetado o counter. Counter ainda é incrementado (fire-and-forget) para manter rastreamento. R55 documentada.
+
 ### fix(leads): clear context não resetava lead_msg_count → handoff imediato na 1ª msg
 
 **Causa raiz real:** `conversations.lead_msg_count` não era resetado pelo clear context. A migration tem comentário "Reset on ia_cleared" mas o reset nunca foi implementado. A primeira mensagem após ia_cleared incrementava o counter que já estava no limite → `increment_lead_msg_count` RPC retornava valor ≥ MAX_LEAD_MESSAGES → handoff disparava antes mesmo do greeting.
