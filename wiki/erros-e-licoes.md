@@ -66,6 +66,8 @@ updated: 2026-04-12
 | 53 | `clearContextMutation` DEVE finalizar `flow_states` ('active' e 'handoff') para o lead. Sem isso, após ia_cleared o orchestrator continua do passo anterior (skip greeting) e pode re-disparar handoff. Fix: `UPDATE flow_states SET status='abandoned' WHERE lead_id=X AND status IN ('active','handoff')` | Orchestrator |
 | 54 | `clearContextMutation` DEVE resetar `lead_msg_count: 0` no update de conversations. A migration diz "Reset on ia_cleared" mas o reset nunca foi implementado. Sem isso, a primeira mensagem após clear já excede o limite → handoff dispara antes do greeting | AI Agent |
 | 55 | Quando `ia_cleared` está presente, ai-agent DEVE contar mensagens desde `sessionStartDt` (`conversation_messages.direction='incoming'.gte(sessionStartDt)`) em vez do counter `lead_msg_count`. O counter pode estar desatualizado se o frontend falhou ao resetar. Abordagem self-healing | AI Agent |
+| 56 | LLM faz handoff_to_human sem chamar search_products quando lead especificou marca: regra `handoff_rules "Lead confirma interesse"` dispara ao responder a última qualificação. Fix: hardcoded "BUSCA OBRIGATÓRIA ANTES DE HANDOFF" + "MARCA JÁ INFORMADA → máx 2 perguntas". Sequência correta: dados→search→handoff | AI Agent |
+| 57 | `tipo_cliente` rejeitado silenciosamente pelo VALID_KEYS do set_tags se não estiver na whitelist. Campos customizados DEVEM ser adicionados ao VALID_KEYS em `index.ts` E ao prompt hardcoded antes de funcionar. Apenas adicionar ao prompt sem adicionar ao VALID_KEYS = tag rejeitada | AI Agent |
 
 ---
 

@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.9.0 | **Última atualização**: 2026-04-09 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 53 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente COMPLETO (Motor+Perfis+Enquetes+NPS)
+> **Versão**: 7.9.1 | **Última atualização**: 2026-04-12 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 53 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente COMPLETO (Motor+Perfis+Enquetes+NPS)
 
 ## Visão Geral
 
@@ -39,6 +39,13 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.9.1 (2026-04-12) — fix(ai-agent): carrossel pós marca + tipo_cliente
+
+- Hardcoded rule "MARCA JÁ INFORMADA → BUSCA RÁPIDA": quando lead menciona marca (Coral, Suvinil, etc.), máx 2 perguntas de qualificação antes de `search_products`. Elimina fluxo de 4+ qualificações sem busca.
+- Hardcoded rule "BUSCA OBRIGATÓRIA ANTES DE HANDOFF": `handoff_to_human` só após `search_products` quando dados suficientes (marca + tipo + cor). Elimina handoff sem busca.
+- Hardcoded rule "PROFISSÃO DO LEAD": quando lead menciona profissão (pintor, pedreiro, arquiteto, etc.), salva via `set_tags(['tipo_cliente:PROFISSAO'])` imediatamente.
+- `tipo_cliente` adicionado ao `VALID_KEYS` do `set_tags` handler (`index.ts:1936`) — chave era rejeitada silenciosamente.
 
 ### v7.9.0 (2026-04-09) — M17 F5: NPS + Métricas (Fase Final)
 
