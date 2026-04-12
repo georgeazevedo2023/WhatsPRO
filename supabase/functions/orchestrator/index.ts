@@ -14,6 +14,7 @@
 
 import { getDynamicCorsHeaders } from '../_shared/cors.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
+import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import { resolveFlow } from './config/flowResolver.ts'
 import { buildContext, fetchFirstStep } from './config/contextBuilder.ts'
 import {
@@ -24,8 +25,8 @@ import {
   applySubagentResult,
 } from './config/stateManager.ts'
 import { dispatchSubagent } from './subagents/index.ts'
-import { validateResponse, trackMetrics } from './services/index.ts'
-import type { OrchestratorInput, ActiveFlowState, SubagentResult, FlowContext } from './types.ts'
+import { validateResponse, trackMetrics, detectIntents } from './services/index.ts'
+import type { OrchestratorInput, ActiveFlowState, SubagentResult, FlowContext, IntentDetectorResult } from './types.ts'
 
 const supabase = createServiceClient()
 
@@ -53,6 +54,52 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, skipped: 'no_lead' }, 200, corsHeaders)
     }
 
+    // ── S7: Detecta intents ANTES de resolver fluxo ─────────────────────────
+    const intents = await detectIntents(input.message_text ?? '')
+    console.log(
+      '[orchestrator] intents:',
+      intents.primary?.intent ?? 'none',
+      `(${intents.primary?.confidence ?? 0}, L${intents.primary?.layer ?? 0})`,
+      `${intents.processing_time_ms}ms`,
+      intents.bypass ? `BYPASS:${intents.bypass}` : '',
+    )
+
+    // ── S7: Bypass — intents que exigem ação imediata ────────────────────────
+    if (intents.bypass === 'cancelamento') {
+      // LGPD opt-out: tag + finaliza fluxo ativo (se houver) + não responde
+      const { data: activeState } = await supabase
+        .from('flow_states')
+        .select('id, flow_id')
+        .eq('lead_id', leadId)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle()
+
+      if (activeState) {
+        await finalizeFlowState(activeState.id, 'abandoned')
+        await logFlowEvent(activeState.id, activeState.flow_id, input.instance_id, leadId,
+          'flow_completed', { reason: 'optout_lgpd', intent: 'cancelamento' })
+      }
+
+      // Aplica tags de opt-out na conversa (mesmo padrão do ai-agent: tagMap merge)
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('tags')
+        .eq('id', input.conversation_id)
+        .maybeSingle()
+      const existingTags: string[] = (conv?.tags as string[]) ?? []
+      const tagMap = new Map<string, string>()
+      for (const t of existingTags) tagMap.set(t.split(':')[0], t)
+      tagMap.set('optout', 'optout:lgpd')
+      tagMap.set('motivo', 'motivo:cancelamento')
+      await supabase.from('conversations')
+        .update({ tags: Array.from(tagMap.values()) })
+        .eq('id', input.conversation_id)
+
+      console.log('[orchestrator] BYPASS cancelamento — opt-out LGPD para lead:', leadId)
+      return jsonResponse({ ok: true, bypass: 'cancelamento', lead_id: leadId }, 200, corsHeaders)
+    }
+
     // ── Fase 1-5: Resolve fluxo ativo ────────────────────────────────────────
     const isLeadCreated = input.message_type === 'lead_created'
     const resolved = await resolveFlow(
@@ -60,11 +107,20 @@ Deno.serve(async (req: Request) => {
       leadId,
       input.message_text ?? '',
       isLeadCreated,
+      intents,                      // S7: passa intents para trigger matching
     )
 
     if (!resolved) {
       console.log('[orchestrator] No flow resolved for instance:', input.instance_id)
-      return jsonResponse({ ok: true, skipped: 'no_flow' }, 200, corsHeaders)
+      return jsonResponse({
+        ok: true,
+        skipped: 'no_flow',
+        intent: intents.primary?.intent ?? null,
+        intent_confidence: intents.primary?.confidence ?? 0,
+        intent_layer: intents.primary?.layer ?? 0,
+        intent_bypass: intents.bypass ?? null,
+        intent_ms: intents.processing_time_ms,
+      }, 200, corsHeaders)
     }
 
     // ── Obtém ou cria flow_state ──────────────────────────────────────────────
@@ -105,8 +161,8 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    // ── Monta contexto (S5: injeta memória aqui) ──────────────────────────────
-    const context = await buildContext(input, state)
+    // ── Monta contexto (S5: memória, S7: intents) ──────────────────────────────
+    const context = await buildContext(input, state, intents)
 
     if (!context) {
       console.error('[orchestrator] Failed to build context for state:', state.id)
@@ -138,6 +194,27 @@ Deno.serve(async (req: Request) => {
       } else {
         console.warn('[orchestrator] validator rejected response:', validation.issues)
       }
+    }
+
+    // ── S8: Envia media/carousel ao lead se subagente retornou media ─────────
+    if (result.media && context) {
+      await handleMediaSend(input, context, result)
+    }
+
+    // ── Aplica tags na conversa (se subagente pediu) ─────────────────────────
+    if (result.tags_to_set?.length && input.conversation_id) {
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('tags')
+        .eq('id', input.conversation_id)
+        .maybeSingle()
+      const existingTags: string[] = (conv?.tags as string[]) ?? []
+      const tagMap = new Map<string, string>()
+      for (const t of existingTags) tagMap.set(t.split(':')[0], t)
+      for (const t of result.tags_to_set) tagMap.set(t.split(':')[0], t)
+      await supabase.from('conversations')
+        .update({ tags: Array.from(tagMap.values()) })
+        .eq('id', input.conversation_id)
     }
 
     // ── Log do evento ─────────────────────────────────────────────────────────
@@ -211,6 +288,11 @@ Deno.serve(async (req: Request) => {
         state_id: state.id,
         subagent_status: result.status,
         message_sent: !!result.response_text,
+        intent: intents.primary?.intent ?? null,
+        intent_confidence: intents.primary?.confidence ?? 0,
+        intent_layer: intents.primary?.layer ?? 0,
+        intent_bypass: intents.bypass ?? null,
+        intent_ms: intents.processing_time_ms,
       },
       200,
       corsHeaders,
@@ -412,6 +494,191 @@ async function sendToLead(
     }
   } catch (err) {
     console.error('[orchestrator] sendToLead fetch error:', err)
+  }
+}
+
+// ── S8: Broadcast para Realtime (helpdesk exibe media/carousel) ──────────────
+
+function broadcastEvent(payload: Record<string, unknown>): void {
+  const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
+  const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+
+  for (const topic of ['helpdesk-realtime', 'helpdesk-conversations']) {
+    fetchFireAndForget(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      headers: {
+        'apikey': SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,
+      },
+      body: JSON.stringify({ messages: [{ topic, event: 'new-message', payload }] }),
+    })
+  }
+}
+
+// ── S8: Resolve instance token + inbox_id para media sends ──────────────────
+
+async function resolveInstanceAndInbox(
+  instanceId: string,
+  conversationId: string | null,
+): Promise<{ token: string; inboxId: string | null } | null> {
+  const { data: instance } = await supabase
+    .from('instances')
+    .select('token')
+    .eq('id', instanceId)
+    .maybeSingle()
+
+  if (!instance?.token) {
+    console.error('[orchestrator] media: token not found:', instanceId)
+    return null
+  }
+
+  let inboxId: string | null = null
+  if (conversationId) {
+    const { data: conv } = await supabase
+      .from('conversations')
+      .select('inbox_id')
+      .eq('id', conversationId)
+      .maybeSingle()
+    inboxId = conv?.inbox_id ?? null
+  }
+
+  return { token: instance.token, inboxId }
+}
+
+// ── S8: Envia imagem via UAZAPI /send/media ─────────────────────────────────
+
+async function sendMediaToLead(
+  token: string,
+  leadJid: string,
+  imageUrl: string,
+  caption: string,
+): Promise<boolean> {
+  const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') ?? 'https://wsmart.uazapi.com'
+
+  try {
+    const res = await fetchWithTimeout(`${uazapiUrl}/send/media`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', token },
+      body: JSON.stringify({ number: leadJid, media: imageUrl, type: 'image', text: caption }),
+    }, 10000)
+
+    if (!res.ok) {
+      const body = await res.text()
+      console.error('[orchestrator] sendMedia UAZAPI error:', res.status, body)
+      return false
+    }
+    console.log('[orchestrator] sendMedia OK:', leadJid)
+    return true
+  } catch (err) {
+    console.error('[orchestrator] sendMedia fetch error:', err)
+    return false
+  }
+}
+
+// ── S8: Envia carousel via UAZAPI /send/carousel ────────────────────────────
+// 4 variantes de payload para compatibilidade com UAZAPI (mesmo padrão do ai-agent)
+
+async function sendCarouselToLead(
+  token: string,
+  leadJid: string,
+  message: string,
+  carousel: unknown[],
+): Promise<boolean> {
+  const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') ?? 'https://wsmart.uazapi.com'
+  const rawNum = leadJid.replace('@s.whatsapp.net', '')
+
+  const variants = [
+    { phone: leadJid, message, carousel },
+    { number: leadJid, text: message, carousel },
+    { phone: rawNum, message, carousel },
+    { number: rawNum, text: message, carousel },
+  ]
+
+  for (const payload of variants) {
+    try {
+      const res = await fetchWithTimeout(`${uazapiUrl}/send/carousel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', token },
+        body: JSON.stringify(payload),
+      }, 10000)
+
+      if (res.ok) {
+        const body = await res.text()
+        if (!body.toLowerCase().includes('missing')) {
+          console.log('[orchestrator] sendCarousel OK:', leadJid)
+          return true
+        }
+      }
+    } catch { /* try next variant */ }
+  }
+
+  console.error('[orchestrator] sendCarousel ALL variants failed:', leadJid)
+  return false
+}
+
+// ── S8: Handler central de media do subagente ────────────────────────────────
+
+async function handleMediaSend(
+  input: OrchestratorInput,
+  context: FlowContext,
+  result: SubagentResult,
+): Promise<void> {
+  const media = result.media!
+  const conversationId = input.conversation_id
+  const leadJid = context.lead.lead_jid
+
+  if (!leadJid) {
+    console.warn('[orchestrator] handleMediaSend: leadJid vazio')
+    return
+  }
+
+  const resolved = await resolveInstanceAndInbox(input.instance_id, conversationId)
+  if (!resolved) return
+
+  const { token, inboxId } = resolved
+  let sent = false
+  let mediaType = ''
+  let mediaUrl = ''
+  let msgContent = ''
+
+  if (media.type === 'image' && media.url) {
+    sent = await sendMediaToLead(token, leadJid, media.url, media.caption ?? '')
+    mediaType = 'image'
+    mediaUrl = media.url
+    msgContent = media.caption ?? ''
+  } else if (media.type === 'carousel' && media.cards?.length) {
+    const message = media.caption ?? ''
+    const carouselPayload = media.cards.map(c => ({
+      body: c.body,
+      ...(c.imageUrl ? { image: { url: c.imageUrl } } : {}),
+      ...(c.buttons?.length ? { buttons: c.buttons } : {}),
+    }))
+    sent = await sendCarouselToLead(token, leadJid, message, carouselPayload)
+    mediaType = 'carousel'
+    mediaUrl = JSON.stringify({ message, cards: carouselPayload })
+    msgContent = message
+  }
+
+  // INSERT conversation_messages + broadcastEvent (mesmo padrão do ai-agent)
+  if (sent && conversationId) {
+    await supabase.from('conversation_messages').insert({
+      conversation_id: conversationId,
+      direction: 'outgoing',
+      content: msgContent,
+      media_type: mediaType,
+      media_url: mediaUrl,
+      external_id: `ai_${mediaType}_${Date.now()}`,
+    })
+
+    broadcastEvent({
+      conversation_id: conversationId,
+      inbox_id: inboxId,
+      direction: 'outgoing',
+      content: msgContent,
+      media_type: mediaType,
+      media_url: mediaUrl,
+    })
   }
 }
 

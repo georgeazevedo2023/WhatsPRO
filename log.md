@@ -9,6 +9,104 @@ type: log
 
 ## 2026-04-12
 
+### S8 COMPLETO — Sales + Support Subagents
+
+**`subagents/sales.ts` (NOVO — 358 linhas):**
+- Pipeline busca 3 camadas: ILIKE → word-by-word AND → fuzzy RPC (`search_products_fuzzy`)
+- 1 produto + 1 foto → `send/media`, 1 + 2+ fotos → carousel multi-foto, 2+ → carousel multi-produto (max 10)
+- `products_shown[]` no step_data — não repete produtos já exibidos
+- Follow-up LLM leve (~200 tokens): responde sobre produtos mostrados (preço, desconto, frete)
+- Exit rules: `max_messages`, `search_fail >= N` → handoff
+- Tags automáticas: `interesse:CATEGORIA`, `produto:BUSCA`, `search_fail:N`
+- `isFollowUpMessage()`: 12 patterns BR (quanto, parcela, frete, quero, esse, etc.)
+- Config: 8 sub-params (recommendation_mode, max_products, max_failures, carousel_buttons, auto_tag)
+
+**`subagents/support.ts` (NOVO — 227 linhas):**
+- Busca `ai_agent_knowledge` via word overlap scoring (sem pgvector — ILIKE + normalização)
+- 3 faixas confiança: >=0.80 resposta direta (0 tokens) | 0.50-0.79 LLM formula | <0.50 handoff
+- Boost scoring: FAQ title match +0.15, FAQ type +0.05
+- `unanswered_count` no step_data — 2x sem resposta → handoff
+- LLM formulation: top 3 matches como contexto, temperature 0.3, max 250 tokens
+- Config: 5 sub-params (confidence_high/medium, max_unanswered, enable_llm, post_action)
+
+**Arquivos modificados (4):**
+- `types.ts` — SalesConfig, SupportConfig, AgentConfig, CarouselCardPayload, SubagentMedia expandido
+- `config/contextBuilder.ts` — `fetchAgentConfig()` resolve `instance_id → agent_id` + carousel_button_* + personality
+- `index.ts` — `broadcastEvent()`, `sendMediaToLead()`, `sendCarouselToLead()` (4 variantes UAZAPI), `handleMediaSend()`, `resolveInstanceAndInbox()`, tag application via `tags_to_set`
+- `subagents/index.ts` — stubs sales+support → handlers reais
+
+**3 bloqueantes da auditoria corrigidos:**
+- B1: `agent_id` resolvido via `fetchAgentConfig(instance_id)` em Promise.all no contextBuilder
+- B2: `broadcastEvent()` criado com `fetchFireAndForget` de `_shared/fetchWithTimeout.ts`
+- B3: `sendMediaToLead()` + `sendCarouselToLead()` + INSERT `conversation_messages` + broadcastEvent
+
+**0 migrations** — usa tabelas e RPCs existentes (`search_products_fuzzy`, `ai_agent_knowledge`, `ai_agents`)
+
+**TypeScript:** `npx tsc --noEmit` = 0 erros ✅
+
+---
+
+### S7 COMPLETO — Intent Detector 3 Camadas
+
+**`services/intentDetector.ts` (NOVO — 290 linhas):**
+- L1 Normalização (~5ms): 50+ abreviações BR (vc→voce, qro→quero, etc.), dedup letras (oiiii→oi), emoji→sinal (😡→[negativo]), remove acentos
+- L2 Fuzzy Match (~12ms): Levenshtein (threshold 1/2 por tamanho), Soundex PT (dígrafos ch/lh/nh), dicionário 13 intents × ~15 sinônimos, phrase match multi-word
+- L3 LLM Semântico (~200ms): só se L2 confidence < 70, prompt curto 100 tokens, timeout 3s + fallback L2
+- 13 intents por prioridade: cancelamento > pessoa > reclamacao > suporte > produto > orcamento > status > agendamento > faq > promocao > b2b > continuacao > generico
+
+**Arquivos modificados (5):**
+- `types.ts` — DetectedIntent, IntentDetectorResult, intent_history: DetectedIntent[]
+- `services/index.ts` — stub → import real do intentDetector.ts
+- `config/flowResolver.ts` — resolveFlow recebe intents, case 'intent' real (min_confidence + keywords boost)
+- `index.ts` — detectIntents antes de resolveFlow, bypass cancelamento (LGPD opt-out: tag + abandon flow), intent info no response
+- `config/contextBuilder.ts` — buildContext recebe intents, injeta em step_data.intent_history
+
+**Bypass implementado:**
+- `cancelamento` → tag optout:lgpd + motivo:cancelamento, abandona flow ativo, NÃO responde
+- `pessoa`, `reclamacao`, `produto` → flags para subagentes (S8+)
+
+**E2E validado (10 cenários):**
+- "oi" → generico 100 L2 2ms ✅
+- "qro tinta" → produto 100 L2 3ms (abbrev) ✅
+- "orcamnto" → orcamento 80 L2 3ms (fuzzy Levenshtein) ✅
+- "Para de mandar msg" → cancelamento BYPASS ✅
+- "Quero falar com Mayara" → pessoa 95 L2 6ms ✅
+- "Meu pedido veio errado" → suporte 100 L2 4ms (phrase match) ✅
+- "Cade meu pedido" → status 100 L2 5ms ✅
+- "siiiim qro comprar" → produto 100 L2 5ms (dedup+abbrev) ✅
+- "quanto custa o piso" → produto 100 L2 4ms ✅
+- "PESSIMO atendimento" → reclamacao 100 L2 2ms ✅
+
+**Performance:** 100% resolvido em L2 (2-6ms), 0 chamadas LLM, custo R$0
+**Deploy:** orchestrator redeploy 3x (initial + intent info no_flow + suporte synonyms fix)
+
+---
+
+### Fix polls+cors + S6 Qualification Subagent (commits 5f171ea + 18149e0)
+
+**Fix polls (5f171ea):** `/send/poll` → `/send/menu` + `question→text`, `options→choices` em 4 arquivos:
+- `automationEngine.ts` (2x: send_poll action + triggerNps)
+- `ai-agent/index.ts` (tool send_poll)
+- `form-bot/index.ts` (2x: firstField + nextField)
+- `uazapi-proxy/index.ts` (poll proxy + getDynamicCorsHeaders — fix CORS dinâmico)
+
+**S6 Qualification Subagent (18149e0):**
+- `qualification.ts` (novo) — subagente REAL de qualificação de leads
+  - 4 tipos MVP: `text`, `boolean`, `currency_brl`, `select` (fuzzy match por inclusão + número)
+  - `smart_fill`: pula perguntas já no `long_memory.profile` (< maxAgeDays)
+  - retry logic: `fallback_retries` (default 2) — pula pergunta ao esgotar
+  - exit rules: `max_messages`, `qualification_complete` → advance / handoff
+  - Salva: `long_memory.profile`, `lead_profiles.custom_fields`, `step_data.qualification_answers`
+- `subagents/index.ts` — qualification stub → handler real (S6 ✅)
+- `funnelTemplates.ts` — `UTM_SOURCE_OPTIONS`, `UTM_MEDIUM_OPTIONS`, `COLUMN_COLORS`
+- `useCreateFunnel.ts` — campos custom no wizard: kanbanTitle, kanbanColumns, bioTemplate, bioTitle, bioDescription, bioButtons, formWelcomeMessage, formCompletionMessage
+
+**Deploy:** orchestrator, ai-agent, form-bot, uazapi-proxy, whatsapp-webhook
+
+---
+
+## 2026-04-12
+
 ### S4 COMPLETO — Flow Triggers Engine (commit 75b1cb9)
 - **F1 — types.ts:** sync schema real — `completed_steps`, `completed_at`, `instance_id`, `conversation_id`, StepData expandido (`message_count`, `total_message_count`, `context_vars`, `intent_history`, `last_subagent`)
 - **F2 — stateManager.ts:** `createFlowState` atômica via `ON CONFLICT DO NOTHING RETURNING` (aproveita `uq_flow_states_active_lead_flow` — sem nova RPC) + `increment_message_count` + `completed_steps_append` + `finalizeFlowState` seta `completed_at`

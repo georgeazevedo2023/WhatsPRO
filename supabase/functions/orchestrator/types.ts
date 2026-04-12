@@ -37,7 +37,7 @@ export interface StepData {
   message_count: number          // msgs neste step
   total_message_count: number    // msgs no fluxo inteiro
   last_subagent: string | null
-  intent_history: string[]
+  intent_history: DetectedIntent[]
   products_shown: string[]
   context_vars: Record<string, unknown>
   // Dados de qualificação
@@ -72,6 +72,24 @@ export interface FlowContext {
   lead: LeadContext
   step_config: Record<string, unknown>
   exit_rules: ExitRule[]
+  agent_config?: AgentConfig
+}
+
+// ── Intent Detection (S7) ───────────────────────────────────────────────────
+
+export interface DetectedIntent {
+  intent: string          // 'produto', 'cancelamento', etc.
+  confidence: number      // 0-100
+  layer: 1 | 2 | 3       // qual camada resolveu
+  matched_tokens: string[] // tokens que ativaram (debug)
+}
+
+export interface IntentDetectorResult {
+  intents: DetectedIntent[]      // ordenados por confidence DESC
+  primary: DetectedIntent | null // maior confidence
+  bypass?: 'cancelamento' | 'pessoa' | 'reclamacao' | 'produto'
+  normalized_text: string        // texto após L1
+  processing_time_ms: number
 }
 
 // ── Exit Rules ───────────────────────────────────────────────────────────────
@@ -116,9 +134,54 @@ export interface SubagentResult {
 
 export interface SubagentMedia {
   type: 'image' | 'carousel' | 'poll'
+  /** URL direta da imagem (type=image) */
   url?: string
-  products?: unknown[]
+  /** Texto/caption da mensagem */
+  caption?: string
+  /** Cards do carousel (type=carousel) */
+  cards?: CarouselCardPayload[]
+  /** Opções de poll (type=poll) */
   poll_options?: string[]
+}
+
+export interface CarouselCardPayload {
+  body: string
+  imageUrl?: string
+  buttons?: { type: string; displayText: string; url?: string }[]
+}
+
+// ── Agent Config (carregado pelo contextBuilder via ai_agents) ──────────────
+
+export interface AgentConfig {
+  agent_id: string
+  system_prompt: string
+  personality?: string
+  carousel_button_1?: string
+  carousel_button_2?: string
+  max_discount_percent?: number
+}
+
+// ── Sales Config (step_config do subagente sales) ───────────────────────────
+
+export interface SalesConfig {
+  recommendation_mode?: 'exact' | 'smart' | 'upsell'
+  max_products_per_search?: number       // default: 5
+  max_search_failures?: number           // default: 3 → handoff
+  enable_follow_up_llm?: boolean         // default: true
+  carousel_button_1?: string             // override do agent config
+  carousel_button_2?: string
+  auto_tag_interest?: boolean            // default: true
+  post_action?: 'next_step' | 'handoff' | 'tag_and_close'
+}
+
+// ── Support Config (step_config do subagente support) ───────────────────────
+
+export interface SupportConfig {
+  confidence_high?: number               // default: 0.80
+  confidence_medium?: number             // default: 0.50
+  max_unanswered?: number                // default: 2 → handoff
+  enable_llm_formulation?: boolean       // default: true
+  post_action?: 'next_step' | 'handoff' | 'tag_and_close'
 }
 
 // ── Contrato de cada Subagente ───────────────────────────────────────────────

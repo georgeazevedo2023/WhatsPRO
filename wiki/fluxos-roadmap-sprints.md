@@ -22,9 +22,9 @@ updated: 2026-04-12
 | **S3** ✅ | Flow CRUD Admin UI | `/flows` com listagem, criação, publicação | M |
 | **S4** ✅ | Flow Triggers Engine | Mensagem "oi" ativa flow correto, estado salvo no banco | M |
 | **S5** ✅ | Memory + Greeting | Lead novo é saudado, nome coletado e persistido entre msgs | M |
-| **S6** | Qualification | Lead responde perguntas, `smart_fill`, `post_action` avança | G |
-| **S7** | Intent Detector | "qro tinta" → `produto` com confidence 0.95, 3 camadas | M |
-| **S8** | Sales + Support | Carrossel de produtos; FAQ sem LLM, handoff se confidence<0.8 | M |
+| **S6** ✅ | Qualification | Lead responde perguntas, `smart_fill`, `post_action` avança | G |
+| **S7** ✅ | Intent Detector | "qro tinta" → `produto` com confidence 0.95, 3 camadas | M |
+| **S8** ✅ | Sales + Support | Carrossel de produtos; FAQ sem LLM, handoff se confidence<0.8 | M |
 | **S9** | Validator + Metrics + Shadow | Prompt leak bloqueado; timing por camada; shadow sem resposta | M |
 | **S10** | Templates + Survey/Followup/Handoff | Template "Vitrine" instala com 1 clique e funciona no WhatsApp | G |
 | **S11** | Conversa Guiada + FlowEditor | IA monta fluxo em chat; todos os 13 params editáveis | G |
@@ -99,24 +99,30 @@ updated: 2026-04-12
 
 ## Camada 3 — Intelligence (S7-S9)
 
-### S7: Intent Detector (3 Camadas)
-**`services/intentDetector.ts`** — L1 Normalização (~5ms, 100%: abbrevs+dedup) → L2 Fuzzy/Levenshtein+Soundex (~12ms, 100%: threshold 1/2/3 por tamanho) → L3 LLM semântico (~200ms, só quando confidence L2 < 0.70)
-**13 intents por prioridade:** cancelamento > pessoa > reclamacao > suporte > produto > orcamento > status > agendamento > faq > promocao > b2b > continuacao > generico
+### S7: Intent Detector (3 Camadas) ✅ COMPLETO (2026-04-12)
 
-**Bypass crítico:** `cancelamento` → optout LGPD imediato | `pessoa` → handoff | `produto` → sales direto (sem qualificação)
+**`services/intentDetector.ts` (290 linhas):**
+- L1 Normalização (~5ms): 50+ abreviações BR, dedup letras, emoji→sinal, remove acentos
+- L2 Fuzzy Match (~12ms): Levenshtein (threshold 1/2), Soundex PT (dígrafos), 13 intents × ~15 sinônimos, phrase match multi-word (3+ palavras → 100, 2 palavras → 95)
+- L3 LLM Semântico (~200ms): gpt-4.1-mini, só se L2 confidence < 70, timeout 3s + fallback
 
-**Target:** L3 ativado em ≤20% das msgs. Custo: ~R$0,20/dia (100 conversas).
+**5 arquivos modificados:** types.ts (DetectedIntent, IntentDetectorResult), services/index.ts (stub→real), flowResolver.ts (case 'intent' real + keywords boost), index.ts (pipeline + bypass cancelamento), contextBuilder.ts (intent_history)
 
-### S8: Sales + Support Subagents
-**`subagents/sales.ts` — P2 (8 sub-params):**
-- `single_product_mode` → `send/media` (1 produto) vs `send/carousel` (2+)
-- Persiste `step_data.products_shown[]` — não repete no carrossel
-- `recommendation_mode: exact | smart | upsell`
-- **Regra obrigatória:** `broadcastEvent()` após todo insert de media/carousel
+**Bypass cancelamento:** tag optout:lgpd + motivo:cancelamento, abandona flow, NÃO responde (LGPD)
 
-**`subagents/support.ts`:**
-- pgvector similaridade vs `knowledge_base` (tabela existente)
-- confidence ≥ 0.80 → resposta direta (0 tokens) | 0.50-0.79 → LLM | < 0.50 → handoff
+**E2E:** 10 cenários validados, 100% resolvido em L2 (2-6ms), 0 chamadas LLM, custo R$0
+
+**Performance real:** Target era L3 ≤20%, resultado: L3 = 0% (dicionário de sinônimos resolve tudo em L2).
+
+### S8: Sales + Support Subagents ✅ COMPLETO (2026-04-12)
+
+**`sales.ts` (358 linhas):** Busca 3 camadas (ILIKE→AND→fuzzy RPC), 1 foto→send/media, 2+→carousel (max 10), `products_shown[]` não repete, follow-up LLM leve (~200 tokens), exit rules (max_messages, search_fail>=N→handoff), tags auto (interesse/produto/search_fail). Config 8 sub-params.
+
+**`support.ts` (227 linhas):** Busca `ai_agent_knowledge` via word overlap + boost (sem pgvector). 3 faixas: >=0.80 direto (0 tokens) | 0.50-0.79 LLM | <0.50 handoff. `unanswered_count` → 2x→handoff. Config 5 sub-params.
+
+**Infra no `index.ts`:** `broadcastEvent()`, `sendMediaToLead()`, `sendCarouselToLead()` (4 variantes UAZAPI), `handleMediaSend()` (INSERT+broadcast), tag application. **`contextBuilder.ts`:** `fetchAgentConfig()` resolve `instance_id→agent_id` em Promise.all.
+
+**0 migrations.** tsc 0 erros. 3 bloqueantes de auditoria corrigidos pré-implementação.
 
 ### S9: Validator + Metrics + Shadow ON
 **`services/validator.ts` — 10 checks automáticos (0 tokens cada):**
@@ -185,13 +191,4 @@ Checklist: tem flow publicado? ✓ | triggers ativos? ✓ | testou shadow 24h? �
 
 ---
 
-## Cobertura Auditada
-
-| Componente | Sprints que cobrem | Status |
-|-----------|-------------------|--------|
-| 14 tabelas banco | S1 (apply) + S4-S12 (use) | ✅ 100% |
-| 13 parâmetros P0-P12 | S5(P0) S6(P1) S8(P2) S9(P3,P5) S7(P6) S10(P4,P8) S11(P7,P9-P12) | ✅ 100% |
-| 8 subagentes | S5(greeting) S6(qualification) S8(sales,support) S10(survey,followup,handoff) S11(custom) | ✅ 100% |
-| 5 serviços | S5(memory) S7(intentDetector) S9(validator,metrics,shadow) | ✅ 100% |
-| Feature flag | S2(skeleton) S12(por instância) | ✅ G4 coberto |
-| Contratos TypeScript + Admin UI | S4(types.ts) S5(subagents) S6(QualificationConfig) · S3(CRUD) S10(templates) S11(editor) S12(métricas) | ✅ coberto |
+## Cobertura: 14 tabelas ✅ | 13 params ✅ | 8 subagentes (4/8 reais) ✅ | 5 serviços (2/5 reais) ✅ | Feature flag ✅ | Types+UI ✅

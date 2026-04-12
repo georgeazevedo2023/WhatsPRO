@@ -5,7 +5,7 @@
 // =============================================================================
 
 import { createServiceClient } from '../../_shared/supabaseClient.ts'
-import type { ActiveFlowState, FlowContext, LeadContext, ExitRule, OrchestratorInput } from '../types.ts'
+import type { ActiveFlowState, FlowContext, LeadContext, ExitRule, OrchestratorInput, IntentDetectorResult, DetectedIntent, AgentConfig } from '../types.ts'
 import { loadMemory } from '../services/memory.ts'
 
 const supabase = createServiceClient()
@@ -15,12 +15,14 @@ const supabase = createServiceClient()
 export async function buildContext(
   input: OrchestratorInput,
   state: ActiveFlowState,
+  intents?: IntentDetectorResult,
 ): Promise<FlowContext | null> {
-  const [lead, stepConfig, exitRules, memory] = await Promise.all([
+  const [lead, stepConfig, exitRules, memory, agentConfig] = await Promise.all([
     fetchLeadContext(state.lead_id),
     fetchStepConfig(state.flow_step_id),
     fetchExitRules(state.flow_step_id),
     loadMemory(state.lead_id, state.instance_id),   // S5: Memory Service real
+    fetchAgentConfig(state.instance_id),             // S8: agent_id + config para sales/support
   ])
 
   if (!lead) {
@@ -32,12 +34,22 @@ export async function buildContext(
   lead.short_memory = memory.short_memory
   lead.long_memory  = memory.long_memory
 
+  // S7: injeta intents detectados no intent_history (append)
+  if (intents?.intents?.length) {
+    const currentHistory: DetectedIntent[] = (state.step_data?.intent_history as DetectedIntent[]) ?? []
+    state.step_data = {
+      ...state.step_data,
+      intent_history: [...currentHistory, ...intents.intents],
+    }
+  }
+
   return {
     input,
     flow_state: state,
     lead,
     step_config: stepConfig,
     exit_rules: exitRules,
+    agent_config: agentConfig ?? undefined,
   }
 }
 
@@ -108,6 +120,31 @@ async function fetchExitRules(stepId: string | null): Promise<ExitRule[]> {
 
   if (!step?.exit_rules) return []
   return step.exit_rules as ExitRule[]
+}
+
+// ── Busca config do agente IA pela instance_id ──────────────────────────────
+// S8: sales precisa de agent_id (para search_products_fuzzy) e carousel_button_*
+//      support precisa de agent_id (para ai_agent_knowledge)
+
+async function fetchAgentConfig(instanceId: string): Promise<AgentConfig | null> {
+  const { data: agent } = await supabase
+    .from('ai_agents')
+    .select('id, system_prompt, personality, carousel_button_1, carousel_button_2, max_discount_percent')
+    .eq('instance_id', instanceId)
+    .eq('enabled', true)
+    .limit(1)
+    .maybeSingle()
+
+  if (!agent) return null
+
+  return {
+    agent_id: agent.id,
+    system_prompt: agent.system_prompt ?? '',
+    personality: agent.personality ?? undefined,
+    carousel_button_1: agent.carousel_button_1 ?? undefined,
+    carousel_button_2: agent.carousel_button_2 ?? undefined,
+    max_discount_percent: agent.max_discount_percent ?? undefined,
+  }
 }
 
 // ── Busca o primeiro step de um fluxo ────────────────────────────────────────

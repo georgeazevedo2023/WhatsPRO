@@ -136,4 +136,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-12 — S1 ✅ S2 ✅ S3 ✅ S4 ✅ (commits e084c87, 367b4b0, 9862f2d, 75b1cb9). Camada 1 + Triggers Engine completos. USE_ORCHESTRATOR=false (S12 migra por instância). Próximo: S5 Memory + Greeting.*
+*Ultima atualizacao: 2026-04-12 — S1 ✅ S2 ✅ S3 ✅ S4 ✅ S5 ✅ S6 ✅ S7 ✅. Camadas 1+2+Intelligence(S7) completas. USE_ORCHESTRATOR=false (S12 migra por instância). Próximo: S8 Sales + Support.*

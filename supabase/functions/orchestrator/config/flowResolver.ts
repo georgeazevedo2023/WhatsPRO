@@ -13,7 +13,7 @@
 // =============================================================================
 
 import { createServiceClient } from '../../_shared/supabaseClient.ts'
-import type { ActiveFlowState } from '../types.ts'
+import type { ActiveFlowState, IntentDetectorResult } from '../types.ts'
 
 const supabase = createServiceClient()
 
@@ -23,7 +23,8 @@ export async function resolveFlow(
   instanceId: string,
   leadId: string,
   messageText: string,
-  isLeadCreated = false,          // S4: sinaliza evento lead_created
+  isLeadCreated = false,
+  intents?: IntentDetectorResult,   // S7: intents detectados
 ): Promise<{ flowId: string; state: ActiveFlowState | null } | null> {
 
   // Fase 2: Lead já tem fluxo ativo? Retorna o estado atual
@@ -47,7 +48,7 @@ export async function resolveFlow(
   // Fase 3 + 4: matchTrigger() + cooldown para cada trigger em ordem de prioridade
   for (const trigger of triggers) {
     // Fase 3: verifica se a mensagem bate com o tipo de gatilho
-    if (!matchTrigger(trigger, messageText, isLeadCreated)) continue
+    if (!matchTrigger(trigger, messageText, isLeadCreated, intents)) continue
 
     // Fase 4a: verifica janela de ativação (business_hours etc.)
     if (!checkActivation(trigger.activation as string)) continue
@@ -77,6 +78,7 @@ function matchTrigger(
   trigger: Record<string, unknown>,
   messageText: string,
   isLeadCreated: boolean,
+  intents?: IntentDetectorResult,
 ): boolean {
   const config = (trigger.trigger_config as Record<string, unknown>) ?? {}
 
@@ -95,29 +97,42 @@ function matchTrigger(
     }
 
     case 'message_received': {
-      // Ativa em qualquer mensagem de texto não-vazia
       return messageText.trim().length > 0
     }
 
     case 'conversation_started': {
-      // Tratado como message_received por ora (S4)
-      // S5: verificar se é realmente o 1º contato via sessions_count
       return messageText.trim().length > 0
     }
 
     case 'lead_created': {
-      // Ativado pelo evento explícito (isLeadCreated = true)
       return isLeadCreated
     }
 
-    case 'intent':
-      // S7: IntentDetector retornará o intent no input
-      // Por ora: não ativa (evita ativação acidental)
-      return false
+    case 'intent': {
+      // S7: verifica intents detectados contra trigger_config.intents[]
+      if (!intents?.primary) return false
+      const requiredIntents: string[] = (config.intents as string[]) ?? []
+      if (requiredIntents.length === 0) return false
+      const minConfidence = (config.min_confidence as number) ?? 70
+
+      // Keywords como boost: match exato → confidence += 10
+      const boostKeywords: string[] = (config.keywords as string[]) ?? []
+      let boost = 0
+      if (boostKeywords.length > 0) {
+        const normalized = normalizeText(messageText)
+        const hasKeyword = boostKeywords.some((kw) => normalized.includes(normalizeText(kw)))
+        if (hasKeyword) boost = 10
+      }
+
+      // Verifica se algum intent detectado está na lista + atinge min_confidence
+      return intents.intents.some(
+        (di) => requiredIntents.includes(di.intent) && (di.confidence + boost) >= minConfidence,
+      )
+    }
 
     default:
       // bio_link, utm_campaign, qr_code, tag_added, poll_answered,
-      // funnel_entered, webhook_received, schedule, api → S5+
+      // funnel_entered, webhook_received, schedule, api → S10+
       return false
   }
 }

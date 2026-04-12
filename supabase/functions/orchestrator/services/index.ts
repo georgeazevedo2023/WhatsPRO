@@ -1,6 +1,6 @@
 // =============================================================================
 // Services — Interface pública dos serviços do Orchestrator.
-// Memory (S5 — REAL), IntentDetector (S7 — stub), Validator (S8 — stub),
+// Memory (S5 — REAL), IntentDetector (S7 — REAL), Validator (S8 — stub),
 // Metrics (S9 — stub), Shadow (S11 — stub)
 // =============================================================================
 
@@ -9,6 +9,7 @@ import {
   loadMemory as _loadMemory,
   saveShortMemory as _saveShortMemory,
 } from './memory.ts'
+import { detectIntents as _detectIntents } from './intentDetector.ts'
 
 // ── Memory Service (S5 — REAL) ────────────────────────────────────────────────
 
@@ -37,21 +38,15 @@ export async function saveShortMemory(
   return _saveShortMemory(leadId, instanceId, patch)
 }
 
-// ── Intent Detector Service (S7) ─────────────────────────────────────────────
+// ── Intent Detector Service (S7 — REAL) ──────────────────────────────────────
 
-export interface IntentResult {
-  intents: string[]
-  confidence: Record<string, number>
-}
+export { type IntentDetectorResult, type DetectedIntent } from '../types.ts'
 
 /**
  * Detecta intenções na mensagem do lead.
- * S2: stub — retorna array vazio.
- * S7: 3 camadas (keyword → regex → LLM) com normalização BR.
+ * S7: 3 camadas (normalização BR → fuzzy match → LLM semântico).
  */
-export async function detectIntents(_messageText: string): Promise<IntentResult> {
-  return { intents: [], confidence: {} }
-}
+export const detectIntents = _detectIntents
 
 // ── Validator Service (S8) ────────────────────────────────────────────────────
 
