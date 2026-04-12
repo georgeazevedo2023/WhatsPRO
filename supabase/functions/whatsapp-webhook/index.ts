@@ -22,12 +22,23 @@ function normalizeMediaType(raw: string): string {
 
 const webhookModuleLog = createLogger('whatsapp-webhook')
 
-// ── USE_ORCHESTRATOR feature flag (S2) ────────────────────────────────────────
-// Lê system_settings.USE_ORCHESTRATOR. Falso por padrão (seguro).
-// S2: global false → todo tráfego vai para ai-agent-debounce.
-// S12: adiciona instances.use_orchestrator por instância.
-async function getOrchestratorFlag(): Promise<boolean> {
+// ── USE_ORCHESTRATOR feature flag (S2 → S12) ─────────────────────────────────
+// S2:  flag global (system_settings.USE_ORCHESTRATOR) — padrão false em produção.
+// S12: per-instance flag (instances.use_orchestrator) com fallback global.
+// Prioridade: instância específica primeiro; global apenas se instância não ativou.
+async function getOrchestratorFlag(instanceId?: string): Promise<boolean> {
   try {
+    // 1. Verifica flag da instância específica (mais granular)
+    if (instanceId) {
+      const { data: inst } = await supabase
+        .from('instances')
+        .select('use_orchestrator')
+        .eq('id', instanceId)
+        .maybeSingle()
+      if (inst?.use_orchestrator === true) return true
+      // use_orchestrator=false → não bloqueia, verifica global abaixo
+    }
+    // 2. Fallback: flag global (dev/emergência — padrão false em produção)
     const { data } = await supabase
       .from('system_settings')
       .select('value')
@@ -379,7 +390,7 @@ Deno.serve(async (req) => {
               .single()
 
             if (conv && (conv.status_ia === 'ligada' || conv.status_ia === 'shadow')) {
-              const useOrchestrator = await getOrchestratorFlag()
+              const useOrchestrator = await getOrchestratorFlag(conv.instance_id)
               const baseUrl = Deno.env.get('SUPABASE_URL')!
               const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
               const targetUrl = useOrchestrator
@@ -1128,7 +1139,7 @@ Deno.serve(async (req) => {
         .maybeSingle()
 
       if (aiAgent) {
-        const useOrchestrator = await getOrchestratorFlag()
+        const useOrchestrator = await getOrchestratorFlag(instance.id)
 
         if (useOrchestrator) {
           // S2+: Orchestrator skeleton (não envia mensagem ao lead ainda)

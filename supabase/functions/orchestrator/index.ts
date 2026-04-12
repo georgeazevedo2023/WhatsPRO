@@ -39,9 +39,12 @@ Deno.serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // S12: input declarado fora do try para estar acessível no catch (rollback automático)
+  let input: OrchestratorInput | null = null
+
   try {
     const timer = createTimer()
-    const input = (await req.json()) as OrchestratorInput
+    input = (await req.json()) as OrchestratorInput
 
     // Validação mínima do input
     if (!input.conversation_id || !input.instance_id) {
@@ -374,6 +377,10 @@ Deno.serve(async (req: Request) => {
     )
   } catch (err) {
     console.error('[orchestrator] Unhandled error:', err)
+    // S12: Auto-rollback — 3 falhas em 5min desativa use_orchestrator da instância
+    if (input?.instance_id) {
+      await handleOrchestratorFailure(input.instance_id).catch(() => {})
+    }
     return jsonResponse({ error: 'Internal error' }, 500, corsHeaders)
   }
 })
@@ -837,6 +844,53 @@ async function handleMediaSend(
       media_type: mediaType,
       media_url: mediaUrl,
     })
+  }
+}
+
+// ── S12: Auto-rollback — rastreia falhas e desativa por instância ────────────
+// Usa system_settings como contador por instância (sem migration adicional).
+// 3 falhas em 5 minutos → UPDATE instances SET use_orchestrator = false.
+// Contador limpo automaticamente após rollback ou após janela de 5min.
+
+async function handleOrchestratorFailure(instanceId: string): Promise<void> {
+  const key = `orch_fail_${instanceId}`
+  const now = Date.now()
+
+  // Lê estado atual de falhas
+  const { data } = await supabase
+    .from('system_settings')
+    .select('value')
+    .eq('key', key)
+    .maybeSingle()
+
+  let state: { count: number; first_at: number } = { count: 0, first_at: now }
+  if (data?.value) {
+    try { state = JSON.parse(data.value) } catch { /* reset em JSON inválido */ }
+  }
+
+  // Reseta janela se expirou (5 minutos)
+  if (now - state.first_at > 300_000) {
+    state = { count: 0, first_at: now }
+  }
+
+  state.count++
+
+  // Persiste contador atualizado
+  await supabase
+    .from('system_settings')
+    .upsert({ key, value: JSON.stringify(state) }, { onConflict: 'key' })
+
+  // Rollback se atingiu limite
+  if (state.count >= 3) {
+    console.warn(
+      `[orchestrator] AUTO-ROLLBACK: ${state.count} falhas em 5min → desativando use_orchestrator para instância ${instanceId}`,
+    )
+    await supabase
+      .from('instances')
+      .update({ use_orchestrator: false })
+      .eq('id', instanceId)
+    // Limpa contador
+    await supabase.from('system_settings').delete().eq('key', key)
   }
 }
 

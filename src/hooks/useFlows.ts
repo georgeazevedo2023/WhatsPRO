@@ -244,3 +244,41 @@ export function generateSlug(name: string): string {
     .replace(/-+/g, '-')
     .slice(0, 60)
 }
+
+// ── S12: Toggle use_orchestrator por instância ──────────────────────────────
+
+export function useToggleOrchestrator() {
+  const { toast } = useToast()
+  return useMutation({
+    mutationFn: async ({ instanceId, enable }: { instanceId: string; enable: boolean }) => {
+      const { error } = await supabase
+        .from('instances')
+        .update({ use_orchestrator: enable } as any)
+        .eq('id', instanceId)
+      if (error) throw error
+    },
+    onSuccess: (_, { enable }) => {
+      toast({
+        title: enable ? 'Orquestrador ativado' : 'Revertido para AI Agent',
+      })
+    },
+  })
+}
+
+// ── S12: Cria link público de métricas (30 dias) ────────────────────────────
+
+export function useCreateFlowShare() {
+  const { toast } = useToast()
+  return useMutation({
+    mutationFn: async (flowId: string): Promise<string> => {
+      const { data, error } = await supabase.rpc('create_flow_report_share', {
+        p_flow_id: flowId,
+      })
+      if (error) throw error
+      return data as string
+    },
+    onError: () => {
+      toast({ title: 'Erro ao gerar link', variant: 'destructive' })
+    },
+  })
+}

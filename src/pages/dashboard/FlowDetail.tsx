@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, AlertTriangle, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, Plus, Trash2, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,6 +9,17 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { supabase } from '@/integrations/supabase/client'
+import { useToast } from '@/hooks/use-toast'
 import { useFlow, useUpdateFlow, usePublishFlow, usePauseFlow, generateSlug } from '@/hooks/useFlows'
 import {
   useFlowTriggers,
@@ -20,11 +31,137 @@ import { FlowModeBadge } from '@/components/flows/FlowModeBadge'
 import { TriggerFormSheet } from '@/components/flows/TriggerFormSheet'
 import { FlowStepsPanel } from '@/components/flows/FlowStepsPanel'
 import { FlowIntelPanel } from '@/components/flows/FlowIntelPanel'
+import { FlowMetricsPanel } from '@/components/flows/FlowMetricsPanel'
 import { TRIGGER_TYPE_LABELS, FLOW_MODE_LABELS } from '@/types/flows'
 import type { FlowMode, FlowTrigger, TriggerType } from '@/types/flows'
 import type { TriggerFormData } from '@/components/flows/TriggerFormSheet'
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+
+// ── Sub-componentes da tab Publicar ──────────────────────────────────────────
+
+function MigrationCheckItem({ ok, warn, label }: { ok: boolean; warn?: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      {ok ? (
+        <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+      ) : warn ? (
+        <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />
+      ) : (
+        <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />
+      )}
+      <span className={ok ? 'text-foreground' : 'text-muted-foreground'}>{label}</span>
+    </div>
+  )
+}
+
+function OrchestratorToggle({ instanceId, flowName }: { instanceId: string; flowName: string }) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+  const { toast } = useToast()
+
+  const { data: instance } = useQuery({
+    queryKey: ['instance-orchestrator', instanceId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('instances')
+        .select('id, use_orchestrator')
+        .eq('id', instanceId)
+        .maybeSingle()
+      return data
+    },
+    enabled: !!instanceId,
+  })
+
+  const isActive = (instance as any)?.use_orchestrator === true
+
+  const toggleMutation = useMutation({
+    mutationFn: async (enable: boolean) => {
+      const { error } = await supabase
+        .from('instances')
+        .update({ use_orchestrator: enable } as any)
+        .eq('id', instanceId)
+      if (error) throw error
+    },
+    onSuccess: (_, enable) => {
+      toast({
+        title: enable ? 'Orquestrador ativado!' : 'Revertido para AI Agent',
+        description: enable
+          ? 'Esta instancia agora usa o novo motor de fluxos.'
+          : 'Voltou para o AI Agent padrao.',
+      })
+      setConfirmOpen(false)
+      setConfirmText('')
+    },
+    onError: () => {
+      toast({ title: 'Erro ao alterar configuracao', variant: 'destructive' })
+    },
+  })
+
+  const handleToggle = (checked: boolean) => {
+    if (checked) {
+      setConfirmOpen(true)
+    } else {
+      toggleMutation.mutate(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={isActive}
+            onCheckedChange={handleToggle}
+            disabled={toggleMutation.isPending}
+          />
+          <span className="text-sm">
+            {isActive ? 'Orquestrador ativo' : 'Usar Orquestrador'}
+          </span>
+          <Badge variant={isActive ? 'default' : 'secondary'} className="text-xs">
+            {isActive ? 'v3.0 ON' : 'AI Agent'}
+          </Badge>
+        </div>
+      </div>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ativar Orquestrador v3.0?</DialogTitle>
+            <DialogDescription>
+              Esta instancia passara a usar o novo motor de fluxos. O AI Agent legado continuara
+              como fallback automatico em caso de 3 falhas em 5 minutos.
+              <br /><br />
+              Para confirmar, digite o nome do fluxo:{' '}
+              <strong>{flowName}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={flowName}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setConfirmOpen(false); setConfirmText('') }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => toggleMutation.mutate(true)}
+              disabled={confirmText !== flowName || toggleMutation.isPending}
+            >
+              {toggleMutation.isPending ? 'Ativando...' : 'Confirmar ativacao'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+// ── Pagina principal ──────────────────────────────────────────────────────────
 
 export default function FlowDetail() {
   const { id } = useParams<{ id: string }>()
@@ -187,6 +324,7 @@ export default function FlowDetail() {
             </TabsTrigger>
             <TabsTrigger value="subagentes">Subagentes</TabsTrigger>
             <TabsTrigger value="inteligencia">Inteligência</TabsTrigger>
+            <TabsTrigger value="metricas">Métricas</TabsTrigger>
             <TabsTrigger value="publicar">Publicar</TabsTrigger>
           </TabsList>
 
@@ -343,6 +481,11 @@ export default function FlowDetail() {
             <FlowIntelPanel flowId={id!} />
           </TabsContent>
 
+          {/* ── Tab: Métricas ── */}
+          <TabsContent value="metricas" className="mt-4">
+            <FlowMetricsPanel flowId={id!} />
+          </TabsContent>
+
           {/* ── Tab: Publicar ── */}
           <TabsContent value="publicar" className="mt-4 max-w-lg space-y-4">
             <div className="rounded-lg border bg-muted/30 p-4 space-y-2 text-sm">
@@ -381,6 +524,39 @@ export default function FlowDetail() {
                   {publishFlow.isPending ? 'Publicando...' : 'Publicar agora'}
                 </Button>
               )}
+            </div>
+
+            {/* ── Migração para Orquestrador v3.0 ── */}
+            <div className="rounded-lg border p-4 space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold">Orquestrador v3.0</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Ativa o novo motor de fluxos para esta instância
+                </p>
+              </div>
+
+              {/* Checklist de pré-requisitos */}
+              <div className="space-y-2">
+                <MigrationCheckItem
+                  ok={isPublished}
+                  label="Fluxo publicado"
+                />
+                <MigrationCheckItem
+                  ok={triggers.length > 0}
+                  label={`${triggers.length} gatilho(s) configurado(s)`}
+                />
+                <MigrationCheckItem
+                  ok={flow.mode === 'shadow'}
+                  warn
+                  label="Shadow mode testado (recomendado antes de ativar)"
+                />
+              </div>
+
+              {/* Toggle com confirmação */}
+              <OrchestratorToggle
+                instanceId={flow.instance_id}
+                flowName={flow.name}
+              />
             </div>
           </TabsContent>
         </Tabs>
