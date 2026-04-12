@@ -9,6 +9,76 @@ type: log
 
 ## 2026-04-12
 
+### S12 COMPLETO — Métricas + Migração por Instância + Rollback (commit b7017e8)
+
+**M18 Fluxos v3.0 COMPLETO — 12/12 sprints shipped.**
+
+**T1 — Migration (`20260416000002_s12_orchestrator_migration.sql`):**
+- `instances.use_orchestrator BOOL DEFAULT false` — flag per-instance
+- `flow_report_shares` table — token hex(16), expires_at 30 dias, RLS leitura pública
+- RPC `create_flow_report_share(p_flow_id)` SECURITY DEFINER — retorna token
+
+**T2 — Webhook per-instance (`whatsapp-webhook/index.ts`):**
+- `getOrchestratorFlag(instanceId?)` — checa `instances.use_orchestrator` primeiro, fallback global `USE_ORCHESTRATOR`
+- 2 call sites atualizados: poll_response (conv.instance_id) + handler principal (instance.id)
+
+**T3 — Rollback automático (`orchestrator/index.ts`):**
+- `input` declarado fora do try (acessível no catch)
+- `handleOrchestratorFailure(instanceId)` — 3 falhas em 5min → `use_orchestrator=false` automático
+- Contador em `system_settings` com key `orch_fail_{instanceId}`, janela 5min com reset
+
+**T4 — FlowMetricsPanel (`src/components/flows/FlowMetricsPanel.tsx`):**
+- KPI cards: sessões iniciadas, taxa conclusão, taxa handoff, custo USD
+- Funil de conversão: BarChart horizontal (active/completed/handoff/abandoned)
+- Timing médio: PieChart (intent/resolve/context/subagent/validator/send ms)
+- Top 10 intents com progress bars CSS
+- Botão "Compartilhar" → RPC → copia URL `{origin}/flows/report/{token}` — 30 dias
+
+**T5 — FlowDetail + useFlows:**
+- Nova tab "Métricas" (6ª tab) com `FlowMetricsPanel`
+- Tab "Publicar" aprimorada: checklist de migração (publicado/triggers/shadow) + `OrchestratorToggle`
+- `OrchestratorToggle`: Switch + Dialog confirmação GitHub-style (digitar nome do fluxo)
+- 2 novos hooks: `useToggleOrchestrator` + `useCreateFlowShare`
+
+**T6 — E2E (`supabase/functions/orchestrator/tests/e2e_orchestrator.sh`):**
+- 5 cenários: novo_lead_saudacao / coleta_nome / intent_produto / shadow_sem_envio / followup_agendado
+- Score: 20pts por cenário = 100 max. Threshold produção: ≥80
+- Guard: verifica E2E_INSTANCE_ID configurado (NUNCA instância real)
+
+**tsc --noEmit = EXIT:0 ✅ | 7 arquivos (3 novos + 4 editados) | 864 linhas**
+
+---
+
+## 2026-04-12
+
+### BUG-1+BUG-3+BUG-5 corrigidos + deploy orchestrator + guided-flow-builder
+
+**Commit 46a0a3e — 5 arquivos**
+
+**BUG-1 (validator.ts) — name_frequency_ok não aplicava correção:**
+- `checkNameFrequency` calculava `corrected` (remove ocorrências extras do nome) mas não o propagava — retornava issue sem o texto corrigido
+- `applyCorrection` para `name_frequency_ok` retornava o texto original com comentário "complexo"
+- Fix: add `corrected_text?: string` em `ValidatorIssue` (types.ts), `checkNameFrequency` armazena `corrected_text: corrected`, `applyCorrection` usa `issue.corrected_text ?? text`
+
+**BUG-3 (process-flow-followups:179) — next_step por posição exata:**
+- Buscava `position = currentPosition + 1` → falha silenciosa se há gaps (step deletado, reordenado)
+- Fix: `.gt('position', currentPosition).order('position', ascending).limit(1)` → próximo step real
+
+**BUG-5 (guided-flow-builder:88) — .single() em sessão expirada:**
+- `.single()` lança PGRST116 se session_id não existe → crash 500 (R31)
+- Fix: `.maybeSingle()` → sessão não encontrada cai no branch "criar nova"
+
+**followup.ts — status 'complete' → 'continue':**
+- Modificação da sessão anterior agora commitada
+
+**Deploy:**
+- `orchestrator` — 25 assets — ✅ deployed
+- `guided-flow-builder` — 2 assets — ✅ deployed
+
+**tsc --noEmit = 0 erros ✅**
+
+---
+
 ### Auditoria S9-S11 + 2 bugs críticos corrigidos
 
 **Auditoria completa de S9 (Validator+Metrics+Shadow), S10 (Survey+Followup+Handoff), S11 (Conversa Guiada+FlowEditor).**

@@ -28,7 +28,7 @@ updated: 2026-04-12
 | **S9** ✅ | Validator + Metrics + Shadow | Prompt leak bloqueado; timing por camada; shadow sem resposta | M |
 | **S10** ✅ | Templates + Survey/Followup/Handoff | Template "Vitrine" instala com 1 clique e funciona no WhatsApp | G |
 | **S11** ✅ | Conversa Guiada + FlowEditor | IA monta fluxo em chat; tab Subagentes funcional com drag-and-drop; tab Inteligência | G |
-| **S12** | Métricas + E2E + Migração | Dashboard exportável; score E2E; toggle por instância | M |
+| **S12** ✅ | Métricas + E2E + Migração | Dashboard exportável; score E2E; toggle por instância | M |
 
 ---
 
