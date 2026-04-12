@@ -20,7 +20,7 @@ updated: 2026-04-11
 | **S1** ✅ | Database + Tipos | 14 tabelas no banco, seed, tipos TypeScript gerados | P |
 | **S2** ✅ | Orchestrator Skeleton | Orquestrador com feature flag `USE_ORCHESTRATOR` — sem breaking change | M |
 | **S3** ✅ | Flow CRUD Admin UI | `/flows` com listagem, criação, publicação | M |
-| **S4** | Flow Triggers Engine | Mensagem "oi" ativa flow correto, estado salvo no banco | M |
+| **S4** ✅ | Flow Triggers Engine | Mensagem "oi" ativa flow correto, estado salvo no banco | M |
 | **S5** | Memory + Greeting | Lead novo é saudado, nome coletado e persistido entre msgs | M |
 | **S6** | Qualification | Lead responde perguntas, `smart_fill`, `post_action` avança | G |
 | **S7** | Intent Detector | "qro tinta" → `produto` com confidence 0.95, 3 camadas | M |
@@ -78,8 +78,19 @@ updated: 2026-04-11
 
 ## Camada 2 — Flow Engine (S4-S6)
 
-### S4: Flow Triggers Engine
-**`flowResolver.ts` — 5 fases:** (1) triggers por `priority DESC` → (2) lead em flow ativo? retorna → (3) `matchTrigger()` por tipo (MVP: keyword|intent|message_received|lead_created) → (4) checar cooldown → (5) fallback `is_default=true`
+### S4: Flow Triggers Engine ✅ COMPLETO (2026-04-12, commit 75b1cb9)
+
+**Entregáveis:**
+- `flowResolver.ts`: checkCooldown real (query flow_events), checkActivation (always ok, outros stub), normalizeText (remove acentos), isLeadCreated flag
+- `stateManager.ts`: ON CONFLICT DO NOTHING → zero race condition, message_count increment, completed_steps append, completed_at
+- `index.ts`: handleAdvance real (fetchNextStep por position), resolveLeadId corrigido (join conversations→inboxes→lead_profiles)
+- `contextBuilder.ts`: from('lead_profiles') + join contacts, subagent_type (era step_type)
+- `types.ts`: sync completo com schema (completed_steps, instance_id, conversation_id, StepData rico)
+- **5 bugs de schema corrigidos**: conversations.lead_id | conversations.instance_id | from('leads') | step_type×2
+
+**E2E:** "oi" → `flow_state.status=active`, `flow_step_id=<greeting>`, `message_count=1` ✅
+
+**`flowResolver.ts` — 5 fases (implementadas):** (1) triggers por `priority DESC` → (2) lead em flow ativo? retorna → (3) `matchTrigger()` por tipo (MVP: keyword|intent|message_received|lead_created) → (4) checar cooldown → (5) fallback `is_default=true`
 
 **Migration adicional:** `20260416000000_fn_create_flow_state.sql` — RPC atômico `create_flow_state_atomic()` (INSERT em `flow_states` + `flow_events` na mesma transação — evita race condition)
 

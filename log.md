@@ -7,7 +7,21 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
-## 2026-04-11
+## 2026-04-12
+
+### S4 COMPLETO — Flow Triggers Engine (commit 75b1cb9)
+- **F1 — types.ts:** `completed_steps: string[]`, `completed_at`, `instance_id`, `conversation_id` + StepData expandido (`message_count`, `total_message_count`, `context_vars`, `intent_history`, `last_subagent`)
+- **F2 — stateManager.ts:** `createFlowState` atômica via `ON CONFLICT DO NOTHING RETURNING` (aproveita `uq_flow_states_active_lead_flow` — sem nova RPC) + `increment_message_count` em `updateFlowState` + `finalizeFlowState` seta `completed_at`
+- **F3 — flowResolver.ts:** `checkCooldown()` real via query `flow_events` | `checkActivation()` ('always' passa, outros stub S5+) | `normalizeText()` remove acentos | `isLeadCreated` flag para trigger `lead_created`
+- **F4 — index.ts:** `handleAdvance` real — `fetchNextStep` por position > current → avança `flow_step_id`, `completed_steps`, reseta `message_count`. Sem próximo step → `flow_completed`
+- **5 bugs de schema corrigidos na auditoria E2E:**
+  - `conversations.lead_id` (não existe) → join `conversations→inboxes→lead_profiles`
+  - `conversations.instance_id` (não existe) → via `inboxes.instance_id`
+  - `from('leads')` (tabela não existe) → `from('lead_profiles')` + join `contacts` para phone
+  - `step_type` (não existe em flow_steps) → `subagent_type` em `fetchFirstStep`
+  - `step_type` (não existe em flow_steps) → `subagent_type` em `fetchStepConfig`
+- **E2E validado (curl real):** "oi" → `flow_state status=active`, `flow_step_id=<greeting step>`, `message_count=1`, events `flow_started`+`tool_called` ✅
+- **Deploy:** orchestrator v3 no ar
 
 ### S3 COMPLETO — Flow CRUD Admin UI (commit 9862f2d)
 - **Entregáveis:** 5 páginas + 3 componentes + 2 hooks + 12 templates + tipos

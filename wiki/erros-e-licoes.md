@@ -196,6 +196,8 @@ updated: 2026-04-11
 - R29: SEMPRE ler o schema real (migration) antes de escrever código de insert
 - R30: CHECK constraints em `event_type` devem ser consultadas antes de logar evento
 - R31: `.single()` lança exceção → sempre `.maybeSingle()` em edge functions
+- R34: Antes de usar qualquer coluna no código, verificar schema real com `information_schema.columns` — `conversations` usa `contact_id`/`inbox_id`, não `lead_id`/`instance_id`; tabela `leads` não existe, é `lead_profiles`; `flow_steps` usa `subagent_type`, não `step_type`
+- R35: FKs em flow_states: `lead_id → lead_profiles.id` (não contacts.id). Para resolver lead de uma conversa: `conversations.contact_id → lead_profiles.contact_id → lead_profiles.id`
 - R32: `useState(() => sideEffect())` NÃO é `useEffect` — inicializador roda 1x no mount com estado inicial undefined. Para reagir a dados assíncronos usar `useEffect(() => {}, [dep])`
 - R33: Ao criar rotas React Router, SEMPRE verificar App.tsx E sidebar/nav. Código de página sem rota = inacessível (bug silencioso)
 
