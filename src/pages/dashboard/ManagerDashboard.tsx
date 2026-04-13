@@ -1,8 +1,6 @@
 // M19 S3: Dashboard do Gestor
 // Rota: /dashboard/gestao (CrmRoute — super_admin + gerente)
 import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
 import { LineChart, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,21 +13,7 @@ import ManagerConversionFunnel from '@/components/manager/ManagerConversionFunne
 import IAvsVendorComparison from '@/components/manager/IAvsVendorComparison';
 import LazySection from '@/components/dashboard/LazySection';
 import { useManagerMetrics } from '@/hooks/useManagerMetrics';
-
-function useManagerInstances() {
-  return useQuery({
-    queryKey: ['manager-instances'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('instances')
-        .select('id, name, status')
-        .eq('disabled', false)
-        .order('name');
-      return (data || []) as { id: string; name: string; status: string }[];
-    },
-    staleTime: 300_000,
-  });
-}
+import { useManagerInstances } from '@/hooks/useManagerInstances';
 
 export default function ManagerDashboard() {
   const { data: instances = [] } = useManagerInstances();
