@@ -62,6 +62,7 @@ const FlowWizard = lazy(() => import("./pages/dashboard/FlowWizard"));
 const FlowTemplatesPage = lazy(() => import("./pages/dashboard/FlowTemplatesPage"));
 const FlowDetail = lazy(() => import("./pages/dashboard/FlowDetail"));
 const ManagerDashboard = lazy(() => import("./pages/dashboard/ManagerDashboard"));
+const VendorDetailPage = lazy(() => import("./pages/dashboard/gestao/VendorDetailPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -264,6 +265,7 @@ const AppRoutes = () => {
         <Route path="flows/new/templates" element={<AdminRoute><ErrorBoundary section="Templates Fluxo"><Suspense fallback={<PageLoader />}><FlowTemplatesPage /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="flows/:id" element={<AdminRoute><ErrorBoundary section="Fluxo"><Suspense fallback={<PageLoader />}><FlowDetail /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="gestao" element={<CrmRoute><ErrorBoundary section="Gestão"><Suspense fallback={<PageLoader />}><ManagerDashboard /></Suspense></ErrorBoundary></CrmRoute>} />
+        <Route path="gestao/vendedor/:sellerId" element={<CrmRoute><ErrorBoundary section="Ficha Vendedor"><Suspense fallback={<PageLoader />}><VendorDetailPage /></Suspense></ErrorBoundary></CrmRoute>} />
         {/* Redirect legacy/bookmarked URLs */}
         <Route path="leads-broadcast" element={<Navigate to="/dashboard/broadcast/leads" replace />} />
       </Route>

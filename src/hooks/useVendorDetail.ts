@@ -119,40 +119,37 @@ export function useVendorDetail(
         ? Math.round((totalResolved / totalConversations) * 100)
         : 0;
 
+      // ── Conversas: IDs + pendingCount + uniqueContacts ──
+      const convRows = (convsRes.data || []) as any[];
+      const convIds = convRows.map((c: any) => c.id as string);
+      const pendingCount = convRows.filter((c: any) => c.status === 'open' || c.status === 'pending').length;
+      const uniqueContacts = new Set(convRows.map((c: any) => c.contact_id as string).filter(Boolean)).size;
+
       // ── NPS do vendedor ──
       let npsAvg = 0;
       const pollIds = ((pollsRes.data || []) as any[]).map((p: any) => p.id);
-      if (pollIds.length > 0) {
-        // Busca respostas de polls cujas conversas pertencem ao vendedor
-        const convIds = ((convsRes.data || []) as any[]).map((c: any) => c.id as string);
-        if (convIds.length > 0) {
-          const { data: pollResponses } = await supabase
-            .from('poll_responses' as any) // view not in generated types
-            .select('selected_options, conversation_id')
-            .in('poll_message_id', pollIds)
-            .in('conversation_id', convIds);
+      if (pollIds.length > 0 && convIds.length > 0) {
+        const { data: pollResponses } = await supabase
+          .from('poll_responses' as any) // view not in generated types
+          .select('selected_options, conversation_id')
+          .in('poll_message_id', pollIds)
+          .in('conversation_id', convIds);
 
-          let npsTotal = 0;
-          let npsCount = 0;
-          for (const resp of (pollResponses || []) as any[]) {
-            for (const opt of (resp.selected_options || [])) {
-              const score = NPS_SCORES[opt as string];
-              if (score) { npsTotal += score; npsCount++; }
-            }
+        let npsTotal = 0;
+        let npsCount = 0;
+        for (const resp of (pollResponses || []) as any[]) {
+          for (const opt of (resp.selected_options || [])) {
+            const score = NPS_SCORES[opt as string];
+            if (score) { npsTotal += score; npsCount++; }
           }
-          npsAvg = npsCount > 0 ? Math.round((npsTotal / npsCount) * 10) / 10 : 0;
         }
+        npsAvg = npsCount > 0 ? Math.round((npsTotal / npsCount) * 10) / 10 : 0;
       }
-
-      // ── Conversas: pendingCount + uniqueContacts ──
-      const convRows = (convsRes.data || []) as any[];
-      const pendingCount = convRows.filter((c: any) => c.status === 'open' || c.status === 'pending').length;
-      const uniqueContacts = new Set(convRows.map((c: any) => c.contact_id as string).filter(Boolean)).size;
 
       // ── Ticket médio: via v_lead_metrics filtrado por instance_id ──
       // Busca leads cujas conversas têm assigned_to = sellerId
       let avgTicket = 0;
-      if (convIds !== undefined && convIds.length > 0) {
+      if (convIds.length > 0) {
         const { data: leadMetrics } = await supabase
           .from('v_lead_metrics' as any) // view not in generated types
           .select('lead_id, avg_ticket')

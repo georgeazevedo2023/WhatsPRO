@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Users, MessageSquare, CheckCircle2, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
 import type { SellerRankData } from '@/hooks/useManagerMetrics';
 
@@ -17,6 +18,7 @@ const formatMinutes = (minutes: number) => {
 };
 
 export default function SellerRankingChart({ sellers }: Props) {
+  const navigate = useNavigate();
   const sellerIds = sellers.map((s) => s.sellerId);
   const { namesMap } = useUserProfiles({ userIds: sellerIds, enabled: sellerIds.length > 0 });
 
@@ -54,7 +56,8 @@ export default function SellerRankingChart({ sellers }: Props) {
           return (
             <div
               key={seller.sellerId}
-              className={`flex flex-col gap-1.5 px-3 py-2 rounded-lg ${
+              onClick={() => navigate('/dashboard/gestao/vendedor/' + seller.sellerId)}
+              className={`flex flex-col gap-1.5 px-3 py-2 rounded-lg cursor-pointer hover:bg-primary/10 transition-colors ${
                 idx === 0 ? 'bg-primary/5 border border-primary/20' : 'bg-muted/30'
               }`}
             >
