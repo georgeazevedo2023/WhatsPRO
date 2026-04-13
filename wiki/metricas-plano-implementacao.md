@@ -2,7 +2,7 @@
 title: Plano de Implementação — Métricas & IA Conversacional (v2 — auditado)
 tags: [plano, sprints, metricas, shadow, dashboard, ia-conversacional]
 sources: [discussao-2026-04-12, agentes-planejamento, auditoria-2026-04-12]
-updated: 2026-04-12
+updated: 2026-04-13
 ---
 
 # Plano de Implementação — Métricas & IA Conversacional
@@ -13,10 +13,10 @@ updated: 2026-04-12
 
 | Sprint | Nome | Tasks | Dep. | Paralelo com |
 |--------|------|-------|------|-------------|
-| **S1** | Shadow Inteligente (Coleta) | T1-T8 | — | — |
-| **S2** | Armazenamento & Agregação | T1-T8 | S1 parcial | — |
-| **S3** | Dashboard do Gestor | T1-T10 | S2 | S4 |
-| **S4** | Fichas Individuais | T1-T12 | S2 | S3 |
+| **S1** ✅ | Shadow Inteligente (Coleta) | T1-T8 | — | — |
+| **S2** ✅ | Armazenamento & Agregação | T1-T8 | S1 parcial | — |
+| **S3** ✅ | Dashboard do Gestor | T1-T10 | S2 | S4 |
+| **S4** ✅ | Fichas Individuais | T1-T12 | S2 | S3 |
 | **S5** | IA Conversacional | T1-T10 | S2-S4 | — |
 | **S6** | NPS Automático | T1-T5 | S2 | S5 |
 | **S7** | Alertas Proativos | T1-T5 | S2 | S5, S6 |

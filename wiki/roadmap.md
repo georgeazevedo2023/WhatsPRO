@@ -84,7 +84,7 @@ updated: 2026-04-12
 | S1 | Shadow Inteligente (Coleta) | ✅ Shipped (2026-04-13) | Shadow bilateral, tags expandidas, extract_shadow_data, isTrivialMessage |
 | S2 | Armazenamento & Agregação | ✅ Shipped + Fixed (2026-04-13) | Views SQL, aggregate-metrics, cron, UTMs, lead_score, funnel_events. Fix: join convs, resolved_at, T7+T8 populate |
 | S3 | Dashboard do Gestor | ✅ Shipped (2026-04-13) | /gestao, KPIs, gráficos, comparativo IA vs vendedor. 11 arquivos, tsc 0 erros. |
-| S4 | Fichas Individuais | 🔄 P1+P2 Shipped (2026-04-13) | P1: fix views handoff + instance_goals. P2: Ficha Vendedor (useVendorDetail, VendorKPICards, VendorTrendChart, VendorDetailPage, drill-down). P3-P7: Fichas IA/Transbordo/Origens/Metas |
+| S4 | Fichas Individuais | ✅ Shipped (2026-04-13) | 7 planos, 27 arquivos: Ficha Vendedor, Ficha Agente IA, Painel Transbordo, Métricas Origem, Metas Configuráveis (GoalProgressBar+Modal), Navegação (4 rotas + Sidebar). tsc 0 erros, build ok. |
 | S5 | IA Conversacional | — | assistant-chat edge fn, NLU, widget flutuante |
 | S6 | NPS Automático | — | npsDispatcher, vínculo vendedor, v_nps_by_seller |
 | S7 | Alertas Proativos | — | process-alerts, NotificationBell, 6 tipos |

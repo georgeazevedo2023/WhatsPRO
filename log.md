@@ -7,6 +7,28 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-13 (M19-S4 COMPLETO — Fichas Individuais)
+
+### Sprint S4 concluído — 7 planos, 20 commits, 27 novos arquivos
+
+**Planos executados:**
+- P1: Migration `20260418000001` — corrige v_handoff_details + v_agent_performance (event 'handoff') + cria instance_goals
+- P2: Ficha Vendedor — useManagerInstances + useVendorDetail + VendorKPICards + VendorTrendChart + VendorDetailPage + drill-down SellerRankingChart
+- P3: Ficha Agente IA — useAgentDetail + AgentKPICards + AgentCostChart + AgentFollowUpStats + AgentDetailPage
+- P4: Painel Transbordo — useHandoffMetrics + HandoffKPICards + HandoffMotivosChart + HandoffEvitavelChart + HandoffRecentTable + HandoffDetailPage
+- P5: Métricas de Origem — useOriginMetrics + OriginChannelTable + OriginUTMBreakdown + OriginMetricsPage
+- P6: Metas Configuráveis — useInstanceGoals + GoalProgressBar + GoalsConfigModal + integração nas 5 páginas
+- P7: Navegação — 4 rotas no App.tsx + 3 sub-items no Sidebar + build final ok
+
+**Resultados:**
+- 6 hooks novos (useManagerInstances + useVendorDetail + useAgentDetail + useHandoffMetrics + useOriginMetrics + useInstanceGoals)
+- 13 componentes novos em src/components/gestao/
+- 4 páginas em src/pages/dashboard/gestao/
+- 1 migration SQL aplicada em produção
+- tsc: 0 erros | npm run build: SUCCESS (6.36s)
+
+---
+
 ## 2026-04-13 (M19-S4 Plano 2)
 
 ### feat(m19-s4-p2): Ficha do Vendedor (commits c0f9a17, 9e97453, de2380b)

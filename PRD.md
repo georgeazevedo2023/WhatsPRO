@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.10.0 | **Última atualização**: 2026-04-13 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 32 Edge Functions + 56 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente COMPLETO (Motor+Perfis+Enquetes+NPS) + M19 S1 Shadow Bilateral + M19 S2 Armazenamento & Agregação (views, aggregate-metrics, cron, lead_score, funnel_events)
+> **Versão**: 7.11.0 | **Última atualização**: 2026-04-13 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 32 Edge Functions + 57 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente COMPLETO (Motor+Perfis+Enquetes+NPS) + M19 S1-S4 (Shadow+Agregação+Dashboard+Fichas Individuais)
 
 ## Visão Geral
 
@@ -39,6 +39,17 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.11.0 (2026-04-13) — M19 S4: Fichas Individuais do Dashboard do Gestor
+
+- **Ficha Vendedor** (`/gestao/vendedor/:sellerId`): hook `useVendorDetail` com 3 queries paralelas (v_vendor_activity + NPS + ticket médio), 6 KPI cards, LineChart de evolução temporal, drill-down no SellerRankingChart
+- **Ficha Agente IA** (`/gestao/agente`): hook `useAgentDetail` (v_agent_performance + follow_up_executions), 6 KPI cards (respostas, handoffs, cobertura, latência, custo, custo/conversa), AreaChart de custo diário, card follow-up stats com barra de progresso
+- **Painel Transbordo** (`/gestao/transbordo`): hook `useHandoffMetrics` (single query v_handoff_details + agregação JS), 5 KPI cards, BarChart horizontal de motivos, PieChart evitável vs necessário, tabela 20 handoffs recentes com badges coloridos + resolução de seller names
+- **Métricas de Origem** (`/gestao/origem`): hook `useOriginMetrics` (v_lead_metrics + utm_campaigns/utm_visits), tabela canais com badges coloridos + barra score, tabela UTM breakdown com badges de conversão, reutiliza LeadsByOriginChart
+- **Metas Configuráveis**: hook `useInstanceGoals` + `useUpsertGoal` (select+update/insert), `GoalProgressBar` (verde/amarelo/vermelho, invertColors para métricas "menor é melhor"), `GoalsConfigModal` Dialog shadcn com 6 métricas + 3 períodos — integrado em todas as 5 páginas
+- **Infrastructure**: migration `20260418000001` corrige `v_handoff_details` (event 'handoff' vs 'handoff_to_human'), `v_agent_performance` (mesmo fix), cria tabela `instance_goals` (RLS + CHECK constraints + trigger)
+- **Navegação**: 4 rotas CrmRoute + 3 sub-items na Sidebar Gestão (Agente IA, Transbordo, Métricas Origem), hook compartilhado `useManagerInstances` extraído do ManagerDashboard
+- 27 novos arquivos | tsc 0 erros | npm run build ok
 
 ### v7.9.1 (2026-04-12) — fix(ai-agent): carrossel pós marca + tipo_cliente
 
