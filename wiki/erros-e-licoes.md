@@ -68,30 +68,17 @@ updated: 2026-04-12
 | 55 | Quando `ia_cleared` está presente, ai-agent DEVE contar mensagens desde `sessionStartDt` (`conversation_messages.direction='incoming'.gte(sessionStartDt)`) em vez do counter `lead_msg_count`. O counter pode estar desatualizado se o frontend falhou ao resetar. Abordagem self-healing | AI Agent |
 | 56 | LLM faz handoff_to_human sem chamar search_products quando lead especificou marca: regra `handoff_rules "Lead confirma interesse"` dispara ao responder a última qualificação. Fix: hardcoded "BUSCA OBRIGATÓRIA ANTES DE HANDOFF" + "MARCA JÁ INFORMADA → máx 2 perguntas". Sequência correta: dados→search→handoff | AI Agent |
 | 57 | `tipo_cliente` rejeitado silenciosamente pelo VALID_KEYS do set_tags se não estiver na whitelist. Campos customizados DEVEM ser adicionados ao VALID_KEYS em `index.ts` E ao prompt hardcoded antes de funcionar. Apenas adicionar ao prompt sem adicionar ao VALID_KEYS = tag rejeitada | AI Agent |
+| 58 | Variáveis `const` dentro de `if` são block-scoped — referenciá-las fora causa ReferenceError silencioso em runtime (TS não compila strict no Deno Deploy). SEMPRE declarar com `let` no escopo externo se usada depois do bloco condicional | AI Agent |
+| 59 | Catch block do ai-agent usava `agent_id: null` para logar erros, mas coluna é NOT NULL → INSERT falhava → erros desapareciam sem rastro. SEMPRE hoistar IDs antes do try block para acessar no catch | AI Agent |
+| 60 | Regras de prompt que se contradizem anulam-se: "qualifique ambiente primeiro" vs "busca imediata com marca" = LLM segue a mais específica (qualificação). Regras de PRIORIDADE ABSOLUTA devem explicitamente anular as outras | AI Agent |
 
 ---
 
 ## Histórico de Erros
 
-### CORS bloqueava envio de mensagens do Helpdesk (2026-04-09)
+### CORS bloqueava Helpdesk (2026-04-09)
 
-**O que:** Atendente não conseguia enviar mensagens pelo Helpdesk. Banner "Failed to fetch" no topo. Console mostrava erro CORS: `Access-Control-Allow-Origin: https://euljumefltljegknaw.s.supabase.co` (Supabase URL) em vez de `https://crm.wsmart.com.br` (domínio real).
-
-**Causa raiz (2 problemas simultâneos):**
-1. `uazapi-proxy/index.ts` usava `browserCorsHeaders` (estático) em vez de `getDynamicCorsHeaders(req)` (dinâmico). O header estático sempre retornava o fallback hardcoded.
-2. O secret `ALLOWED_ORIGIN` **nunca foi criado** nos Secrets do Supabase. Sem ele, `cors.ts` caía no fallback `https://app.whatspro.com.br` — que não era o domínio real `crm.wsmart.com.br`.
-
-**Correção:**
-1. `uazapi-proxy/index.ts` linha 1: trocado `import { browserCorsHeaders as corsHeaders }` por `import { getDynamicCorsHeaders }`. No handler: `const corsHeaders = getDynamicCorsHeaders(req)`.
-2. Secret criado: `npx supabase secrets set ALLOWED_ORIGIN=https://crm.wsmart.com.br`
-3. Deploy: `npx supabase functions deploy uazapi-proxy`
-
-**Regras preventivas:**
-- R26: `ALLOWED_ORIGIN` DEVE existir nos Secrets em produção
-- R27: Edge functions browser-facing DEVEM usar `getDynamicCorsHeaders(req)`
-- Checklist de deploy: verificar se `ALLOWED_ORIGIN` está configurado
-
-**Nota:** 12 outras edge functions ainda usam `browserCorsHeaders` estático. Funcionam porque o Supabase gateway trata CORS automaticamente para elas. Mas `uazapi-proxy` falhava porque faz fetch externo (UAZAPI) que demora e o gateway pode não aplicar CORS no preflight.
+`uazapi-proxy` usava `browserCorsHeaders` (estático) + `ALLOWED_ORIGIN` secret não existia → CORS bloqueava. Fix: `getDynamicCorsHeaders(req)` + secret criado. Regras R26+R27.
 
 ### form-bot retries NaN — bypass silencioso de validação (2026-04-06)
 

@@ -77,6 +77,20 @@ updated: 2026-04-12
 **Decisões aprovadas (10):** D1 (imagem=checkbox), D2 (tags=IA+editável), D3 (activateFunnel centralizado), D4 (prompt por funil), D5 (transbordo=dept+timeout), D6 (NPS=pós-resolve+notifica), D7 (form-bot poll, NUNCA opções numeradas), D8 (motor automação MVP, tags+etiquetas como gatilhos), D9 (Motor+Agêntico ambos dentro do Funil — cérebro=global, funil=por contexto), D10 (Agent Profiles — unifica sub-agents+funnel_prompt)
 **Plano completo:** [[wiki/plano-enquetes-polls]]
 
+## M19: Plataforma de Métricas & IA Conversacional (em andamento)
+
+| Sprint | Nome | Status | Tasks |
+|--------|------|--------|-------|
+| S1 | Shadow Inteligente (Coleta) | ✅ Shipped (2026-04-13) | Shadow bilateral, tags expandidas, extract_shadow_data, isTrivialMessage |
+| S2 | Armazenamento & Agregação | — | Views SQL, aggregate-metrics, cron, UTMs, lead_score |
+| S3 | Dashboard do Gestor | — | /gestao, KPIs, gráficos, comparativo IA vs vendedor |
+| S4 | Fichas Individuais | — | Vendedor, IA, transbordo, origens, metas configuráveis |
+| S5 | IA Conversacional | — | assistant-chat edge fn, NLU, widget flutuante |
+| S6 | NPS Automático | — | npsDispatcher, vínculo vendedor, v_nps_by_seller |
+| S7 | Alertas Proativos | — | process-alerts, NotificationBell, 6 tipos |
+
+**Plano completo:** [[wiki/metricas-plano-implementacao]]
+
 ## Módulos Implementados
 
 18 módulos (M1-M18) implementados. Ver [[wiki/modulos]].

@@ -57,6 +57,13 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/deploy-checklist]] | Checklist obrigatorio de deploy |
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |
 | [[wiki/log-arquivo-2026-04-04-a-09]] | Log historico arquivado |
+| [[wiki/log-arquivo-2026-04-12-fixes-kpi-s12]] | KPI fixes + S12 + orchestrator (2026-04-12) |
+| [[wiki/metricas-leads-visao]] | Metricas de leads: visao, gaps, shadow, dashboard, IA conversacional |
+| [[wiki/metricas-vendedor-visao]] | Metricas do vendedor: performance, conversao, NPS, ficha, ranking |
+| [[wiki/metricas-agente-ia-visao]] | Metricas da IA: eficiencia, qualidade, follow-up, custo, comparativo |
+| [[wiki/metricas-transbordo-visao]] | Metricas de transbordo: motivos, tempo pickup, conversao pos-handoff |
+| [[wiki/metricas-origem-leads-visao]] | Metricas de origem: canais, atribuicao UTM, ROI por canal |
+| [[wiki/metricas-plano-implementacao]] | Plano: 7 sprints, 55 tasks (v2 auditado) |
 
 ## Wiki — Fluxos v3.0 (✅ Shipped 2026-04-12 — 12/12 sprints)
 

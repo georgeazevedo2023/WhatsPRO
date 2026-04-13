@@ -7,6 +7,34 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-13
+
+### feat(m19-s1): Shadow Bilateral — Coleta de Dados do Vendedor (commit 2db9299)
+
+**M19 Sprint 1 — Shadow Inteligente (Coleta)** — 8 tasks, 4 agentes paralelos.
+
+**T1 — shouldTriggerShadowFromWebhook + routing (webhook)**
+- Nova função em `aiRuntime.ts`: `fromMe:true` + `status_ia='shadow'` + não-audio + conteúdo ≥5 chars → `true`
+- Webhook: após bloco principal, if shadow vendor → chama `ai-agent` diretamente com `shadow_only:true` (sem debounce)
+
+**T2 — Shadow bilateral (ai-agent)**
+- Extrai `shadow_only`, `vendor_message` do body. `isShadowVendor = shadow_only === true`
+- Contexto das últimas 5 msgs para melhor extração
+
+**T3 — Tags lead expandidas**: `concorrente:*`, `intencao:*`, `motivo_perda:*`, `conversao:*`, `dado_pessoal:*`
+
+**T4 — Tags vendedor**: `vendedor_tom`, `vendedor_desconto`, `vendedor_upsell`, `vendedor_followup`, `vendedor_alternativa`, `venda_status`, `pagamento`
+
+**T5 — extract_shadow_data**: INSERT INTO shadow_extractions (7 dimensões, batch_id por run)
+
+**T6 — isTrivialMessage**: pré-filtro len<5/emoji/trivial → pula LLM + loga shadow_skipped_trivial
+
+**T7 — Logging**: shadow_extraction_lead vs shadow_extraction_vendor com tags_set/is_vendor metadata
+
+**T8 — 22 testes** (7 novos + 15 regressão ✅)
+
+---
+
 ## 2026-04-12
 
 ### fix(ai-agent): ia_cleared usa contagem de msgs desde sessionStartDt — self-healing
@@ -70,135 +98,49 @@ Gaps detectados e corrigidos:
 
 ---
 
-### fix(leads): kpiAtendidoIA usa tags da conversa atual (commit 306b5c7)
-
-`kpiAtendidoIA` usava `tags` agregadas de TODAS as conversas → `ia:shadow` de conversa antiga contaminava novas. Corrigido: usa `latestConv.tags` apenas.
-
----
-
-### fix(leads): KPI datas/duração + tipo_cliente tag-based (commit 4848d53)
-
-- `latestConv` agora ordena por `created_at DESC` (conversa mais recente criada, não mais recente por mensagem)
-- Duração >24h: formato `Xd Yh` em vez de `Xh` (evita "523h")
-- Novo card violeta "Tipo de Cliente" no KPI grid — lê `tipo_cliente:X` de tags ou `extractedData`
-- **BUG**: `update_lead_profile` não tem parâmetro `custom_fields` — instrução corrigida no DB para usar `set_tags tipo_cliente:X`
-- DB: `prompt_sections.additional` + `tags_labels` atualizados (R50 em erros-e-licoes)
-
----
-
-### fix(leads): KPI Produto exibia '—' — filtro _interno (commit 6af187f)
-
-Filtro `!t.endsWith('_interno')` comparava a string completa da tag (ex: `produto:piso_ceramica_interno`) que terminava com `_interno` e excluía. Removido (R51 em erros-e-licoes).
-
----
-
-### Agente IA: Tipo de Cliente configurado no DB (sem commit — config via SQL)
-
-**Agente:** Eletropiso (`174af654`)
-
-**Campo `tipo_cliente` já existia** em `extraction_fields` (section: custom, enabled: true).
-
-**`prompt_sections.additional` atualizado** com instrução completa de inferência:
-Tipos: Lead Novo, Cliente Final, Pintor, Vidraceiro, Serralheiro, Pedreiro, Eletricista, Encanador, Arquiteto/Designer, Loja/Revendedor, Construtora/Empreiteira, Fornecedor.
-Regra: inferir pelas palavras — NUNCA perguntar diretamente.
-
-O campo aparece em **Campos Adicionais** na página do lead quando o agente extrair.
-
----
-
-### Página do Lead: KPI Atendimento + Score + Embellezamento (commit c58507a)
-
-**`src/pages/dashboard/LeadDetail.tsx`** + **`src/components/leads/LeadProfileSection.tsx`**
-
-Card "Resumo do Atendimento" na coluna direita — grid 2-col, 6 KPIs:
-- **Produto** (verde) — tags `produto:` + `interesse:`
-- **Em falta** (vermelho) — tag `marca_indisponivel:`
-- **Início** (cinza) — `conversation.created_at` dd/mm hh:mm
-- **Fim** (cinza) — `conversation.last_message_at` dd/mm hh:mm
-- **Duração** (âmbar) — diferença min/h
-- **Atendido por IA** (azul/amarelo) — Sim / Shadow / Não
-
-**Score de engajamento 0-100** (computado sem DB change): nome+10, email+10, motivo+10, produto/interesse+15, conversas (5×, max 20), interações (max 15), cidade+10, kanban+10. Badge circular Frio/Morno/Quente no header do perfil.
-
-**Embellezamento:** faixa gradiente `from-primary/80` no topo do card perfil.
-
----
-
-### Helpdesk: KPI grid no Contexto IA (commits 6b542b1 + c432fd0)
-
-**`src/components/helpdesk/ContactInfoPanel.tsx`**
-
-Grid 2 colunas acima das tags no bloco "Contexto IA":
-- **Produto** (roxo) — tags `produto:` + `interesse:`
-- **Em falta** (vermelho) — tag `marca_indisponivel:`
-- **Início** (cinza) — `conversation.created_at` dd/mm hh:mm
-- **Fim** (cinza) — `conversation.last_message_at` dd/mm hh:mm
-- **Duração** (âmbar) — diferença início→fim em min/h
-- **Atendido por IA** (azul/amarelo) — Sim / Shadow / Não derivado das tags
-
-tsc = 0 erros ✅
-
----
-
-### fix(orchestrator): post-handoff guard (commit 64b91a8) + deploy
-
-**Causa:** após handoff, lead enviava "Ok" → novo flow criado → `smart_fill` encontrava respostas antigas em `long_memory.profile` → qualificação completava imediatamente → segundo handoff disparado → mensagem duplicada "Vou te encaminhar...".
-
-**Fix:** antes de `createFlowState`, checa `flow_states WHERE status='handoff' AND completed_at >= now()-4h`. Se encontrado, retorna `{ skipped: 'post_handoff' }` sem criar novo flow nem enviar mensagem. Lead permanece com atendente humano.
-
-**Deploy:** orchestrator ✅ (R48 em erros-e-licoes)
-
----
-
-### fix(greeting): saudação dupla para leads migrados do ai-agent antigo (commit 460ddd5) + deploy
-
-**Causa:** leads do ai-agent antigo tinham `lead_profiles.full_name` mas `long_memory.sessions_count=0`. Case C disparava `greeting_message` (template com "com quem eu falo?") mesmo com nome conhecido.
-
-**Fix:** Cases B+C unificados — se `lead.lead_name` existe, sempre usa `known_lead_message`. Deploy: orchestrator ✅ (R47 em erros-e-licoes)
-
----
-
-### S12 COMPLETO — Métricas + Migração por Instância + Rollback (commit b7017e8)
-
-**M18 Fluxos v3.0 COMPLETO — 12/12 sprints shipped.**
-
-**T1 — Migration (`20260416000002_s12_orchestrator_migration.sql`):**
-- `instances.use_orchestrator BOOL DEFAULT false` — flag per-instance
-- `flow_report_shares` table — token hex(16), expires_at 30 dias, RLS leitura pública
-- RPC `create_flow_report_share(p_flow_id)` SECURITY DEFINER — retorna token
-
-**T2 — Webhook per-instance (`whatsapp-webhook/index.ts`):**
-- `getOrchestratorFlag(instanceId?)` — checa `instances.use_orchestrator` primeiro, fallback global `USE_ORCHESTRATOR`
-- 2 call sites atualizados: poll_response (conv.instance_id) + handler principal (instance.id)
-
-**T3 — Rollback automático (`orchestrator/index.ts`):**
-- `input` declarado fora do try (acessível no catch)
-- `handleOrchestratorFailure(instanceId)` — 3 falhas em 5min → `use_orchestrator=false` automático
-- Contador em `system_settings` com key `orch_fail_{instanceId}`, janela 5min com reset
-
-**T4 — FlowMetricsPanel (`src/components/flows/FlowMetricsPanel.tsx`):**
-- KPI cards: sessões iniciadas, taxa conclusão, taxa handoff, custo USD
-- Funil de conversão: BarChart horizontal (active/completed/handoff/abandoned)
-- Timing médio: PieChart (intent/resolve/context/subagent/validator/send ms)
-- Top 10 intents com progress bars CSS
-- Botão "Compartilhar" → RPC → copia URL `{origin}/flows/report/{token}` — 30 dias
-
-**T5 — FlowDetail + useFlows:**
-- Nova tab "Métricas" (6ª tab) com `FlowMetricsPanel`
-- Tab "Publicar" aprimorada: checklist de migração (publicado/triggers/shadow) + `OrchestratorToggle`
-- `OrchestratorToggle`: Switch + Dialog confirmação GitHub-style (digitar nome do fluxo)
-- 2 novos hooks: `useToggleOrchestrator` + `useCreateFlowShare`
-
-**T6 — E2E (`supabase/functions/orchestrator/tests/e2e_orchestrator.sh`):**
-- 5 cenários: novo_lead_saudacao / coleta_nome / intent_produto / shadow_sem_envio / followup_agendado
-- Score: 20pts por cenário = 100 max. Threshold produção: ≥80
-- Guard: verifica E2E_INSTANCE_ID configurado (NUNCA instância real)
-
-**tsc --noEmit = EXIT:0 ✅ | 7 arquivos (3 novos + 4 editados) | 864 linhas**
+> KPI fixes, orchestrator fixes, S12 arquivados em:
+> - `wiki/log-arquivo-2026-04-12-fixes-kpi-s12.md`
 
 ---
 
 ## 2026-04-12
+
+### discuss: Métricas de Leads — visão, gaps e roadmap de apresentação ao gestor
+
+Discussão estruturada sobre coleta de dados do lead em modo IA ligada e shadow. Documentado em `wiki/metricas-leads-visao.md`. Pontos-chave:
+- Shadow deve ser "ouvidos abertos, boca fechada" — extrair objeções, concorrentes, intenção de compra, dados pessoais
+- Gaps identificados: objeções, concorrentes, ticket médio, horários preferidos, score persistido, motivo de perda
+- Conversão: dual — intenção do lead (shadow detecta) + confirmação do vendedor (Kanban/shadow)
+- Apresentação: Fase 1 dashboard interno, Fase 2 IA generativa conversacional ("quantos leads do bairro X?")
+- Métricas do vendedor documentadas: performance, comercial, qualidade, NPS, ficha individual, dashboard gestor
+- Métricas do agente IA documentadas: eficiência, qualidade, follow-up, custo, comparativo IA vs vendedor
+- Follow-up adicionado nos 3 lados: lead (onde trava), vendedor (fez ou abandonou?), IA (reativação, cadência)
+- Métricas de transbordo e origem documentadas
+- Plano de implementação: 7 sprints, 55 tasks. Auditado por agente independente → FLAG → corrigido (v2)
+- Correções pós-auditoria: FK seller_id, S5 dividido em S5+S6+S7, HIGH RISK+SYNC RULE em S1, funil de conversão, comparativo IA vs vendedor, metas configuráveis, cobertura de 22 gaps
+- Wikis: `metricas-leads-visao.md` + `metricas-vendedor-visao.md` + `metricas-agente-ia-visao.md` + `metricas-transbordo-visao.md` + `metricas-origem-leads-visao.md` + `metricas-plano-implementacao.md`
+
+---
+
+### fix(ai-agent): 500 persistente + handoff sem busca + BUSCA IMEDIATA (deploy v159-v161)
+
+**Bug crítico: 500 em TODAS as respostas não-greeting desde que agent_profiles foi ativado.**
+
+**Causa raiz:** `const activeSub` declarado dentro de `if (!profileData)` (L959) mas referenciado fora em `response_sent` log (L2622). Com profile ativo → ReferenceError → 500. O catch block tentava logar com `agent_id: null` mas coluna é NOT NULL → INSERT falhava → erro desaparecia sem rastro.
+
+**Evidência:** edge function logs: greeting=200, follow-up=500 (100% das vezes). Zero error events no DB (catch silencioso).
+
+**4 fixes implementados:**
+1. **Hoist `activeSub`** — `let activeSub: any = null` fora do `if` (L952), atribuição dentro (L965). Elimina ReferenceError
+2. **Hoist `_agentId/_convId`** — declarados antes do try (L44-45), catch block usa IDs reais. Erros agora logam no DB
+3. **Guard `handoff_to_human`** — verifica se `search_products` foi chamado antes quando há tags `produto:/interesse:/marca_preferida:` (L2280-2290)
+4. **Try-catch steps 17-19** — save/update/broadcast wrapped. `response_sent` sempre loga mesmo se DB ops falharem (L2592-2632)
+
+**Regra BUSCA IMEDIATA reescrita (v161):** qualificação de tintas agora PULA para `search_products` quando marca é mencionada. Removida contradição entre "qualifique ambiente primeiro" vs "busca imediata com marca". Regra tem PRIORIDADE ABSOLUTA.
+
+**R58+R59+R60 documentadas. Deploy v159→v161. Testado E2E: greeting ✅, response_sent ✅, search_products com marca ✅**
+
+---
 
 ### fix(ai-agent): carrossel não enviado após marca mencionada + tipo_cliente não salvo (commit 9806cde)
 
