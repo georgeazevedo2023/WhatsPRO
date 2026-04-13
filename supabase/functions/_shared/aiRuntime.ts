@@ -119,3 +119,38 @@ export function shouldTriggerAiAgentFromWebhook(input: WebhookAiTriggerInput): b
 
   return statusIa !== STATUS_IA.DESLIGADA
 }
+
+export interface WebhookShadowTriggerInput {
+  fromMe: boolean
+  mediaType: string
+  statusIa?: string | null
+  content?: string
+}
+
+/**
+ * Determines if a vendor message (fromMe:true) in shadow mode should trigger
+ * silent extraction. Called by whatsapp-webhook for outgoing messages.
+ * n8n already filters wasSentByApi, so only human vendor messages reach here.
+ */
+export function shouldTriggerShadowFromWebhook(input: WebhookShadowTriggerInput): boolean {
+  const { fromMe, mediaType, statusIa, content } = input
+  if (!fromMe) return false
+  if (mediaType === 'audio') return false
+  if (statusIa !== STATUS_IA.SHADOW) return false
+  if (!content || content.trim().length < 5) return false
+  return true
+}
+
+/**
+ * Returns true if the message is too trivial to warrant an LLM extraction call.
+ * Used as pre-filter in shadow mode to save tokens.
+ */
+export function isTrivialMessage(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.length < 5) return true
+  // Only emojis/whitespace
+  if (/^[\p{Emoji}\s]+$/u.test(trimmed)) return true
+  const normalized = trimmed.toLowerCase().replace(/[.,!?]+$/, '').trim()
+  const trivialSet = new Set(['ok', 'sim', 'blz', 'certo', 'entendido', 'obrigado', 'obg', 'tá', 'ta', 'não', 'nao', 'oi', 'ok entendi'])
+  return trivialSet.has(normalized)
+}

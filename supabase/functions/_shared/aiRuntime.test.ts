@@ -3,9 +3,12 @@ import {
   createQueuedMessage,
   extractInterestFromTags,
   formatFollowUpMessage,
+  isTrivialMessage,
   resolveNextFollowUpStep,
   shouldTriggerAiAgentFromWebhook,
+  shouldTriggerShadowFromWebhook,
   type QueuedMessage,
+  type WebhookShadowTriggerInput,
 } from './aiRuntime.ts'
 
 describe('aiRuntime helpers', () => {
@@ -204,5 +207,98 @@ describe('executeToolSafe pattern', () => {
     const result = await executeToolSafe(failingTool, 'update_lead_profile', {})
     expect(result).toContain('update_lead_profile')
     expect(result).toContain('Erro interno')
+  })
+})
+
+describe('shouldTriggerShadowFromWebhook', () => {
+  it('triggers for vendor message in shadow mode', () => {
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: true,
+      mediaType: 'text',
+      statusIa: 'shadow',
+      content: 'Tem desconto no produto?',
+    })).toBe(true)
+  })
+
+  it('does NOT trigger when conversation is not in shadow mode', () => {
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: true,
+      mediaType: 'text',
+      statusIa: 'ligada',
+      content: 'Produto disponível sim',
+    })).toBe(false)
+
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: true,
+      mediaType: 'text',
+      statusIa: null,
+      content: 'Produto disponível sim',
+    })).toBe(false)
+  })
+
+  it('does NOT trigger for audio messages', () => {
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: true,
+      mediaType: 'audio',
+      statusIa: 'shadow',
+      content: 'audio message',
+    })).toBe(false)
+  })
+
+  it('does NOT trigger when content is trivial or empty', () => {
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: true,
+      mediaType: 'text',
+      statusIa: 'shadow',
+      content: 'ok',
+    })).toBe(false)
+
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: true,
+      mediaType: 'text',
+      statusIa: 'shadow',
+      content: undefined,
+    })).toBe(false)
+  })
+
+  it('does NOT trigger for lead messages (fromMe=false) even in shadow mode', () => {
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: false,
+      mediaType: 'text',
+      statusIa: 'shadow',
+      content: 'Quero comprar tinta',
+    })).toBe(false)
+  })
+
+  it('shouldTriggerAiAgentFromWebhook still rejects fromMe=true (regression)', () => {
+    expect(shouldTriggerAiAgentFromWebhook({
+      direction: 'incoming',
+      fromMe: true,
+      mediaType: 'text',
+      statusIa: 'shadow',
+    })).toBe(false)
+  })
+})
+
+describe('isTrivialMessage', () => {
+  it('marks short messages as trivial', () => {
+    expect(isTrivialMessage('ok')).toBe(true)
+    expect(isTrivialMessage('sim')).toBe(true)
+    expect(isTrivialMessage('blz')).toBe(true)
+    expect(isTrivialMessage('tá')).toBe(true)
+    expect(isTrivialMessage('👍')).toBe(true)
+    expect(isTrivialMessage('😊😊')).toBe(true)
+  })
+
+  it('allows substantive messages through', () => {
+    expect(isTrivialMessage('Preciso de 2 latas de tinta coral 18L')).toBe(false)
+    expect(isTrivialMessage('O preço está muito caro para mim')).toBe(false)
+    expect(isTrivialMessage('Vou comprar na Leroy Merlin então')).toBe(false)
+  })
+
+  it('handles edge cases correctly', () => {
+    expect(isTrivialMessage('')).toBe(true)
+    expect(isTrivialMessage('    ')).toBe(true)
+    expect(isTrivialMessage('obrigado!')).toBe(true)  // strips trailing punctuation
   })
 })

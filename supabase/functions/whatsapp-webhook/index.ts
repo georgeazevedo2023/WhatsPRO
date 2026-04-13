@@ -1,5 +1,5 @@
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
-import { shouldTriggerAiAgentFromWebhook } from '../_shared/aiRuntime.ts'
+import { shouldTriggerAiAgentFromWebhook, shouldTriggerShadowFromWebhook } from '../_shared/aiRuntime.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { unauthorizedResponse } from '../_shared/auth.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
@@ -1180,6 +1180,40 @@ Deno.serve(async (req) => {
             }),
           }).catch(err => log.error('AI Agent debounce call failed', { error: (err as Error).message })))
         }
+      }
+    }
+
+    // T1 M19 S1 — Shadow bilateral: vendor messages (fromMe:true) in shadow mode
+    // n8n filters wasSentByApi, so only human vendor messages reach here
+    if (shouldTriggerShadowFromWebhook({
+      fromMe,
+      mediaType,
+      statusIa: conversation.status_ia,
+      content: content ?? undefined,
+    })) {
+      const { data: shadowAgent } = await supabase
+        .from('ai_agents')
+        .select('id, enabled')
+        .eq('instance_id', instance.id)
+        .eq('enabled', true)
+        .maybeSingle()
+
+      if (shadowAgent) {
+        log.info('Vendor shadow extraction trigger', { conversationId: conversation.id })
+        backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/ai-agent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            conversation_id: conversation.id,
+            instance_id: instance.id,
+            agent_id: shadowAgent.id,
+            shadow_only: true,
+            vendor_message: content ?? '',
+          }),
+        }).catch(err => log.error('Vendor shadow trigger failed', { error: (err as Error).message })))
       }
     }
 

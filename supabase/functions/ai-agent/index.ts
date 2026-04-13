@@ -40,6 +40,9 @@ Deno.serve(async (req) => {
   }
 
   const startTime = Date.now()
+  // Hoist IDs so the catch block can log them (they're parsed inside try)
+  let _agentId: string | null = null
+  let _convId: string | null = null
 
   try {
     // Validate caller: only accept requests with valid anon key (called by debounce/webhook)
@@ -51,7 +54,9 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json()
-    const { conversation_id, instance_id, messages: queuedMessages, agent_id, request_id } = body
+    const { conversation_id, instance_id, messages: queuedMessages, agent_id, request_id, shadow_only, vendor_message } = body
+    _agentId = agent_id || null
+    _convId = conversation_id || null
     const log = createLogger('ai-agent', request_id || crypto.randomUUID().substring(0, 8))
 
     if (!conversation_id || !instance_id || !agent_id) {
@@ -277,8 +282,14 @@ Deno.serve(async (req) => {
       .join('\n')
     const incomingHasAudio = incomingMessages.some((m: any) => m.media_type === 'audio')
 
-    if (!incomingText.trim()) {
+    // shadow_only=true: vendor message arrives without queuedMessages — skip empty guard
+    if (!incomingText.trim() && !shadow_only) {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'no_text' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+    if (shadow_only && !vendor_message?.trim()) {
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'no_vendor_message' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -700,27 +711,95 @@ Deno.serve(async (req) => {
     }
 
     // ── SHADOW MODE ──────────────────────────────────────────────────────
-    // AI listens without responding, only extracts info via tools
+    // Bilateral: lead side (status_ia='shadow') OR vendor side (shadow_only=true from webhook)
     if (conversation.status_ia === STATUS_IA.SHADOW) {
-      log.info('Shadow mode', { conversationId: conversation_id })
+      const isShadowVendor = shadow_only === true
+      const textToAnalyze = isShadowVendor ? (vendor_message || '') : incomingText
 
+      log.info('Shadow mode', { conversationId: conversation_id, isShadowVendor, textLen: textToAnalyze.length })
+
+      // T6: Pre-filter trivial messages — skip LLM to save tokens
+      const isTrivial = (t: string) => {
+        const s = t.trim()
+        if (s.length < 5) return true
+        if (/^[\p{Emoji}\s]+$/u.test(s)) return true
+        const normalized = s.toLowerCase().replace(/[.,!?]+$/, '').trim()
+        return new Set(['ok', 'sim', 'blz', 'certo', 'entendido', 'obrigado', 'obg', 'tá', 'ta', 'não', 'nao', 'oi']).has(normalized)
+      }
+      if (isTrivial(textToAnalyze)) {
+        await supabase.from('ai_agent_logs').insert({
+          agent_id, conversation_id, event: 'shadow_skipped_trivial',
+          latency_ms: Date.now() - startTime,
+          metadata: { text_preview: textToAnalyze.substring(0, 50), is_vendor: isShadowVendor },
+        })
+        return new Response(JSON.stringify({ ok: true, reason: 'shadow_trivial_skip' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      // Context: last 5 messages for better extraction accuracy
+      const { data: recentMsgs } = await supabase
+        .from('conversation_messages')
+        .select('content, direction, created_at')
+        .eq('conversation_id', conversation_id)
+        .order('created_at', { ascending: false })
+        .limit(5)
+      const contextBlock = (recentMsgs || []).length > 0
+        ? '\n\nContexto recente:\n' + (recentMsgs || []).slice().reverse()
+            .map((m: any) => `[${m.direction === 'outgoing' ? 'Vendedor' : 'Lead'}]: ${(m.content || '').substring(0, 200)}`)
+            .join('\n')
+        : ''
+
+      const shadowBatchId = crypto.randomUUID()
       const existingName = leadProfile?.full_name || contact?.name || null
-      const shadowPrompt = `Você é um extrator de dados silencioso. Analise a mensagem do lead e extraia TODAS as informações relevantes.
-Use set_tags para registrar dados no formato "chave:valor" (ex: "cidade:Olinda", "quantidade:2 latas 16L").
+
+      // T2: Two distinct prompts — vendor vs lead
+      let shadowPrompt: string
+      if (isShadowVendor) {
+        // T4: Vendor shadow prompt — analyses seller behaviour
+        shadowPrompt = `Você é um analisador silencioso de comportamento de vendas. Analise a mensagem do VENDEDOR e extraia insights estratégicos.
+Use set_tags para registrar dados sobre a venda no formato chave:valor.
+Use extract_shadow_data para salvar análise estruturada (dimensões: seller, objection, followup).
+NÃO gere resposta para o usuário. Apenas analise e extraia dados.
+
+Tags disponíveis (use set_tags):
+- vendedor_tom: profissional / informal / agressivo / consultivo / passivo
+- vendedor_desconto: percentual ou valor oferecido (ex: 10pct, 50reais)
+- vendedor_upsell: produto ou serviço adicional mencionado
+- vendedor_followup: quando vendedor prometeu contato (ex: amanha, semana_que_vem)
+- vendedor_alternativa: produto alternativo sugerido ao lead
+- venda_status: negociando / fechando / perdida / pausada / sem_interesse
+- pagamento: forma de pagamento mencionada (ex: pix, cartao, boleto, parcelado)
+${contextBlock}`
+      } else {
+        // T3: Lead shadow prompt (enhanced with new tag taxonomy)
+        shadowPrompt = `Você é um extrator de dados silencioso. Analise a mensagem do LEAD e extraia TODAS as informações relevantes.
+Use set_tags para registrar dados no formato "chave:valor".
 Use update_lead_profile para salvar cidade, interesses, ticket médio e observações.
+Use extract_shadow_data para salvar análise estruturada (dimensões: lead, objection, product, followup).
 EXTRAIA TUDO: endereços, cidades, quantidades, orçamentos, preferências de entrega, prazos.
 ${existingName ? `IMPORTANTE: O nome do lead é "${existingName}". NÃO atualize full_name. Se a mensagem mencionar outro nome (vendedor, consultor), IGNORE — é o nome de quem está atendendo, não do lead.` : 'Se o lead informar seu nome, salve em full_name.'}
 NÃO gere resposta para o usuário. Apenas extraia dados usando as ferramentas.
-${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_fields.filter((f: any) => f.enabled).map((f: any) => f.label).join(', ')}` : ''}`
+
+Tags disponíveis (use set_tags):
+- objecao: preco / prazo / frete / qualidade / confianca / comparando / sem_urgencia / outro
+- concorrente: nome do concorrente mencionado (ex: leroy_merlin, telhanorte, casabemol)
+- intencao: compra / orcamento / desistiu / comparando / informacao
+- motivo_perda: preco / prazo / indisponivel / concorrente / sem_resposta / outro
+- conversao: intencao_confirmada / comprovante_enviado / venda_confirmada
+- dado_pessoal: tipo coletado (ex: email, cpf, endereco, cidade)
+${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_fields.filter((f: any) => f.enabled).map((f: any) => f.label).join(', ')}` : ''}
+${contextBlock}`
+      }
 
       const shadowToolDefs: LLMToolDef[] = [
         {
           name: 'set_tags',
-          description: 'Adiciona tags a conversa no formato chave:valor',
+          description: 'Adiciona tags à conversa no formato chave:valor',
           parameters: {
             type: 'object',
             properties: {
-              tags: { type: 'array', items: { type: 'string' }, description: 'Tags formato chave:valor (ex: cidade:Olinda, quantidade:2_latas_16L, orcamento:1000)' },
+              tags: { type: 'array', items: { type: 'string' }, description: 'Tags formato chave:valor' },
             },
             required: ['tags'],
           },
@@ -736,9 +815,27 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
               interests: { type: 'array', items: { type: 'string' }, description: 'Produtos/categorias de interesse' },
               notes: { type: 'string', description: 'Observações gerais (endereço, quantidade, prazo)' },
               reason: { type: 'string', description: 'Motivo do contato (compra, suporte, informacao)' },
-              average_ticket: { type: 'string', description: 'Orçamento/ticket médio informado pelo lead (ex: 1000)' },
-              objections: { type: 'array', items: { type: 'string' }, description: 'Objeções do lead (preco, prazo, etc)' },
+              average_ticket: { type: 'string', description: 'Orçamento/ticket médio informado pelo lead' },
             },
+          },
+        },
+        {
+          name: 'extract_shadow_data',
+          description: 'Salva análise estruturada no banco de dados de métricas (shadow_extractions)',
+          parameters: {
+            type: 'object',
+            properties: {
+              dimension: {
+                type: 'string',
+                enum: ['lead', 'seller', 'objection', 'product', 'manager', 'response', 'followup'],
+                description: 'Dimensão da análise extraída',
+              },
+              extracted_data: {
+                type: 'object',
+                description: 'Dados estruturados conforme a dimensão',
+              },
+            },
+            required: ['dimension', 'extracted_data'],
           },
         },
       ]
@@ -746,34 +843,42 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
       try {
         const shadowResult = await callLLM({
           systemPrompt: shadowPrompt,
-          messages: [{ role: 'user' as const, content: incomingText }],
+          messages: [{ role: 'user' as const, content: textToAnalyze }],
           tools: shadowToolDefs,
           temperature: 0.2,
-          maxTokens: 256,
+          maxTokens: 512,
           model: agent.model || 'gemini-2.5-flash',
         })
 
+        const tagsSet: string[] = []
         for (const tc of shadowResult.toolCalls) {
-          await executeShadowTool(tc.name, tc.args || {})
+          if (tc.name === 'set_tags' && tc.args?.tags) tagsSet.push(...(tc.args.tags as string[]))
+          await executeShadowTool(tc.name, tc.args || {}, shadowBatchId)
         }
+
+        // T7: Differentiated logging — lead vs vendor events with token metadata
+        await supabase.from('ai_agent_logs').insert({
+          agent_id, conversation_id,
+          event: isShadowVendor ? 'shadow_extraction_vendor' : 'shadow_extraction_lead',
+          latency_ms: Date.now() - startTime,
+          metadata: {
+            text_preview: textToAnalyze.substring(0, 300),
+            tags_set: tagsSet,
+            tool_calls_count: shadowResult.toolCalls.length,
+            is_vendor: isShadowVendor,
+          },
+        })
       } catch (shadowErr) {
-        // Circuit breaker already tracked the failure in callLLM — just log and continue
-        log.warn('Shadow mode LLM failed', { error: (shadowErr as Error).message })
+        log.warn('Shadow mode LLM failed', { error: (shadowErr as Error).message, isShadowVendor })
       }
 
-      await supabase.from('ai_agent_logs').insert({
-        agent_id, conversation_id, event: 'shadow_extraction',
-        latency_ms: Date.now() - startTime,
-        metadata: { incoming_text: incomingText.substring(0, 300) },
-      })
-
-      return new Response(JSON.stringify({ ok: true, reason: 'shadow_mode' }), {
+      return new Response(JSON.stringify({ ok: true, reason: isShadowVendor ? 'shadow_vendor' : 'shadow_mode' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Shadow tool executor (only set_tags and update_lead_profile)
-    async function executeShadowTool(name: string, args: Record<string, any>) {
+    // Shadow tool executor (set_tags, update_lead_profile, extract_shadow_data)
+    async function executeShadowTool(name: string, args: Record<string, any>, batchId?: string) {
       if (name === 'set_tags') {
         const newTags: string[] = args.tags || []
         const existing: string[] = conversation.tags || []
@@ -792,6 +897,20 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
         if (args.reason) updates.reason = args.reason
         if (args.average_ticket) updates.average_ticket = args.average_ticket
         await supabase.from('lead_profiles').upsert({ contact_id: contact.id, ...updates }, { onConflict: 'contact_id' })
+      }
+      if (name === 'extract_shadow_data') {
+        const validDimensions = ['lead', 'seller', 'objection', 'product', 'manager', 'response', 'followup']
+        if (!validDimensions.includes(args.dimension as string)) return
+        await supabase.from('shadow_extractions').insert({
+          instance_id,
+          conversation_id,
+          lead_id: leadProfile?.id || null,
+          dimension: args.dimension,
+          batch_id: batchId || crypto.randomUUID(),
+          extracted_data: args.extracted_data || {},
+          model_used: agent.model || 'gemini-2.5-flash',
+          processing_cost_brl: 0,
+        })
       }
     }
 
@@ -944,6 +1063,7 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
     // #18: Sub-agents — DEPRECATED by M17 F3 Agent Profiles
     // Only inject sub-agent routing when NO profile is active (backward compat)
     let subAgentInstruction = ''
+    let activeSub: any = null  // hoisted — used at response_sent log (line ~2622)
     if (!profileData) {
       const subAgents = agent.sub_agents || {}
       const motivoTag = (conversation.tags || []).find((t: string) => t.startsWith('motivo:'))
@@ -956,7 +1076,7 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
         informacao: 'sdr', fora_escopo: 'handoff',
       }
       const activeMode = motivo ? (TAG_TO_MODE[motivo] || 'sdr') : 'sdr'
-      const activeSub = subAgents[activeMode]
+      activeSub = subAgents[activeMode]
       if (activeSub?.enabled && activeSub?.prompt) {
         subAgentInstruction = `\n\n[MODO ATIVO: ${activeMode.toUpperCase()}]\n${activeSub.prompt}`
         log.info('Sub-agent routed (legacy)', { motivo, mode: activeMode })
@@ -1050,8 +1170,8 @@ ${agent.extraction_fields?.length ? `\nCampos prioritários: ${agent.extraction_
 - PREÇO OBRIGATÓRIO: quando o lead perguntar "quanto custa?" ou pedir preço, SEMPRE inclua o valor numérico exato (R$XX,XX) do catálogo. Nunca responda sobre preço sem citar o valor.
 - SEARCH ANTES DE FALAR DE PRODUTO: NUNCA fale sobre preço, qualidade, custo-benefício ou características de produto sem ter chamado search_products PRIMEIRO. Se o lead falar "achei caro" ou "tem mais barato?" e você ainda NÃO buscou, chame search_products ANTES de responder. Sem dados do catálogo = sem opinião sobre produto.
 - NOME DO LEAD: sempre use o PRIMEIRO NOME. "Paulo Roberto" → chame de "Paulo". "Ana Clara" → chame de "Ana". Se o lead informou apenas um nome, use esse. NUNCA use o pushName do WhatsApp (ex: "E2E Test") como nome — só use o nome que o lead informou na conversa.
-- QUALIFICAÇÃO DE TINTAS: quando o lead quer tinta/verniz/impermeabilizante, qualifique NESTA ORDEM: (1) ambiente (interno/externo), (2) cor ou acabamento (fosco/acetinado/esmalte), (3) marca se relevante. NUNCA pergunte marca antes da cor.
-- MARCA JÁ INFORMADA → BUSCA RÁPIDA: se o lead JÁ mencionou a marca no pedido (ex: "Coral", "Suvinil", "Sherwin-Williams"), faça NO MÁXIMO 2 perguntas de qualificação (ex: ambiente + cor). Assim que obtiver 2 respostas, chame search_products IMEDIATAMENTE. NÃO peça quantidade, volume ou aplicação antes da busca — essas informações são coletadas DEPOIS de mostrar o catálogo.
+- QUALIFICAÇÃO DE TINTAS: quando o lead quer tinta/verniz/impermeabilizante SEM mencionar marca, qualifique nesta ordem: (1) cor ou acabamento, (2) ambiente se necessário. NUNCA pergunte quantidade ou volume antes de buscar. Se o lead JÁ mencionou marca, PULE a qualificação e vá direto para search_products.
+- MARCA MENCIONADA → SEARCH_PRODUCTS IMEDIATO (REGRA ABSOLUTA): quando o lead mencionar QUALQUER marca (Coral, Suvinil, Sherwin-Williams, etc.) junto com um tipo de produto (tinta, verniz, etc.), chame search_products IMEDIATAMENTE na MESMA resposta. ZERO perguntas antes. NÃO pergunte ambiente, cor, acabamento, quantidade — NADA. Busque primeiro, mostre os produtos, qualifique DEPOIS se necessário. Exemplo: "Tem tinta da Coral?" → chame search_products("tinta coral") AGORA. Esta regra tem PRIORIDADE ABSOLUTA sobre qualquer outra regra de qualificação.
 - BUSCA OBRIGATÓRIA ANTES DE HANDOFF: NUNCA chame handoff_to_human quando lead especificou marca + tipo + cor sem antes ter chamado search_products. Handoff só acontece DEPOIS de buscar e confirmar ausência no catálogo. Sequência correta: dados coletados → search_products → (produtos encontrados? enviar. não encontrou? enrichment → handoff).
 - PROFISSÃO DO LEAD: quando o lead mencionar sua profissão ou tipo (pintor, pedreiro, engenheiro, arquiteto, decorador, construtor, dono de obra, empreiteiro, marceneiro, projetista), salve IMEDIATAMENTE via set_tags(['tipo_cliente:PROFISSAO']) em minúsculas, sem acento. Exemplos: "sou pintor" → set_tags(['tipo_cliente:pintor']), "sou arquiteto" → set_tags(['tipo_cliente:arquiteto']). Faça isso ANTES de responder ao lead.
 - ENRIQUECIMENTO PÓS-BUSCA: quando a busca retorna 0 resultados e o [INTERNO] indica FASE DE ENRIQUECIMENTO, siga as instruções exatamente — faça a pergunta sugerida e salve a resposta com set_tags (acabamento, marca_preferida, quantidade, area, aplicacao). NÃO diga que o produto não foi encontrado. Diga algo natural como "Certo! E sobre acabamento, prefere fosco ou brilho?". Quando o [INTERNO] disser que o enriquecimento está COMPLETO, chame handoff_to_human com motivo no formato "Nome > Categoria > Produto > Detalhe1 > Detalhe2".
@@ -1933,9 +2053,9 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           if (rawTags.length === 0) return 'Nenhuma tag informada.'
 
           // #25: Enforcement — validate tag keys and motivo values
-          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel','acabamento','marca_preferida','quantidade','area','aplicacao','enrich_count','qualificacao_completa','funil','tipo_cliente'])
+          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel','acabamento','marca_preferida','quantidade','area','aplicacao','enrich_count','qualificacao_completa','funil','tipo_cliente','concorrente','intencao','motivo_perda','conversao','dado_pessoal','vendedor_tom','vendedor_desconto','vendedor_upsell','vendedor_followup','vendedor_alternativa','venda_status','pagamento'])
           const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
-          const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro'])
+          const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro','frete','comparando','sem_urgencia'])
 
           const newTags: string[] = []
           const rejected: string[] = []
@@ -2270,6 +2390,20 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
 
           if (hasSideEffects || llmResult.toolCalls.length === 1) {
             for (const tc of llmResult.toolCalls) {
+              // GUARD: handoff_to_human requires search_products first when product context exists
+              if (tc.name === 'handoff_to_human') {
+                const hasSearched = toolCallsLog.some(t => t.name === 'search_products')
+                const productTags = (conversation.tags || []).filter((t: string) =>
+                  t.startsWith('produto:') || t.startsWith('interesse:') || t.startsWith('marca_preferida:')
+                )
+                if (!hasSearched && productTags.length > 0) {
+                  log.warn('GUARD: handoff blocked — search_products required first', { productTags })
+                  const guardMsg = '[INTERNO] REGRA BUSCA OBRIGATÓRIA: você DEVE chamar search_products antes de handoff_to_human. O lead tem interesse em produto — busque primeiro. Se não encontrar, aí sim faça handoff.'
+                  toolCallsLog.push({ name: tc.name, args: tc.args, result: guardMsg })
+                  toolResultEntries.push({ name: tc.name, result: guardMsg })
+                  continue
+                }
+              }
               log.info('Tool (seq)', { tool: tc.name, args_preview: JSON.stringify(tc.args).substring(0, 100) })
               const result = await executeToolSafe(tc.name, tc.args || {})
               toolCallsLog.push({ name: tc.name, args: tc.args, result: result.substring(0, 200) })
@@ -2569,49 +2703,47 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       await sendTextMsg(responseText)
     }
 
-    // 17. Save outgoing message to DB (skip if handoff already saved its message)
+    // 17-19: Save message + update conversation + broadcast (wrapped in try-catch to guarantee response_sent log)
     let savedMsg: any = null
-    if (!skipTextSend && responseText.trim()) {
-      const { data } = await supabase
-        .from('conversation_messages')
-        .insert({
-          conversation_id, direction: 'outgoing',
-          content: responseText, media_type: sentMediaType,
-          external_id: `ai_agent_${Date.now()}`,
-        })
-        .select('id, created_at')
-        .single()
-      savedMsg = data
-    }
+    try {
+      if (!skipTextSend && responseText.trim()) {
+        const { data } = await supabase
+          .from('conversation_messages')
+          .insert({
+            conversation_id, direction: 'outgoing',
+            content: responseText, media_type: sentMediaType,
+            external_id: `ai_agent_${Date.now()}`,
+          })
+          .select('id, created_at')
+          .single()
+        savedMsg = data
+      }
 
-    // 18. Update conversation — DON'T touch status_ia if handoff already set it to SHADOW
-    // handoff_to_human tool sets SHADOW at line ~1890. Implicit handoff sets SHADOW at line ~1836.
-    // We only set status_ia here for non-handoff responses (keep LIGADA).
-    const conversationUpdate: Record<string, any> = {
-      last_message_at: new Date().toISOString(),
-      last_message: responseText.substring(0, 200),
-    }
-    if (!hadExplicitHandoff && !textLooksLikeHandoff) {
-      // Normal response — keep IA active
-      conversationUpdate.status_ia = STATUS_IA.LIGADA
-    }
-    // If handoff happened (explicit or implicit), status_ia was already set to SHADOW above — don't overwrite
-    await supabase
-      .from('conversations')
-      .update(conversationUpdate)
-      .eq('id', conversation_id)
+      // 18. Update conversation — DON'T touch status_ia if handoff already set it to SHADOW
+      const conversationUpdate: Record<string, any> = {
+        last_message_at: new Date().toISOString(),
+        last_message: responseText.substring(0, 200),
+      }
+      if (!hadExplicitHandoff && !textLooksLikeHandoff) {
+        conversationUpdate.status_ia = STATUS_IA.LIGADA
+      }
+      await supabase
+        .from('conversations')
+        .update(conversationUpdate)
+        .eq('id', conversation_id)
 
-    // 19. Broadcast to helpdesk realtime
-    const effectiveStatusIa = hadExplicitHandoff || textLooksLikeHandoff ? STATUS_IA.SHADOW : STATUS_IA.LIGADA
-    const broadcastPayload = {
-      conversation_id, inbox_id: conversation.inbox_id,
-      message_id: savedMsg?.id, direction: 'outgoing',
-      content: responseText, media_type: sentMediaType,
-      created_at: savedMsg?.created_at || new Date().toISOString(),
-      status_ia: effectiveStatusIa,
+      // 19. Broadcast to helpdesk realtime
+      const effectiveStatusIa = hadExplicitHandoff || textLooksLikeHandoff ? STATUS_IA.SHADOW : STATUS_IA.LIGADA
+      broadcastEvent({
+        conversation_id, inbox_id: conversation.inbox_id,
+        message_id: savedMsg?.id, direction: 'outgoing',
+        content: responseText, media_type: sentMediaType,
+        created_at: savedMsg?.created_at || new Date().toISOString(),
+        status_ia: effectiveStatusIa,
+      })
+    } catch (postSendErr) {
+      log.error('Post-send DB ops failed (message already sent to WhatsApp)', { error: (postSendErr as Error).message })
     }
-
-    broadcastEvent(broadcastPayload)
 
     // 20. Log interaction
     await supabase.from('ai_agent_logs').insert({
@@ -2709,16 +2841,19 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     const errStack = err instanceof Error ? err.stack : ''
-    log.error('FATAL', { error: errMsg, stack: errStack?.substring(0, 500) })
+    const fatalLog = createLogger('ai-agent', 'FATAL')
+    fatalLog.error('FATAL', { error: errMsg, stack: errStack?.substring(0, 500), agent_id: _agentId, conversation_id: _convId })
 
-    // Log error to database for debugging
-    try {
-      await supabase.from('ai_agent_logs').insert({
-        agent_id: null, conversation_id: null,
-        event: 'error', error: errMsg,
-        metadata: { stack: errStack?.substring(0, 500), timestamp: new Date().toISOString() },
-      })
-    } catch (_) {}
+    // Log error to database for debugging — use hoisted IDs (agent_id is NOT NULL)
+    if (_agentId) {
+      try {
+        await supabase.from('ai_agent_logs').insert({
+          agent_id: _agentId, conversation_id: _convId,
+          event: 'error', error: errMsg,
+          metadata: { stack: errStack?.substring(0, 500), timestamp: new Date().toISOString() },
+        })
+      } catch (_) {}
+    }
 
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
