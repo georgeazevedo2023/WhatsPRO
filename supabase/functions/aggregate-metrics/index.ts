@@ -113,25 +113,24 @@ async function aggregateDaily(instanceId: string, dateStr: string): Promise<Metr
 
   const logs = agentLogs ?? []
 
-  // 3. Conversas do dia (via inboxes → instance_id)
-  const { data: convRows } = await supabase
-    .from('conversations')
-    .select('id, assigned_to, status, resolved_at, created_at')
-    .eq('inboxes.instance_id', instanceId)  // via join — PostgREST filter syntax
-    .gte('created_at', start)
-    .lte('created_at', end)
+  // 3. Conversas do dia — via inboxes da instância (join explícito, dois passos)
+  const { data: inboxRows } = await supabase
+    .from('inboxes')
+    .select('id')
+    .eq('instance_id', instanceId)
 
-  // Fallback: join via inboxes
-  const { data: convRowsDirect } = convRows
-    ? { data: convRows }
-    : await supabase
+  const inboxIds = (inboxRows ?? []).map((r) => r.id as string)
+
+  const { data: convRows } = inboxIds.length > 0
+    ? await supabase
         .from('conversations')
-        .select('id, assigned_to, status, resolved_at, created_at, inbox:inboxes!inner(instance_id)')
-        .eq('inbox.instance_id', instanceId)
+        .select('id, assigned_to, status, updated_at, created_at')
+        .in('inbox_id', inboxIds)
         .gte('created_at', start)
         .lte('created_at', end)
+    : { data: [] }
 
-  const convs = convRowsDirect ?? []
+  const convs = convRows ?? []
 
   // 4. Calcular métricas de agent logs
   const iaResponses  = logs.filter((l) => l.event === 'response_sent').length
@@ -151,9 +150,10 @@ async function aggregateDaily(instanceId: string, dateStr: string): Promise<Metr
   const avgResolutionMin = resolvedConvs.length > 0
     ? Math.round(
         resolvedConvs
-          .filter((c) => c.resolved_at)
+          .filter((c) => c.updated_at)
           .reduce((s, c) => {
-            const diffMs = new Date(c.resolved_at as string).getTime() - new Date(c.created_at as string).getTime()
+            // updated_at em conversas resolvidas é proxy de resolved_at (conversations não tem a coluna)
+            const diffMs = new Date(c.updated_at as string).getTime() - new Date(c.created_at as string).getTime()
             return s + diffMs / 60000
           }, 0) / resolvedConvs.length
       )
@@ -184,6 +184,24 @@ async function aggregateDaily(instanceId: string, dateStr: string): Promise<Metr
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([tag]) => tag)
+
+  // T7: Atualiza lead scores baseado nas extrações shadow do dia
+  if (hasShadow) {
+    try {
+      await updateLeadScores(instanceId, extractions ?? [])
+    } catch (err) {
+      log.error('updateLeadScores failed', { instanceId, error: (err as Error).message })
+    }
+  }
+
+  // T8: Registra transições de etapa no funil de conversão
+  if (hasShadow) {
+    try {
+      await recordFunnelEvents(instanceId, extractions ?? [])
+    } catch (err) {
+      log.error('recordFunnelEvents failed', { instanceId, error: (err as Error).message })
+    }
+  }
 
   return {
     leads_count:               new Set(convs.map((c) => c.id)).size, // unique conversations as proxy
@@ -343,6 +361,159 @@ async function consolidatePeriod(
       metrics:      consolidated,
       computed_at:  new Date().toISOString(),
     })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T7: Lead score — calcula delta por tags shadow e persiste em lead_score_history
+// ─────────────────────────────────────────────────────────────────────────────
+
+function calculateScoreDelta(tags: string[]): number {
+  let delta = 0
+  for (const tag of tags) {
+    if      (tag === 'intencao:alta')               delta += 15
+    else if (tag === 'intencao:media')              delta += 8
+    else if (tag === 'intencao:baixa')              delta += 2
+    else if (tag.startsWith('conversao:comprou'))   delta += 30
+    else if (tag.startsWith('conversao:converteu')) delta += 25
+    else if (tag.startsWith('conversao:'))          delta += 10
+    else if (tag.startsWith('objecao:'))            delta -= 5
+    else if (tag.startsWith('motivo_perda:'))       delta -= 20
+    else if (tag.startsWith('concorrente:'))        delta -= 5
+  }
+  return delta
+}
+
+type ExtractionRow = {
+  dimension: string
+  extracted_data: unknown
+  conversation_id: string | null
+}
+
+async function updateLeadScores(instanceId: string, extractions: ExtractionRow[]): Promise<void> {
+  const leadExts = extractions.filter((e) => e.dimension === 'lead' && e.conversation_id)
+  if (leadExts.length === 0) return
+
+  const convIds = [...new Set(leadExts.map((e) => e.conversation_id as string))]
+
+  const { data: convRows } = await supabase
+    .from('conversations').select('id, contact_id').in('id', convIds)
+  const convToContact = new Map((convRows ?? []).map((c) => [c.id as string, c.contact_id as string]))
+
+  const contactIds = [...new Set([...convToContact.values()].filter(Boolean))]
+  if (contactIds.length === 0) return
+
+  const { data: lpRows } = await supabase
+    .from('lead_profiles').select('id, contact_id, current_score').in('contact_id', contactIds)
+  const contactToLp = new Map((lpRows ?? []).map((lp) => [lp.contact_id as string, lp]))
+
+  // Agrega deltas por lead (pode haver múltiplas extrações por lead no dia)
+  const lpDeltas = new Map<string, { delta: number; tags: string[]; convId: string; current: number }>()
+
+  for (const ext of leadExts) {
+    const data  = (ext.extracted_data ?? {}) as Record<string, unknown>
+    const tags  = Array.isArray(data.tags) ? (data.tags as string[]) : []
+    const delta = calculateScoreDelta(tags)
+    if (delta === 0) continue
+
+    const contactId = convToContact.get(ext.conversation_id as string)
+    if (!contactId) continue
+    const lp = contactToLp.get(contactId)
+    if (!lp) continue
+
+    const relevantTags = tags.filter((t) =>
+      t.startsWith('intencao:') || t.startsWith('conversao:') ||
+      t.startsWith('objecao:')  || t.startsWith('motivo_perda:')
+    )
+    const lpId = lp.id as string
+    const existing = lpDeltas.get(lpId)
+    if (existing) {
+      existing.delta += delta
+      existing.tags.push(...relevantTags)
+    } else {
+      lpDeltas.set(lpId, {
+        delta,
+        tags: relevantTags,
+        convId:  ext.conversation_id as string,
+        current: (lp.current_score as number) ?? 50,
+      })
+    }
+  }
+
+  for (const [lpId, { delta, tags, convId, current }] of lpDeltas) {
+    const scoreAfter = Math.max(0, Math.min(100, current + delta))
+    await supabase.from('lead_profiles').update({ current_score: scoreAfter }).eq('id', lpId)
+    await supabase.from('lead_score_history').insert({
+      lead_id:         lpId,
+      conversation_id: convId,
+      score_delta:     delta,
+      reason:          tags.length > 0 ? `shadow: ${tags.join(', ')}` : 'shadow_aggregate',
+      score_after:     scoreAfter,
+      metadata:        { instance_id: instanceId },
+    })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T8: Funil de conversão — detecta etapa e registra em conversion_funnel_events
+// ─────────────────────────────────────────────────────────────────────────────
+
+function detectFunnelStage(tags: string[]): 'qualification' | 'intention' | 'conversion' | null {
+  if (tags.some((t) => t.startsWith('conversao:')))                                  return 'conversion'
+  if (tags.some((t) => t === 'intencao:alta' || t === 'intencao:media'))             return 'intention'
+  if (tags.some((t) => t.startsWith('intencao:') || t.startsWith('dado_pessoal:'))) return 'qualification'
+  return null  // 'contact' (trivial) não é registrado
+}
+
+async function recordFunnelEvents(instanceId: string, extractions: ExtractionRow[]): Promise<void> {
+  const leadExts = extractions.filter((e) => e.dimension === 'lead' && e.conversation_id)
+  if (leadExts.length === 0) return
+
+  const convIds = [...new Set(leadExts.map((e) => e.conversation_id as string))]
+
+  const { data: convRows } = await supabase
+    .from('conversations').select('id, contact_id').in('id', convIds)
+  const convToContact = new Map((convRows ?? []).map((c) => [c.id as string, c.contact_id as string]))
+
+  const contactIds = [...new Set([...convToContact.values()].filter(Boolean))]
+  if (contactIds.length === 0) return
+
+  const { data: lpRows } = await supabase
+    .from('lead_profiles').select('id, contact_id').in('contact_id', contactIds)
+  const contactToLp = new Map((lpRows ?? []).map((lp) => [lp.contact_id as string, lp]))
+
+  // Eventos já existentes (evita duplicatas)
+  const { data: existing } = await supabase
+    .from('conversion_funnel_events')
+    .select('conversation_id, stage')
+    .eq('instance_id', instanceId)
+    .in('conversation_id', convIds)
+  const seen = new Set((existing ?? []).map((e) => `${e.conversation_id}:${e.stage}`))
+
+  const toInsert: Array<{ instance_id: string; lead_id: string; conversation_id: string; stage: string }> = []
+
+  for (const ext of leadExts) {
+    const data  = (ext.extracted_data ?? {}) as Record<string, unknown>
+    const tags  = Array.isArray(data.tags) ? (data.tags as string[]) : []
+    const stage = detectFunnelStage(tags)
+    if (!stage) continue
+
+    const convId    = ext.conversation_id as string
+    const contactId = convToContact.get(convId)
+    if (!contactId) continue
+    const lp = contactToLp.get(contactId)
+    if (!lp) continue
+
+    const key = `${convId}:${stage}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    toInsert.push({ instance_id: instanceId, lead_id: lp.id as string, conversation_id: convId, stage })
+  }
+
+  if (toInsert.length > 0) {
+    await supabase.from('conversion_funnel_events').insert(toInsert)
+    log.info('Funnel events recorded', { instanceId, count: toInsert.length })
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
