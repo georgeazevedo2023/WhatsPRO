@@ -38,6 +38,7 @@ import {
   Link2,
   Target,
   Wand2,
+  LineChart,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -87,6 +88,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
   const [helpdeskOpen, setHelpdeskOpen] = useState(false);
   const [funnelsOpen, setFunnelsOpen] = useState(false);
   const [flowsOpen, setFlowsOpen] = useState(false);
+  const [gestaoOpen, setGestaoOpen] = useState(false);
   const [aiAgentOpen, setAiAgentOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
@@ -111,6 +113,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
     || location.pathname.startsWith('/dashboard/bio-links')
     || location.pathname === '/dashboard/forms';
   const isFlowsActive = location.pathname.startsWith('/dashboard/flows');
+  const isGestaoActive = location.pathname.startsWith('/dashboard/gestao');
   const isAiAgentActive = location.pathname.startsWith('/dashboard/ai-agent');
   const isAdminActive = location.pathname.startsWith('/dashboard/admin');
   const isDocsActive = ['/dashboard/docs', '/dashboard/roadmap', '/dashboard/backup'].some(p => location.pathname.startsWith(p));
@@ -118,6 +121,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
   // Auto-open collapsibles based on current path
   useEffect(() => {
     if (isFunnelsActive) setFunnelsOpen(true);
+    if (isGestaoActive) setGestaoOpen(true);
     if (isAiAgentActive) setAiAgentOpen(true);
     if (isAdminActive) setAdminOpen(true);
     if (isDocsActive) setDocsOpen(true);
@@ -536,6 +540,19 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
             </TooltipTrigger>
             {isCollapsed && <TooltipContent side="right">Leads</TooltipContent>}
           </Tooltip>
+        )}
+
+        {/* Gestão - Collapsible (super admin + gerente) */}
+        {(isSuperAdmin || isGerente) && renderCollapsible(
+          LineChart,
+          'Gestao',
+          gestaoOpen,
+          setGestaoOpen,
+          isGestaoActive,
+          '/dashboard/gestao',
+          <>
+            {renderSubItem('/dashboard/gestao', 'Dashboard', LineChart)}
+          </>
         )}
 
         {/* Funis - Collapsible unificado (super admin only) */}
