@@ -76,76 +76,7 @@ updated: 2026-04-12
 
 ## Histórico de Erros
 
-### CORS bloqueava Helpdesk (2026-04-09)
-
-`uazapi-proxy` usava `browserCorsHeaders` (estático) + `ALLOWED_ORIGIN` secret não existia → CORS bloqueava. Fix: `getDynamicCorsHeaders(req)` + secret criado. Regras R26+R27.
-
-### form-bot retries NaN — bypass silencioso de validação (2026-04-06)
-
-**O que:** Formulário nunca abandonava após máximo de retries — campo com erro podia ser ignorado infinitamente.
-**Causa:** `session.retries` vinha `undefined` do DB (coluna sem default no insert). `undefined + 1 = NaN`, `NaN >= 3 = false` → condição de abandono jamais ativada.
-**Correção:** `(session.retries ?? 0) + 1` — nullish coalescing garante que undefined/null vira 0.
-**Regra:** Sempre usar `?? 0` ao incrementar contadores que vêm do banco — o DB pode retornar null/undefined para colunas sem default.
-
-### setState durante render — freeze/loop de re-render (2026-04-06)
-
-**O que:** `WhatsappFormsPage` chamava `setSelectedAgentId(agents[0].id)` direto no body do componente. React lança warning "Cannot update a component while rendering a different component" e pode entrar em loop infinito.
-**Causa:** Auto-select do primeiro agente foi escrito como lógica condicional no render, fora de efeito.
-**Correção:** Movido para `useEffect([agents, selectedAgentId])`. Guard de redirect (`if (!isSuperAdmin)`) deve vir DEPOIS de todos os hooks — React exige ordem constante.
-**Regra:** NUNCA chamar setState fora de handler ou useEffect. Guards de redirect com `return` devem vir após todos os hooks.
-
-### Circuit breaker getter com side effect — transição de estado inconsistente (2026-04-06)
-
-**O que:** Getter `isOpen` fazia transição OPEN→HALF_OPEN como side effect. Múltiplos acessos ao getter no mesmo tick poderiam transicionar o estado mais de uma vez ou em momento errado.
-**Causa:** Getters JavaScript são funções puras por convenção — sem efeitos colaterais. O código misturava leitura de estado com mutação de estado.
-**Correção:** `isOpen` tornou-se getter puro (read-only: `state==='OPEN' && elapsed < resetMs`). Criado método privado `checkState()` para a transição, chamado explicitamente em `call()`.
-**Regra:** Getters NUNCA devem ter side effects. Separar leitura de estado de transição de estado.
-
-### Race condition na criação de contato — unique constraint em submissões simultâneas (2026-04-06)
-
-**O que:** Dois submits simultâneos do mesmo número em `form-public` causavam erro 500 — o segundo insert violava unique constraint na coluna `jid`.
-**Causa:** Padrão check-then-insert: ambas as requisições passam pelo check "existe?" ao mesmo tempo, ambas encontram null, ambas tentam inserir.
-**Correção:** `upsert ON CONFLICT jid` — operação atômica no DB. O segundo submits atualiza em vez de inserir, sem erro.
-**Regra:** NUNCA usar check-then-insert para entidades identificadas por unique key. Sempre usar `upsert ON CONFLICT`.
-
-### Array mutation no ChatPanel — .reverse() muta o array original (2026-04-06)
-
-**O que:** `.reverse()` chamado direto no array retornado pela query Supabase mutava o array em place. Comportamento indefinido se a referência escapar (cache do React Query, closures).
-**Causa:** `Array.prototype.reverse()` muta o array original — não cria uma cópia.
-**Correção:** `.slice().reverse()` — `slice()` sem argumentos cria cópia rasa antes de inverter. Aplicado em 3 locais no ChatPanel.
-**Regra:** NUNCA chamar `.reverse()` ou `.sort()` direto em arrays externos (results de query, props). Sempre `.slice().reverse()` / `[...arr].sort()`.
-
----
-
-### Bio lead captures isolados — dados capturados mas invisíveis (2026-04-07)
-
-**O que:** Leads capturados via Bio Link (M14 Fase 3) iam para `bio_lead_captures` e paravam ali. Não criavam contact, não criavam lead_profile, não apareciam no CRM, Kanban, Leads ou AI Agent. Tabela nem tinha migration.
-**Causa:** `bio_lead_captures` foi implementada como INSERT simples sem criar entidades downstream. Além disso, a tabela nunca teve migration (funcionava por estar criada diretamente no DB mas sem versionamento).
-**Correção:** M15 F1 — bio-public agora chama `upsertContactFromPhone()` + `upsertLeadFromFormData()` (via `leadHelper.ts` compartilhado). Migration criada. `contact_id` FK adicionada.
-**Regra 20:** Todo sistema de captação DEVE criar contact + lead_profile real. Dados isolados são invisíveis ao resto do sistema.
-
-### FIELD_MAP duplicado em 2 edge functions (2026-04-07)
-
-**O que:** O mapeamento `nome→full_name, email→email, cpf→cpf...` estava copiado identicamente em `form-public` e `form-bot`. Qualquer alteração num campo precisaria ser feita em 2 lugares.
-**Causa:** Cada edge function foi desenvolvida em milestone separado (M12, M13) e copiou o código.
-**Correção:** Extraído para `_shared/leadHelper.ts` com `FORM_FIELD_MAP`, `upsertContactFromPhone()` e `upsertLeadFromFormData()`. Ambas as funções agora importam do módulo compartilhado.
-**Regra 19:** NUNCA duplicar FIELD_MAP ou lógica de upsert de lead — usar `leadHelper.ts`.
-
-### FK type mismatch — instances.id é TEXT, não UUID (2026-04-09)
-
-**O que:** Migration poll_messages falhava com "Key columns instance_id and id are of incompatible types: uuid and text".
-**Causa:** `public.instances.id` é TEXT (não UUID). A migration usava `instance_id UUID REFERENCES instances(id)`.
-**Correção:** Alterado para `instance_id TEXT NOT NULL REFERENCES instances(id)`.
-**Regra 24:** Sempre verificar o tipo real da coluna referenciada antes de criar FK. `instances.id` é TEXT.
-
-### UAZAPI endpoint errado para polls — /send/poll não existe (2026-04-09)
-
-**O que:** Todas as funcionalidades de poll (proxy, AI Agent, automação, NPS, form-bot) retornavam 405 Method Not Allowed. Polls nunca funcionaram em produção.
-**Causa:** O código usava `POST /send/poll` mas esse endpoint não existe no UAZAPI. O endpoint correto é `POST /send/menu` com `type: 'poll'`. Além disso, campos são diferentes: `question`→`text`, `options`→`choices`.
-**Correção:** 6 edits em 4 arquivos — alterado endpoint + payload em uazapi-proxy, ai-agent, automationEngine (2x) e form-bot (2x). Testado ao vivo com sucesso.
-**Regra 25:** SEMPRE validar endpoints UAZAPI com curl antes de implementar. A documentação interna pode estar desatualizada — conferir em docs.uazapi.com. O endpoint unificado para mensagens interativas é `/send/menu` com campo `type` (poll, list, quickreply).
-
----
+> Bugs antigos (2026-04-06 a 2026-04-09) arquivados em: `wiki/log-arquivo-2026-04-12-fixes-kpi-s12.md`
 
 ### PostgreSQL IMMUTABLE em índice parcial — `now()` proibido (2026-04-11)
 
@@ -177,6 +108,25 @@ updated: 2026-04-12
 - R35: FKs em flow_states: `lead_id → lead_profiles.id` (não contacts.id). Para resolver lead de uma conversa: `conversations.contact_id → lead_profiles.contact_id → lead_profiles.id`
 - R32: `useState(() => sideEffect())` NÃO é `useEffect` — inicializador roda 1x no mount com estado inicial undefined. Para reagir a dados assíncronos usar `useEffect(() => {}, [dep])`
 - R33: Ao criar rotas React Router, SEMPRE verificar App.tsx E sidebar/nav. Código de página sem rota = inacessível (bug silencioso)
+
+---
+
+### M19 S2 aggregate-metrics — 3 bugs críticos (2026-04-13)
+
+**B#1 — PostgREST `.eq()` com tabela relacionada não faz JOIN:**
+`eq('inboxes.instance_id', instanceId)` não é uma sintaxe PostgREST válida para filtrar em FK. Retorna array vazio silenciosamente — conversas nunca eram agregadas, métricas zeravam.
+**Correção:** 2 passos: buscar `inboxes.id WHERE instance_id=X`, depois `conversations.in('inbox_id', ids)`.
+**Regra:** Ao precisar filtrar conversas por instância, SEMPRE usar join explícito em 2 etapas. PostgREST suporta embedded filters apenas com select `!inner()` e alias, não com `.eq('fk_table.column')`.
+
+**B#2 — `conversations.resolved_at` não existe:**
+Coluna selecionada e usada para calcular `avg_resolution_minutes`, mas o campo não existe na tabela (não foi incluído no schema). Causava erros silenciosos (`undefined`).
+**Correção:** Usar `updated_at` como proxy para conversas com `status='resolved'`.
+**Regra (reforço R29):** SEMPRE verificar schema real da tabela antes de selecionar colunas. `conversations` não tem `resolved_at` — usar `updated_at WHERE status='resolved'`.
+
+**B#3 — Schema criado mas populate não implementado (T7/T8):**
+`lead_score_history` e `conversion_funnel_events` foram criadas nas migrations com RLS e índices corretos, mas nenhuma edge function inseria dados nelas. Auditoria encontrou 0 referências em código.
+**Correção:** Adicionadas `updateLeadScores()` e `recordFunnelEvents()` em `aggregate-metrics`, chamadas dentro de `aggregateDaily()` com try/catch isolado.
+**Regra:** Após criar uma tabela nova, verificar SEMPRE se existe código que a popula. Schema sem populate = tabela fantasma. A auditoria pós-entrega é obrigatória antes de declarar sprint como concluído.
 
 ---
 

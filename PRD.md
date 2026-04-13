@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.9.1 | **Última atualização**: 2026-04-12 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 31 Edge Functions + 53 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente COMPLETO (Motor+Perfis+Enquetes+NPS)
+> **Versão**: 7.10.0 | **Última atualização**: 2026-04-13 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 32 Edge Functions + 56 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente COMPLETO (Motor+Perfis+Enquetes+NPS) + M19 S1 Shadow Bilateral + M19 S2 Armazenamento & Agregação (views, aggregate-metrics, cron, lead_score, funnel_events)
 
 ## Visão Geral
 
