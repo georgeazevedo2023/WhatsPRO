@@ -9,6 +9,13 @@ type: log
 
 ## 2026-04-13
 
+### deploy(m19-s1): ai-agent + whatsapp-webhook em produção (commits 2db9299 + fbb7c2d)
+
+- **ai-agent** deployado: shadow bilateral, tags expandidas (+12 VALID_KEYS), extract_shadow_data, isTrivialMessage (importada de _shared)
+- **whatsapp-webhook** deployado: roteamento `fromMe:true` → shadow sem debounce
+- Dedup isTrivialMessage: inline removida de index.ts, importa de `_shared/aiRuntime.ts` (canônica, inclui 'ok entendi')
+- tsc 0 erros ✅ | 436 testes passando ✅
+
 ### feat(m19-s1): Shadow Bilateral — Coleta de Dados do Vendedor (commit 2db9299)
 
 **M19 Sprint 1 — Shadow Inteligente (Coleta)** — 8 tasks, 4 agentes paralelos.
