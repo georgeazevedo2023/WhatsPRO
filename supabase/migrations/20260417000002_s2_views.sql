@@ -50,8 +50,8 @@ SELECT
   COUNT(DISTINCT CASE WHEN conv.status = 'pending' THEN conv.id END)  AS pending_count,
   ROUND(
     AVG(
-      CASE WHEN conv.resolved_at IS NOT NULL
-        THEN EXTRACT(EPOCH FROM (conv.resolved_at - conv.created_at)) / 60
+      CASE WHEN conv.status = 'resolved'
+        THEN EXTRACT(EPOCH FROM (conv.updated_at - conv.created_at)) / 60
       END
     )::NUMERIC, 1
   )                                                        AS avg_resolution_minutes,
@@ -81,9 +81,9 @@ SELECT
   al.metadata->>'reason'                                      AS handoff_reason,
   al.metadata->>'trigger'                                     AS handoff_trigger,
   CASE
-    WHEN conv.resolved_at IS NOT NULL
+    WHEN conv.status = 'resolved'
     THEN ROUND(
-      EXTRACT(EPOCH FROM (conv.resolved_at - al.created_at)) / 60, 1
+      EXTRACT(EPOCH FROM (conv.updated_at - al.created_at)) / 60, 1
     )
   END                                                         AS minutes_to_resolve_after_handoff,
   conv.status                                                 AS conversation_status
