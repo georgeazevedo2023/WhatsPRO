@@ -7,7 +7,52 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-13 (M19-S4 Plano 1)
+
+### feat(m19-s4-p1): Infraestrutura — Correção de Views + Tabela instance_goals (commit 4ea32fe)
+
+**Migration:** `supabase/migrations/20260418000001_s4_fix_handoff_view_and_goals.sql` — aplicada em produção.
+
+**Bug corrigido (v_handoff_details):** View filtrava `WHERE event = 'handoff_to_human'` mas ai-agent insere `event = 'handoff'` (linha 2282 index.ts). Resultado: ZERO linhas em produção. Corrigido para `IN ('handoff', 'handoff_to_human', 'handoff_trigger')`. Adicionados campos `evitavel` e `converteu` (boolean).
+
+**Bug corrigido (v_agent_performance):** Mesmo problema no COUNT de handoffs. Corrigido para contar todos os 3 eventos.
+
+**v_ia_vs_vendor recriada:** DROP CASCADE em v_agent_performance derrubou v_ia_vs_vendor automaticamente. Recriada na mesma migration.
+
+**Tabela instance_goals criada:** id/instance_id/metric_key/target_value/period/created_by/created_at/updated_at. CHECK constraints em metric_key (6 valores) e period (3 valores). RLS com `is_super_admin()` (ALL) e `is_gerente()` (SELECT). Trigger `set_updated_at`.
+
+**Desvios Rule 1 aplicados:**
+1. `CREATE OR REPLACE VIEW` rejeitado (SQLSTATE 42P16) — colunas reordenadas. Solução: DROP+CREATE.
+2. Policies `user_profiles.role` não existe — corrigido para `is_super_admin()/is_gerente()` (padrão do projeto).
+
+**tsc:** 0 erros.
+
+---
+
 ## 2026-04-13
+
+### feat(m19-s3): Dashboard do Gestor — /dashboard/gestao (commit 4c834af)
+
+**11 arquivos criados, tsc 0 erros.**
+
+**Hook `useManagerMetrics`:** Promise.all em 6 views S2 (`v_lead_metrics`, `v_vendor_activity`, `v_agent_performance`, `v_conversion_funnel`, `v_ia_vs_vendor`, `poll_messages`). Todas as queries usam `as any` (views não tipadas no types.ts). NPS busca poll_responses somente se há polls no período.
+
+**Componentes criados (`src/components/manager/`):**
+- `ManagerFilters` — instância + período, reutiliza padrão DashboardFilters
+- `ManagerKPICards` — 6 KPIs via StatsCard (leads novos, conversão, transbordo, NPS, custo IA, score médio)
+- `LeadsTrendChart` — linha recharts leads + conversões por dia
+- `LeadsByOriginChart` — pizza recharts por origem (bio/campanha/formulário/direto)
+- `ManagerConversionFunnel` — barras shadow por etapa com taxa de drop entre etapas (distinto de FunnelConversionChart M16)
+- `IAvsVendorComparison` — tabela comparativa 5 métricas IA vs vendedor
+- `SellerRankingChart` — ranking com useUserProfiles para resolver seller_id → nome
+
+**Página:** `ManagerDashboard` — auto-seleciona primeira instância, lazy loading com LazySection, empty state claro se sem instância/dados.
+
+**Rota:** `/dashboard/gestao` com `CrmRoute` (super_admin + gerente). Sidebar: collapsible "Gestao" com ícone LineChart após Leads.
+
+**Decisão de auditoria aplicada:** `ConversionFunnelChart` renomeado para `ManagerConversionFunnel` para evitar conflito com `FunnelConversionChart` (M16). KPI "Leads Novos" conta leads com ≥1 conversa na instância (limitação da view LEFT JOIN).
+
+---
 
 ### fix(m19-s2): aggregate-metrics — 3 bugs corrigidos + T7/T8 populados (commit 827fd17)
 
