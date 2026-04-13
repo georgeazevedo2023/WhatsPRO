@@ -7,6 +7,28 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-13 (M19-S4 Plano 2)
+
+### feat(m19-s4-p2): Ficha do Vendedor (commits c0f9a17, 9e97453, de2380b)
+
+**useManagerInstances.ts (novo):** Hook extraído inline de ManagerDashboard. queryKey `['manager-instances']` preservado. ManagerDashboard.tsx: substituído inline por import.
+
+**useVendorDetail.ts (novo):** 3 queries paralelas via Promise.all — `v_vendor_activity` (atividade diária), `poll_messages` (NPS), `conversations` (pendentes/contacts). Interfaces `VendorKPIs`, `VendorTrendDay`, `VendorDetail`. Bug corrigido (Rule 1): `convIds` movido para escopo correto antes do bloco NPS.
+
+**VendorKPICards.tsx (novo):** Grid 6 StatsCards — Conversas, Resolvidas, Taxa Resolução, Tempo Médio, NPS Médio, Ticket Médio. Padrão idêntico ao ManagerKPICards.
+
+**VendorTrendChart.tsx (novo):** LineChart Recharts — Conversas (azul) + Resolvidas (verde), tooltip com tempo médio de resolução. Padrão idêntico ao LeadsTrendChart.
+
+**VendorDetailPage.tsx (novo):** Header + botão Voltar + ManagerFilters + VendorKPICards + VendorTrendChart em LazySection. Auto-seleciona instância igual ao ManagerDashboard. Usa useUserProfiles para nome do vendedor.
+
+**SellerRankingChart.tsx (editado):** drill-down onClick → `navigate('/dashboard/gestao/vendedor/' + seller.sellerId)`. Cursor pointer + hover bg-primary/10.
+
+**App.tsx (editado):** Rota `gestao/vendedor/:sellerId` registrada como CrmRoute com VendorDetailPage lazy.
+
+**tsc:** 0 erros.
+
+---
+
 ## 2026-04-13 (M19-S4 Plano 1)
 
 ### feat(m19-s4-p1): Infraestrutura — Correção de Views + Tabela instance_goals (commit 4ea32fe)
