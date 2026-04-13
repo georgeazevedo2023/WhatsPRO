@@ -1,7 +1,7 @@
 // M19 S3: Dashboard do Gestor
 // Rota: /dashboard/gestao (CrmRoute — super_admin + gerente)
 import { useState } from 'react';
-import { LineChart, RefreshCw } from 'lucide-react';
+import { LineChart, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import ManagerFilters, { type ManagerFiltersState } from '@/components/manager/ManagerFilters';
@@ -12,8 +12,11 @@ import SellerRankingChart from '@/components/manager/SellerRankingChart';
 import ManagerConversionFunnel from '@/components/manager/ManagerConversionFunnel';
 import IAvsVendorComparison from '@/components/manager/IAvsVendorComparison';
 import LazySection from '@/components/dashboard/LazySection';
+import GoalProgressBar from '@/components/gestao/GoalProgressBar';
+import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import { useManagerMetrics } from '@/hooks/useManagerMetrics';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
+import { useInstanceGoals } from '@/hooks/useInstanceGoals';
 
 export default function ManagerDashboard() {
   const { data: instances = [] } = useManagerInstances();
@@ -30,6 +33,9 @@ export default function ManagerDashboard() {
     effectiveInstanceId,
     filters.periodDays
   );
+
+  const { data: goals = [] } = useInstanceGoals(effectiveInstanceId);
+  const [goalsOpen, setGoalsOpen] = useState(false);
 
   const filtersDisplay: ManagerFiltersState = {
     ...filters,
@@ -51,17 +57,38 @@ export default function ManagerDashboard() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isLoading}
-          className="gap-2 shrink-0"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">Atualizar</span>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setGoalsOpen(true)}
+            disabled={!effectiveInstanceId}
+            className="gap-2"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Metas</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Atualizar</span>
+          </Button>
+        </div>
       </div>
+
+      {/* Modal de metas */}
+      {effectiveInstanceId && (
+        <GoalsConfigModal
+          instanceId={effectiveInstanceId}
+          open={goalsOpen}
+          onOpenChange={setGoalsOpen}
+        />
+      )}
 
       {/* Filtros */}
       <ManagerFilters
@@ -91,6 +118,36 @@ export default function ManagerDashboard() {
           ) : metrics ? (
             <ManagerKPICards kpis={metrics.kpis} periodDays={filters.periodDays} />
           ) : null}
+
+          {/* Metas — exibidas apenas quando há meta definida (GoalProgressBar retorna null se target=0) */}
+          {goals.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl border bg-card">
+              <GoalProgressBar
+                label="Taxa de Conversão"
+                current={metrics?.kpis.conversionRate ?? 0}
+                target={goals.find((g) => g.metricKey === 'conversion_rate')?.targetValue ?? 0}
+                unit="%"
+              />
+              <GoalProgressBar
+                label="NPS Médio"
+                current={metrics?.kpis.npsAvg ?? 0}
+                target={goals.find((g) => g.metricKey === 'nps_avg')?.targetValue ?? 0}
+              />
+              <GoalProgressBar
+                label="Taxa de Transbordo"
+                current={metrics?.kpis.handoffRate ?? 0}
+                target={goals.find((g) => g.metricKey === 'handoff_rate')?.targetValue ?? 0}
+                unit="%"
+              />
+              <GoalProgressBar
+                label="Custo IA"
+                current={metrics?.kpis.iaCostUsd ?? 0}
+                target={goals.find((g) => g.metricKey === 'ia_cost_usd')?.targetValue ?? 0}
+                unit=" USD"
+                invertColors
+              />
+            </div>
+          )}
 
           {/* Linha 1: Tendência + Origem */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

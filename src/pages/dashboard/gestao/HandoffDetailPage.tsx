@@ -2,7 +2,7 @@
 // Rota: /dashboard/gestao/transbordo
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRightLeft, ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowRightLeft, ArrowLeft, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import ManagerFilters, { type ManagerFiltersState } from '@/components/manager/ManagerFilters';
@@ -11,8 +11,11 @@ import HandoffKPICards from '@/components/gestao/HandoffKPICards';
 import HandoffMotivosChart from '@/components/gestao/HandoffMotivosChart';
 import HandoffEvitavelChart from '@/components/gestao/HandoffEvitavelChart';
 import HandoffRecentTable from '@/components/gestao/HandoffRecentTable';
+import GoalProgressBar from '@/components/gestao/GoalProgressBar';
+import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import { useHandoffMetrics } from '@/hooks/useHandoffMetrics';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
+import { useInstanceGoals } from '@/hooks/useInstanceGoals';
 
 export default function HandoffDetailPage() {
   const navigate = useNavigate();
@@ -36,6 +39,9 @@ export default function HandoffDetailPage() {
     effectiveInstanceId,
     filters.periodDays
   );
+
+  const { data: goals = [] } = useInstanceGoals(effectiveInstanceId);
+  const [goalsOpen, setGoalsOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6 max-w-screen-2xl mx-auto">
@@ -61,17 +67,38 @@ export default function HandoffDetailPage() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isLoading}
-          className="gap-2 shrink-0"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">Atualizar</span>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setGoalsOpen(true)}
+            disabled={!effectiveInstanceId}
+            className="gap-2"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Metas</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Atualizar</span>
+          </Button>
+        </div>
       </div>
+
+      {/* Modal de metas */}
+      {effectiveInstanceId && (
+        <GoalsConfigModal
+          instanceId={effectiveInstanceId}
+          open={goalsOpen}
+          onOpenChange={setGoalsOpen}
+        />
+      )}
 
       {/* Filtros */}
       <ManagerFilters
@@ -101,6 +128,18 @@ export default function HandoffDetailPage() {
           ) : metrics ? (
             <HandoffKPICards kpis={metrics.kpis} periodDays={filters.periodDays} />
           ) : null}
+
+          {/* Metas — exibidas apenas quando há meta definida */}
+          {goals.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl border bg-card">
+              <GoalProgressBar
+                label="Taxa de Transbordo Evitável"
+                current={metrics?.kpis.evitavelPct ?? 0}
+                target={goals.find((g) => g.metricKey === 'handoff_rate')?.targetValue ?? 0}
+                unit="%"
+              />
+            </div>
+          )}
 
           {/* Linha 1: Motivos + Evitável vs Necessário */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

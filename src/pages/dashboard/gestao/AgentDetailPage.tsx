@@ -2,7 +2,7 @@
 // Rota: /dashboard/gestao/agente (ou /dashboard/gestao/agente/:instanceId)
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bot, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Bot, ArrowLeft, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import ManagerFilters, { type ManagerFiltersState } from '@/components/manager/ManagerFilters';
@@ -10,8 +10,11 @@ import LazySection from '@/components/dashboard/LazySection';
 import AgentKPICards from '@/components/gestao/AgentKPICards';
 import AgentCostChart from '@/components/gestao/AgentCostChart';
 import AgentFollowUpStats from '@/components/gestao/AgentFollowUpStats';
+import GoalProgressBar from '@/components/gestao/GoalProgressBar';
+import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
 import { useAgentDetail } from '@/hooks/useAgentDetail';
+import { useInstanceGoals } from '@/hooks/useInstanceGoals';
 
 export default function AgentDetailPage() {
   const navigate = useNavigate();
@@ -35,6 +38,9 @@ export default function AgentDetailPage() {
     effectiveInstanceId,
     filters.periodDays,
   );
+
+  const { data: goals = [] } = useInstanceGoals(effectiveInstanceId);
+  const [goalsOpen, setGoalsOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6 max-w-screen-2xl mx-auto">
@@ -60,17 +66,38 @@ export default function AgentDetailPage() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isLoading}
-          className="gap-2 shrink-0"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">Atualizar</span>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setGoalsOpen(true)}
+            disabled={!effectiveInstanceId}
+            className="gap-2"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Metas</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Atualizar</span>
+          </Button>
+        </div>
       </div>
+
+      {/* Modal de metas */}
+      {effectiveInstanceId && (
+        <GoalsConfigModal
+          instanceId={effectiveInstanceId}
+          open={goalsOpen}
+          onOpenChange={setGoalsOpen}
+        />
+      )}
 
       {/* Filtros */}
       <ManagerFilters
@@ -100,6 +127,25 @@ export default function AgentDetailPage() {
           ) : agentData ? (
             <AgentKPICards kpis={agentData.kpis} periodDays={filters.periodDays} />
           ) : null}
+
+          {/* Metas — exibidas apenas quando há meta definida */}
+          {goals.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl border bg-card">
+              <GoalProgressBar
+                label="Taxa de Transbordo"
+                current={agentData?.kpis.coveragePct != null ? (100 - agentData.kpis.coveragePct) : 0}
+                target={goals.find((g) => g.metricKey === 'handoff_rate')?.targetValue ?? 0}
+                unit="%"
+              />
+              <GoalProgressBar
+                label="Custo IA"
+                current={agentData?.kpis.totalCostUsd ?? 0}
+                target={goals.find((g) => g.metricKey === 'ia_cost_usd')?.targetValue ?? 0}
+                unit=" USD"
+                invertColors
+              />
+            </div>
+          )}
 
           {/* Gráficos: Custo diário + Follow-up stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

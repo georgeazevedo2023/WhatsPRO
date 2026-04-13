@@ -2,16 +2,19 @@
 // Rota: /dashboard/gestao/vendedor/:sellerId
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { User, ArrowLeft, RefreshCw } from 'lucide-react';
+import { User, ArrowLeft, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import ManagerFilters, { type ManagerFiltersState } from '@/components/manager/ManagerFilters';
 import LazySection from '@/components/dashboard/LazySection';
 import VendorKPICards from '@/components/gestao/VendorKPICards';
 import VendorTrendChart from '@/components/gestao/VendorTrendChart';
+import GoalProgressBar from '@/components/gestao/GoalProgressBar';
+import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
 import { useVendorDetail } from '@/hooks/useVendorDetail';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
+import { useInstanceGoals } from '@/hooks/useInstanceGoals';
 
 export default function VendorDetailPage() {
   const { sellerId } = useParams<{ sellerId: string }>();
@@ -37,6 +40,9 @@ export default function VendorDetailPage() {
     effectiveInstanceId,
     filters.periodDays,
   );
+
+  const { data: goals = [] } = useInstanceGoals(effectiveInstanceId);
+  const [goalsOpen, setGoalsOpen] = useState(false);
 
   // Busca nome do vendedor
   const { namesMap } = useUserProfiles({
@@ -69,17 +75,38 @@ export default function VendorDetailPage() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isLoading}
-          className="gap-2 shrink-0"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">Atualizar</span>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setGoalsOpen(true)}
+            disabled={!effectiveInstanceId}
+            className="gap-2"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Metas</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Atualizar</span>
+          </Button>
+        </div>
       </div>
+
+      {/* Modal de metas */}
+      {effectiveInstanceId && (
+        <GoalsConfigModal
+          instanceId={effectiveInstanceId}
+          open={goalsOpen}
+          onOpenChange={setGoalsOpen}
+        />
+      )}
 
       {/* Filtros */}
       <ManagerFilters
@@ -109,6 +136,24 @@ export default function VendorDetailPage() {
           ) : vendorData ? (
             <VendorKPICards kpis={vendorData.kpis} periodDays={filters.periodDays} />
           ) : null}
+
+          {/* Metas — exibidas apenas quando há meta definida */}
+          {goals.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl border bg-card">
+              <GoalProgressBar
+                label="NPS Médio"
+                current={vendorData?.kpis.npsAvg ?? 0}
+                target={goals.find((g) => g.metricKey === 'nps_avg')?.targetValue ?? 0}
+              />
+              <GoalProgressBar
+                label="Tempo Médio Resolução"
+                current={vendorData?.kpis.avgResolutionMin ?? 0}
+                target={goals.find((g) => g.metricKey === 'response_time_min')?.targetValue ?? 0}
+                unit=" min"
+                invertColors
+              />
+            </div>
+          )}
 
           {/* Gráfico de evolução diária */}
           <LazySection height="260px">
