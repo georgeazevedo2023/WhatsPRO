@@ -63,6 +63,9 @@ const FlowTemplatesPage = lazy(() => import("./pages/dashboard/FlowTemplatesPage
 const FlowDetail = lazy(() => import("./pages/dashboard/FlowDetail"));
 const ManagerDashboard = lazy(() => import("./pages/dashboard/ManagerDashboard"));
 const VendorDetailPage = lazy(() => import("./pages/dashboard/gestao/VendorDetailPage"));
+const AgentDetailPage = lazy(() => import("./pages/dashboard/gestao/AgentDetailPage"));
+const HandoffDetailPage = lazy(() => import("./pages/dashboard/gestao/HandoffDetailPage"));
+const OriginMetricsPage = lazy(() => import("./pages/dashboard/gestao/OriginMetricsPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -266,6 +269,9 @@ const AppRoutes = () => {
         <Route path="flows/:id" element={<AdminRoute><ErrorBoundary section="Fluxo"><Suspense fallback={<PageLoader />}><FlowDetail /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="gestao" element={<CrmRoute><ErrorBoundary section="Gestão"><Suspense fallback={<PageLoader />}><ManagerDashboard /></Suspense></ErrorBoundary></CrmRoute>} />
         <Route path="gestao/vendedor/:sellerId" element={<CrmRoute><ErrorBoundary section="Ficha Vendedor"><Suspense fallback={<PageLoader />}><VendorDetailPage /></Suspense></ErrorBoundary></CrmRoute>} />
+        <Route path="gestao/agente" element={<CrmRoute><ErrorBoundary section="Ficha Agente IA"><Suspense fallback={<PageLoader />}><AgentDetailPage /></Suspense></ErrorBoundary></CrmRoute>} />
+        <Route path="gestao/transbordo" element={<CrmRoute><ErrorBoundary section="Painel Transbordo"><Suspense fallback={<PageLoader />}><HandoffDetailPage /></Suspense></ErrorBoundary></CrmRoute>} />
+        <Route path="gestao/origem" element={<CrmRoute><ErrorBoundary section="Metricas Origem"><Suspense fallback={<PageLoader />}><OriginMetricsPage /></Suspense></ErrorBoundary></CrmRoute>} />
         {/* Redirect legacy/bookmarked URLs */}
         <Route path="leads-broadcast" element={<Navigate to="/dashboard/broadcast/leads" replace />} />
       </Route>
