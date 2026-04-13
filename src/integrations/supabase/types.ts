@@ -1022,6 +1022,58 @@ export type Database = {
         }
         Relationships: []
       }
+      conversion_funnel_events: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          id: string
+          instance_id: string
+          lead_id: string
+          metadata: Json
+          stage: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          instance_id: string
+          lead_id: string
+          metadata?: Json
+          stage: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          instance_id?: string
+          lead_id?: string
+          metadata?: Json
+          stage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversion_funnel_events_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversion_funnel_events_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversion_funnel_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversation_labels: {
         Row: {
           conversation_id: string
@@ -3104,6 +3156,7 @@ export type Database = {
           conversation_summaries: Json | null
           cpf: string | null
           created_at: string
+          current_score: number
           custom_fields: Json | null
           document: string | null
           email: string | null
@@ -3113,7 +3166,7 @@ export type Database = {
           interests: string[] | null
           last_contact_at: string | null
           last_purchase: string | null
-          metadata: Json | null
+          metadata: Json
           notes: string | null
           objections: string[] | null
           origin: string | null
@@ -3135,6 +3188,7 @@ export type Database = {
           conversation_summaries?: Json | null
           cpf?: string | null
           created_at?: string
+          current_score?: number
           custom_fields?: Json | null
           document?: string | null
           email?: string | null
@@ -3144,7 +3198,7 @@ export type Database = {
           interests?: string[] | null
           last_contact_at?: string | null
           last_purchase?: string | null
-          metadata?: Json | null
+          metadata?: Json
           notes?: string | null
           objections?: string[] | null
           origin?: string | null
@@ -3166,6 +3220,7 @@ export type Database = {
           conversation_summaries?: Json | null
           cpf?: string | null
           created_at?: string
+          current_score?: number
           custom_fields?: Json | null
           document?: string | null
           email?: string | null
@@ -3175,7 +3230,7 @@ export type Database = {
           interests?: string[] | null
           last_contact_at?: string | null
           last_purchase?: string | null
-          metadata?: Json | null
+          metadata?: Json
           notes?: string | null
           objections?: string[] | null
           origin?: string | null
@@ -3312,6 +3367,54 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      lead_score_history: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          id: string
+          lead_id: string
+          metadata: Json
+          reason: string
+          score_after: number
+          score_delta: number
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          lead_id: string
+          metadata?: Json
+          reason: string
+          score_after: number
+          score_delta: number
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          lead_id?: string
+          metadata?: Json
+          reason?: string
+          score_after?: number
+          score_delta?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_score_history_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_score_history_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notifications: {
         Row: {
@@ -3976,7 +4079,7 @@ export type Database = {
             foreignKeyName: "shadow_metrics_seller_id_fkey"
             columns: ["seller_id"]
             isOneToOne: false
-            referencedRelation: "contacts"
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]

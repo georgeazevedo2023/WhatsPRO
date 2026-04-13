@@ -583,6 +583,10 @@ Deno.serve(async (req) => {
     const externalId = rawExternalId.includes(':') ? rawExternalId.split(':').pop()! : rawExternalId
     const owner = payload.owner || chatId.split('@')[0] || ''
 
+    // T6 M19-S2: track_id/track_source do payload UAZAPI (mensagens enviadas via API)
+    const trackId     = message.trackId || message.track_id || payload.trackId || null
+    const trackSource = message.trackSource || message.track_source || payload.trackSource || null
+
     // Extract content and media
     let mediaType = normalizeMediaType(message.mediaType || message.messageType || message.type || '')
     let mediaUrl = message.fileURL || message.mediaUrl || ''
@@ -1083,6 +1087,31 @@ Deno.serve(async (req) => {
         .eq('conversation_id', conversation.id)
         .eq('status', 'sent')
         .then(() => {})
+    }
+
+    // T6 M19-S2: Persistir track_id/track_source em lead_profiles.metadata (fire-and-forget)
+    if ((trackId || trackSource) && contact?.id) {
+      ;(async () => {
+        try {
+          const { data: lp } = await supabase
+            .from('lead_profiles')
+            .select('id, metadata')
+            .eq('contact_id', contact.id)
+            .maybeSingle()
+          if (lp) {
+            const merged = {
+              ...(lp.metadata as Record<string, unknown> ?? {}),
+              ...(trackId     ? { track_id:     trackId }     : {}),
+              ...(trackSource ? { track_source: trackSource } : {}),
+              track_updated_at: new Date().toISOString(),
+            }
+            await supabase
+              .from('lead_profiles')
+              .update({ metadata: merged })
+              .eq('id', lp.id)
+          }
+        } catch { /* non-critical */ }
+      })()
     }
 
     // ── Form-bot interception: handle FORM: trigger or active form session ────
