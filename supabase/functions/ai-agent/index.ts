@@ -10,6 +10,7 @@ import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.ts'
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
 import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
+import { isTrivialMessage } from '../_shared/aiRuntime.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -719,14 +720,7 @@ Deno.serve(async (req) => {
       log.info('Shadow mode', { conversationId: conversation_id, isShadowVendor, textLen: textToAnalyze.length })
 
       // T6: Pre-filter trivial messages — skip LLM to save tokens
-      const isTrivial = (t: string) => {
-        const s = t.trim()
-        if (s.length < 5) return true
-        if (/^[\p{Emoji}\s]+$/u.test(s)) return true
-        const normalized = s.toLowerCase().replace(/[.,!?]+$/, '').trim()
-        return new Set(['ok', 'sim', 'blz', 'certo', 'entendido', 'obrigado', 'obg', 'tá', 'ta', 'não', 'nao', 'oi']).has(normalized)
-      }
-      if (isTrivial(textToAnalyze)) {
+      if (isTrivialMessage(textToAnalyze)) {
         await supabase.from('ai_agent_logs').insert({
           agent_id, conversation_id, event: 'shadow_skipped_trivial',
           latency_ms: Date.now() - startTime,
