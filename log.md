@@ -9,6 +9,32 @@ type: log
 
 ## 2026-04-13
 
+### feat(m19-s2): Armazenamento & Agregação — schema, views, aggregate-metrics, cron (commits 755d86a+45756f4)
+
+**Schema (T1+T6+T7+T8):**
+- `shadow_metrics.seller_id` FK corrigida: `contacts` → `auth.users` (T1)
+- `lead_profiles`: +`current_score INT DEFAULT 50` +`metadata JSONB` (T6+T7)
+- Nova tabela `lead_score_history` (T7): histórico de variações de score
+- Nova tabela `conversion_funnel_events` (T8): 4 etapas contact/qualification/intention/conversion
+
+**Views SQL (T2):** 6 views com `security_barrier`:
+- `v_lead_metrics`, `v_vendor_activity`, `v_handoff_details`
+- `v_agent_performance`, `v_conversion_funnel`, `v_ia_vs_vendor`
+- Bug: `conversations.resolved_at` não existe → corrigido para `updated_at` onde `status='resolved'`
+
+**Edge Function `aggregate-metrics` (T3+T4):**
+- `mode=daily`: `shadow_extractions` → `shadow_metrics` daily (fallback: `ai_agent_logs`)
+- `mode=daily_consolidation`: agrega diários em weekly/monthly
+- Trata erro por instância (não falha tudo se uma instância falhar)
+
+**Webhook T6:** extrai `trackId`/`trackSource` do payload UAZAPI → `lead_profiles.metadata` (fire-and-forget)
+
+**Cron T5:** `aggregate-metrics-hourly` (`0 * * * *`) + `aggregate-metrics-daily-consolidation` (`30 0 * * *`)
+
+**Deploy:** `aggregate-metrics` ✅ + `whatsapp-webhook` ✅ | Migrations: 3 aplicadas ✅ | tsc 0 erros ✅
+
+---
+
 ### deploy(m19-s1): ai-agent + whatsapp-webhook em produção (commits 2db9299 + fbb7c2d)
 
 - **ai-agent** deployado: shadow bilateral, tags expandidas (+12 VALID_KEYS), extract_shadow_data, isTrivialMessage (importada de _shared)
