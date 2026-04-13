@@ -39,6 +39,8 @@ import {
   Target,
   Wand2,
   LineChart,
+  ArrowRightLeft,
+  Globe,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -552,6 +554,9 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           '/dashboard/gestao',
           <>
             {renderSubItem('/dashboard/gestao', 'Dashboard', LineChart)}
+            {renderSubItem('/dashboard/gestao/agente', 'Agente IA', Bot)}
+            {renderSubItem('/dashboard/gestao/transbordo', 'Transbordo', ArrowRightLeft)}
+            {renderSubItem('/dashboard/gestao/origem', 'Metricas Origem', Globe)}
           </>
         )}
 
