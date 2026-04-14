@@ -6,17 +6,23 @@ import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
  * Fetches and caches the contact's profile picture.
  * If the contact has no profile_pic_url, tries to fetch from UAZAPI and persists to DB.
  */
+/** WhatsApp CDN URLs expire regularly — treat as stale to avoid 403 console errors */
+function isStaleWhatsAppUrl(url: string | null | undefined): boolean {
+  return !!url && url.includes('pps.whatsapp.net');
+}
+
 export function useContactProfilePic(
   contactId: string | undefined,
   contactJid: string | undefined,
   instanceId: string | undefined,
   existingPicUrl: string | null | undefined,
 ) {
-  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(existingPicUrl || null);
+  const stableExisting = isStaleWhatsAppUrl(existingPicUrl) ? null : (existingPicUrl || null);
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(stableExisting);
 
   useEffect(() => {
-    setProfilePicUrl(existingPicUrl || null);
-    if (existingPicUrl || !contactJid || !instanceId || !contactId) return;
+    setProfilePicUrl(stableExisting);
+    if (stableExisting || !contactJid || !instanceId || !contactId) return;
 
     let cancelled = false;
     (async () => {
@@ -38,7 +44,7 @@ export function useContactProfilePic(
     })();
 
     return () => { cancelled = true; };
-  }, [contactId, contactJid, instanceId, existingPicUrl]);
+  }, [contactId, contactJid, instanceId, stableExisting]);
 
   return profilePicUrl;
 }
