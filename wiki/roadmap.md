@@ -2,7 +2,7 @@
 title: Roadmap
 tags: [roadmap, milestones, fases, status]
 sources: [.planning/ROADMAP.md, .planning/STATE.md, CLAUDE.md]
-updated: 2026-04-12
+updated: 2026-04-13
 ---
 
 # Roadmap
@@ -85,7 +85,7 @@ updated: 2026-04-12
 | S2 | Armazenamento & Agregação | ✅ Shipped + Fixed (2026-04-13) | Views SQL, aggregate-metrics, cron, UTMs, lead_score, funnel_events. Fix: join convs, resolved_at, T7+T8 populate |
 | S3 | Dashboard do Gestor | ✅ Shipped (2026-04-13) | /gestao, KPIs, gráficos, comparativo IA vs vendedor. 11 arquivos, tsc 0 erros. |
 | S4 | Fichas Individuais | ✅ Shipped (2026-04-13) | 7 planos, 27 arquivos: Ficha Vendedor, Ficha Agente IA, Painel Transbordo, Métricas Origem, Metas Configuráveis (GoalProgressBar+Modal), Navegação (4 rotas + Sidebar). tsc 0 erros, build ok. |
-| S5 | IA Conversacional | — | assistant-chat edge fn, NLU, widget flutuante |
+| S5 | IA Conversacional | ✅ Shipped (2026-04-13) | 7 fases, ~13 arquivos. Widget Ctrl+J, 20 intents, cache 5min, página /assistant. tsc 0, build ok. |
 | S6 | NPS Automático | — | npsDispatcher, vínculo vendedor, v_nps_by_seller |
 | S7 | Alertas Proativos | — | process-alerts, NotificationBell, 6 tipos |
 

@@ -1,6 +1,6 @@
 // M19 S4: Ficha do Vendedor
 // Rota: /dashboard/gestao/vendedor/:sellerId
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { User, ArrowLeft, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,13 @@ export default function VendorDetailPage() {
 
   // Auto-seleciona primeira instância se nenhuma foi escolhida
   const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+
+  useEffect(() => {
+    if (effectiveInstanceId) {
+      localStorage.setItem('wp-gestao-instance', effectiveInstanceId);
+      window.dispatchEvent(new CustomEvent('wp-instance-change', { detail: effectiveInstanceId }));
+    }
+  }, [effectiveInstanceId]);
 
   const filtersDisplay: ManagerFiltersState = {
     ...filters,

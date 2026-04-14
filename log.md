@@ -7,6 +7,98 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-13 (M19-S5 IMPLEMENTADO — IA Conversacional)
+
+### Sprint S5 implementado — 7 fases, ~13 arquivos
+
+**P1: Migration aplicada em produção**
+- `20260419000001_s5_assistant_tables.sql`
+- Tabelas: `assistant_conversations` (histórico JSONB) + `assistant_cache` (dedup hash+TTL)
+- RLS: user vê suas conversas, gerente/super_admin lê cache
+- Trigger `set_updated_at`, cron cleanup cache a cada hora
+
+**P2: assistantQueries.ts — 20 intents parametrizados**
+- Cada intent usa PostgREST API (SEM SQL raw)
+- Todas as queries filtram por `instance_id` (multi-tenant)
+- Intents: leads_count, leads_by_origin, conversion_rate, top/worst_sellers, handoff_rate/reasons, agent_cost/efficiency, ia_vs_vendor, nps_average/by_seller, lead_score_distribution, hot_leads, funnel_stages, resolution_time, pending_conversations, daily_trend, goals_progress, seller_detail
+
+**P3: Edge function assistant-chat**
+- Auth: JWT + role check (super_admin/gerente) + instance access check
+- Rate limit: 20 req/min via checkRateLimit
+- Fluxo: Cache → NLU (gpt-4.1-mini, ~200 tokens) → Query → Format (gpt-4.1-mini, ~300 tokens)
+- Cache: hash(message+instance_id), TTL 5min, upsert on conflict
+- Conversas salvas em assistant_conversations (fire-and-forget)
+- Config: verify_jwt=false em config.toml
+
+**P4: useAssistantChat.ts**
+- Hook React: messages state, loading, error, sendMessage, clearChat
+- Lista conversas salvas via React Query
+- Contexto automático por pathname
+- Sugestões iniciais por página
+
+**P5: Widget flutuante — 4 componentes**
+- AssistantChatWidget: fixed bottom-6 right-6, toggle Ctrl+J, localStorage persist
+- AssistantMessageBubble: bolha user/assistant, tabela inline, número destacado
+- AssistantInput: Enter envia, Shift+Enter nova linha, auto-resize
+- AssistantSuggestions: chips clicáveis
+- Montado em DashboardLayout (desktop + mobile)
+
+**P6: Página /dashboard/assistant**
+- Sidebar esquerda: histórico de conversas
+- Área principal: chat full-screen + sugestões
+- Rota: CrmRoute (super_admin + gerente)
+- Sidebar nav: sub-item "Assistente IA" com ícone Sparkles
+
+**P7: Build + validação**
+- tsc: 0 erros | npm run build: sucesso (10.53s)
+
+### Auditoria S5 — 3 agentes paralelos, 6 bugs corrigidos
+
+**Auditoria (code quality + edge fn + localStorage sync):**
+
+**Bug 1 (CRITICAL — localStorage.setItem em render):** 5 páginas de gestão executavam `localStorage.setItem()` no corpo do render (anti-pattern React). Fix: movido para `useEffect([effectiveInstanceId])`.
+
+**Bug 2 (CRITICAL — widget não reativo):** Widget lia localStorage apenas no mount. Mudança de instância no dashboard não atualizava widget. Fix: `CustomEvent('wp-instance-change')` disparado pelo dashboard, widget escuta via `addEventListener`.
+
+**Bug 3 (CRITICAL — cache upsert R36):** `.upsert({ onConflict: 'instance_id,query_hash' })` falha — PostgREST não resolve constraint por nomes de colunas (regra R36). Fix: DELETE+INSERT sequencial (fire-and-forget).
+
+**Bug 4 (HIGH — role check crash dual roles):** `.in('role', [...]).maybeSingle()` crashava se user tinha 2 roles (super_admin + gerente). Fix: `.limit(1)` antes de `.maybeSingle()`.
+
+**Bug 5 (HIGH — leads_count limite 1000):** `data?.length` retornava máximo 1000 (default PostgREST). Fix: `{ count: 'exact', head: true }` retorna count real sem transferir dados.
+
+**Bug 6 (MEDIUM — saveToConversation type):** `InstanceType<typeof Object>` é tipo sem sentido. Fix: `any` com lint ignore.
+
+**Deploy v2:** Edge function `assistant-chat` redeployada com todos os fixes.
+**Build:** tsc 0 erros | npm run build ok
+
+---
+
+## 2026-04-13 (M19-S5 PLANEJADO — IA Conversacional)
+
+### Sprint S5 planejado — 7 fases, auditoria completa
+
+**Pesquisa:**
+- Exploração do codebase com 3 agentes paralelos: gestão (13 componentes, 6 hooks, 4 páginas), AI agent (35 edge functions, callLLM, shared utils), views SQL (6 views S2)
+- Confirmado: callLLM funciona com `tools: []`, Ctrl+J livre, widget monta após Outlet
+
+**Plano criado:** `.planning/m19-s5-PLAN.md` (v2 pós-auditoria)
+- P1: Migration (assistant_conversations + assistant_cache + RLS + RPC)
+- P2: assistantQueries.ts (20 intents parametrizados via PostgREST)
+- P3: Edge function assistant-chat (NLU → query → formatação)
+- P4: useAssistantChat.ts (hook React Query)
+- P5: Widget flutuante (4 componentes, Ctrl+J, fixed bottom-right)
+- P6: Página /dashboard/assistant (full-screen + histórico)
+- P7: Build + testes + vault
+
+**Auditoria (3 agentes paralelos):**
+- Segurança: text-to-SQL REMOVIDO (HIGH RISK). Só queries parametrizadas.
+- Viabilidade: callLLM OK, Ctrl+J OK, DashboardLayout OK
+- Consistência: página movida para subfolder, imports @/, naming OK
+
+**Decisões documentadas:** wiki/decisoes-chave.md (3 decisões S5)
+
+---
+
 ## 2026-04-13 (M19-S4 COMPLETO — Fichas Individuais)
 
 ### Sprint S4 concluído — 7 planos, 20 commits, 27 novos arquivos
@@ -98,85 +190,9 @@ type: log
 
 ---
 
-### fix(m19-s2): aggregate-metrics — 3 bugs corrigidos + T7/T8 populados (commit 827fd17)
-
-**Auditoria S2 com 3 agentes paralelos revelou:**
-
-**Bug 1 (crítico — conversas zeradas):** `eq('inboxes.instance_id', instanceId)` via PostgREST não funciona — retornava array vazio. Corrigido para 2 passos: `inboxes→ids` + `conversations.in('inbox_id', ids)`.
-
-**Bug 2:** `conversations.resolved_at` não existe. Corrigido para `updated_at` (proxy correto para `status='resolved'`).
-
-**T7 — lead_score_history (estava sem populate):**
-- `calculateScoreDelta(tags)`: +15 intencao:alta, +8 media, +30 conversao:comprou, -5 objecao:*, -20 motivo_perda:*
-- `updateLeadScores()`: batch por instância → atualiza `lead_profiles.current_score` + insere em `lead_score_history`
-
-**T8 — conversion_funnel_events (estava sem populate):**
-- `detectFunnelStage(tags)`: qualification (intencao:|dado_pessoal:) → intention (intencao:alta|media) → conversion (conversao:*)
-- `recordFunnelEvents()`: insere evento por conversa+stage sem duplicatas
-
-**Deploy:** `aggregate-metrics` ✅ | commit 827fd17
-
-**Regra nova registrada:** NUNCA mock data — sempre dados reais do DB.
-
----
-
-### feat(m19-s2): Armazenamento & Agregação — schema, views, aggregate-metrics, cron (commits 755d86a+45756f4)
-
-**Schema (T1+T6+T7+T8):**
-- `shadow_metrics.seller_id` FK corrigida: `contacts` → `auth.users` (T1)
-- `lead_profiles`: +`current_score INT DEFAULT 50` +`metadata JSONB` (T6+T7)
-- Nova tabela `lead_score_history` (T7): histórico de variações de score
-- Nova tabela `conversion_funnel_events` (T8): 4 etapas contact/qualification/intention/conversion
-
-**Views SQL (T2):** 6 views com `security_barrier`:
-- `v_lead_metrics`, `v_vendor_activity`, `v_handoff_details`
-- `v_agent_performance`, `v_conversion_funnel`, `v_ia_vs_vendor`
-- Bug: `conversations.resolved_at` não existe → corrigido para `updated_at` onde `status='resolved'`
-
-**Edge Function `aggregate-metrics` (T3+T4):**
-- `mode=daily`: `shadow_extractions` → `shadow_metrics` daily (fallback: `ai_agent_logs`)
-- `mode=daily_consolidation`: agrega diários em weekly/monthly
-- Trata erro por instância (não falha tudo se uma instância falhar)
-
-**Webhook T6:** extrai `trackId`/`trackSource` do payload UAZAPI → `lead_profiles.metadata` (fire-and-forget)
-
-**Cron T5:** `aggregate-metrics-hourly` (`0 * * * *`) + `aggregate-metrics-daily-consolidation` (`30 0 * * *`)
-
-**Deploy:** `aggregate-metrics` ✅ + `whatsapp-webhook` ✅ | Migrations: 3 aplicadas ✅ | tsc 0 erros ✅
-
----
-
-### deploy(m19-s1): ai-agent + whatsapp-webhook em produção (commits 2db9299 + fbb7c2d)
-
-- **ai-agent** deployado: shadow bilateral, tags expandidas (+12 VALID_KEYS), extract_shadow_data, isTrivialMessage (importada de _shared)
-- **whatsapp-webhook** deployado: roteamento `fromMe:true` → shadow sem debounce
-- Dedup isTrivialMessage: inline removida de index.ts, importa de `_shared/aiRuntime.ts` (canônica, inclui 'ok entendi')
-- tsc 0 erros ✅ | 436 testes passando ✅
-
-### feat(m19-s1): Shadow Bilateral — Coleta de Dados do Vendedor (commit 2db9299)
-
-**M19 Sprint 1 — Shadow Inteligente (Coleta)** — 8 tasks, 4 agentes paralelos.
-
-**T1 — shouldTriggerShadowFromWebhook + routing (webhook)**
-- Nova função em `aiRuntime.ts`: `fromMe:true` + `status_ia='shadow'` + não-audio + conteúdo ≥5 chars → `true`
-- Webhook: após bloco principal, if shadow vendor → chama `ai-agent` diretamente com `shadow_only:true` (sem debounce)
-
-**T2 — Shadow bilateral (ai-agent):** Extrai `shadow_only`, `vendor_message` do body. Contexto das últimas 5 msgs.
-
-**T3 — Tags lead expandidas**: `concorrente:*`, `intencao:*`, `motivo_perda:*`, `conversao:*`, `dado_pessoal:*`
-
-**T4 — Tags vendedor**: `vendedor_tom`, `vendedor_desconto`, `vendedor_upsell`, `vendedor_followup`, `venda_status`, `pagamento`
-
-**T5 — extract_shadow_data**: INSERT INTO shadow_extractions (7 dimensões, batch_id por run)
-
-**T6 — isTrivialMessage**: pré-filtro len<5/emoji/trivial → pula LLM + loga shadow_skipped_trivial
-
-**T7 — Logging**: shadow_extraction_lead vs shadow_extraction_vendor com tags_set/is_vendor metadata
-
-**T8 — 22 testes** (7 novos + 15 regressão ✅)
-
----
-
+> Entradas de M19 S1+S2 (shadow, agregação, deploy) arquivadas em:
+> - `wiki/log-arquivo-2026-04-13-m19-s1s2.md`
+>
 > Entradas de 2026-04-12 (agent fixes, clear context, discuss métricas) arquivadas em:
 > - `wiki/log-arquivo-2026-04-12-agent-metricas.md`
 > - `wiki/log-arquivo-2026-04-12-fixes-kpi-s12.md`

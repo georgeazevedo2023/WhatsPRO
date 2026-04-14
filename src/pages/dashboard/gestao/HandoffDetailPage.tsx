@@ -1,6 +1,6 @@
 // M19 S4-P4: Painel de Transbordo
 // Rota: /dashboard/gestao/transbordo
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRightLeft, ArrowLeft, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,13 @@ export default function HandoffDetailPage() {
 
   // Auto-seleciona primeira instância se nenhuma foi escolhida
   const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+
+  useEffect(() => {
+    if (effectiveInstanceId) {
+      localStorage.setItem('wp-gestao-instance', effectiveInstanceId);
+      window.dispatchEvent(new CustomEvent('wp-instance-change', { detail: effectiveInstanceId }));
+    }
+  }, [effectiveInstanceId]);
 
   const filtersDisplay: ManagerFiltersState = {
     ...filters,

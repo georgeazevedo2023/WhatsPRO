@@ -41,6 +41,7 @@ import {
   LineChart,
   ArrowRightLeft,
   Globe,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -115,7 +116,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
     || location.pathname.startsWith('/dashboard/bio-links')
     || location.pathname === '/dashboard/forms';
   const isFlowsActive = location.pathname.startsWith('/dashboard/flows');
-  const isGestaoActive = location.pathname.startsWith('/dashboard/gestao');
+  const isGestaoActive = location.pathname.startsWith('/dashboard/gestao') || location.pathname.startsWith('/dashboard/assistant');
   const isAiAgentActive = location.pathname.startsWith('/dashboard/ai-agent');
   const isAdminActive = location.pathname.startsWith('/dashboard/admin');
   const isDocsActive = ['/dashboard/docs', '/dashboard/roadmap', '/dashboard/backup'].some(p => location.pathname.startsWith(p));
@@ -557,6 +558,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
             {renderSubItem('/dashboard/gestao/agente', 'Agente IA', Bot)}
             {renderSubItem('/dashboard/gestao/transbordo', 'Transbordo', ArrowRightLeft)}
             {renderSubItem('/dashboard/gestao/origem', 'Metricas Origem', Globe)}
+            {renderSubItem('/dashboard/assistant', 'Assistente IA', Sparkles)}
           </>
         )}
 

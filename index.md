@@ -58,6 +58,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |
 | [[wiki/log-arquivo-2026-04-04-a-09]] | Log historico arquivado |
 | [[wiki/log-arquivo-2026-04-12-fixes-kpi-s12]] | KPI fixes + S12 + orchestrator (2026-04-12) |
+| [[wiki/log-arquivo-2026-04-13-m19-s1s2]] | M19 S1+S2: Shadow + Agregação + Deploy (2026-04-13) |
 | [[wiki/metricas-leads-visao]] | Metricas de leads: visao, gaps, shadow, dashboard, IA conversacional |
 | [[wiki/metricas-vendedor-visao]] | Metricas do vendedor: performance, conversao, NPS, ficha, ranking |
 | [[wiki/metricas-agente-ia-visao]] | Metricas da IA: eficiencia, qualidade, follow-up, custo, comparativo |
@@ -144,4 +145,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-12 — M18 Fluxos v3.0 COMPLETO ✅ 12/12 sprints. Orquestrador em producao com migração por instância, rollback automático, métricas e E2E. Próximo milestone: a definir.*
+*Ultima atualizacao: 2026-04-13 — M19 S1-S5 shipped ✅ (Shadow, Agregação, Dashboard, Fichas, IA Conversacional). Próximo: S6 NPS Automático + S7 Alertas Proativos.*

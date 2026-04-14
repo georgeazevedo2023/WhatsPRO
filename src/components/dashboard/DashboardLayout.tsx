@@ -6,6 +6,7 @@ import Breadcrumbs from '@/components/shared/Breadcrumbs';
 import { GlobalSearchDialog } from '@/components/helpdesk/GlobalSearchDialog';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
+import AssistantChatWidget from '@/components/assistant/AssistantChatWidget';
 
 const DashboardLayout = () => {
   const isMobile = useIsMobile();
@@ -50,6 +51,7 @@ const DashboardLayout = () => {
             <Outlet context={{ compact, setCompact }} />
           </div>
         </main>
+        <AssistantChatWidget />
       </div>
     );
   }
@@ -64,6 +66,7 @@ const DashboardLayout = () => {
           <Outlet context={{ compact, setCompact }} />
         </div>
       </main>
+      <AssistantChatWidget />
     </div>
   );
 };

@@ -1,6 +1,6 @@
 // M19 S3: Dashboard do Gestor
 // Rota: /dashboard/gestao (CrmRoute — super_admin + gerente)
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LineChart, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,6 +28,14 @@ export default function ManagerDashboard() {
 
   // Auto-seleciona primeira instância se nenhuma foi escolhida
   const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+
+  // Sincroniza instância selecionada para o widget assistente (useEffect — não no render)
+  useEffect(() => {
+    if (effectiveInstanceId) {
+      localStorage.setItem('wp-gestao-instance', effectiveInstanceId);
+      window.dispatchEvent(new CustomEvent('wp-instance-change', { detail: effectiveInstanceId }));
+    }
+  }, [effectiveInstanceId]);
 
   const { data: metrics, isLoading, refetch } = useManagerMetrics(
     effectiveInstanceId,

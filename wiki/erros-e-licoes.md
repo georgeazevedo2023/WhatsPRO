@@ -2,7 +2,7 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-12
+updated: 2026-04-13
 ---
 
 # Erros e Lições
@@ -71,6 +71,10 @@ updated: 2026-04-12
 | 58 | Variáveis `const` dentro de `if` são block-scoped — referenciá-las fora causa ReferenceError silencioso em runtime (TS não compila strict no Deno Deploy). SEMPRE declarar com `let` no escopo externo se usada depois do bloco condicional | AI Agent |
 | 59 | Catch block do ai-agent usava `agent_id: null` para logar erros, mas coluna é NOT NULL → INSERT falhava → erros desapareciam sem rastro. SEMPRE hoistar IDs antes do try block para acessar no catch | AI Agent |
 | 60 | Regras de prompt que se contradizem anulam-se: "qualifique ambiente primeiro" vs "busca imediata com marca" = LLM segue a mais específica (qualificação). Regras de PRIORIDADE ABSOLUTA devem explicitamente anular as outras | AI Agent |
+| 61 | NUNCA `localStorage.setItem()` no corpo do render React — é side effect. SEMPRE usar `useEffect`. Strict Mode executa o render 2x, causando escritas duplicadas. Leitura de localStorage no render também não é reativa: valor não atualiza sem re-mount | React |
+| 62 | Comunicação entre componentes React na mesma janela NÃO funciona via `storage` event (só dispara entre abas). Usar `CustomEvent` + `dispatchEvent`/`addEventListener` para sincronizar estado entre componentes não-relacionados | React |
+| 63 | `.in('role', [...]).maybeSingle()` CRASH se user tem múltiplos roles (>1 row). SEMPRE adicionar `.limit(1)` antes de `.maybeSingle()` em queries que podem retornar múltiplas linhas por design | DB |
+| 64 | `data?.length` em queries PostgREST retorna no máximo 1000 (default page limit). Para contagem real, usar `{ count: 'exact', head: true }` e ler `count` do response — não transfere dados, só retorna o número | DB |
 
 ---
 

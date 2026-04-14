@@ -27,6 +27,9 @@ verify_jwt = false
 [functions.activate-ia]
 verify_jwt = false
 
+[functions.assistant-chat]
+verify_jwt = false
+
 [functions.analyze-summaries]
 verify_jwt = true
 

@@ -1,6 +1,6 @@
 // M19 S4: Ficha do Agente IA
 // Rota: /dashboard/gestao/agente (ou /dashboard/gestao/agente/:instanceId)
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bot, ArrowLeft, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,13 @@ export default function AgentDetailPage() {
 
   // Auto-seleciona primeira instância se nenhuma foi escolhida
   const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+
+  useEffect(() => {
+    if (effectiveInstanceId) {
+      localStorage.setItem('wp-gestao-instance', effectiveInstanceId);
+      window.dispatchEvent(new CustomEvent('wp-instance-change', { detail: effectiveInstanceId }));
+    }
+  }, [effectiveInstanceId]);
 
   const filtersDisplay: ManagerFiltersState = {
     ...filters,

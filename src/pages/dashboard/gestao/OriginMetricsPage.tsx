@@ -1,6 +1,6 @@
 // M19 S4 P5: Página de Métricas de Origem
 // Rota: /dashboard/gestao/origem
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Globe, ArrowLeft, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,13 @@ export default function OriginMetricsPage() {
 
   // Auto-seleciona primeira instância se nenhuma foi escolhida
   const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+
+  useEffect(() => {
+    if (effectiveInstanceId) {
+      localStorage.setItem('wp-gestao-instance', effectiveInstanceId);
+      window.dispatchEvent(new CustomEvent('wp-instance-change', { detail: effectiveInstanceId }));
+    }
+  }, [effectiveInstanceId]);
 
   const filtersDisplay: ManagerFiltersState = {
     ...filters,

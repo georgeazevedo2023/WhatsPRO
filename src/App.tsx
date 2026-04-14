@@ -66,6 +66,7 @@ const VendorDetailPage = lazy(() => import("./pages/dashboard/gestao/VendorDetai
 const AgentDetailPage = lazy(() => import("./pages/dashboard/gestao/AgentDetailPage"));
 const HandoffDetailPage = lazy(() => import("./pages/dashboard/gestao/HandoffDetailPage"));
 const OriginMetricsPage = lazy(() => import("./pages/dashboard/gestao/OriginMetricsPage"));
+const AssistantPage = lazy(() => import("./pages/dashboard/assistant/AssistantPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -272,6 +273,7 @@ const AppRoutes = () => {
         <Route path="gestao/agente" element={<CrmRoute><ErrorBoundary section="Ficha Agente IA"><Suspense fallback={<PageLoader />}><AgentDetailPage /></Suspense></ErrorBoundary></CrmRoute>} />
         <Route path="gestao/transbordo" element={<CrmRoute><ErrorBoundary section="Painel Transbordo"><Suspense fallback={<PageLoader />}><HandoffDetailPage /></Suspense></ErrorBoundary></CrmRoute>} />
         <Route path="gestao/origem" element={<CrmRoute><ErrorBoundary section="Metricas Origem"><Suspense fallback={<PageLoader />}><OriginMetricsPage /></Suspense></ErrorBoundary></CrmRoute>} />
+        <Route path="assistant" element={<CrmRoute><ErrorBoundary section="Assistente IA"><Suspense fallback={<PageLoader />}><AssistantPage /></Suspense></ErrorBoundary></CrmRoute>} />
         {/* Redirect legacy/bookmarked URLs */}
         <Route path="leads-broadcast" element={<Navigate to="/dashboard/broadcast/leads" replace />} />
       </Route>
