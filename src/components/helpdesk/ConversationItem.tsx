@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { cn } from '@/lib/utils';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { smartDateBR } from '@/lib/dateUtils';
 import { ConversationLabels } from './ConversationLabels';
 import type { Label, Conversation } from '@/types';
@@ -64,7 +64,6 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
     >
       <div className="relative shrink-0">
         <Avatar className="w-10 h-10">
-          <AvatarImage src={contact?.profile_pic_url || undefined} />
           <AvatarFallback className="bg-primary/10 text-primary text-sm">
             {initials}
           </AvatarFallback>

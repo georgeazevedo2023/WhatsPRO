@@ -5,7 +5,7 @@ import {
   CommandEmpty, CommandGroup, CommandItem,
 } from '@/components/ui/command';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Loader2, Search, MessageSquare, User, Phone } from 'lucide-react';
 
 interface GlobalSearchDialogProps {
@@ -99,7 +99,6 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
                 className="flex items-center gap-3 py-2.5 cursor-pointer"
               >
                 <Avatar className="w-8 h-8 shrink-0">
-                  <AvatarImage src={r.contact_profile_pic_url || undefined} />
                   <AvatarFallback className="text-xs bg-muted">
                     {(r.contact_name || r.contact_phone || '?').charAt(0).toUpperCase()}
                   </AvatarFallback>
