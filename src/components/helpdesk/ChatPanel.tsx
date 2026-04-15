@@ -146,6 +146,13 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
   useEffect(() => { fetchMessages(); setReplyTo(null); }, [fetchMessages]);
 
+  // Refetch messages when tab regains focus (WebSocket may have dropped)
+  useEffect(() => {
+    const handler = () => fetchMessages();
+    window.addEventListener('wp-tab-refocus', handler);
+    return () => window.removeEventListener('wp-tab-refocus', handler);
+  }, [fetchMessages]);
+
   // Realtime — listen on the SAME channel the webhook broadcasts to
   useEffect(() => {
     setTypingAgent(null); // Reset typing indicator on conversation switch

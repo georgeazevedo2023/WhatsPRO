@@ -152,6 +152,13 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
     }
   }, [fetchConversations]);
 
+  // Refetch conversations when tab regains focus (WebSocket may have dropped)
+  useEffect(() => {
+    const handler = () => { if (selectedInboxId) fetchConversations(); };
+    window.addEventListener('wp-tab-refocus', handler);
+    return () => window.removeEventListener('wp-tab-refocus', handler);
+  }, [selectedInboxId, fetchConversations]);
+
   // Realtime via broadcast
   useEffect(() => {
     if (!selectedInboxId) return;

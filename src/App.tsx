@@ -108,8 +108,9 @@ function useTabFocusRefresh() {
         if (!session) return; // logged out, auth context will handle redirect
         // Invalidate all React Query caches so they refetch with fresh token
         qc.invalidateQueries();
-        // Trigger refetch for legacy hooks (useInstances listens for this)
+        // Trigger refetch for legacy hooks (useInstances, ChatPanel, ConversationList)
         window.dispatchEvent(new Event('instances-updated'));
+        window.dispatchEvent(new Event('wp-tab-refocus'));
       });
     };
 
