@@ -86,9 +86,11 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
   const fetchIdRef = useRef(0);
 
+  const conversationId = conversation?.id;
+
   // Fetch latest N messages (paginated — descending then reversed for display)
   const fetchMessages = useCallback(async () => {
-    if (!conversation) return;
+    if (!conversationId) return;
     const id = ++fetchIdRef.current;
     setLoading(true);
     setFetchError(false);
@@ -96,7 +98,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       const { data, error } = await supabase
         .from('conversation_messages')
         .select('*')
-        .eq('conversation_id', conversation.id)
+        .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
         .limit(MESSAGES_PAGE_SIZE);
       if (error) throw error;
@@ -110,11 +112,11 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     } finally {
       if (id === fetchIdRef.current) setLoading(false);
     }
-  }, [conversation]);
+  }, [conversationId]);
 
   // Load older messages (prepend to existing)
   const loadOlderMessages = useCallback(async () => {
-    if (!conversation || loadingOlder || messages.length === 0) return;
+    if (!conversationId || loadingOlder || messages.length === 0) return;
     setLoadingOlder(true);
     const oldestMsg = messages[0];
     const scrollEl = scrollContainerRef.current;
@@ -123,7 +125,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       const { data, error } = await supabase
         .from('conversation_messages')
         .select('*')
-        .eq('conversation_id', conversation.id)
+        .eq('conversation_id', conversationId)
         .lt('created_at', oldestMsg.created_at)
         .order('created_at', { ascending: false })
         .limit(MESSAGES_PAGE_SIZE);
@@ -140,7 +142,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     } finally {
       setLoadingOlder(false);
     }
-  }, [conversation, loadingOlder, messages]);
+  }, [conversationId, loadingOlder, messages]);
 
   useEffect(() => { fetchMessages(); setReplyTo(null); }, [fetchMessages]);
 
