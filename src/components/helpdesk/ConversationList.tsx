@@ -451,12 +451,7 @@ export const ConversationList = ({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-hidden relative">
-        {loading && conversations.length > 0 && (
-          <div className="absolute top-0 left-0 right-0 z-10 flex justify-center py-1">
-            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
+      <div className="flex-1 overflow-hidden">
         {loading && conversations.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
