@@ -11,6 +11,15 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
+// Clean up stale auth tokens from other Supabase projects in localStorage
+const currentRef = SUPABASE_URL.match(/\/\/([^.]+)\./)?.[1] || '';
+if (currentRef) {
+  const staleKeys = Object.keys(localStorage).filter(
+    k => k.startsWith('sb-') && k.endsWith('-auth-token') && !k.includes(currentRef)
+  );
+  staleKeys.forEach(k => localStorage.removeItem(k));
+}
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     storage: localStorage,

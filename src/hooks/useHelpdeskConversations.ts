@@ -19,7 +19,7 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
   const { user } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreConversations, setHasMoreConversations] = useState(false);
   const [conversationLabelsMap, setConversationLabelsMap] = useState<Record<string, string[]>>({});
