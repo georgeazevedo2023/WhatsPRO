@@ -100,7 +100,7 @@ function useTabFocusRefresh() {
       }
       // Tab became visible — check how long it was hidden
       const awayMs = Date.now() - hiddenAtRef.current;
-      if (awayMs < 30_000) return; // less than 30s, skip
+      if (awayMs < 3_000) return; // less than 3s, skip
 
       // Full page reload — Supabase client (WebSocket + PostgREST) gets into
       // a broken state after tab suspension. Selective refetch doesn't work
