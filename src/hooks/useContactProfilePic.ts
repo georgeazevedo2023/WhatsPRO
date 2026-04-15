@@ -2,15 +2,16 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 
-/**
- * Fetches and caches the contact's profile picture.
- * If the contact has no profile_pic_url, tries to fetch from UAZAPI and persists to DB.
- */
 /** WhatsApp CDN URLs expire regularly — treat as stale to avoid 403 console errors */
 function isStaleWhatsAppUrl(url: string | null | undefined): boolean {
   return !!url && url.includes('pps.whatsapp.net');
 }
 
+/**
+ * Fetches and caches the contact's profile picture.
+ * Skips stale WhatsApp CDN URLs (pps.whatsapp.net) to avoid 403 console errors.
+ * If the contact has no valid profile_pic_url, tries to fetch from UAZAPI and persists to DB.
+ */
 export function useContactProfilePic(
   contactId: string | undefined,
   contactJid: string | undefined,
