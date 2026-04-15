@@ -170,6 +170,27 @@ PostgREST `onConflict` por nomes de colunas falha (R36). Cache usa DELETE+INSERT
 
 **Plano completo:** [[.planning/m19-s5-PLAN]]
 
+## Auditoria Helpdesk (2026-04-14)
+
+### Tab-refocus: reload completo (3s threshold)
+
+Supabase client quebra após tab suspension. Tentativas anteriores (invalidateQueries, custom events, refetch seletivo) falharam porque o problema é no client HTTP/WebSocket, não no estado React. Solução: `window.location.reload()` após 3s de inatividade — mesmo padrão que Slack e Discord usam.
+
+### fetchMessages: sem fetchIdRef, com AbortController
+
+`fetchIdRef` pattern causava skeleton permanente: fetch stale completava sem `setLoading(false)`. Substituído por:
+- Dependência em `conversationId` (primitiva) em vez de `conversation` (objeto)
+- `AbortController` com 10s timeout + retry
+- `setLoading(false)` incondicional no `finally`
+
+### Profile pics: sem chamada de rede
+
+UAZAPI v2 não tem endpoint para buscar foto. Hook `useContactProfilePic` retorna URL válida ou null (iniciais). Fotos atualizam automaticamente via webhook quando o contato manda mensagem.
+
+### Playwright para E2E visual
+
+Playwright v1.59.1 disponível no projeto para testes headless e headed. Login automatizado, screenshot por cenário.
+
 ## Links
 
 [[wiki/erros-e-licoes]] | [[wiki/ai-agent]] | [[wiki/arquitetura]] | [[wiki/arquitetura-docs]] | [[wiki/fluxos-banco-dados]] | [[wiki/fluxos-wireframes-admin]]

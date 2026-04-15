@@ -145,4 +145,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-13 — M19 S1-S5 shipped ✅ (Shadow, Agregação, Dashboard, Fichas, IA Conversacional). Próximo: S6 NPS Automático + S7 Alertas Proativos.*
+*Ultima atualizacao: 2026-04-14 — Auditoria Helpdesk (10 fixes, Playwright E2E, 1.4 GB storage liberado). M19 S1-S5 shipped ✅. Próximo: S6 NPS Automático + S7 Alertas Proativos.*

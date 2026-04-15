@@ -79,6 +79,10 @@ updated: 2026-04-13
 | 66 | URLs de perfil WhatsApp (`pps.whatsapp.net`) expiram regularmente e geram 403 no console do browser. Erros de `<img>` são logados pelo browser antes de qualquer handler JS — a ÚNICA forma de evitar é não renderizar o `<img>`. Usar fallback (iniciais) na lista, carregar foto só quando necessário | Frontend |
 | 67 | Múltiplos projetos Supabase no mesmo browser poluem localStorage com tokens `sb-{ref}-auth-token` stale. Limpar tokens de outros projetos no init do client para evitar confusão de sessões | Supabase |
 | 68 | Supabase Free Plan — "Storage Size" na dashboard é org-wide (todos os projetos somam). Projeto antigo inativo pode ocupar o quota inteiro. Verificar TODOS os projetos da org ao investigar storage | Supabase |
+| 69 | `useCallback` com dependência em objeto (ex: `[conversation]`) recria o callback a cada render porque objetos mudam de referência. Usar propriedade primitiva (`[conversation?.id]`) para estabilizar | React |
+| 70 | `fetchIdRef` pattern para cancelar fetches stale pode travar `setLoading(false)` — o fetch "stale" completa mas não limpa loading. `setLoading(false)` DEVE ser incondicional no `finally`. Só `setData` precisa do guard | React |
+| 71 | Supabase client (WebSocket + PostgREST) entra em estado quebrado após tab suspension do browser. Refetch seletivo (invalidateQueries, eventos) não resolve. Único fix confiável: `window.location.reload()` via `visibilitychange` — padrão de apps realtime (Slack, Discord) | Supabase |
+| 72 | UAZAPI v2 (Go) NÃO tem endpoint para buscar foto de perfil sob demanda. `/contact/getProfilePic` retorna 405. `/profile/image` é para UPLOAD. Fotos chegam via webhook (`imagePreview`) e sync (`image`). NUNCA chamar endpoint inexistente — gera erro no console | UAZAPI |
 
 ---
 
