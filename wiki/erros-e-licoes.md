@@ -75,6 +75,10 @@ updated: 2026-04-13
 | 62 | Comunicação entre componentes React na mesma janela NÃO funciona via `storage` event (só dispara entre abas). Usar `CustomEvent` + `dispatchEvent`/`addEventListener` para sincronizar estado entre componentes não-relacionados | React |
 | 63 | `.in('role', [...]).maybeSingle()` CRASH se user tem múltiplos roles (>1 row). SEMPRE adicionar `.limit(1)` antes de `.maybeSingle()` em queries que podem retornar múltiplas linhas por design | DB |
 | 64 | `data?.length` em queries PostgREST retorna no máximo 1000 (default page limit). Para contagem real, usar `{ count: 'exact', head: true }` e ler `count` do response — não transfere dados, só retorna o número | DB |
+| 65 | `useState(true)` para `loading` em hooks que dependem de dados assíncronos (ex: `selectedInboxId`) deixa loading travado se a dependência não está pronta — `fetchFn` retorna early sem chamar `setLoading(false)`. SEMPRE iniciar `loading=false` e setar `true` apenas dentro da função de fetch | React |
+| 66 | URLs de perfil WhatsApp (`pps.whatsapp.net`) expiram regularmente e geram 403 no console do browser. Erros de `<img>` são logados pelo browser antes de qualquer handler JS — a ÚNICA forma de evitar é não renderizar o `<img>`. Usar fallback (iniciais) na lista, carregar foto só quando necessário | Frontend |
+| 67 | Múltiplos projetos Supabase no mesmo browser poluem localStorage com tokens `sb-{ref}-auth-token` stale. Limpar tokens de outros projetos no init do client para evitar confusão de sessões | Supabase |
+| 68 | Supabase Free Plan — "Storage Size" na dashboard é org-wide (todos os projetos somam). Projeto antigo inativo pode ocupar o quota inteiro. Verificar TODOS os projetos da org ao investigar storage | Supabase |
 
 ---
 

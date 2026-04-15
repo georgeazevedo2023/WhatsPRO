@@ -7,6 +7,45 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-14 (Auditoria Helpdesk — 7 fixes + Storage cleanup)
+
+### 7 bugs corrigidos no Helpdesk
+
+**Fix 1 — Spinner infinito na lista (ConversationList.tsx):**
+`loading=true` durante refetch (troca de aba, realtime) escondia todas as conversas. Fix: spinner grande só quando `conversations.length === 0`.
+
+**Fix 2 — 403 profile pics (ConversationItem.tsx, GlobalSearchDialog.tsx):**
+`AvatarImage` tentava carregar URLs expiradas do WhatsApp CDN (`pps.whatsapp.net`). Fix: removido `AvatarImage`, usa apenas `AvatarFallback` com iniciais.
+
+**Fix 3 — React Router warnings (App.tsx):**
+Warnings v7 `startTransition` e `relativeSplatPath`. Fix: `future={{ v7_startTransition: true, v7_relativeSplatPath: true }}`.
+
+**Fix 4 — 405 UAZAPI proxy (useContactProfilePic.ts):**
+Hook tentava buscar foto via edge function `getProfilePic` que retornava 405. Fix: hook simplificado — retorna URL válida ou null, sem chamadas de rede. Edge function deployada (v18) para uso futuro.
+
+**Fix 5 — Mini-spinner travado (ConversationList.tsx):**
+Mini-spinner no topo da lista nunca parava por `loading` flickering. Fix: removido — refetch silencioso.
+
+**Fix 6 — "0 conversas" no primeiro load (useHelpdeskConversations.ts):**
+`useState(true)` para `loading` + `selectedInboxId` vazio = `fetchConversations` retornava early sem `setLoading(false)`. Fix: `useState(false)` — loading só vira true quando fetch executa.
+
+**Fix 7 — Tokens stale no localStorage (client.ts):**
+Tokens `sb-*-auth-token` de projetos antigos poluíam localStorage. Fix: auto-cleanup no init do client, mantém apenas token do projeto atual.
+
+### Storage cleanup — 1.4 GB liberados
+
+Projeto antigo "Novo WsmartQR" (`crzcpnczpuzwieyzbqev`) tinha 2.667 arquivos no bucket `helpdesk-media` ocupando 1.466 MB. Deletados via Storage API em batches de 100. Storage org caiu de 134% (1.344 GB) para <1% (~5 MB).
+
+### Edge function deploy
+
+`uazapi-proxy` deployada (v17→v18) com action `getProfilePic`. Token atualizado: `sbp_fb36f...`.
+
+### Regras preventivas adicionadas
+
+R65 (loading race condition), R66 (WhatsApp CDN 403), R67 (localStorage stale tokens), R68 (Storage org-wide).
+
+---
+
 ## 2026-04-13 (M19-S5 IMPLEMENTADO — IA Conversacional)
 
 ### Sprint S5 implementado — 7 fases, ~13 arquivos
