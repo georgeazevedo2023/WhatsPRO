@@ -102,6 +102,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         .order('created_at', { ascending: false })
         .limit(MESSAGES_PAGE_SIZE);
       if (error) throw error;
+      // Only update messages if this is still the latest fetch (prevent stale data)
       if (id === fetchIdRef.current) {
         const msgs = ((data as Message[]) || []).slice().reverse();
         setMessages(msgs);
@@ -110,7 +111,8 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     } catch (err) {
       if (id === fetchIdRef.current) { setFetchError(true); handleError(err, 'Erro ao carregar mensagens', 'Fetch messages'); }
     } finally {
-      if (id === fetchIdRef.current) setLoading(false);
+      // ALWAYS clear loading — even for stale fetches, to prevent stuck skeleton
+      setLoading(false);
     }
   }, [conversationId]);
 
