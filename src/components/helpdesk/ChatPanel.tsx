@@ -84,34 +84,50 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       .then(({ data }) => setIaAtivada(data?.status_ia === STATUS_IA.LIGADA));
   }, [conversation?.id]);
 
-  const fetchIdRef = useRef(0);
-
   const conversationId = conversation?.id;
 
-  // Fetch latest N messages (paginated — descending then reversed for display)
+  // Fetch latest N messages with 10s timeout to prevent stuck skeletons
   const fetchMessages = useCallback(async () => {
     if (!conversationId) return;
-    const id = ++fetchIdRef.current;
     setLoading(true);
     setFetchError(false);
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
       const { data, error } = await supabase
         .from('conversation_messages')
         .select('*')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
-        .limit(MESSAGES_PAGE_SIZE);
+        .limit(MESSAGES_PAGE_SIZE)
+        .abortSignal(controller.signal);
+      clearTimeout(timeout);
       if (error) throw error;
-      // Only update messages if this is still the latest fetch (prevent stale data)
-      if (id === fetchIdRef.current) {
-        const msgs = ((data as Message[]) || []).slice().reverse();
-        setMessages(msgs);
-        setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
-      }
+      const msgs = ((data as Message[]) || []).slice().reverse();
+      setMessages(msgs);
+      setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
     } catch (err) {
-      if (id === fetchIdRef.current) { setFetchError(true); handleError(err, 'Erro ao carregar mensagens', 'Fetch messages'); }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.warn('[ChatPanel] Fetch messages timed out, retrying...');
+        // Retry once on timeout
+        try {
+          const { data } = await supabase
+            .from('conversation_messages')
+            .select('*')
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: false })
+            .limit(MESSAGES_PAGE_SIZE);
+          const msgs = ((data as Message[]) || []).slice().reverse();
+          setMessages(msgs);
+          setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
+        } catch {
+          setFetchError(true);
+        }
+      } else {
+        setFetchError(true);
+        handleError(err, 'Erro ao carregar mensagens', 'Fetch messages');
+      }
     } finally {
-      // ALWAYS clear loading — even for stale fetches, to prevent stuck skeleton
       setLoading(false);
     }
   }, [conversationId]);
@@ -147,13 +163,6 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   }, [conversationId, loadingOlder, messages]);
 
   useEffect(() => { fetchMessages(); setReplyTo(null); }, [fetchMessages]);
-
-  // Refetch messages when tab regains focus (WebSocket may have dropped)
-  useEffect(() => {
-    const handler = () => fetchMessages();
-    window.addEventListener('wp-tab-refocus', handler);
-    return () => window.removeEventListener('wp-tab-refocus', handler);
-  }, [fetchMessages]);
 
   // Realtime — listen on the SAME channel the webhook broadcasts to
   useEffect(() => {

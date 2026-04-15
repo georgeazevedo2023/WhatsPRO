@@ -3,7 +3,7 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -90,7 +90,6 @@ const PageLoader = () => (
  * Fixes: useInstances (legacy hook) + Supabase session going stale on inactive tabs.
  */
 function useTabFocusRefresh() {
-  const qc = useQueryClient();
   const hiddenAtRef = useRef<number>(0);
 
   useEffect(() => {
@@ -103,20 +102,15 @@ function useTabFocusRefresh() {
       const awayMs = Date.now() - hiddenAtRef.current;
       if (awayMs < 30_000) return; // less than 30s, skip
 
-      // Refresh Supabase session (may have expired while tab was suspended)
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (!session) return; // logged out, auth context will handle redirect
-        // Invalidate all React Query caches so they refetch with fresh token
-        qc.invalidateQueries();
-        // Trigger refetch for legacy hooks (useInstances, ChatPanel, ConversationList)
-        window.dispatchEvent(new Event('instances-updated'));
-        window.dispatchEvent(new Event('wp-tab-refocus'));
-      });
+      // Full page reload — Supabase client (WebSocket + PostgREST) gets into
+      // a broken state after tab suspension. Selective refetch doesn't work
+      // reliably. This is what Slack, Discord, and other real-time apps do.
+      window.location.reload();
     };
 
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [qc]);
+  }, []);
 }
 
 // Protected route wrapper
