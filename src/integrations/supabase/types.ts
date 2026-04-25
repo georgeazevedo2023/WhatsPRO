@@ -634,6 +634,79 @@ export type Database = {
           },
         ]
       }
+      assistant_cache: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          instance_id: string
+          query_hash: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          instance_id: string
+          query_hash: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          instance_id?: string
+          query_hash?: string
+          result?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_cache_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assistant_conversations: {
+        Row: {
+          created_at: string
+          id: string
+          instance_id: string
+          messages: Json
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          instance_id: string
+          messages?: Json
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          instance_id?: string
+          messages?: Json
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_conversations_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       automation_rules: {
         Row: {
           action_config: Json | null
@@ -1022,58 +1095,6 @@ export type Database = {
         }
         Relationships: []
       }
-      conversion_funnel_events: {
-        Row: {
-          conversation_id: string | null
-          created_at: string
-          id: string
-          instance_id: string
-          lead_id: string
-          metadata: Json
-          stage: string
-        }
-        Insert: {
-          conversation_id?: string | null
-          created_at?: string
-          id?: string
-          instance_id: string
-          lead_id: string
-          metadata?: Json
-          stage: string
-        }
-        Update: {
-          conversation_id?: string | null
-          created_at?: string
-          id?: string
-          instance_id?: string
-          lead_id?: string
-          metadata?: Json
-          stage?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "conversion_funnel_events_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: false
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "conversion_funnel_events_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: false
-            referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "conversion_funnel_events_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "lead_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       conversation_labels: {
         Row: {
           conversation_id: string
@@ -1236,6 +1257,65 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "inboxes"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversion_funnel_events: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          id: string
+          instance_id: string
+          lead_id: string
+          metadata: Json
+          stage: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          instance_id: string
+          lead_id: string
+          metadata?: Json
+          stage: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          instance_id?: string
+          lead_id?: string
+          metadata?: Json
+          stage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversion_funnel_events_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversion_funnel_events_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversion_funnel_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversion_funnel_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
           },
         ]
       }
@@ -1540,6 +1620,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "flow_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
+          },
+          {
             foreignKeyName: "flow_events_step_id_fkey"
             columns: ["step_id"]
             isOneToOne: false
@@ -1623,10 +1710,52 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "flow_followups_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
+          },
+          {
             foreignKeyName: "flow_followups_seller_id_fkey"
             columns: ["seller_id"]
             isOneToOne: false
             referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      flow_report_shares: {
+        Row: {
+          created_at: string
+          expires_at: string
+          flow_id: string
+          id: string
+          is_active: boolean
+          token: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          flow_id: string
+          id?: string
+          is_active?: boolean
+          token?: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          flow_id?: string
+          id?: string
+          is_active?: boolean
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flow_report_shares_flow_id_fkey"
+            columns: ["flow_id"]
+            isOneToOne: false
+            referencedRelation: "flows"
             referencedColumns: ["id"]
           },
         ]
@@ -1695,6 +1824,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "lead_profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_security_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
           },
         ]
       }
@@ -1785,6 +1921,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "lead_profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flow_states_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
           },
         ]
       }
@@ -2357,8 +2500,38 @@ export type Database = {
           },
         ]
       }
+      guided_sessions: {
+        Row: {
+          created_at: string
+          draft_flow: Json | null
+          expires_at: string
+          id: string
+          instance_id: string
+          messages: Json
+        }
+        Insert: {
+          created_at?: string
+          draft_flow?: Json | null
+          expires_at?: string
+          id?: string
+          instance_id: string
+          messages?: Json
+        }
+        Update: {
+          created_at?: string
+          draft_flow?: Json | null
+          expires_at?: string
+          id?: string
+          instance_id?: string
+          messages?: Json
+        }
+        Relationships: []
+      }
       inbox_users: {
         Row: {
+          can_view_all: boolean
+          can_view_all_in_dept: boolean
+          can_view_unassigned: boolean
           created_at: string
           id: string
           inbox_id: string
@@ -2367,6 +2540,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          can_view_all?: boolean
+          can_view_all_in_dept?: boolean
+          can_view_unassigned?: boolean
           created_at?: string
           id?: string
           inbox_id: string
@@ -2375,6 +2551,9 @@ export type Database = {
           user_id: string
         }
         Update: {
+          can_view_all?: boolean
+          can_view_all_in_dept?: boolean
+          can_view_unassigned?: boolean
           created_at?: string
           id?: string
           inbox_id?: string
@@ -2468,6 +2647,47 @@ export type Database = {
           },
         ]
       }
+      instance_goals: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          instance_id: string
+          metric_key: string
+          period: string
+          target_value: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          instance_id: string
+          metric_key: string
+          period?: string
+          target_value: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          instance_id?: string
+          metric_key?: string
+          period?: string
+          target_value?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "instance_goals_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       instances: {
         Row: {
           created_at: string
@@ -2479,6 +2699,7 @@ export type Database = {
           status: string
           token: string
           updated_at: string
+          use_orchestrator: boolean
           user_id: string
         }
         Insert: {
@@ -2491,6 +2712,7 @@ export type Database = {
           status?: string
           token: string
           updated_at?: string
+          use_orchestrator?: boolean
           user_id: string
         }
         Update: {
@@ -2503,6 +2725,7 @@ export type Database = {
           status?: string
           token?: string
           updated_at?: string
+          use_orchestrator?: boolean
           user_id?: string
         }
         Relationships: []
@@ -2583,6 +2806,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "lead_profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intent_detections_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
           },
         ]
       }
@@ -2973,6 +3203,21 @@ export type Database = {
           },
         ]
       }
+      keep_alive: {
+        Row: {
+          created_at: string
+          id: number
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+        }
+        Update: {
+          created_at?: string
+          id?: number
+        }
+        Relationships: []
+      }
       labels: {
         Row: {
           color: string
@@ -3143,6 +3388,13 @@ export type Database = {
             referencedRelation: "lead_profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "lead_memory_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
+          },
         ]
       }
       lead_profiles: {
@@ -3166,7 +3418,7 @@ export type Database = {
           interests: string[] | null
           last_contact_at: string | null
           last_purchase: string | null
-          metadata: Json
+          metadata: Json | null
           notes: string | null
           objections: string[] | null
           origin: string | null
@@ -3198,7 +3450,7 @@ export type Database = {
           interests?: string[] | null
           last_contact_at?: string | null
           last_purchase?: string | null
-          metadata?: Json
+          metadata?: Json | null
           notes?: string | null
           objections?: string[] | null
           origin?: string | null
@@ -3230,7 +3482,7 @@ export type Database = {
           interests?: string[] | null
           last_contact_at?: string | null
           last_purchase?: string | null
-          metadata?: Json
+          metadata?: Json | null
           notes?: string | null
           objections?: string[] | null
           origin?: string | null
@@ -3249,6 +3501,61 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "contacts"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_score_history: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          id: string
+          lead_id: string
+          metadata: Json
+          reason: string
+          score_after: number
+          score_delta: number
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          lead_id: string
+          metadata?: Json
+          reason: string
+          score_after: number
+          score_delta: number
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          lead_id?: string
+          metadata?: Json
+          reason?: string
+          score_after?: number
+          score_delta?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_score_history_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_score_history_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "lead_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_score_history_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
           },
         ]
       }
@@ -3368,54 +3675,6 @@ export type Database = {
         }
         Relationships: []
       }
-      lead_score_history: {
-        Row: {
-          conversation_id: string | null
-          created_at: string
-          id: string
-          lead_id: string
-          metadata: Json
-          reason: string
-          score_after: number
-          score_delta: number
-        }
-        Insert: {
-          conversation_id?: string | null
-          created_at?: string
-          id?: string
-          lead_id: string
-          metadata?: Json
-          reason: string
-          score_after: number
-          score_delta: number
-        }
-        Update: {
-          conversation_id?: string | null
-          created_at?: string
-          id?: string
-          lead_id?: string
-          metadata?: Json
-          reason?: string
-          score_after?: number
-          score_delta?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "lead_score_history_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: false
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "lead_score_history_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "lead_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       notifications: {
         Row: {
           created_at: string | null
@@ -3522,6 +3781,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "lead_profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_responses_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
           },
           {
             foreignKeyName: "pending_responses_seller_id_fkey"
@@ -4031,6 +4297,13 @@ export type Database = {
             referencedRelation: "lead_profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "shadow_extractions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "v_lead_metrics"
+            referencedColumns: ["lead_id"]
+          },
         ]
       }
       shadow_metrics: {
@@ -4073,13 +4346,6 @@ export type Database = {
             columns: ["instance_id"]
             isOneToOne: false
             referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "shadow_metrics_seller_id_fkey"
-            columns: ["seller_id"]
-            isOneToOne: false
-            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -4603,6 +4869,152 @@ export type Database = {
           },
         ]
       }
+      v_agent_performance: {
+        Row: {
+          activity_date: string | null
+          avg_response_latency_ms: number | null
+          cost_usd_approx: number | null
+          errors: number | null
+          handoffs: number | null
+          instance_id: string | null
+          responses_sent: number | null
+          shadow_events: number | null
+          shadow_skipped: number | null
+          total_tokens: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agents_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: true
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_conversion_funnel: {
+        Row: {
+          event_date: string | null
+          instance_id: string | null
+          stage: string | null
+          total_events: number | null
+          unique_leads: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversion_funnel_events_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_handoff_details: {
+        Row: {
+          conversation_id: string | null
+          conversation_started_at: string | null
+          conversation_status: string | null
+          converteu: boolean | null
+          evitavel: boolean | null
+          handoff_at: string | null
+          handoff_reason: string | null
+          handoff_trigger: string | null
+          instance_id: string | null
+          minutes_before_handoff: number | null
+          minutes_to_resolve_after_handoff: number | null
+          seller_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_logs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inboxes_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_ia_vs_vendor: {
+        Row: {
+          activity_date: string | null
+          ia_avg_latency_ms: number | null
+          ia_cost_usd: number | null
+          ia_coverage_pct: number | null
+          ia_handoffs: number | null
+          ia_responses: number | null
+          ia_tokens: number | null
+          instance_id: string | null
+          vendor_active_sellers: number | null
+          vendor_avg_resolution_minutes: number | null
+          vendor_conversations: number | null
+          vendor_resolved: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agents_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: true
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_lead_metrics: {
+        Row: {
+          average_ticket: number | null
+          current_score: number | null
+          first_contact_at: string | null
+          full_name: string | null
+          handoff_count: number | null
+          instance_id: string | null
+          last_contact_at: string | null
+          lead_created_at: string | null
+          lead_id: string | null
+          metadata: Json | null
+          origin: string | null
+          resolved_count: number | null
+          tags: Json | null
+          total_conversations: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inboxes_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_vendor_activity: {
+        Row: {
+          activity_date: string | null
+          avg_resolution_minutes: number | null
+          conversations_handled: number | null
+          instance_id: string | null
+          pending_count: number | null
+          resolved_count: number | null
+          seller_id: string | null
+          unique_contacts: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inboxes_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       append_ai_debounce_message:
@@ -4697,6 +5109,7 @@ export type Database = {
         Args: { p_error?: string; p_job_id: string; p_status?: string }
         Returns: undefined
       }
+      create_flow_report_share: { Args: { p_flow_id: string }; Returns: string }
       dblink: { Args: { "": string }; Returns: Record<string, unknown>[] }
       dblink_cancel_query: { Args: { "": string }; Returns: string }
       dblink_close: { Args: { "": string }; Returns: string }
@@ -4824,6 +5237,20 @@ export type Database = {
           lead_msg_count: number
         }[]
       }
+      install_flow_template: {
+        Args: {
+          p_config?: Json
+          p_description?: string
+          p_instance_id: string
+          p_name: string
+          p_publish?: boolean
+          p_slug: string
+          p_steps?: Json
+          p_template_id?: string
+          p_triggers?: Json
+        }
+        Returns: string
+      }
       is_gerente: { Args: { _user_id: string }; Returns: boolean }
       is_inbox_member: {
         Args: { _inbox_id: string; _user_id: string }
@@ -4888,6 +5315,15 @@ export type Database = {
       update_lead_count_from_entries: {
         Args: { p_database_id: string }
         Returns: undefined
+      }
+      upsert_lead_long_memory: {
+        Args: {
+          p_data: Json
+          p_instance_id: string
+          p_lead_id: string
+          p_scope: string
+        }
+        Returns: string
       }
       upsert_lead_short_memory: {
         Args: {

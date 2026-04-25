@@ -7,13 +7,14 @@ interface UseHelpdeskFiltersOptions {
   conversationLabelsMap: Record<string, string[]>;
   departmentFilter: string | null;
   userId: string | undefined;
+  defaultAssignmentFilter?: 'todas' | 'minhas' | 'nao-atribuidas';
 }
 
-export function useHelpdeskFilters({ conversations, conversationLabelsMap, departmentFilter, userId }: UseHelpdeskFiltersOptions) {
+export function useHelpdeskFilters({ conversations, conversationLabelsMap, departmentFilter, userId, defaultAssignmentFilter }: UseHelpdeskFiltersOptions) {
   const [statusFilter, setStatusFilter] = useState<string>('aberta');
   const [searchQuery, setSearchQuery] = useState('');
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
-  const [assignmentFilter, setAssignmentFilter] = useState<'todas' | 'minhas' | 'nao-atribuidas'>('todas');
+  const [assignmentFilter, setAssignmentFilter] = useState<'todas' | 'minhas' | 'nao-atribuidas'>(defaultAssignmentFilter || 'todas');
   const [priorityFilter, setPriorityFilter] = useState<'todas' | 'alta' | 'media' | 'baixa'>('todas');
   const [sortBy, setSortBy] = useState<'recentes' | 'antigas' | 'prioridade' | 'nao-lidas'>('recentes');
   const [messageSearchIds, setMessageSearchIds] = useState<Set<string>>(new Set());

@@ -44,6 +44,8 @@ interface ConversationListProps {
   onToggleSelectAll?: (ids: string[]) => void;
   onClearSelection?: () => void;
   onBulkAction?: (action: 'read' | 'resolve' | 'archive' | 'assign', value?: string) => void;
+  userPermissions?: { canViewAll: boolean; canViewUnassigned: boolean; canViewAllInDept: boolean };
+  defaultAssignmentFilter?: 'todas' | 'minhas' | 'nao-atribuidas';
 }
 
 const assignmentOptions: { value: 'todas' | 'minhas' | 'nao-atribuidas'; label: string }[] = [
@@ -149,20 +151,32 @@ export const ConversationList = ({
   onToggleSelectAll,
   onClearSelection,
   onBulkAction,
+  userPermissions,
+  defaultAssignmentFilter = 'todas',
 }: ConversationListProps) => {
   const [manageOpen, setManageOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const listRef = useListRef();
   const bulkMode = selectedIds.size > 0;
 
+  const visibleAssignmentOptions = useMemo(() => {
+    if (!userPermissions) return assignmentOptions; // no permissions = show all (super_admin)
+    return assignmentOptions.filter(opt => {
+      if (opt.value === 'minhas') return true; // always visible
+      if (opt.value === 'nao-atribuidas') return userPermissions.canViewUnassigned;
+      if (opt.value === 'todas') return userPermissions.canViewAllInDept || userPermissions.canViewAll;
+      return true;
+    });
+  }, [userPermissions]);
+
   const hasActiveFilters =
-    assignmentFilter !== 'todas' ||
+    assignmentFilter !== defaultAssignmentFilter ||
     priorityFilter !== 'todas' ||
     !!labelFilter ||
     !!departmentFilter;
 
   const activeFilterCount = [
-    assignmentFilter !== 'todas',
+    assignmentFilter !== defaultAssignmentFilter,
     priorityFilter !== 'todas',
     !!labelFilter,
     !!departmentFilter,
@@ -274,7 +288,7 @@ export const ConversationList = ({
                   aria-label="Filtrar por atribuição"
                   className={cn(
                     'h-7 text-[11px] rounded-lg border gap-1 px-2.5 w-auto',
-                    assignmentFilter !== 'todas'
+                    assignmentFilter !== defaultAssignmentFilter
                       ? 'bg-primary/15 border-primary/30 text-primary font-medium'
                       : 'bg-secondary/40 border-border/20 text-muted-foreground'
                   )}
@@ -283,7 +297,7 @@ export const ConversationList = ({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {assignmentOptions.map(opt => (
+                  {visibleAssignmentOptions.map(opt => (
                     <SelectItem key={opt.value} value={opt.value} className="text-xs">
                       {opt.label}
                     </SelectItem>
@@ -384,7 +398,7 @@ export const ConversationList = ({
                   variant="destructive"
                   className="h-7 px-2.5 rounded-lg text-[11px] cursor-pointer gap-1 flex items-center hover:bg-destructive/90 transition-colors"
                   onClick={() => {
-                    onAssignmentFilterChange?.('todas');
+                    onAssignmentFilterChange?.(defaultAssignmentFilter);
                     onPriorityFilterChange?.('todas');
                     onLabelFilterChange?.(null);
                     onDepartmentFilterChange?.(null);
@@ -459,7 +473,12 @@ export const ConversationList = ({
         ) : conversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <Inbox className="w-10 h-10 mb-2 opacity-40" />
-            {hasActiveFilters ? (
+            {assignmentFilter === 'minhas' ? (
+              <>
+                <p className="text-sm font-medium">Nenhuma conversa atribuída a você</p>
+                <p className="text-xs mt-1 opacity-70">Quando conversas forem atribuídas a você, aparecerão aqui</p>
+              </>
+            ) : hasActiveFilters ? (
               <>
                 <p className="text-sm">Nenhuma conversa com estes filtros</p>
                 <p className="text-xs mt-1 opacity-70">Tente limpar os filtros ou alterar a busca</p>

@@ -4,7 +4,7 @@ import { useDepartments } from '@/hooks/useDepartments';
 import { useHelpdeskInboxes } from '@/hooks/useHelpdeskInboxes';
 import { useHelpdeskConversations } from '@/hooks/useHelpdeskConversations';
 import { useHelpdeskFilters } from '@/hooks/useHelpdeskFilters';
-import { Inbox as InboxIcon, Circle, Clock, CheckCircle2, LayoutList } from 'lucide-react';
+import { Inbox as InboxIcon, Circle, Clock, CheckCircle2, LayoutList, Lock } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
@@ -14,6 +14,7 @@ import { ConversationList } from '@/components/helpdesk/ConversationList';
 import { ChatPanel } from '@/components/helpdesk/ChatPanel';
 import { ContactInfoPanel } from '@/components/helpdesk/ContactInfoPanel';
 import { ManageLabelsDialog } from '@/components/helpdesk/ManageLabelsDialog';
+import { EmptyState } from '@/components/shared/EmptyState';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -22,7 +23,7 @@ import type { Conversation, Message, AiSummary } from '@/types';
 export type { Conversation, Message, AiSummary };
 
 const HelpDesk = () => {
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const inboxParam = searchParams.get('inbox');
   const deptParam = searchParams.get('dept');
@@ -56,10 +57,26 @@ const HelpDesk = () => {
 
   // Inbox state
   const {
-    inboxes, selectedInboxId, setSelectedInboxId,
+    inboxes, inboxesLoading, selectedInboxId, setSelectedInboxId,
     inboxLabels, fetchLabels,
     departmentFilter, setDepartmentFilter,
+    userPermissions,
   } = useHelpdeskInboxes(inboxParam, deptParam);
+
+  const noInboxAccess = !inboxesLoading && inboxes.length === 0;
+  const emptyAccessState = (
+    <EmptyState
+      icon={isSuperAdmin ? InboxIcon : Lock}
+      title={isSuperAdmin ? 'Nenhuma caixa de entrada disponível' : 'Você não tem acesso a nenhuma caixa'}
+      desc={
+        isSuperAdmin
+          ? 'Conecte uma instância e crie a primeira caixa de entrada para começar a atender.'
+          : 'Solicite ao administrador da instância para liberar pelo menos uma caixa de entrada para você.'
+      }
+    />
+  );
+
+  const defaultAssignmentFilter = isSuperAdmin ? 'todas' as const : 'minhas' as const;
 
   // Departments
   const allInboxIds = inboxes.map(ib => ib.id);
@@ -110,6 +127,7 @@ const HelpDesk = () => {
     conversationLabelsMap,
     departmentFilter,
     userId: user?.id,
+    defaultAssignmentFilter,
   });
 
   // Bulk action handler (needs statusFilter + setConversations from above)
@@ -384,12 +402,15 @@ const HelpDesk = () => {
     onToggleSelectAll: toggleSelectAll,
     onClearSelection: clearSelection,
     onBulkAction: handleBulkAction,
+    userPermissions: isSuperAdmin ? undefined : userPermissions,
+    defaultAssignmentFilter,
   }), [sortedConversations, selectedId, searchQuery, loading, inboxLabels,
     conversationLabelsMap, labelFilter, selectedInboxId, agentNamesMap,
     conversationNotesSet, assignmentFilter, priorityFilter, inboxDepartments,
     departmentFilter, hasMoreConversations, loadingMore, sortBy, messageSearchCount,
     selectedIds, toggleSelect, toggleSelectAll, clearSelection, handleBulkAction,
-    handleSelectConversation, handleLabelsChanged, loadMoreConversations, fetchConversationLabels]);
+    handleSelectConversation, handleLabelsChanged, loadMoreConversations, fetchConversationLabels,
+    isSuperAdmin, userPermissions, defaultAssignmentFilter]);
 
   const labelsDialog = selectedInboxId && (
     <ManageLabelsDialog
@@ -416,6 +437,25 @@ const HelpDesk = () => {
     onAgentAssigned: handleAgentAssigned,
   }), [selectedConversation, inboxLabels, assignedLabelIds, agentNamesMap,
     handleUpdateConversation, handleLabelsChanged, handleAgentAssigned]);
+
+  if (noInboxAccess) {
+    if (isMobile) {
+      return (
+        <div className="flex flex-col h-[calc(100dvh-3.5rem)] -m-4 overflow-hidden">
+          <div className="flex-1 flex items-center justify-center px-6">
+            {emptyAccessState}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+        <div className="flex-1 flex items-center justify-center rounded-xl border border-border/50 bg-card/30">
+          {emptyAccessState}
+        </div>
+      </div>
+    );
+  }
 
   if (isMobile) {
     return (

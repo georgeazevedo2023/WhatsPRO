@@ -57,7 +57,7 @@ interface UserWithRole {
   app_role: AppRole;
   instance_count: number;
   instances: { id: string; name: string; phone: string | null }[];
-  inboxMemberships: { inbox_id: string; inbox_name: string; instance_name: string; role: InboxRole }[];
+  inboxMemberships: { inbox_id: string; inbox_name: string; instance_name: string; role: InboxRole; can_view_all: boolean; can_view_unassigned: boolean; can_view_all_in_dept: boolean }[];
   departments: { id: string; name: string; inbox_name: string; is_default: boolean }[];
 }
 
@@ -127,7 +127,7 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
         supabase.from('user_roles').select('user_id, role'),
         supabase.from('user_instance_access').select('user_id, instance_id'),
         supabase.from('instances').select('id, name, owner_jid'),
-        supabase.from('inbox_users').select('user_id, inbox_id, role'),
+        supabase.from('inbox_users').select('user_id, inbox_id, role, can_view_all, can_view_unassigned, can_view_all_in_dept'),
         supabase.from('inboxes').select('id, name, instance_id'),
         supabase.from('department_members').select('user_id, department_id'),
         supabase.from('departments').select('id, name, inbox_id, is_default'),
@@ -169,7 +169,7 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
         const inboxMemberships = inboxUsers.filter(iu => iu.user_id === p.id).map(iu => {
           const inbox = inboxMap.get(iu.inbox_id);
           const instance = inbox ? instMap.get(inbox.instance_id) : undefined;
-          return { inbox_id: iu.inbox_id, inbox_name: inbox?.name || 'Desconhecida', instance_name: instance?.name || '', role: iu.role as InboxRole };
+          return { inbox_id: iu.inbox_id, inbox_name: inbox?.name || 'Desconhecida', instance_name: instance?.name || '', role: iu.role as InboxRole, can_view_all: (iu as any).can_view_all ?? false, can_view_unassigned: (iu as any).can_view_unassigned ?? true, can_view_all_in_dept: (iu as any).can_view_all_in_dept ?? true };
         });
         const departments = deptMembers.filter(dm => dm.user_id === p.id).map(dm => {
           const dept = deptMap.get(dm.department_id);
@@ -232,6 +232,34 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
       fetchUsers();
     } catch (err) {
       handleError(err, 'Erro ao alterar papel na caixa');
+    } finally {
+      setSavingInboxMembership(null);
+    }
+  };
+
+  const handleToggleVisibility = async (userId: string, inboxId: string, field: 'can_view_all' | 'can_view_unassigned' | 'can_view_all_in_dept', value: boolean) => {
+    const key = `${userId}-${inboxId}-${field}`;
+    setSavingInboxMembership(key);
+    try {
+      const { error } = await supabase
+        .from('inbox_users')
+        .update({ [field]: value } as any)
+        .eq('user_id', userId)
+        .eq('inbox_id', inboxId);
+      if (error) throw error;
+      // Update local state optimistically
+      setUsers(prev => prev.map(u => {
+        if (u.id !== userId) return u;
+        return {
+          ...u,
+          inboxMemberships: u.inboxMemberships.map(m =>
+            m.inbox_id === inboxId ? { ...m, [field]: value } : m
+          ),
+        };
+      }));
+    } catch (err) {
+      handleError(err, 'Erro ao alterar permissão de visibilidade');
+      fetchUsers(); // rollback
     } finally {
       setSavingInboxMembership(null);
     }
@@ -429,17 +457,66 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                                       </div>
                                       {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />}
                                       {isMember && !isSaving && (
-                                        <Select
-                                          value={membership.role}
-                                          onValueChange={(v: string) => handleChangeInboxRole(u, inbox.id, v as InboxRole)}
-                                        >
-                                          <SelectTrigger className="w-28 h-7 text-xs shrink-0" aria-label={`Papel em ${inbox.name}`}><SelectValue /></SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="admin">Admin</SelectItem>
-                                            <SelectItem value="gestor">Gestor</SelectItem>
-                                            <SelectItem value="agente">Agente</SelectItem>
-                                          </SelectContent>
-                                        </Select>
+                                        <div className="flex items-center gap-3">
+                                          <Select
+                                            value={membership.role}
+                                            onValueChange={(v: string) => handleChangeInboxRole(u, inbox.id, v as InboxRole)}
+                                          >
+                                            <SelectTrigger className="w-28 h-7 text-xs shrink-0" aria-label={`Papel em ${inbox.name}`}><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="admin">Admin</SelectItem>
+                                              <SelectItem value="gestor">Gestor</SelectItem>
+                                              <SelectItem value="agente">Agente</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                          <div className="flex items-center gap-3 ml-2">
+                                            <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-muted/40 border border-border/20">
+                                              <span className="text-[9px] text-muted-foreground/60 mr-1">Depto:</span>
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <div className="flex items-center gap-1">
+                                                    <Checkbox
+                                                      checked={membership.can_view_unassigned}
+                                                      onCheckedChange={(checked) => handleToggleVisibility(u.id, inbox.id, 'can_view_unassigned', !!checked)}
+                                                      aria-label="Ver não atribuídas no departamento"
+                                                      className="h-3 w-3"
+                                                    />
+                                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">Não atrib.</span>
+                                                  </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom"><p>Ver conversas não atribuídas nos seus departamentos</p></TooltipContent>
+                                              </Tooltip>
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <div className="flex items-center gap-1">
+                                                    <Checkbox
+                                                      checked={membership.can_view_all_in_dept}
+                                                      onCheckedChange={(checked) => handleToggleVisibility(u.id, inbox.id, 'can_view_all_in_dept', !!checked)}
+                                                      aria-label="Ver todas no departamento"
+                                                      className="h-3 w-3"
+                                                    />
+                                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">Todas</span>
+                                                  </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom"><p>Ver todas as conversas nos seus departamentos (incluindo de outros agentes)</p></TooltipContent>
+                                              </Tooltip>
+                                            </div>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-muted/40 border border-border/20">
+                                                  <Checkbox
+                                                    checked={membership.can_view_all}
+                                                    onCheckedChange={(checked) => handleToggleVisibility(u.id, inbox.id, 'can_view_all', !!checked)}
+                                                    aria-label="Ver outros departamentos"
+                                                    className="h-3 w-3"
+                                                  />
+                                                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Outros deptos</span>
+                                                </div>
+                                              </TooltipTrigger>
+                                              <TooltipContent side="bottom"><p>Ver conversas de todos os departamentos (não apenas os seus)</p></TooltipContent>
+                                            </Tooltip>
+                                          </div>
+                                        </div>
                                       )}
                                     </div>
                                   );
