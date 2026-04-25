@@ -83,6 +83,7 @@ updated: 2026-04-13
 | 70 | `fetchIdRef` pattern para cancelar fetches stale pode travar `setLoading(false)` — o fetch "stale" completa mas não limpa loading. `setLoading(false)` DEVE ser incondicional no `finally`. Só `setData` precisa do guard | React |
 | 71 | Supabase client (WebSocket + PostgREST) entra em estado quebrado após tab suspension do browser. Refetch seletivo (invalidateQueries, eventos) não resolve. Único fix confiável: `window.location.reload()` via `visibilitychange` — padrão de apps realtime (Slack, Discord) | Supabase |
 | 72 | UAZAPI v2 (Go) NÃO tem endpoint para buscar foto de perfil sob demanda. `/contact/getProfilePic` retorna 405. `/profile/image` é para UPLOAD. Fotos chegam via webhook (`imagePreview`) e sync (`image`). NUNCA chamar endpoint inexistente — gera erro no console | UAZAPI |
+| 73 | Permissões `inbox_users.can_view_unassigned` e `can_view_all_in_dept` são **SOFT** (frontend-only). Apenas `can_view_all` é enforçado pela função RLS `can_view_conversation`. Atendente avançado pode bypass via curl direto. Aceito como dívida temporária (cenário B2B com atendentes contratados). Hardening agendado: estender função RLS para enforçar as 3 colunas. | Helpdesk |
 
 ---
 

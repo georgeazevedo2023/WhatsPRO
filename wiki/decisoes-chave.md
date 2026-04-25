@@ -170,6 +170,23 @@ PostgREST `onConflict` por nomes de colunas falha (R36). Cache usa DELETE+INSERT
 
 **Plano completo:** [[.planning/m19-s5-PLAN]]
 
+## Helpdesk — Permissões de Inbox (D21, 2026-04-25, hardening agendado em S9)
+
+### Negar por padrão (least privilege)
+
+Atendente sem nenhum vínculo em `inbox_users` **não vê nada** no Helpdesk — empty state amigável pede para solicitar acesso ao administrador. Super admin sempre vê tudo (gate em `useHelpdeskInboxes`).
+
+**Por quê:** Privacidade entre departamentos da mesma instância. Empresas grandes têm múltiplas inboxes (Vendas, Suporte, Financeiro) e nem todo atendente deve ver tudo. Princípio igual ao RLS: explicit-allow, default-deny.
+
+**Granularidade da permissão:** A trava é por **inbox** (não por departamento). Departamento continua sendo organização interna da inbox. Colunas `inbox_users.can_view_all`, `can_view_unassigned`, `can_view_all_in_dept` controlam o que o atendente vê **dentro** de uma inbox autorizada.
+
+**Como aplicar:**
+- Frontend: `useHelpdeskInboxes` filtra por `inbox_users.user_id = auth.uid()` para não-super-admin
+- Backend: função `can_view_conversation(user_id, inbox_id, department_id)` exige `EXISTS inbox_users` como gate obrigatório antes de qualquer outra checagem
+- UI: `HelpDesk.tsx` renderiza `EmptyState` quando `inboxes.length === 0` após load, **antes** do layout normal
+
+**Não aplicar:** super admin (`isSuperAdmin === true`) bypassa todo o gate por design.
+
 ## Auditoria Helpdesk (2026-04-14)
 
 ### Tab-refocus: reload completo (3s threshold)

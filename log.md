@@ -7,6 +7,50 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-25 (Helpdesk — Permissões de Inbox por Atendente: Empty State)
+
+### Política "negar por padrão" formalizada
+
+Atendente sem nenhum vínculo em `inbox_users` agora recebe **empty state amigável** em vez de tela em branco. Decisão D21: negar por padrão (princípio least privilege).
+
+### Mudanças
+
+**`useHelpdeskInboxes.ts`** — exposto `inboxesLoading` (boolean) para distinguir estado "carregando" de "sem acesso". `setInboxes()` movido para fora do `if (inboxData.length > 0)` para garantir que o array vazio seja persistido. `selectedInboxId` e `departmentFilter` resetam quando não há acesso.
+
+**`HelpDesk.tsx`** — após `inboxesLoading=false` e `inboxes.length === 0`, renderiza `EmptyState` com mensagens diferenciadas:
+- Super admin → "Nenhuma caixa disponível — conecte uma instância"
+- Atendente → "Sem acesso — solicite ao administrador" (ícone Lock)
+
+Funciona em mobile e desktop, antes de qualquer layout normal.
+
+### O que já existia (do trabalho anterior — ainda não comitado)
+
+- Migration `20260416000004_inbox_users_visibility_permissions.sql`: 3 colunas em `inbox_users` (`can_view_all`, `can_view_unassigned`, `can_view_all_in_dept`) + função RLS `can_view_conversation` com gate obrigatório por `inbox_users`
+- `UsersTab.tsx`: UI inline para admin marcar/desmarcar inboxes por usuário, controlar permissões granulares por checkbox
+
+### Validação
+
+`npx tsc --noEmit` = 0 erros (antes e depois do regen de types).
+
+### Migration já estava aplicada em produção
+
+Surpresa positiva ao auditar: `20260416000004` já constava em ambas as colunas Local/Remote do `migration list`. Schema confirmado via `gen types`:
+- `inbox_users.can_view_all` (boolean)
+- `inbox_users.can_view_all_in_dept` (boolean)
+- `inbox_users.can_view_unassigned` (boolean)
+- Função `can_view_conversation` ativa
+
+### Types.ts regenerado (estava 12 dias defasado)
+
+`npx supabase gen types typescript --project-id euljumeflwtljegknawy` → 5491 linhas. Diff de 658 linhas incorporou: novas colunas de `inbox_users`, `assistant_cache` + `assistant_conversations` (M19 S5), e tabelas das migrations 04-15 a 04-19.
+
+### Pendente para fechar o ciclo
+
+- Teste E2E: criar usuário sem inbox → confirmar empty state; admin libera 1 inbox → conversas aparecem
+- Commit + atualizar wiki/casos-de-uso/helpdesk-detalhado.md
+
+---
+
 ## 2026-04-14 (Auditoria Helpdesk — 10 fixes + Storage + Playwright)
 
 ### 10 bugs corrigidos no Helpdesk (4 arquivos-chave)

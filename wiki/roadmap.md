@@ -88,6 +88,8 @@ updated: 2026-04-13
 | S5 | IA Conversacional | ✅ Shipped (2026-04-13) | 7 fases, ~13 arquivos. Widget Ctrl+J, 20 intents, cache 5min, página /assistant. tsc 0, build ok. |
 | S6 | NPS Automático | — | npsDispatcher, vínculo vendedor, v_nps_by_seller |
 | S7 | Alertas Proativos | — | process-alerts, NotificationBell, 6 tipos |
+| S8 | DB Monitoring & Auto-Cleanup | 🔵 Em execução (2026-04-25) | 3 camadas: visibility (KPI 300 MB), alerts (pg_cron + notifications super_admin), auto-cleanup com retenção configurável (120d em conversation_messages + JSONL backup seletivo). Plano: [[.planning/m19-s8-PLAN]] |
+| S9 | Hardening RLS Permissões Helpdesk | — | Estender `can_view_conversation` para enforçar `can_view_unassigned` e `can_view_all_in_dept` (hoje SOFT/frontend-only — R73). Agendado: ~3 semanas após ship das permissões de inbox (2026-04-25). |
 
 **Plano completo:** [[wiki/metricas-plano-implementacao]]
 
