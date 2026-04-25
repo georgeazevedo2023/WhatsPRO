@@ -37,6 +37,7 @@ const AdminSecrets = lazy(() => import("./pages/dashboard/AdminSecrets"));
 const AdminDocs = lazy(() => import("./pages/dashboard/AdminDocs"));
 const AdminRoadmap = lazy(() => import("./pages/dashboard/AdminRoadmap"));
 const AdminBackup = lazy(() => import("./pages/dashboard/AdminBackup"));
+const AdminRetention = lazy(() => import("./pages/dashboard/AdminRetention"));
 const AIAgentConfig = lazy(() => import("./pages/dashboard/AIAgentConfig"));
 const AIAgentCatalog = lazy(() => import("./pages/dashboard/AIAgentCatalog"));
 const AIAgentKnowledge = lazy(() => import("./pages/dashboard/AIAgentKnowledge"));
@@ -237,6 +238,7 @@ const AppRoutes = () => {
         <Route path="admin/docs" element={<AdminRoute><ErrorBoundary section="Documentação"><Suspense fallback={<PageLoader />}><AdminDocs /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/roadmap" element={<AdminRoute><ErrorBoundary section="Roadmap"><Suspense fallback={<PageLoader />}><AdminRoadmap /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/backup" element={<AdminRoute><ErrorBoundary section="Backup"><Suspense fallback={<PageLoader />}><AdminBackup /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="admin/retention" element={<AdminRoute><ErrorBoundary section="Retenção"><Suspense fallback={<PageLoader />}><AdminRetention /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="docs" element={<AdminRoute><ErrorBoundary section="Documentação"><Suspense fallback={<PageLoader />}><AdminDocs /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="roadmap" element={<AdminRoute><ErrorBoundary section="Roadmap"><Suspense fallback={<PageLoader />}><AdminRoadmap /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="backup" element={<AdminRoute><ErrorBoundary section="Backup"><Suspense fallback={<PageLoader />}><AdminBackup /></Suspense></ErrorBoundary></AdminRoute>} />

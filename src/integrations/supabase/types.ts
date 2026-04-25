@@ -1319,6 +1319,134 @@ export type Database = {
           },
         ]
       }
+      db_alert_state: {
+        Row: {
+          id: number
+          last_checked_at: string
+          last_notified_at: string | null
+          last_size_bytes: number
+          last_status: string
+        }
+        Insert: {
+          id?: number
+          last_checked_at?: string
+          last_notified_at?: string | null
+          last_size_bytes?: number
+          last_status?: string
+        }
+        Update: {
+          id?: number
+          last_checked_at?: string
+          last_notified_at?: string | null
+          last_size_bytes?: number
+          last_status?: string
+        }
+        Relationships: []
+      }
+      db_cleanup_log: {
+        Row: {
+          backup_path: string | null
+          candidate_count: number | null
+          deleted_bytes: number | null
+          deleted_count: number | null
+          duration_ms: number | null
+          error_message: string | null
+          id: number
+          policy_id: number | null
+          ran_at: string
+          ran_by: string | null
+          table_name: string
+          was_dry_run: boolean
+        }
+        Insert: {
+          backup_path?: string | null
+          candidate_count?: number | null
+          deleted_bytes?: number | null
+          deleted_count?: number | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: number
+          policy_id?: number | null
+          ran_at?: string
+          ran_by?: string | null
+          table_name: string
+          was_dry_run: boolean
+        }
+        Update: {
+          backup_path?: string | null
+          candidate_count?: number | null
+          deleted_bytes?: number | null
+          deleted_count?: number | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: number
+          policy_id?: number | null
+          ran_at?: string
+          ran_by?: string | null
+          table_name?: string
+          was_dry_run?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "db_cleanup_log_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "db_retention_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      db_retention_policies: {
+        Row: {
+          backup_before_delete: boolean
+          condition_sql: string | null
+          created_at: string
+          days_to_keep: number
+          description: string | null
+          dry_run: boolean
+          enabled: boolean
+          id: number
+          last_backup_path: string | null
+          last_deleted_bytes: number | null
+          last_deleted_count: number | null
+          last_run_at: string | null
+          table_name: string
+          updated_at: string
+        }
+        Insert: {
+          backup_before_delete?: boolean
+          condition_sql?: string | null
+          created_at?: string
+          days_to_keep: number
+          description?: string | null
+          dry_run?: boolean
+          enabled?: boolean
+          id?: number
+          last_backup_path?: string | null
+          last_deleted_bytes?: number | null
+          last_deleted_count?: number | null
+          last_run_at?: string | null
+          table_name: string
+          updated_at?: string
+        }
+        Update: {
+          backup_before_delete?: boolean
+          condition_sql?: string | null
+          created_at?: string
+          days_to_keep?: number
+          description?: string | null
+          dry_run?: boolean
+          enabled?: boolean
+          id?: number
+          last_backup_path?: string | null
+          last_deleted_bytes?: number | null
+          last_deleted_count?: number | null
+          last_run_at?: string | null
+          table_name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       department_members: {
         Row: {
           created_at: string
@@ -5048,6 +5176,8 @@ export type Database = {
               processed: boolean
             }[]
           }
+      apply_all_retention_policies: { Args: never; Returns: Json }
+      apply_retention_policy: { Args: { _policy_id: number }; Returns: Json }
       archive_old_conversations: {
         Args: { p_days_threshold?: number }
         Returns: number
@@ -5067,6 +5197,10 @@ export type Database = {
       can_view_conversation: {
         Args: { _department_id: string; _inbox_id: string; _user_id: string }
         Returns: boolean
+      }
+      check_db_size_and_alert: {
+        Args: { threshold_mb?: number }
+        Returns: Json
       }
       check_rate_limit: {
         Args: {
@@ -5110,6 +5244,7 @@ export type Database = {
         Returns: undefined
       }
       create_flow_report_share: { Args: { p_flow_id: string }; Returns: string }
+      db_alert_severity_rank: { Args: { _status: string }; Returns: number }
       dblink: { Args: { "": string }; Returns: Record<string, unknown>[] }
       dblink_cancel_query: { Args: { "": string }; Returns: string }
       dblink_close: { Args: { "": string }; Returns: string }
@@ -5167,6 +5302,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_db_size_summary: { Args: { threshold_mb?: number }; Returns: Json }
       get_e2e_results: { Args: never; Returns: Json }
       get_form_stats: {
         Args: { p_form_id: string }
@@ -5257,6 +5393,7 @@ export type Database = {
         Returns: boolean
       }
       is_super_admin: { Args: { _user_id: string }; Returns: boolean }
+      is_table_protected: { Args: { _table_name: string }; Returns: boolean }
       log_admin_action: {
         Args: {
           p_action: string

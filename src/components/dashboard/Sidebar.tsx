@@ -42,6 +42,7 @@ import {
   ArrowRightLeft,
   Globe,
   Sparkles,
+  Database,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -757,6 +758,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
                 {renderSubItem('/dashboard/admin/users', 'Equipe', Users)}
                 {renderSubItem('/dashboard/admin/departments', 'Departamentos', Briefcase)}
                 {renderSubItem('/dashboard/admin/secrets', 'Secrets', KeyRound)}
+                {renderSubItem('/dashboard/admin/retention', 'Retenção', Database)}
               </>
             )}
 
