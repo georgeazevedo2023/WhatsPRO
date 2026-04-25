@@ -36,6 +36,12 @@ verify_jwt = true
 [functions.cleanup-old-media]
 verify_jwt = true
 
+[functions.db-retention-backup]
+verify_jwt = true
+
+[functions.db-cleanup-old-backups]
+verify_jwt = true
+
 [functions.database-backup]
 verify_jwt = true
 

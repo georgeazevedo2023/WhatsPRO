@@ -1,8 +1,9 @@
 // M19 S8 Camada 3: Admin UI para retention policies
 // Lista, toggle, dry-run, log
 import { useEffect, useState, useCallback } from 'react';
-import { Database, Play, AlertTriangle, ShieldCheck, Lock, RefreshCw } from 'lucide-react';
+import { Database, Play, AlertTriangle, ShieldCheck, Lock, RefreshCw, Archive } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { Switch } from '@/components/ui/switch';
@@ -25,6 +26,7 @@ interface RetentionPolicy {
   description: string | null;
   last_run_at: string | null;
   last_deleted_count: number | null;
+  last_backup_path: string | null;
 }
 
 interface CleanupLog {
@@ -66,12 +68,6 @@ const AdminRetention = () => {
     const policy = policies.find(p => p.id === id);
     if (!policy) return;
 
-    // Bloqueio: não pode habilitar policy que requer backup
-    if (field === 'enabled' && value && policy.backup_before_delete) {
-      toast.error('Backup JSONL ainda não shipado (S8.1). Mantenha apenas em dry-run.');
-      return;
-    }
-
     setPolicies(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
     const { error } = await supabase
       .from('db_retention_policies')
@@ -96,22 +92,41 @@ const AdminRetention = () => {
   };
 
   const runNow = async (id: number) => {
+    const policy = policies.find(p => p.id === id);
+    if (!policy) return;
     setRunning(id);
-    const { data, error } = await supabase.rpc('apply_retention_policy' as never, { _policy_id: id } as never);
-    setRunning(null);
-    if (error) {
-      handleError(error, 'Erro ao executar policy');
-      return;
+    try {
+      // Policies com backup_before_delete=true precisam ir pelo edge function (S8.1)
+      // — desde que enabled=true e dry_run=false. Caso contrário, RPC SQL responde rápido.
+      const usesBackup = policy.backup_before_delete && policy.enabled && !policy.dry_run;
+      if (usesBackup) {
+        const result = await edgeFunctionFetch<{ deleted_count: number; candidate_count: number; backup_path: string | null }>(
+          'db-retention-backup',
+          { policy_id: id }
+        );
+        if (result.deleted_count === 0 && result.candidate_count === 0) {
+          toast.success('Nenhum registro para apagar nesse momento');
+        } else {
+          toast.success(`${result.deleted_count} registro(s) apagados (backup salvo)`);
+        }
+      } else {
+        const { data, error } = await supabase.rpc('apply_retention_policy' as never, { _policy_id: id } as never);
+        if (error) throw error;
+        const result = data as { error?: string; message?: string; dry_run?: boolean; candidate_count?: number; deleted_count?: number };
+        if (result.error) {
+          toast.error(result.message || result.error);
+        } else if (result.dry_run) {
+          toast.success(`Dry-run: ${result.candidate_count} registro(s) seriam deletado(s)`);
+        } else {
+          toast.success(`${result.deleted_count} registro(s) deletado(s)`);
+        }
+      }
+    } catch (err) {
+      handleError(err, 'Erro ao executar policy');
+    } finally {
+      setRunning(null);
+      fetchAll();
     }
-    const result = data as { error?: string; message?: string; dry_run?: boolean; candidate_count?: number; deleted_count?: number };
-    if (result.error) {
-      toast.error(result.message || result.error);
-    } else if (result.dry_run) {
-      toast.success(`Dry-run: ${result.candidate_count} registro(s) seriam deletado(s)`);
-    } else {
-      toast.success(`${result.deleted_count} registro(s) deletado(s)`);
-    }
-    fetchAll();
   };
 
   if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
@@ -135,14 +150,14 @@ const AdminRetention = () => {
       </div>
 
       {/* Aviso sobre backup */}
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 flex gap-3">
-        <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 flex gap-3">
+        <Archive className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
         <div className="text-xs">
-          <p className="font-semibold text-amber-500 mb-1">Backup JSONL deferido para S8.1</p>
+          <p className="font-semibold text-emerald-500 mb-1">Backup JSONL ativo (S8.1 shipped)</p>
           <p className="text-muted-foreground">
-            A policy <code className="bg-muted/50 px-1 rounded">conversation_messages</code> requer backup
-            antes de DELETE. Enquanto S8.1 não shipar, ela só funciona em modo <strong>dry-run</strong>.
-            As outras 5 podem ser habilitadas normalmente.
+            Policies com ícone 🔒 fazem backup automático em <code className="bg-muted/50 px-1 rounded">db-backups/</code>
+            antes de deletar. JSONL gzipado, 1 ano de retenção. Cron weekly (domingo 05:23 UTC) chama
+            edge function <code className="bg-muted/50 px-1 rounded">db-retention-backup</code>.
           </p>
         </div>
       </div>
@@ -194,7 +209,6 @@ const AdminRetention = () => {
                       <Switch
                         checked={p.enabled}
                         onCheckedChange={(v) => togglePolicy(p.id, 'enabled', v)}
-                        disabled={isLocked}
                       />
                       <span>Habilitada</span>
                     </label>
@@ -226,6 +240,13 @@ const AdminRetention = () => {
                       </span>
                     )}
                   </div>
+
+                  {p.last_backup_path && (
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      <Archive className="w-3 h-3" />
+                      <span>Último backup: <code className="bg-muted/50 px-1 rounded">{p.last_backup_path}</code></span>
+                    </div>
+                  )}
                 </div>
               );
             })}

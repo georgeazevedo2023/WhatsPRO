@@ -5177,6 +5177,10 @@ export type Database = {
             }[]
           }
       apply_all_retention_policies: { Args: never; Returns: Json }
+      apply_retention_after_backup: {
+        Args: { _backup_path: string; _policy_id: number; _ran_by?: string }
+        Returns: Json
+      }
       apply_retention_policy: { Args: { _policy_id: number }; Returns: Json }
       archive_old_conversations: {
         Args: { p_days_threshold?: number }
@@ -5280,6 +5284,7 @@ export type Database = {
       }
       dblink_is_busy: { Args: { "": string }; Returns: number }
       delete_inbox: { Args: { _inbox_id: string }; Returns: undefined }
+      dispatch_retention_with_backup: { Args: never; Returns: Json }
       get_active_form_session: {
         Args: { p_conversation_id: string }
         Returns: {
