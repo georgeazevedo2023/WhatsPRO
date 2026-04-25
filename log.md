@@ -73,11 +73,35 @@ domingo 04:13 UTC pelo pg_cron 'db-cleanup-weekly'.
 
 `conversation_messages` permanece BLOQUEADA até S8.1.
 
-### Pendente (S8.1 — próxima sessão)
-- Edge function db-backup-jsonl (gzip + Storage upload)
-- Bucket privado db-backups com RLS super_admin
-- Retenção dos próprios JSONL (1 ano)
-- Liberar policy conversation_messages para enabled=true
+### S8.1 SHIPPED (mesma sessão!)
+
+Backup JSONL integration completa:
+- Migration 20260425000004: bucket db-backups (privado, RLS
+  super_admin) + função apply_retention_after_backup
+- Migration 20260425000005: dispatch_retention_with_backup +
+  cron db-cleanup-with-backup-weekly (dom 05:23 UTC)
+- Migration 20260425000006: dispatch_backup_cleanup + cron
+  db-backup-retention-monthly (dia 1 às 03:17 UTC)
+- Edge function db-retention-backup: SELECT → JSONL →
+  CompressionStream gzip → upload → RPC delete
+- Edge function db-cleanup-old-backups: lista bucket,
+  filtra >365d, batch delete
+- AdminRetention UI: bloqueio removido, banner verde, runNow
+  roteia para edge fn quando precisa de backup
+- SUPABASE_ANON_KEY adicionado ao vault para cron→edge
+
+E2E validado: 5 rows tabela teste → 132B gzip → upload →
+delete → log com path. Cleanup do teste OK.
+
+Policy conversation_messages: enabled=true, dry_run=false.
+
+### 4 cron jobs DB ativos
+1. db-size-monitor — daily 06:07 UTC (alertas)
+2. db-cleanup-weekly — sunday 04:13 UTC (5 policies)
+3. db-cleanup-with-backup-weekly — sunday 05:23 UTC
+   (conversation_messages com backup)
+4. db-backup-retention-monthly — dia 1 às 03:17 UTC
+   (limpa JSONL >365d)
 
 ### Pendente E2E (não bloqueador)
 - Teste manual em browser das permissões de inbox (criar usuário sem

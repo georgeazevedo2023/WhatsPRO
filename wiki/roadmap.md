@@ -89,7 +89,7 @@ updated: 2026-04-13
 | S6 | NPS Automático | — | npsDispatcher, vínculo vendedor, v_nps_by_seller |
 | S7 | Alertas Proativos | — | process-alerts, NotificationBell, 6 tipos |
 | S8 | DB Monitoring & Auto-Cleanup | ✅ Shipped (2026-04-25) | 3 camadas: Camada 1 (DbSizeCard + semáforo 300 MB + top tabelas), Camada 2 (db-size-monitor pg_cron 06:07 UTC + NotificationBell super_admin), Camada 3 slice seguro (db_retention_policies + 6 seed policies OFF + AdminRetention UI + pg_cron weekly). 8% atual (24 MB). Plano: [[.planning/m19-s8-PLAN]] |
-| S8.1 | DB Backup JSONL Integration | — | Edge function db-backup-jsonl + bucket privado db-backups + retenção 1 ano dos backups. Libera policy `conversation_messages` (hoje bloqueada). Pré-requisito para deletar dados de cliente. |
+| S8.1 | DB Backup JSONL Integration | ✅ Shipped (2026-04-25) | Bucket privado + 2 edge functions (db-retention-backup gzipa→upload→delete; db-cleanup-old-backups limpa >365d) + 2 crons (weekly backup, monthly backup retention). Policy conversation_messages liberada. E2E validado. |
 | S9 | Hardening RLS Permissões Helpdesk | — | Estender `can_view_conversation` para enforçar `can_view_unassigned` e `can_view_all_in_dept` (hoje SOFT/frontend-only — R73). Agendado: ~3 semanas após ship das permissões de inbox (2026-04-25). |
 
 **Plano completo:** [[wiki/metricas-plano-implementacao]]
