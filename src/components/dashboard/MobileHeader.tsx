@@ -1,5 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { MessageSquareMore, Menu, Search } from 'lucide-react';
+import NotificationBell from '@/components/notifications/NotificationBell';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface MobileHeaderProps {
   onOpenMenu: () => void;
@@ -7,6 +9,7 @@ interface MobileHeaderProps {
 }
 
 const MobileHeader = ({ onOpenMenu, onOpenSearch }: MobileHeaderProps) => {
+  const { isSuperAdmin } = useAuth();
   return (
     <header className="h-14 flex items-center justify-between px-4 border-b border-primary/10 sidebar-glass shrink-0">
       <div className="flex items-center gap-3">
@@ -16,6 +19,7 @@ const MobileHeader = ({ onOpenMenu, onOpenSearch }: MobileHeaderProps) => {
         <span className="font-display font-bold text-lg">WhatsPRO</span>
       </div>
       <div className="flex items-center gap-1">
+        {isSuperAdmin && <NotificationBell />}
         {onOpenSearch && (
           <Button variant="ghost" size="icon" onClick={onOpenSearch} aria-label="Buscar">
             <Search className="w-5 h-5" />

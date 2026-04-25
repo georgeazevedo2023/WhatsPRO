@@ -7,8 +7,11 @@ import { GlobalSearchDialog } from '@/components/helpdesk/GlobalSearchDialog';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import AssistantChatWidget from '@/components/assistant/AssistantChatWidget';
+import NotificationBell from '@/components/notifications/NotificationBell';
+import { useAuth } from '@/contexts/AuthContext';
 
 const DashboardLayout = () => {
+  const { isSuperAdmin } = useAuth();
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [compact, setCompact] = useState(() => localStorage.getItem('wp-compact') === '1');
@@ -62,7 +65,10 @@ const DashboardLayout = () => {
       <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <main className="flex-1 overflow-y-auto">
         <div className="min-h-full p-6">
-          <Breadcrumbs />
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <Breadcrumbs />
+            {isSuperAdmin && <NotificationBell />}
+          </div>
           <Outlet context={{ compact, setCompact }} />
         </div>
       </main>
