@@ -14,11 +14,14 @@ import IAvsVendorComparison from '@/components/manager/IAvsVendorComparison';
 import LazySection from '@/components/dashboard/LazySection';
 import GoalProgressBar from '@/components/gestao/GoalProgressBar';
 import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
+import DbSizeCard from '@/components/manager/DbSizeCard';
 import { useManagerMetrics } from '@/hooks/useManagerMetrics';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
 import { useInstanceGoals } from '@/hooks/useInstanceGoals';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function ManagerDashboard() {
+  const { isSuperAdmin } = useAuth();
   const { data: instances = [] } = useManagerInstances();
 
   const [filters, setFilters] = useState<ManagerFiltersState>({
@@ -96,6 +99,13 @@ export default function ManagerDashboard() {
           open={goalsOpen}
           onOpenChange={setGoalsOpen}
         />
+      )}
+
+      {/* DB Size Card — apenas super_admin (M19 S8 Camada 1) */}
+      {isSuperAdmin && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <DbSizeCard />
+        </div>
       )}
 
       {/* Filtros */}
