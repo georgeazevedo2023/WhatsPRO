@@ -54,6 +54,25 @@ type: log
 69437d1 feat(helpdesk): permissões granulares de inbox
 36a681c chore(deps): add playwright
 
+### 5 retention policies ATIVADAS (automáticas a partir de agora)
+
+Após dry-run de validação, as 5 policies sem requisito de backup
+foram habilitadas (`enabled=true, dry_run=false`):
+
+| Policy | Manter | Risco |
+|---|---|---|
+| ai_debounce_queue | 1 dia (processed) | 🟢 zero |
+| instance_connection_logs | 30 dias | 🟢 baixo |
+| ai_agent_logs | 30 dias | 🟡 médio |
+| flow_events | 60 dias | 🟡 médio |
+| shadow_metrics | 180 dias | 🟡 médio |
+
+Primeira execução manual (apply_all_retention_policies) deletou
+21 registros: 17 + 1 + 3 + 0 + 0. Próxima execução automática:
+domingo 04:13 UTC pelo pg_cron 'db-cleanup-weekly'.
+
+`conversation_messages` permanece BLOQUEADA até S8.1.
+
 ### Pendente (S8.1 — próxima sessão)
 - Edge function db-backup-jsonl (gzip + Storage upload)
 - Bucket privado db-backups com RLS super_admin
