@@ -56,9 +56,12 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/decisoes-chave]] | Decisoes D1-D15, padroes, seguranca |
 | [[wiki/deploy-checklist]] | Checklist obrigatorio de deploy |
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |
+| [[wiki/protocolo-subagentes]] | Como dividir tarefas em ondas paralelas — 4 passos + regras de conflito |
 | [[wiki/log-arquivo-2026-04-04-a-09]] | Log historico arquivado |
 | [[wiki/log-arquivo-2026-04-12-fixes-kpi-s12]] | KPI fixes + S12 + orchestrator (2026-04-12) |
 | [[wiki/log-arquivo-2026-04-13-m19-s1s2]] | M19 S1+S2: Shadow + Agregação + Deploy (2026-04-13) |
+| [[wiki/log-arquivo-2026-04-14-helpdesk-audit]] | Helpdesk audit 10 fixes (2026-04-14) |
+| [[wiki/log-arquivo-2026-04-25-s8-helpdesk]] | Sessão maratona: Helpdesk inbox + M19 S8 + S8.1 (2026-04-25) |
 | [[wiki/metricas-leads-visao]] | Metricas de leads: visao, gaps, shadow, dashboard, IA conversacional |
 | [[wiki/metricas-vendedor-visao]] | Metricas do vendedor: performance, conversao, NPS, ficha, ranking |
 | [[wiki/metricas-agente-ia-visao]] | Metricas da IA: eficiencia, qualidade, follow-up, custo, comparativo |
@@ -147,4 +150,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-25 — Sessão maratona: Helpdesk inbox permissions + M19 S8 + S8.1. 6 migrations, 2 edge functions, 4 cron jobs DB. Banco em 24/300 MB sob controle automático. Próximo: S6 NPS Automático ou S7 Alertas Proativos.*
+*Ultima atualizacao: 2026-04-26 — Refactor do orquestrador (CLAUDE.md +AGENTS+PRD+deploy-checklist+protocolo-subagentes, regras 1-17, fim de sessão 7 passos). RULES.md particionado (202→172). Sessão anterior (04-25): Helpdesk inbox permissions + M19 S8 + S8.1 (24/300 MB, 4 cron jobs ativos). Próximo: S6 NPS Automático ou S7 Alertas Proativos.*
