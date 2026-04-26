@@ -140,6 +140,20 @@ updated: 2026-04-10
 | Instancias | Status online/offline, grupos, participantes |
 | AI Agent | Performance, score, validacoes |
 
+## 14.9 DbSizeCard — Monitoramento de DB (super_admin, M19 S8)
+
+**Card no topo do `/gestao` para super_admin somente.** Mostra:
+- Tamanho atual / 300 MB com barra de progresso colorida
+- Badge semafórica: green (<50%), yellow (50-75%), red (75-90%), critical (≥90%)
+- Top 5 tabelas em details collapsible
+- Refresh manual + auto-refetch a cada 5min
+
+**Backend:** RPC `get_db_size_summary(threshold_mb=300)` SECURITY DEFINER, restrita a super_admin.
+
+**Alertas:** pg_cron `db-size-monitor` roda diariamente 06:07 UTC. Cruzou threshold para pior? INSERT em `notifications` para cada super_admin com `metadata.route='/dashboard/gestao'`. Sino global (NotificationBell em DashboardLayout/MobileHeader) recebe.
+
+**Auto-cleanup:** ver [[wiki/casos-de-uso/db-retention-detalhado]].
+
 ---
 
 ## Links Relacionados

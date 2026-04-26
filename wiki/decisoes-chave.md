@@ -75,38 +75,7 @@ Ao alterar feature do AI Agent, sincronizar:
 
 > Decisões D7-D20 (Fluxos v3.0, Orquestrador, Shadow, Validator) arquivadas em: [[wiki/decisoes-arquivo-fluxos-v3]]
 
-## M19 — S3 Dashboard do Gestor (2026-04-13)
-
-- `ManagerConversionFunnel` (distinto de `FunnelConversionChart` do M16 — esse usa dados de campanhas/bio; o de S3 usa `conversion_funnel_events` via shadow)
-- KPI "Leads Novos" conta leads com ≥1 conversa na instância — leads sem conversa têm `instance_id=NULL` na view (LEFT JOIN). Limitação conhecida, documentada.
-- Views SQL do S2 usam `as any` no PostgREST — não aparecem no `types.ts` gerado. Padrão igual ao `usePollMetrics`.
-- Rota `/dashboard/gestao` usa `CrmRoute` existente (super_admin + gerente). Não criar wrapper novo.
-- Sidebar: collapsible "Gestao" posicionado entre Leads e Funis — acessível a ambos os roles.
-
-## M19 — Métricas & Shadow (S1+S2, 2026-04-13)
-
-### NUNCA mock data — sempre dados reais do DB
-
-UI, dashboards e gráficos DEVEM consumir dados reais do banco. NUNCA usar mock data, placeholder arrays ou dados fictícios — nem em dev, nem em produção.
-- **Empty state** com mensagem clara ("Nenhum dado ainda") é aceitável
-- Se dados ainda não existem: implementar PRIMEIRO a lógica que os popula, DEPOIS criar a UI que os consome
-- **Por quê:** Mock mascara bugs de integração, dá falsa sensação de funcionamento e impede validação real
-
-### Lead Score por Tags Shadow
-
-Score inicial: 50 (0–100). Calculado a cada `aggregateDaily` por instância com base em tags extraídas do shadow:
-- `intencao:alta` = +15 | `intencao:media` = +8 | `intencao:baixa` = +2
-- `conversao:comprou` = +30 | `conversao:converteu` = +25 | `conversao:*` = +10
-- `objecao:*` = −5 | `motivo_perda:*` = −20 | `concorrente:*` = −5
-- Persiste em `lead_profiles.current_score` + histórico em `lead_score_history`
-
-### Etapas do Funil de Conversão (conversion_funnel_events)
-
-Detectadas por tags shadow, inseridas sem duplicatas (chave: `conversation_id + stage`):
-- `qualification` — qualquer `intencao:*` ou `dado_pessoal:*`
-- `intention` — `intencao:alta` ou `intencao:media`
-- `conversion` — qualquer `conversao:*`
-- `contact` (trivial) — não registrado
+> Decisões M19 S3+S5 (2026-04-13) arquivadas em [[wiki/decisoes-arquivo-m19-s3-s5]]
 
 ## Arquivos HIGH RISK (nunca tocar sem aprovação)
 
@@ -129,46 +98,15 @@ CLAUDE.md 373→96 linhas. Conteúdo migrado: [[RULES.md]] (regras) | [[ARCHITEC
 
 - `lead_profiles.custom_fields JSONB` (coluna já existe). Dado de negócio, não memória IA. Sobrevive reset de contexto.
 
-## M19 — S5 IA Conversacional (2026-04-13)
+## DB Monitoring & Auto-Cleanup (D22-D25, 2026-04-25)
 
-### NUNCA text-to-SQL — apenas queries parametrizadas
+**D22 — Hard limit 300 MB** (não 500 do Free Plan). Margem de 200 MB para imprevistos. Thresholds: green <50%, yellow 50-75%, red 75-90%, critical ≥90%. Função `get_db_size_summary` SECURITY DEFINER super_admin-only.
 
-Auditoria de segurança (3 agentes paralelos) concluiu que text-to-SQL como fallback é **HIGH RISK**:
-- LLM prompt injection pode gerar SQL malicioso
-- Bypass de `instance_id` em queries geradas dinamicamente
-- Superficie de ataque ampla mesmo com validator
+**D23 — Notificações apenas super_admin.** Atendentes/gerentes não recebem alertas de DB. NotificationBell mínimo (Popover, poll 60s) em DashboardLayout + MobileHeader, condicional em `isSuperAdmin`. Dedup por `last_threshold_status` em `db_alert_state` singleton — sino só tocar quando piorar, nunca em melhora.
 
-**Decisão:** Apenas 20 intents parametrizados via PostgREST. Intent não reconhecido = resposta amigável de fallback.
+**D24 — Backup JSONL seletivo.** Apenas `conversation_messages` faz backup antes de DELETE (valor jurídico/LGPD). Demais policies (logs, métricas, fila) deletam direto. Backups gzipados em bucket privado `db-backups/YYYY/MM/{table}_{ts}.jsonl.gz` com retenção de 1 ano. Edge function `db-retention-backup` chamada por cron via `net.http_post` com Bearer ANON_KEY do vault.
 
-### Verificação de instância obrigatória
-
-Edge function `assistant-chat` DEVE verificar `user_instance_access` antes de executar qualquer query:
-- Extrair `instance_id` do body
-- Verificar se userId tem acesso via `user_instance_access`
-- 403 se não autorizado
-
-Views S2 não filtram `instance_id` internamente — o caller é responsável.
-
-### Arquitetura do assistente
-
-- 2 chamadas LLM por pergunta: NLU (classificação, ~200 tokens) + formatação (~300 tokens)
-- Cache por hash(intent+params) com TTL 5min → 2ª pergunta idêntica = instantâneo
-- Rate limit: 20 req/min por userId
-- Widget flutuante: `Ctrl+J` toggle, `fixed bottom-6 right-6 z-50`, persiste entre rotas
-- Página dedicada: `/dashboard/assistant` com histórico lateral
-- Tabelas: `assistant_conversations` (histórico) + `assistant_cache` (dedup)
-
-### Sincronização de instância entre páginas e widget
-
-Páginas de gestão disparam `CustomEvent('wp-instance-change')` via `useEffect`. Widget escuta o evento e atualiza `instanceId` reativamente. localStorage usado como fallback para persistência entre refreshes.
-- NUNCA usar `localStorage.setItem` no render body (anti-pattern React — R61)
-- NUNCA depender de `storage` event para mesma janela (só funciona entre abas — R62)
-
-### Cache do assistente: DELETE+INSERT (não upsert)
-
-PostgREST `onConflict` por nomes de colunas falha (R36). Cache usa DELETE+INSERT sequencial (fire-and-forget). Unique index `idx_assistant_cache_lookup` garante dedup.
-
-**Plano completo:** [[.planning/m19-s5-PLAN]]
+**D25 — Default OFF + dry_run=true em todas as policies.** Admin liga uma a uma após validar dry-run. Whitelist de 27 tabelas-núcleo (`is_table_protected`) bloqueia delete em entidades primárias (`lead_profiles`, `contacts`, `ai_agents`, `conversations`, `inboxes`, `instances`, etc). Audit trail completo em `db_cleanup_log`.
 
 ## Helpdesk — Permissões de Inbox (D21, 2026-04-25, hardening agendado em S9)
 

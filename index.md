@@ -1,6 +1,6 @@
 ---
 title: WhatsPRO — Master Index
-updated: 2026-04-12
+updated: 2026-04-25
 type: index
 ---
 
@@ -65,6 +65,8 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/metricas-transbordo-visao]] | Metricas de transbordo: motivos, tempo pickup, conversao pos-handoff |
 | [[wiki/metricas-origem-leads-visao]] | Metricas de origem: canais, atribuicao UTM, ROI por canal |
 | [[wiki/metricas-plano-implementacao]] | Plano: 7 sprints, 55 tasks (v2 auditado) |
+| [[.planning/m19-s8-PLAN]] | M19 S8 DB Monitoring & Auto-Cleanup — 3 camadas + S8.1 backup |
+| [[wiki/casos-de-uso/db-retention-detalhado]] | Retenção de dados: visibility, alerts, cleanup, backup JSONL |
 
 ## Wiki — Fluxos v3.0 (✅ Shipped 2026-04-12 — 12/12 sprints)
 
@@ -145,4 +147,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-14 — Auditoria Helpdesk (10 fixes, Playwright E2E, 1.4 GB storage liberado). M19 S1-S5 shipped ✅. Próximo: S6 NPS Automático + S7 Alertas Proativos.*
+*Ultima atualizacao: 2026-04-25 — Sessão maratona: Helpdesk inbox permissions + M19 S8 + S8.1. 6 migrations, 2 edge functions, 4 cron jobs DB. Banco em 24/300 MB sob controle automático. Próximo: S6 NPS Automático ou S7 Alertas Proativos.*

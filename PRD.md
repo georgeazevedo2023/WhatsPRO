@@ -40,6 +40,57 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.13.0 (2026-04-25) — M19 S8 + S8.1: DB Monitoring & Auto-Cleanup completo
+
+**Camada 1 — Visibility (super_admin only):**
+- RPC `get_db_size_summary(threshold_mb=300)` retorna JSONB com bytes, percent, status semafórico, top 10 tabelas — restrita via `is_super_admin()` gate
+- Hook `useDbSize` + componente `DbSizeCard` no `/gestao` com barra colorida e top 5 tabelas em details
+
+**Camada 2 — Alerts:**
+- Tabela singleton `db_alert_state` (last_status, last_size_bytes, last_checked_at)
+- Função `check_db_size_and_alert()` com dedup por severity rank — INSERT em `notifications` apenas no cruzamento para pior
+- pg_cron `db-size-monitor` daily 06:07 UTC
+- NotificationBell minimal (`useNotifications` poll 60s, Popover) em DashboardLayout + MobileHeader, condicional `isSuperAdmin`
+
+**Camada 3 — Auto-Cleanup com retenção configurável:**
+- Tabelas `db_retention_policies` (6 seed) + `db_cleanup_log` (audit trail)
+- Função `is_table_protected` whitelist 27 tabelas-núcleo
+- Função `apply_retention_policy(_policy_id)` com dry-run, validações e logging
+- Função `apply_all_retention_policies()` para cron
+- pg_cron `db-cleanup-weekly` dom 04:13 UTC
+- AdminRetention UI (`/dashboard/admin/retention`): toggle enabled/dry_run, days_to_keep input, "Executar agora", log de últimas 20 execuções
+- 5 policies habilitadas (ai_debounce_queue 1d, instance_connection_logs 30d, ai_agent_logs 30d, flow_events 60d, shadow_metrics 180d)
+
+**S8.1 — Backup JSONL Integration:**
+- Bucket privado `db-backups` (RLS super_admin), file_size_limit 100 MB
+- Função `apply_retention_after_backup` (DELETE + log + UPDATE last_backup_path)
+- Edge function `db-retention-backup`: SELECT → CompressionStream gzip → upload `YYYY/MM/{table}_{ts}.jsonl.gz` → RPC delete
+- Edge function `db-cleanup-old-backups`: lista bucket recursivo, batch delete >365d
+- pg_cron `db-cleanup-with-backup-weekly` dom 05:23 UTC + `db-backup-retention-monthly` dia 1 03:17 UTC
+- Policy `conversation_messages` 120d (status=resolvida) habilitada com backup
+- AdminRetention UI atualizada (bloqueio removido, banner verde, last_backup_path display)
+- SUPABASE_ANON_KEY adicionado ao vault para cron→edge
+
+**Decisões D22-D25** | **Regras R74-R77** | **6 migrations** | **2 edge functions** | **4 cron jobs DB**
+
+Status atual: 24 MB / 300 MB (8% — green). Banco sob controle automático completo.
+
+### v7.12.0 (2026-04-25) — Helpdesk: Permissões granulares de inbox por usuário
+
+**Backend:**
+- Migration 20260416000004: 3 colunas em `inbox_users` (`can_view_all`, `can_view_unassigned`, `can_view_all_in_dept`) com defaults
+- Função RLS `can_view_conversation` atualizada com gate `EXISTS inbox_users` e adição de `can_view_all` no OR
+
+**Frontend:**
+- `useHelpdeskInboxes`: filtra por `inbox_users.user_id` para não-super-admin, expõe `inboxesLoading`
+- `HelpDesk`: empty state amigável quando `inboxes.length === 0` (mobile + desktop)
+- `ConversationList.visibleAssignmentOptions`: esconde "Todas" e "Não atribuídas" baseado em `userPermissions`
+- `UsersTab`: UI inline para admin marcar inboxes + permissões granulares por checkbox
+
+**Limitação conhecida (R73):** `can_view_unassigned` e `can_view_all_in_dept` são SOFT (frontend-only). Apenas `can_view_all` é enforçado em RLS. Hardening agendado em S9.
+
+**Decisão D21** — least-privilege (negar por padrão).
+
 ### v7.11.0 (2026-04-13) — M19 S4: Fichas Individuais do Dashboard do Gestor
 
 - **Ficha Vendedor** (`/gestao/vendedor/:sellerId`): hook `useVendorDetail` com 3 queries paralelas (v_vendor_activity + NPS + ticket médio), 6 KPI cards, LineChart de evolução temporal, drill-down no SellerRankingChart
