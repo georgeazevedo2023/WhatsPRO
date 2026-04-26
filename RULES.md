@@ -15,39 +15,9 @@
 
 ---
 
-## Protocolo de Subagentes (Paralelizacao de Tarefas)
+## Protocolo de Subagentes
 
-Antes de executar qualquer tarefa nao-trivial, SEMPRE avaliar se pode ser dividida em subagentes paralelos para agilizar. Apresentar ao usuario ANTES de executar:
-
-### Passo 1 — Analisar a tarefa
-- Quebrar a tarefa em sub-tarefas independentes
-- Identificar dependencias entre sub-tarefas (A depende de B? Ou sao independentes?)
-- Verificar se sub-tarefas podem **conflitar** (tocar no mesmo arquivo, mesma tabela, mesma funcao)
-
-### Passo 2 — Propor plano ao usuario
-Apresentar em formato tabela:
-
-```
-| # | Sub-tarefa | Subagente | Depende de | Conflita com | Tempo estimado |
-|---|-----------|-----------|-----------|--------------|----------------|
-| 1 | Explorar modulo X | Explore | Nenhum | Nenhum | ~30s |
-| 2 | Explorar modulo Y | Explore | Nenhum | Nenhum | ~30s |
-| 3 | Implementar X | Executor | 1 | 4 (mesmo arquivo) | ~2min |
-| 4 | Implementar Y | Executor | 2 | 3 (mesmo arquivo) | ~2min |
-
-Execucao: Onda 1 (paralelo): #1 + #2. Onda 2 (sequencial): #3 depois #4.
-Tempo total estimado: ~3min (vs ~5min sequencial = 40% mais rapido)
-```
-
-### Passo 3 — Regras de conflito
-- **NUNCA** 2 subagentes editando o mesmo arquivo ao mesmo tempo
-- **NUNCA** 2 subagentes fazendo migration no mesmo banco ao mesmo tempo
-- Subagentes de **leitura** (Explore) podem rodar em paralelo sem limite
-- Subagentes de **escrita** (Edit/Write) devem ser sequenciais se tocam mesmos arquivos
-- Se houver conflito, organizar em **ondas**: Onda 1 (paralelo) → Onda 2 (paralelo) → ...
-
-### Passo 4 — Reportar durante execucao
-- Informar inicio/fim de cada onda com tempo. NAO usar subagentes em tarefas triviais (<3 passos) ou 100% sequenciais.
+Detalhes completos em [[wiki/protocolo-subagentes]] (4 passos, regras de conflito, quando usar). Resumo: tarefas não-triviais com sub-tarefas independentes → propor tabela com ondas paralelas/sequenciais ao usuário ANTES de executar. Conflitos (mesmo arquivo, mesma tabela) = sequencial.
 
 ---
 
