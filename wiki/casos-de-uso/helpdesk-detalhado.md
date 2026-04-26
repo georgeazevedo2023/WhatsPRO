@@ -434,6 +434,34 @@ So aparece em conversas que nao foram resolvidas.
 
 ---
 
+## 1.26 Permissões Granulares de Inbox por Atendente (D21, 2026-04-25)
+
+**O que e (didático):** Cada atendente só vê as caixas de entrada (inboxes) que o admin liberou para ele. Política de "negar por padrão" — atendente sem nenhum vínculo NÃO vê o helpdesk: aparece um empty state amigável pedindo para solicitar acesso ao admin. Super_admin sempre vê tudo.
+
+**Como o admin libera:** Em `/dashboard/admin/users` → expand do usuário → seção "Caixas de Entrada" → checkbox por inbox. Cada vínculo tem 3 permissões granulares por checkbox:
+- **Não atribuídas** (`can_view_unassigned`): ver conversas sem agente nos seus departamentos
+- **Todas no depto** (`can_view_all_in_dept`): ver todas (não só as suas) nos seus departamentos
+- **Outros deptos** (`can_view_all`): ver conversas de departamentos onde não é membro
+
+**Hierarquia:** Instância → Inbox → Departamento → Atendente. Permissão é por **inbox** (não por departamento). Departamento continua sendo organização interna.
+
+> **Técnico — Backend:**
+> - Migration `20260416000004_inbox_users_visibility_permissions`: adiciona 3 colunas booleanas em `inbox_users` (defaults: `can_view_all=false`, `can_view_unassigned=true`, `can_view_all_in_dept=true`)
+> - Função RLS `can_view_conversation(_user_id, _inbox_id, _department_id)` SECURITY DEFINER: gate obrigatório `EXISTS inbox_users` (sem vínculo = bloqueio total), depois OR de [`_department_id IS NULL`, `is_super_admin`, `role IN admin/gestor`, `can_view_all=true`, `member of department`]
+
+> **Técnico — Frontend:**
+> - `useHelpdeskInboxes`: para super_admin pega `inboxes` direto; para outros faz JOIN `inbox_users` filtrando por `user_id=auth.uid()`. Expõe `inboxesLoading` para distinguir "carregando" de "sem acesso". Mantém map de permissões por inbox em `permissionsMapRef`.
+> - `HelpDesk.tsx`: quando `!inboxesLoading && inboxes.length === 0` → renderiza `EmptyState` (mobile + desktop) com ícone Lock e mensagem diferenciada por role.
+> - `ConversationList.visibleAssignmentOptions`: useMemo esconde opção "Todas" quando `!canViewAllInDept && !canViewAll` e "Não atribuídas" quando `!canViewUnassigned`.
+> - `defaultAssignmentFilter`: super_admin='todas', outros='minhas'.
+> - `UsersTab.tsx`: handleToggleVisibility com optimistic update + rollback em erro.
+
+> **Limitação conhecida (R73 — hardening agendado em S9):** `can_view_unassigned` e `can_view_all_in_dept` são **SOFT** (frontend-only). Apenas `can_view_all` é enforçado pela função RLS. Atendente avançado pode bypass via curl. Aceito como dívida no cenário B2B (atendentes contratados). S9 estende RLS para enforçar as 3 colunas.
+
+**Decisão D21:** [[wiki/decisoes-chave]]. Plano de hardening: roadmap M19 S9.
+
+---
+
 ## Arvore de Componentes
 
 ```
