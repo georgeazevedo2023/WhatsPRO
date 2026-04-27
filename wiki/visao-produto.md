@@ -1,8 +1,8 @@
 ---
 title: Visao do Produto
-tags: [produto, whatsapp, crm, helpdesk, automacao, perfis, enquetes]
+tags: [produto, whatsapp, crm, helpdesk, automacao, perfis, enquetes, fluxos, metricas]
 sources: [CLAUDE.md, PRD.md]
-updated: 2026-04-09
+updated: 2026-04-27
 ---
 
 # Visao do Produto
@@ -23,7 +23,7 @@ Agente IA que qualifica leads e vende produtos via WhatsApp, sem intervencao hum
 | `gerente` | Gerencia equipe dentro dos inboxes atribuidos, CRM, leads |
 | `user` | Atende conversas nos inboxes atribuidos |
 
-## Modulos (17)
+## Modulos (19)
 
 ### Comunicacao
 - **Helpdesk** — Chat real-time, labels, assignments, departamentos, bulk actions
@@ -57,18 +57,18 @@ Agente IA que qualifica leads e vende produtos via WhatsApp, sem intervencao hum
 - **URL:** crm.wsmart.com.br
 - **Infra:** Docker Swarm + Traefik + SSL (Hetzner CX42)
 - **CI/CD:** GitHub Actions → ghcr.io → Portainer stack
-- **Versao:** 7.9.0 (2026-04-09)
+- **Versao:** 7.13.0 (2026-04-25)
 
 ## Numeros do Projeto
 
 | Metrica | Valor |
 |---------|-------|
-| Modulos implementados | 17 |
-| Sub-funcionalidades documentadas | 187 |
-| Edge functions | 31 |
-| Milestones shipped | 7 (v1.0 a M17) |
-| Wikis detalhadas | 17 documentos |
-| Versao | 7.9.0 (2026-04-09) |
+| Modulos implementados | 19 (M1-M19) |
+| Sub-funcionalidades documentadas | 210+ |
+| Edge functions | 38 |
+| Milestones shipped | v1.0 + M2 + M12-M18 completos; M19 em progresso (S1-S5 + S8 + S8.1) |
+| Wikis detalhadas | 21 documentos em wiki/casos-de-uso/ |
+| Versao | 7.13.0 (2026-04-25) |
 
 ## Links
 

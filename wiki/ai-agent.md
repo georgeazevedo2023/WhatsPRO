@@ -1,8 +1,8 @@
 ---
 title: AI Agent (M10)
-tags: [ai-agent, openai, sdr, handoff, validator, tts, shadow, profiles, polls]
+tags: [ai-agent, openai, sdr, handoff, validator, tts, shadow, profiles, polls, service-categories]
 sources: [CLAUDE.md, supabase/functions/ai-agent/]
-updated: 2026-04-09
+updated: 2026-04-27
 ---
 
 # AI Agent (M10)
@@ -45,6 +45,28 @@ Perfis de Atendimento substituem sub-agents. Cada perfil e um pacote reutilizave
 2. Termos especificos → buscar imediatamente
 3. Search fail → enrichment (ate `max_enrichment_questions`) → handoff
 4. `max_lead_messages` (default 8) → auto-handoff
+
+## Service Categories — Funil de Qualificação (M19-S10 v2)
+
+Cada agente tem `ai_agents.service_categories JSONB` com **categorias de atendimento que viram funil de qualificação com etapas (stages) e score progressivo**. Editáveis pelo admin via tab dedicada "Qualificação".
+
+**Hierarquia:** Categoria → Stage → Field
+- **Categoria:** detectada pelo regex `interesse_match` em tags `interesse:X`
+- **Stage:** etapa do funil com `min_score` / `max_score` e `exit_action` (`search_products` | `enrichment` | `handoff` | `continue`)
+- **Field:** pergunta com `score_value` (pontos ganhos quando lead responde) + `priority`
+
+**Comportamento em runtime:**
+1. Lead manda mensagem → match na categoria via `interesse_match` regex
+2. Score atual lido da tag `lead_score:N` (0 se ausente)
+3. `getCurrentStage(score, category)` decide stage atual
+4. `getNextField(stage, currentTags)` retorna próxima pergunta a fazer
+5. LLM faz a pergunta usando `phrasing` template (`{label}` e `{examples}` substituídos)
+6. Lead responde → AI Agent chama `set_tags(['key:valor'])` → handler soma `score_value` no `lead_score` + persiste em `lead_score_history`
+7. Score atinge `max_score` do stage → `exit_action` dispara (search_products / enrichment / handoff)
+
+**Score visibilidade:** persistente em tag `lead_score:N` por lead. Reset apenas em `ia_cleared:`. NUNCA visível ao lead. Visível ao gestor no Dashboard M19 + helpdesk.
+
+**Backward compat v1→v2:** migration v2 detecta agentes com schema plano e remapeia automaticamente para 3 stages padrão (Identificação=qualif, Detalhamento=enrichment, Fechamento=handoff).
 
 ## Handoff
 

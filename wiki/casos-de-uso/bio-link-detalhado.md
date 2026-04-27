@@ -2,7 +2,7 @@
 title: Bio Link — Documentacao Detalhada de Todas as Sub-Funcionalidades
 tags: [bio, link, linktree, captacao, leads, analytics, detalhado]
 sources: [src/components/bio/, src/pages/BioPage.tsx, supabase/functions/bio-public/]
-updated: 2026-04-10
+updated: 2026-04-27
 ---
 
 # Bio Link — Pagina de Links Estilo Linktree (10 Sub-Funcionalidades)
@@ -12,6 +12,8 @@ updated: 2026-04-10
 > Pense no link que voce coloca na bio do Instagram: "linktr.ee/suaempresa". Aqui, em vez de usar Linktree (que so tem links), voce tem uma pagina que **captura leads**, **injeta contexto na IA**, e **rastreia cliques** — tudo integrado ao seu CRM.
 >
 > Ver tambem: [[wiki/casos-de-uso/campanhas-detalhado]] (campanhas ligadas ao bio), [[wiki/casos-de-uso/formularios-detalhado]] (formularios no bio), [[wiki/casos-de-uso/leads-detalhado]] (leads criados pelo bio)
+>
+> **Galeria de referencia (design):** `docs/referencia/bio-link-galeria-10-modelos.html` — 10 modelos profissionais (Corretor de Imoveis, Advocacia, Personal Trainer, etc.) gerados como inspiracao para futuros templates por nicho. Abrir no navegador para ver. Pode servir de ponto de partida para implementar a melhoria #1 do Bio Link (templates customizaveis por nicho).
 
 ---
 

@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.11.0 | **Última atualização**: 2026-04-13 | **Status**: Produção + OpenAI gpt-4.1-mini + Sprint A-E Completo + 32 Edge Functions + 57 Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente COMPLETO (Motor+Perfis+Enquetes+NPS) + M19 S1-S4 (Shadow+Agregação+Dashboard+Fichas Individuais)
+> **Versão**: 7.14.0 | **Última atualização**: 2026-04-27 | **Status**: Produção + OpenAI gpt-4.1-mini + 38 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente (Motor+Perfis+Enquetes+NPS) + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 (Métricas + IA Conversacional + DB Monitoring & Auto-Cleanup) + M19 S10 v2 Service Categories Stages+Score
 
 ## Visão Geral
 
@@ -39,6 +39,44 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.14.0 (2026-04-27) — M19-S10 v2: Service Categories com Stages + Score Progressivo
+
+Substitui 4 hardcodes de qualificação no AI Agent ("QUALIFICACAO DE TINTAS", "fosco ou brilho", `if interesse.includes('tinta')` em `buildEnrichmentInstructions`, system_prompt do template Home Center) por **funil de qualificação editável com stages e score progressivo** em `ai_agents.service_categories JSONB`.
+
+**Histórico:** v1 shipped na mesma sessão (schema plano com `qualification_fields[]` + `ask_pre_search` boolean) foi superseded por v2 antes de chegar à UI do admin — schema mais rico que conecta com `lead_score_history` (M19 S2) em tempo real.
+
+**Schema v2 — hierarquia 3 níveis:**
+- **Categoria** com regex `interesse_match`
+- **Stage** com `min_score`/`max_score`/`exit_action` (`search_products` | `enrichment` | `handoff` | `continue`)
+- **Field** com `score_value` (pontos ganhos quando lead responde) + `priority`
+
+**Backend (F1.5):**
+- Migration v2 (`20260427000002_ai_agent_service_categories_v2_stages`): substitui DEFAULT JSONB e remapeia agentes existentes do formato plano para stages
+- Helper `_shared/serviceCategories.ts` reescrito: tipos `Stage`, `ExitAction`; funções `getCurrentStage(score, category)`, `getNextField`, `getScoreFromTags`, `calculateScoreDelta`, `getExitAction`. Detecção de v1 → fallback para DEFAULT_SERVICE_CATEGORIES_V2.
+- Função SQL `add_lead_score_event` para persistir score em tempo real em `lead_score_history`
+- 40+ testes vitest
+
+**Frontend (F2 v2):**
+- `src/types/serviceCategories.ts` reescrito: tipos v2 + EXIT_ACTION_OPTIONS + DEFAULT_SERVICE_CATEGORIES_V2
+- `src/components/admin/ai-agent/ServiceCategoriesConfig.tsx` reescrito: UI 3 níveis (Categoria → Stage → Field), drag-drop @dnd-kit em stages e fields, slider/inputs de score, visualização de funil horizontal, validação de sobreposição min_score/max_score
+
+**ai-agent/index.ts (F3 v2 — HIGH RISK):**
+- `buildEnrichmentInstructions` adapta para usar `getCurrentStage` em vez de `ask_pre_search` boolean
+- `set_tags` handler com hook que chama `calculateScoreDelta` e atualiza tag `lead_score:N` + chama RPC `add_lead_score_event`
+- Regras de prompt 1167+1171 atualizadas para mencionar stages
+
+**Nova tab "Qualificação" (F5):**
+- 9ª tab no admin do agente — `src/components/admin/AIAgentTab.tsx`
+
+**Seed (F4):**
+- `src/data/nicheTemplates.ts`: templates "Home Center" e "Personalizado" populam `service_categories` v2
+
+**Decisão D26 v2** (7 sub-decisões D26.1 a D26.7) | **Regras R78 + R79** | **Item #10 ✅ shipped**
+
+**SYNC RULE 8 itens:** ✅ todos cobertos.
+
+**Backward compat:** migration v2 remapeia formato plano de v1 para 3 stages padrão automaticamente. `getCategoriesOrDefault` retorna seed v2 se schema for null/undefined/v1. Agentes em produção mantêm comportamento equivalente.
 
 ### v7.13.0 (2026-04-25) — M19 S8 + S8.1: DB Monitoring & Auto-Cleanup completo
 

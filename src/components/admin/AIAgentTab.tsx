@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Bot, BrainCircuit, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle, FileText } from 'lucide-react';
+import { Bot, BrainCircuit, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle, FileText, ListTree } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { GeneralConfig } from './ai-agent/GeneralConfig';
@@ -23,6 +23,7 @@ import { VoiceConfig } from './ai-agent/VoiceConfig';
 import { ExtractionConfig } from './ai-agent/ExtractionConfig';
 import { MetricsConfig } from './ai-agent/MetricsConfig';
 import { ProfilesConfig } from './ai-agent/ProfilesConfig';
+import { ServiceCategoriesConfig } from './ai-agent/ServiceCategoriesConfig';
 import { BlockedNumbersConfig } from './ai-agent/BlockedNumbersConfig';
 import { FollowUpConfig } from './ai-agent/FollowUpConfig';
 import { BusinessInfoConfig } from './ai-agent/BusinessInfoConfig';
@@ -43,6 +44,7 @@ const TABS = [
   { id: 'setup', label: 'Setup', icon: Store },
   { id: 'prompt', label: 'Prompt Studio', icon: FileText },
   { id: 'intelligence', label: 'Inteligencia', icon: BrainCircuit },
+  { id: 'qualification', label: 'Qualificacao', icon: ListTree },
   { id: 'catalog', label: 'Catalogo', icon: Package },
   { id: 'knowledge', label: 'Conhecimento', icon: BookOpen },
   { id: 'security', label: 'Seguranca', icon: Shield },
@@ -76,6 +78,8 @@ const ALLOWED_FIELDS = [
   // M17 F5: NPS
   'poll_nps_enabled', 'poll_nps_delay_minutes', 'poll_nps_question',
   'poll_nps_options', 'poll_nps_notify_on_bad',
+  // M19-S10: Service Categories (qualificação dinâmica por nicho)
+  'service_categories',
 ];
 
 export default function AIAgentTab() {
@@ -522,6 +526,14 @@ export default function AIAgentTab() {
                   </div>
                 )}
 
+                {/* QUALIFICACAO: Service Categories (M19-S10 v2 — stages + score) */}
+                {activeTab === 'qualification' && (
+                  <ServiceCategoriesConfig
+                    config={(config.service_categories as any) ?? null}
+                    onChange={(value) => handleChange({ service_categories: value as any })}
+                  />
+                )}
+
                 {/* CATALOGO */}
                 {activeTab === 'catalog' && (
                   <CatalogConfig agentId={selectedAgentId} />
@@ -664,3 +676,10 @@ export default function AIAgentTab() {
     </div>
   );
 }
+
+// M19-S10 v2: ServiceCategoriesConfig integrado como 9ª tab "Qualificacao" (acima)
+// Uso esperado:
+//   <ServiceCategoriesConfig
+//     config={config.service_categories ?? null}
+//     onChange={(value) => handleChange({ service_categories: value })}
+//   />

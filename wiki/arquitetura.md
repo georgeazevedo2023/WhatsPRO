@@ -1,8 +1,8 @@
 ---
 title: Arquitetura Tecnica
-tags: [arquitetura, stack, supabase, edge-functions, automacao, perfis]
+tags: [arquitetura, stack, supabase, edge-functions, automacao, perfis, fluxos, metricas]
 sources: [CLAUDE.md, docs/CONTEXTO_PROJETO.md]
-updated: 2026-04-09
+updated: 2026-04-27
 ---
 
 # Arquitetura Tecnica
@@ -37,7 +37,7 @@ React Frontend → Supabase Edge Functions → UAZAPI (WhatsApp)
 React Frontend → Supabase Client (DB, Auth, Realtime, Storage)
 ```
 
-## Edge Functions (31 total)
+## Edge Functions (38 total)
 
 Localizacao: `supabase/functions/`
 - JWT: `verify_jwt = true` (maioria), `false` em webhooks (whatsapp-webhook, form-bot) e publicas (form-public, bio-public, go, health-check)

@@ -1,6 +1,6 @@
 ---
 title: WhatsPRO — Master Index
-updated: 2026-04-25
+updated: 2026-04-27
 type: index
 ---
 
@@ -12,14 +12,16 @@ type: index
 
 ## Arquitetura de Documentacao (4 arquivos raiz)
 
-> O projeto usa 4 arquivos na raiz que se complementam. O CLAUDE.md e o orquestrador enxuto (96 linhas) que carrega automaticamente. Os demais sao carregados sob demanda.
+> O projeto usa 6 arquivos na raiz que se complementam. O CLAUDE.md e o orquestrador enxuto (~125 linhas) que carrega automaticamente. Os demais sao carregados sob demanda.
 
 | Arquivo | Linhas | Funcao | Carregamento |
 |---------|--------|--------|--------------|
-| [[CLAUDE.md]] | ~120 | Orquestrador — protocolos, regras de ouro, links, regras de documentacao | Automatico (toda sessao) |
-| [[RULES.md]] | ~230 | Regras detalhadas — integridade, entrega, SYNC, CORS, AI Agent, documentacao e notas | Sob demanda |
-| [[ARCHITECTURE.md]] | 87 | Referencia tecnica — stack, edge functions, deploy, modulos, roles | Sob demanda |
-| [[PATTERNS.md]] | 150 | Padroes de implementacao — 12 areas tematicas | Sob demanda |
+| [[CLAUDE.md]] | ~125 | Orquestrador — protocolos, regras de ouro, links, regras de documentacao | Automatico (toda sessao) |
+| [[RULES.md]] | ~172 | Regras detalhadas — integridade, entrega, SYNC, CORS, AI Agent, documentacao e notas | Sob demanda |
+| [[ARCHITECTURE.md]] | ~99 | Referencia tecnica — stack, edge functions, deploy, modulos, roles | Sob demanda |
+| [[PATTERNS.md]] | ~150 | Padroes de implementacao — 12 areas tematicas | Sob demanda |
+| [[AGENTS.md]] | ~140 | Onboarding rapido em ingles para agentes externos | Sob demanda |
+| [[PRD.md]] | ~3200 | Fonte de verdade: changelog versionado, modulos, roadmap | Sob demanda |
 
 **Fluxo:**
 ```
@@ -62,6 +64,13 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/log-arquivo-2026-04-13-m19-s1s2]] | M19 S1+S2: Shadow + Agregação + Deploy (2026-04-13) |
 | [[wiki/log-arquivo-2026-04-14-helpdesk-audit]] | Helpdesk audit 10 fixes (2026-04-14) |
 | [[wiki/log-arquivo-2026-04-25-s8-helpdesk]] | Sessão maratona: Helpdesk inbox + M19 S8 + S8.1 (2026-04-25) |
+| [[wiki/handoff-2026-04-27]] | **HANDOFF da sessão 2026-04-27** — Auditoria geral + M19-S10 v2 Service Categories shipped + pendências de teste |
+| [[wiki/melhorias-auditoria-2026-04-27]] | Auditoria 2026-04-27: 24 bugs + 210 melhorias (índice geral) |
+| [[wiki/melhorias-modulos-comunicacao]] | Melhorias: Helpdesk, Broadcast, Forms (30 itens) |
+| [[wiki/melhorias-modulos-inteligencia]] | Melhorias: AI Agent, Profiles, Motor, Enquetes/NPS, Fluxos (50 itens) |
+| [[wiki/melhorias-modulos-leads-crm]] | Melhorias: Leads, Kanban, Catálogo (30 itens) |
+| [[wiki/melhorias-modulos-canais]] | Melhorias: Campanhas, Bio, Funis (30 itens) |
+| [[wiki/melhorias-modulos-plataforma]] | Melhorias: Dashboard, Gestor, Assistente, Instâncias, Admin, Doc (70 itens) |
 | [[wiki/metricas-leads-visao]] | Metricas de leads: visao, gaps, shadow, dashboard, IA conversacional |
 | [[wiki/metricas-vendedor-visao]] | Metricas do vendedor: performance, conversao, NPS, ficha, ranking |
 | [[wiki/metricas-agente-ia-visao]] | Metricas da IA: eficiencia, qualidade, follow-up, custo, comparativo |
@@ -99,7 +108,12 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 | Pagina | Sub-func | Resumo |
 |--------|----------|--------|
-| [[wiki/casos-de-uso/helpdesk-detalhado]] | 25 | Etiquetas, tags, notas privadas, toggle IA, status, prioridade, bulk, templates, midia, transcricao, resumo IA, typing, rascunhos, finalizacao, historico, busca global, filtros, realtime |
+| [[wiki/casos-de-uso/helpdesk-detalhado]] | 26 (índice) | Helpdesk — entrada principal com índice das 5 sub-páginas abaixo |
+| ↳ [[wiki/casos-de-uso/helpdesk-organizacao]] | 8 | Etiquetas, tags, notas privadas, status, prioridade, atribuição, departamentos, bulk |
+| ↳ [[wiki/casos-de-uso/helpdesk-ia]] | 5 | Toggle IA (ligada/desligada/shadow), transcrição áudio, resumo IA, finalização (TicketResolution), contexto do lead |
+| ↳ [[wiki/casos-de-uso/helpdesk-comunicacao]] | 5 | Templates `/`, 10 tipos de mídia, rascunhos automáticos, emoji, reply (citação) |
+| ↳ [[wiki/casos-de-uso/helpdesk-ux]] | 7 | Layout 3 paineis, typing indicator, tempo de espera, histórico, busca global Ctrl+K, filtros, realtime + som |
+| ↳ [[wiki/casos-de-uso/helpdesk-permissoes]] | 1+ | Permissões granulares de inbox (D21, R73) + árvore de componentes |
 | [[wiki/casos-de-uso/ai-agent-detalhado]] | 15 | 9 tools, SDR, shadow, validator, TTS, prompt studio, profiles, NPS, knowledge base, circuit breaker, debounce, greeting, memoria, contexto canal |
 | [[wiki/casos-de-uso/leads-detalhado]] | 12 | Perfil 25+ campos, badge origem, timeline jornada, block IA, clear context, CSV, auto-criacao, formularios, funil card, modal conversa, CRM |
 | [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 | Boards, colunas drag&drop, cards, campos 5 tipos, entidades, acesso, filtros, IA move_kanban, ticket resolution, funis 7 templates |
@@ -150,4 +164,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-26 — Refactor do orquestrador (CLAUDE.md +AGENTS+PRD+deploy-checklist+protocolo-subagentes, regras 1-17, fim de sessão 7 passos). RULES.md particionado (202→172). Sessão anterior (04-25): Helpdesk inbox permissions + M19 S8 + S8.1 (24/300 MB, 4 cron jobs ativos). Próximo: S6 NPS Automático ou S7 Alertas Proativos.*
+*Ultima atualizacao: 2026-04-27 — Auditoria geral do projeto (somente leitura). 24 inconsistências detectadas, 210 melhorias documentadas em 5 wikis temáticas. Achado: pergunta "brilho/fosco" hardcoded em 4 locais sem UI admin. Sessão anterior (04-26): Refactor do orquestrador. Próximo: corrigir top-10 documentais (README, PRD header, AGENTS) ou seguir M19 S6/S7.*

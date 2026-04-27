@@ -1,8 +1,8 @@
 ---
 title: Erros e Lições
-tags: [erros, bugs, licoes, preventivo]
+tags: [erros, bugs, licoes, preventivo, retention, cron, storage]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-13
+updated: 2026-04-27
 ---
 
 # Erros e Lições
@@ -46,6 +46,10 @@ updated: 2026-04-13
 | 29 | SEMPRE verificar schema real do banco antes de escrever código de insert — nomes de coluna divergentes causam erro silencioso (`.maybeSingle()` retorna null) | Orchestrator |
 | 30 | Supabase `flow_events.event_type` tem CHECK constraint — NUNCA inserir tipo fora da lista. Verificar migration antes de logar evento. | Orchestrator |
 | 31 | `.single()` lança exceção se 0 ou >1 rows — SEMPRE usar `.maybeSingle()` em edge functions seguido de `if (error)` check explícito | DB |
+| 32 | `useState(() => sideEffect())` NÃO é `useEffect` — inicializador roda 1x no mount com estado inicial undefined. Para reagir a dados assíncronos usar `useEffect(() => {}, [dep])` | React |
+| 33 | Ao criar rotas React Router, SEMPRE verificar App.tsx E sidebar/nav. Código de página sem rota = inacessível (bug silencioso) | Frontend |
+| 34 | Antes de usar qualquer coluna no código, verificar schema real com `information_schema.columns` — `conversations` usa `contact_id`/`inbox_id`, não `lead_id`/`instance_id`; tabela `leads` não existe, é `lead_profiles`; `flow_steps` usa `subagent_type`, não `step_type` | DB |
+| 35 | FKs em flow_states: `lead_id → lead_profiles.id` (não contacts.id). Para resolver lead de uma conversa: `conversations.contact_id → lead_profiles.contact_id → lead_profiles.id` | DB |
 | 36 | PostgREST `.upsert({ onConflict: 'col_a,col_b,col_c' })` falha — PostgREST não resolve constraint pelo nome das colunas. Usar RPC com `INSERT … ON CONFLICT (col_a, col_b, col_c) DO UPDATE` | Orchestrator |
 | 37 | Não passar `step_data: {}` no insert de `flow_states` — sobrescreve o DEFAULT do banco. Omitir o campo para que `message_count: 0` e demais defaults sejam aplicados pelo PostgreSQL | Orchestrator |
 | 38 | Sempre usar `?? 0` ao ler `step_data.message_count` — mesmo com DEFAULT, dados antigos podem ter o campo ausente | Orchestrator |
@@ -88,6 +92,8 @@ updated: 2026-04-13
 | 75 | `verifyCronOrService` falha com `token === envKey` quando JWT é rotacionado mas env vars não. Para edge functions chamadas tanto por cron quanto admin UI, usar `getJwtRole(req)` decodando payload e checar `role === 'service_role' || 'anon'`; se for user JWT, exigir `verifySuperAdmin`. Padrão usado em `db-retention-backup` e `db-cleanup-old-backups`. | Edge Fn |
 | 76 | DELETE em `storage.objects` direto via SQL é bloqueado por trigger `storage.protect_delete()`. SEMPRE usar Storage API (`supabase.storage.from(bucket).remove([paths])`) ou DELETE via REST endpoint `/storage/v1/object/{bucket}/{path}`. Tentar `DELETE FROM storage.objects` retorna ERROR 42501. | Storage |
 | 77 | `pg_cron` chamando edge function via `net.http_post` precisa de Bearer válido. Padrão do projeto: `SUPABASE_ANON_KEY` no `vault.decrypted_secrets`. Adicionar via `vault.create_secret(key, 'SUPABASE_ANON_KEY', desc)`. Sem isso, cron→edge dá `P0001: SUPABASE_ANON_KEY not found in vault`. | Cron |
+| 78 | Hardcoded por nicho não escala em multi-tenant — `if (interesse.includes('tinta'))` no AI Agent quebra quando plataforma serve clínica/RH/e-commerce. SEMPRE estruturar regras por nicho como JSONB editável pelo admin (ex: `service_categories`), não como código. Pergunta-chave antes de codar regra: "essa regra serve para todos os agentes ou só pro nicho que estou pensando?" | AI Agent |
+| 79 | Score do lead em `service_categories` reseta apenas em `ia_cleared:` — handoff/ticket resolution preservam score acumulado para que vendedor humano veja o progresso. NUNCA expor score ao lead — é métrica interna gestor. | AI Agent |
 
 ---
 

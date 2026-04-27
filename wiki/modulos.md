@@ -1,8 +1,8 @@
 ---
 title: Módulos
-tags: [modulos, features, helpdesk, crm, leads, broadcast, funis, fluxos]
+tags: [modulos, features, helpdesk, crm, leads, broadcast, funis, fluxos, metricas, gestor, assistente, db-monitoring]
 sources: [CLAUDE.md, PRD.md, docs/CONTEXTO_PROJETO.md]
-updated: 2026-04-12
+updated: 2026-04-27
 ---
 
 # Módulos
@@ -117,88 +117,49 @@ updated: 2026-04-12
 - ImportExistingDialog: vincular recursos existentes a funis
 - OriginBadge suporta 'funil' (laranja)
 
-## M17 — Plataforma Inteligente ✅ COMPLETO
+## M17 — Plataforma Inteligente ✅ COMPLETO (F1-F5 shipped 2026-04-08 a 2026-04-09)
 
-> Status: **F1-F5 Shipped (2026-04-08 a 2026-04-09)** — Milestone completo.
 > Plano: [[wiki/plano-enquetes-polls]] | UAZAPI: [[wiki/uazapi-polls-interativos]]
 
-### F1 — Motor de Automação ✅ Shipped (2026-04-08)
-- Tabela `automation_rules` (funnel_id FK, trigger_type, condition_type, action_type, configs JSONB, RLS)
-- `automationEngine.ts` shared: `executeAutomationRules()` — 7 gatilhos, 4 condições, 6 ações
-- Tab "Automações" no FunnelDetail com CRUD visual + AutomationRuleEditor dialog
-- form-bot integrado: dispara `form_completed` após conclusão
+| Fase | Entrega |
+|------|---------|
+| F1 — Motor de Automação | `automation_rules` + `automationEngine.ts` (7 gatilhos, 4 condições, 6 ações), Tab "Automações" no FunnelDetail, form-bot dispara `form_completed` |
+| F2 — Funis Agênticos | `funnel_prompt`, `handoff_rule`, `handoff_department_id`, `handoff_max_messages` em funnels; `<funnel_instructions>` no prompt; Tab "Agente IA" no FunnelDetail |
+| F3 — Perfis & Integração | `agent_profiles` (prompt+handoff reutilizável), `funnels.profile_id` FK, ProfilesConfig substitui SubAgentsConfig, profileData > funnelData > agent (D10), sub-agents deprecados |
+| F4 — Enquetes Nativas | `poll_messages`/`poll_responses`, action `send-poll` no uazapi-proxy, tool `send_poll` (9ª tool), webhook `poll_update`, broadcast tab "Enquete", helpdesk render `media_type=poll` |
+| F5 — NPS + Métricas | 5 campos NPS em ai_agents, `is_nps` flag, `notifications` table, PollConfigSection, PollMetricsCard + PollNpsChart, `triggerNpsIfEnabled()`, TicketResolutionDrawer agenda NPS, nota ruim notifica gerentes |
 
-### F2 — Funis Agênticos ✅ Shipped (2026-04-08)
-- `funnel_prompt` + `handoff_rule` + `handoff_department_id` + `handoff_max_messages` na tabela funnels
-- ai-agent injeta `<funnel_instructions>` no system prompt (prioridade máxima)
-- Tab "Agente IA" no FunnelDetail
+**Decisões D1-D10:** ver [[wiki/plano-enquetes-polls]] e [[wiki/decisoes-chave]] (D10 = Agent Profiles)
 
-### F3 — Perfis & Integração ✅ Shipped (2026-04-09)
-- Tabela `agent_profiles` — pacotes reutilizáveis de prompt + handoff rules
-- Unifica sub-agents (JSONB) + funnel_prompt em 1 conceito
-- `funnels.profile_id` FK → seletor dropdown no FunnelDetail
-- ProfilesConfig substitui SubAgentsConfig na tab Inteligência
-- ai-agent: profileData > funnelData > agent em handoff. `<profile_instructions>` última seção
-- Sub-agents deprecados com guard `if (!profileData)` — backward compat 100%
+## M18 — Fluxos v3.0 ✅ COMPLETO (2026-04-12, 12 sprints em 4 camadas)
 
-### F4 — Enquetes (Polls) ✅ Shipped (2026-04-09)
-- Tabelas `poll_messages` + `poll_responses` + RLS
-- uazapi-proxy: action `send-poll` (2-12 opções, 255 chars max)
-- whatsapp-webhook: handler `poll_update` (upsert, auto-tags D2, automation trigger, AI debounce)
-- AI Agent: tool `send_poll` (9a, sideEffectTools) + broadcastEvent
-- Broadcast: tab "Enquete" + PollEditor (D1 image checkbox)
-- form-bot: field_type `poll` (envio nativo + validate + normalize)
-- Helpdesk: media_type='poll' rendering com BarChart3 + options cards
-- automationEngine: action `send_poll` implementada (substituiu placeholder)
+> Orquestrador conversacional unificado. Detalhes: [[wiki/casos-de-uso/fluxos-detalhado]] | [[wiki/fluxos-visao-arquitetura]] | [[wiki/fluxos-roadmap-sprints]]
 
-### F5 — NPS + Métricas ✅ Shipped (2026-04-09)
-- 5 campos NPS em ai_agents (enabled, delay, question, options, notify_on_bad)
-- `is_nps` flag em poll_messages + tabela `notifications` para alertas
-- PollConfigSection admin (NPS toggle, delay, pergunta, opções, notificação)
-- PollMetricsCard (4 KPIs) + PollNpsChart (distribuição NPS) no Dashboard
-- usePollMetrics hook (totalPolls, totalVotes, responseRate, npsAvg, distribution)
-- triggerNpsIfEnabled() no automationEngine (delay + guard sentimento:negativo)
-- TicketResolutionDrawer agenda NPS via job_queue após resolver
-- Nota ruim (Ruim/Péssimo) → notifica gerentes da inbox
+| Camada | Sprints | Entregas-chave |
+|--------|---------|----------------|
+| **Infra** (S1-S3) | 14 tabelas (`flow_definitions`, `flow_steps`, `flow_triggers`, `flow_states`, `flow_events`, `lead_short_memory`, `lead_long_memory`, `flow_step_executions`, `guided_sessions`, `flow_report_shares`, `flow_followups`); feature flag `USE_ORCHESTRATOR` + `instances.use_orchestrator`; FlowsPage, FlowWizard, FlowTemplatesPage, FlowDetail |
+| **Engine** (S4-S6) | Flow Triggers (keyword/tag/form/bio/utm/api/schedule); Memory Service (short TTL 1h + long); Greeting (4 casos), Qualification (16 tipos campo, smart_fill) |
+| **Intelligence** (S7-S9) | Intent Detector 3 camadas (L1 normalização BR ~5ms, L2 fuzzy+Soundex ~12ms, L3 LLM ~200ms); Sales Subagent (busca 3 camadas + carousel); Support Subagent (word overlap); Validator 10 checks 0 tokens; Shadow Mode |
+| **Completion** (S10-S12) | Survey (UAZAPI /send/menu); Followup (cron `process-flow-followups`); Handoff (briefing 3 níveis); Templates instaláveis (`install_flow_template`); Conversa Guiada (`guided-flow-builder`); FlowEditor 6 tabs; FlowMetricsPanel; Rollback automático 3-falhas-5min |
 
-### Decisões aprovadas (10 — D1 a D10)
-- D1-D9: ver [[wiki/plano-enquetes-polls]]
-- D10: Agent Profiles (unifica sub-agents + funnel_prompt) — ver [[wiki/decisoes-chave]]
+## M19 — Plataforma de Métricas & IA Conversacional + DB Monitoring (em andamento)
 
-## M18 — Fluxos v3.0 ✅ COMPLETO (2026-04-12)
+> Detalhes completos em [[wiki/roadmap]] e [[wiki/metricas-plano-implementacao]]. Resumo:
 
-> Orquestrador de fluxos conversacionais que unifica 17 módulos em experiência única. 12 sprints em 4 camadas.
+| Sprint | Status | Entrega |
+|--------|--------|---------|
+| S1 Shadow Inteligente | ✅ 2026-04-13 | Shadow bilateral + tags expandidas |
+| S2 Armazenamento & Agregação | ✅ 2026-04-13 | 5 views SQL + `aggregate-metrics` + cron diário + `lead_score_history` + `conversion_funnel_events` |
+| S3 Dashboard do Gestor | ✅ 2026-04-13 | `/gestao` (ManagerDashboard) + KPIs + comparativo IA vs vendedor |
+| S4 Fichas Individuais | ✅ 2026-04-13 | 4 fichas (`/gestao/vendedor/:id`, `/agente`, `/transbordo`, `/origem`) + Metas Configuráveis (`instance_goals`) |
+| S5 IA Conversacional | ✅ 2026-04-13 | Widget Ctrl+J + `/assistant` + `assistant-chat` (20 intents) + `assistant_sessions/messages` |
+| S6 NPS Automático | — | `npsDispatcher`, vínculo vendedor, `v_nps_by_seller` |
+| S7 Alertas Proativos | — | `process-alerts`, NotificationBell, 6 tipos |
+| S8 DB Monitoring & Auto-Cleanup | ✅ 2026-04-25 | 3 camadas: `DbSizeCard` (Camada 1), `db_alert_state` + cron (Camada 2), `db_retention_policies` + `apply_retention_policy` + UI `/admin/retention` (Camada 3). D22-D25, R74. |
+| S8.1 DB Backup JSONL | ✅ 2026-04-25 | Bucket privado `db-backups` + 2 edge fns + 2 crons. Policy `conversation_messages` 120d com backup gzipado. R75-R77. |
+| S9 Hardening RLS Helpdesk | — | Estender `can_view_conversation` para enforçar `can_view_unassigned` e `can_view_all_in_dept` (R73) |
 
-### Infra (S1-S3)
-- 14 tabelas: `flow_definitions`, `flow_steps`, `flow_triggers`, `flow_states`, `flow_events`, `lead_short_memory`, `lead_long_memory`, `flow_step_executions`, `guided_sessions`, `flow_report_shares`, `flow_followups` + updates
-- `flows.inbox_id UUID` opcional — filtra fluxo por caixa de entrada dentro da instância (migration 20260416000003)
-- Feature flag `USE_ORCHESTRATOR` + migração gradual por instância (`instances.use_orchestrator`)
-- Admin UI: FlowsPage, FlowWizard (4 etapas), FlowTemplatesPage (12 templates), FlowDetail (6 tabs)
-
-### Engine (S4-S6)
-- Flow Triggers: resolução por keyword/tag/form/bio/utm/api/schedule — sem breaking change no ai-agent
-- Memory Service: short (TTL 1h, RPC) + long (perfil persistente)
-- Greeting Subagent (P0): 4 casos — retornante/novo-com-nome/sem-nome/coleta-nome
-- Qualification Subagent (P1): 16 tipos de campo, smart_fill (pula perguntas já respondidas), mode adaptive/fixed
-
-### Intelligence (S7-S9)
-- Intent Detector 3 camadas: L1 normalização BR (~5ms) → L2 fuzzy+Soundex (~12ms) → L3 LLM semântico (~200ms, só se L2 <70)
-- Sales Subagent: busca 3 camadas (ILIKE→AND→fuzzy), 1 foto→send/media, 2+→carousel, anti-repetição
-- Support Subagent: word overlap scoring, 3 faixas confiança, knowledge base
-- Validator (10 checks, 0 tokens): size, language, prompt_leak, price, repetition, greeting_repeat, name_freq, emoji, markdown, PII
-- Metrics: 6 timing marks por request, cost_breakdown por camada, salvo em `flow_events`
-- Shadow Mode: pipeline roda sem enviar — coleta dados sem risco
-
-### Completion (S10-S12)
-- Survey Subagent: UAZAPI `/send/menu`, fuzzy match respostas, NPS tags automáticas
-- Followup Subagent: agenda em `step_data`, cron hourly `process-flow-followups`
-- Handoff Subagent: briefing minimal/standard/full, assign dept/user, tags handoff:X
-- Templates instaláveis (1 clique): RPC atômica `install_flow_template` — rollback automático
-- Conversa Guiada: `guided-flow-builder` edge fn, gpt-4.1-mini, sessão 24h, draft_flow JSON
-- FlowEditor 6 tabs: Identidade | Gatilhos | Subagentes (drag-and-drop) | Inteligência | Publicar | **Métricas**
-- FlowMetricsPanel: KPIs, funil de conversão, timing breakdown, top 10 intents, botão Compartilhar (token 30 dias)
-- Rollback automático: 3 falhas em 5min → `use_orchestrator=false` automático
-- E2E test script: 5 cenários, score 0-100, threshold ≥80
+**Detalhes:** [[wiki/casos-de-uso/db-retention-detalhado]] (S8/S8.1) | [[wiki/metricas-plano-implementacao]] (plano completo)
 
 ## Links
 
@@ -208,3 +169,5 @@ updated: 2026-04-12
 - [[wiki/uazapi-polls-interativos]] — UAZAPI mensagens interativas
 - [[wiki/casos-de-uso/fluxos-detalhado]] — M18 casos de uso completos
 - [[wiki/fluxos-visao-arquitetura]] — Arquitetura e templates de fluxos
+- [[wiki/casos-de-uso/db-retention-detalhado]] — M19 S8/S8.1 DB monitoring & cleanup
+- [[wiki/metricas-plano-implementacao]] — M19 plano completo

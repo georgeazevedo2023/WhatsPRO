@@ -11,6 +11,17 @@ import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.t
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
 import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
+import {
+  getCategoriesOrDefault,
+  matchCategory,
+  getQualificationFields,
+  formatPhrasing,
+  extractInteresseFromTags,
+  getCurrentStage,
+  getScoreFromTags,
+  calculateScoreDelta,
+  getExitAction,
+} from '../_shared/serviceCategories.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -1164,11 +1175,11 @@ ${contextBlock}`
 - PREÇO OBRIGATÓRIO: quando o lead perguntar "quanto custa?" ou pedir preço, SEMPRE inclua o valor numérico exato (R$XX,XX) do catálogo. Nunca responda sobre preço sem citar o valor.
 - SEARCH ANTES DE FALAR DE PRODUTO: NUNCA fale sobre preço, qualidade, custo-benefício ou características de produto sem ter chamado search_products PRIMEIRO. Se o lead falar "achei caro" ou "tem mais barato?" e você ainda NÃO buscou, chame search_products ANTES de responder. Sem dados do catálogo = sem opinião sobre produto.
 - NOME DO LEAD: sempre use o PRIMEIRO NOME. "Paulo Roberto" → chame de "Paulo". "Ana Clara" → chame de "Ana". Se o lead informou apenas um nome, use esse. NUNCA use o pushName do WhatsApp (ex: "E2E Test") como nome — só use o nome que o lead informou na conversa.
-- QUALIFICAÇÃO DE TINTAS: quando o lead quer tinta/verniz/impermeabilizante SEM mencionar marca, qualifique nesta ordem: (1) cor ou acabamento, (2) ambiente se necessário. NUNCA pergunte quantidade ou volume antes de buscar. Se o lead JÁ mencionou marca, PULE a qualificação e vá direto para search_products.
+- QUALIFICAÇÃO POR CATEGORIA: as categorias de atendimento configuradas pelo admin (service_categories) determinam que dados perguntar antes da busca. Use os campos com ask_pre_search=true ordenados por priority — pergunte um por vez na ordem definida. NUNCA pergunte quantidade ou volume antes de buscar. Se o lead JÁ mencionou marca, PULE a qualificação e vá direto para search_products.
 - MARCA MENCIONADA → SEARCH_PRODUCTS IMEDIATO (REGRA ABSOLUTA): quando o lead mencionar QUALQUER marca (Coral, Suvinil, Sherwin-Williams, etc.) junto com um tipo de produto (tinta, verniz, etc.), chame search_products IMEDIATAMENTE na MESMA resposta. ZERO perguntas antes. NÃO pergunte ambiente, cor, acabamento, quantidade — NADA. Busque primeiro, mostre os produtos, qualifique DEPOIS se necessário. Exemplo: "Tem tinta da Coral?" → chame search_products("tinta coral") AGORA. Esta regra tem PRIORIDADE ABSOLUTA sobre qualquer outra regra de qualificação.
 - BUSCA OBRIGATÓRIA ANTES DE HANDOFF: NUNCA chame handoff_to_human quando lead especificou marca + tipo + cor sem antes ter chamado search_products. Handoff só acontece DEPOIS de buscar e confirmar ausência no catálogo. Sequência correta: dados coletados → search_products → (produtos encontrados? enviar. não encontrou? enrichment → handoff).
 - PROFISSÃO DO LEAD: quando o lead mencionar sua profissão ou tipo (pintor, pedreiro, engenheiro, arquiteto, decorador, construtor, dono de obra, empreiteiro, marceneiro, projetista), salve IMEDIATAMENTE via set_tags(['tipo_cliente:PROFISSAO']) em minúsculas, sem acento. Exemplos: "sou pintor" → set_tags(['tipo_cliente:pintor']), "sou arquiteto" → set_tags(['tipo_cliente:arquiteto']). Faça isso ANTES de responder ao lead.
-- ENRIQUECIMENTO PÓS-BUSCA: quando a busca retorna 0 resultados e o [INTERNO] indica FASE DE ENRIQUECIMENTO, siga as instruções exatamente — faça a pergunta sugerida e salve a resposta com set_tags (acabamento, marca_preferida, quantidade, area, aplicacao). NÃO diga que o produto não foi encontrado. Diga algo natural como "Certo! E sobre acabamento, prefere fosco ou brilho?". Quando o [INTERNO] disser que o enriquecimento está COMPLETO, chame handoff_to_human com motivo no formato "Nome > Categoria > Produto > Detalhe1 > Detalhe2".
+- ENRIQUECIMENTO PÓS-BUSCA: quando a busca retorna 0 resultados e o [INTERNO] indica FASE DE ENRIQUECIMENTO, siga as instruções exatas do [INTERNO] — faça a pergunta sugerida (formato configurado em phrasing_enrichment da categoria) e salve a resposta com set_tags (chaves listadas no [INTERNO]). NÃO diga que o produto não foi encontrado. Use o exemplo de frase fornecido pelo [INTERNO] como modelo natural. Quando o [INTERNO] disser que o enriquecimento está COMPLETO, chame handoff_to_human com motivo no formato "Nome > Categoria > Produto > Detalhe1 > Detalhe2".
 - NUNCA dizer "não trabalhamos com", "não temos", "não encontrei", "em falta", "indisponível" em NENHUMA circunstância. Se o produto não existe, entre no fluxo de enriquecimento naturalmente e depois transfira.
 - QUALIFICAÇÃO + OBJEÇÃO NA MESMA MSG: se o lead enviou cor + objeção na mesma mensagem (ex: "Branco\\nAchei caro"), PRIMEIRO chame search_products com a cor, DEPOIS responda a objeção com dados reais do catálogo.`
 
@@ -1333,30 +1344,36 @@ ${contextBlock}`
     ]
 
     // 13.5 Enrichment helpers — contextual questions + qualification chain builder
+    // M19-S10 v2: stages + score progressivo via agent.service_categories (helper _shared/serviceCategories.ts)
     function buildEnrichmentInstructions(
-      currentTags: string[], step: number, maxSteps: number, brandNotFound: string | null
+      currentTags: string[], step: number, maxSteps: number, brandNotFound: string | null, agentCfg: any
     ): string {
       const has = (key: string) => currentTags.some(t => t.startsWith(`${key}:`))
-      const interesse = currentTags.find(t => t.startsWith('interesse:'))?.split(':')[1] || ''
+      const interesse = extractInteresseFromTags(currentTags)
+      const config = getCategoriesOrDefault(agentCfg)
+      const category = matchCategory(interesse, config)
+      const fallback = config.default
 
-      const suggestions: string[] = []
-      if (interesse.includes('tinta') || interesse.includes('esmalte')) {
-        if (!has('acabamento')) suggestions.push('acabamento (fosco, acetinado, brilho, semibrilho)')
-        if (!has('marca_preferida') && !brandNotFound) suggestions.push('marca preferida')
-        if (!has('quantidade')) suggestions.push('quantidade (litros ou galões)')
-        if (!has('area')) suggestions.push('metragem da área a pintar')
-      } else if (interesse.includes('impermeabilizante') || interesse.includes('manta')) {
-        if (!has('area')) suggestions.push('tamanho da área')
-        if (!has('aplicacao')) suggestions.push('tipo de aplicação (laje, parede, piso)')
-        if (!has('marca_preferida')) suggestions.push('marca preferida')
-      } else {
-        if (!has('acabamento')) suggestions.push('especificação ou acabamento desejado')
-        if (!has('marca_preferida')) suggestions.push('marca preferida')
-        if (!has('quantidade')) suggestions.push('quantidade necessária')
-      }
+      // Stage atual baseado no lead_score (tag lead_score:N)
+      const score = getScoreFromTags(currentTags)
+      const currentStage = getCurrentStage(score, category, fallback)
+
+      // Fields ainda não respondidos do stage atual, ordenados por priority
+      // Filtra: marca quando brandNotFound (não perguntar marca se sabemos que não tem)
+      const stageFields = currentStage.fields
+        .filter(f => !has(f.key))
+        .filter(f => !(f.key === 'marca_preferida' && brandNotFound))
+        .slice()
+        .sort((a, b) => a.priority - b.priority)
+
+      // Sugestões textuais (2 primeiras) — formato "label (examples)"
+      const suggestions = stageFields.slice(0, 2).map(f => {
+        const ex = f.examples ? ` (${f.examples})` : ''
+        return `${f.label}${ex}`
+      })
 
       const suggestionText = suggestions.length > 0
-        ? `Sugestões de pergunta: ${suggestions.slice(0, 2).join(' ou ')}.`
+        ? `Sugestões de pergunta: ${suggestions.join(' ou ')}.`
         : 'Pergunte algo relevante que ajude o vendedor.'
 
       const isLast = step >= maxSteps
@@ -1364,7 +1381,20 @@ ${contextBlock}`
         ? ' Esta é a ÚLTIMA pergunta — após a resposta do lead, chame handoff_to_human com motivo detalhado.'
         : ''
 
-      return `AÇÃO: faça UMA pergunta de enriquecimento para coletar mais dados para o vendedor. ${suggestionText}${urgency} NÃO diga que o produto não foi encontrado. Diga algo natural como "Certo! E sobre acabamento, prefere fosco ou brilho?" Salve a resposta do lead com set_tags (chaves: acabamento, marca_preferida, quantidade, area, aplicacao). PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei".`
+      // Exemplo de frase dinâmica baseado no primeiro field do stage + phrasing template do stage
+      const exampleSentence = stageFields.length > 0
+        ? ` Diga algo natural como: "${formatPhrasing(currentStage.phrasing, stageFields[0])}"`
+        : ''
+
+      // Lista de keys válidas para set_tags (todas as keys de todos os stages da categoria + default)
+      const categoryKeys = category?.stages.flatMap(s => s.fields.map(f => f.key)) || []
+      const fallbackKeys = fallback.stages.flatMap(s => s.fields.map(f => f.key))
+      const uniqueKeys = Array.from(new Set([...categoryKeys, ...fallbackKeys]))
+
+      // Contexto de stage para o LLM (interno, não vai pro lead) — ajuda LLM a entender em que ponto está
+      const stageContext = ` Stage atual: "${currentStage.label}" (score ${score}/${currentStage.max_score}, exit_action=${currentStage.exit_action}).`
+
+      return `AÇÃO: faça UMA pergunta de enriquecimento para coletar mais dados para o vendedor.${stageContext} ${suggestionText}${urgency} NÃO diga que o produto não foi encontrado.${exampleSentence} Salve a resposta do lead com set_tags (chaves: ${uniqueKeys.join(', ')}). PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei".`
     }
 
     function buildQualificationChain(tags: string[], pendingTags: Record<string, string>, name: string | null): string {
@@ -1564,7 +1594,7 @@ ${contextBlock}`
                 if (t.startsWith('produto:')) chainParts.push(t.split(':')[1].replace(/_/g, ' '))
               }
               const chainStr = chainParts.length > 0 ? ` Qualificação até agora: ${chainParts.join(' > ')}.` : ''
-              const instructions = buildEnrichmentInstructions(conversation.tags || [], newEnrichCount, maxEnrichment, brandNotFound)
+              const instructions = buildEnrichmentInstructions(conversation.tags || [], newEnrichCount, maxEnrichment, brandNotFound, agent)
 
               log.info('search_products: enrichment phase', { query: searchText, enrichStep: newEnrichCount, maxEnrichment, brandNotFound })
 
@@ -2047,7 +2077,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           if (rawTags.length === 0) return 'Nenhuma tag informada.'
 
           // #25: Enforcement — validate tag keys and motivo values
-          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel','acabamento','marca_preferida','quantidade','area','aplicacao','enrich_count','qualificacao_completa','funil','tipo_cliente','concorrente','intencao','motivo_perda','conversao','dado_pessoal','vendedor_tom','vendedor_desconto','vendedor_upsell','vendedor_followup','vendedor_alternativa','venda_status','pagamento'])
+          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel','acabamento','marca_preferida','quantidade','area','aplicacao','enrich_count','qualificacao_completa','funil','tipo_cliente','concorrente','intencao','motivo_perda','conversao','dado_pessoal','vendedor_tom','vendedor_desconto','vendedor_upsell','vendedor_followup','vendedor_alternativa','venda_status','pagamento','lead_score','qualif_stage','ambiente','cor','especificacao'])
           const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
           const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro','frete','comparando','sem_urgencia'])
 
@@ -2064,6 +2094,41 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           }
 
           if (newTags.length === 0) return `Nenhuma tag válida. Rejeitadas: ${rejected.join(', ')}`
+
+          // M19-S10 v2: score progressivo
+          // Antes do merge, calcular contribuição das novas tags ao funil de qualificação e injetar lead_score:N
+          try {
+            const interesse = extractInteresseFromTags(conversation.tags || [])
+            const v2Config = getCategoriesOrDefault(agent)
+            const v2Category = matchCategory(interesse, v2Config)
+            const scoreDelta = calculateScoreDelta(newTags, v2Category, v2Config.default)
+
+            if (scoreDelta > 0) {
+              const currentScore = getScoreFromTags(conversation.tags || [])
+              const newScore = Math.min(100, currentScore + scoreDelta)
+              newTags.push(`lead_score:${newScore}`)
+
+              // Persiste em lead_score_history (fire-and-forget) se temos lead_profile
+              if (leadProfile?.id) {
+                const stage = getCurrentStage(newScore, v2Category, v2Config.default)
+                const matchedField = stage.fields.find(f => newTags.some(t => t.startsWith(`${f.key}:`)))
+                supabase.rpc('add_lead_score_event', {
+                  _lead_id: leadProfile.id,
+                  _agent_id: agent_id,
+                  _conversation_id: conversation_id,
+                  _score_delta: scoreDelta,
+                  _category_id: v2Category?.id || 'default',
+                  _stage_id: stage.id,
+                  _field_key: matchedField?.key || null,
+                }).then(({ error: e }: { error: any }) => {
+                  if (e) log.warn('add_lead_score_event failed', { error: e.message })
+                })
+              }
+            }
+          } catch (scoreErr) {
+            // Score progressivo não pode bloquear o set_tags — log e segue
+            log.warn('score progression hook failed', { error: (scoreErr as Error).message })
+          }
 
           // Atomic merge: read + merge + write in a single SQL statement
           const { data: updatedConv, error } = await supabase.rpc('merge_conversation_tags', {

@@ -13,7 +13,7 @@
 | `PRD.md` | Apos cada feature ou consulta de versao | Fonte de verdade — modulos, changelog versionado, roadmap. Atualizar com nova entrada de versao apos shipar feature |
 | `wiki/protocolo-subagentes.md` | Antes de tarefas nao-triviais | Como dividir em ondas paralelas, regras de conflito |
 | `wiki/deploy-checklist.md` | Antes de qualquer DEPLOY | Checklist obrigatorio de pre-deploy |
-| `wiki/casos-de-uso/*-detalhado.md` | Quando precisa detalhe de funcionalidade | 19 wikis dual (didatico + tecnico) cobrindo modulos do produto |
+| `wiki/casos-de-uso/*-detalhado.md` | Quando precisa detalhe de funcionalidade | 21 wikis dual (didatico + tecnico) cobrindo modulos do produto |
 | `wiki/fluxos-*.md` | Quando trabalhar no Fluxos v3.0 (M18) | Visao, params (atendimento, inteligencia, entrada, biolink), servicos, detector intents, wireframes |
 
 ---

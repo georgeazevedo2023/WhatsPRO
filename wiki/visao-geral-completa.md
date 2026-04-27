@@ -2,7 +2,7 @@
 title: Visao Geral Completa — WhatsPRO
 tags: [visao, projeto, modulos, jornada, numeros, stack, documentacao]
 sources: [wiki/visao-produto.md, wiki/roadmap.md, wiki/modulos.md, ARCHITECTURE.md]
-updated: 2026-04-10
+updated: 2026-04-27
 ---
 
 # WhatsPRO — Visao Geral Completa do Projeto
@@ -58,7 +58,7 @@ A empresa conecta seus numeros de WhatsApp ao sistema, e a plataforma cuida de t
 
 ---
 
-## 5. Os 17 Modulos — O Que a Plataforma Faz
+## 5. Os 19 Modulos — O Que a Plataforma Faz
 
 ### 🗣️ Comunicacao (como a empresa fala com o lead)
 

@@ -1,8 +1,8 @@
 ---
 title: AI Agent — Documentacao Detalhada de Todas as Sub-Funcionalidades
-tags: [ai-agent, funcionalidades, tools, sdr, handoff, validator, tts, shadow, profiles, detalhado]
+tags: [ai-agent, funcionalidades, tools, sdr, handoff, validator, tts, shadow, profiles, service-categories, detalhado]
 sources: [supabase/functions/ai-agent/, src/components/ai-agent/]
-updated: 2026-04-09
+updated: 2026-04-27
 ---
 
 # AI Agent — Vendedor Robo Inteligente (15 Sub-Funcionalidades)
@@ -202,11 +202,27 @@ O agente entra em fase de "enriquecimento": faz perguntas contextuais como "Qual
 **Etapa 4 — Limite de mensagens atingido (padrao: 8)**
 Se apos 8 mensagens a conversa nao foi resolvida, o agente transfere automaticamente para humano. Evita loops infinitos.
 
-**Regra especial para tintas:** O agente sempre pergunta nesta ordem: (1) ambiente (interno/externo), (2) cor/acabamento, (3) marca. NUNCA pergunta marca antes de cor — porque a maioria das pessoas sabe a cor que quer mas nao sabe a marca.
+**Service Categories — funil de qualificação por nicho com stages + score (M19-S10 v2):** Em vez de regras hardcoded, cada agente tem categorias com **etapas (stages)** e **score progressivo** em `ai_agents.service_categories JSONB`. Editáveis pelo admin via tab dedicada **"Qualificação"** (9ª tab). Cada categoria tem regex de match, fields com `score_value` (pontos), e stages com `min_score`/`max_score`/`exit_action` (`search_products` | `enrichment` | `handoff` | `continue`). Conforme o lead responde, soma score → progride entre stages → ao atingir o teto do stage, dispara `exit_action`.
 
-**Cenario completo:** Lead: "Oi, quero tinta" → Agente: "Para qual ambiente? Interno ou externo?" → Lead: "Externo, fachada" → Agente: "Qual cor voce prefere?" → Lead: "Branca, acabamento fosco" → Agente busca → encontra 3 opcoes → envia carrossel → Lead: "Quanto e essa Coral?" → Agente: "A Coral Fosco Branco 18L custa R$ 289,90".
+**4 cenários multi-tenant — mesmo agente, funis diferentes:**
 
-> **Tecnico:** Config: `max_pre_search_questions` (default 3), `max_enrichment_questions` (default 2), `max_lead_messages` (default 8), `max_qualification_retries` (default 2). Contador atomico: `increment_lead_msg_count` RPC (sem race condition). Enrichment: `buildEnrichmentInstructions()` gera sugestoes contextuais por categoria. Qualification chain: `buildQualificationChain()` → "Nome > Interesse > Produto > Acabamento > Marca" no handoff reason + lead_profiles.notes. Tags: `search_fail:N` (track failed searches), `enrich_count:N`, `qualificacao_completa:true`. Ordem tintas hardcoded no prompt: ambiente → cor/acabamento → marca.
+- **Home Center (tintas, 3 stages):**
+  - Stage 1 — *Identificação* (0→30, `search_products`): `ambiente` (15pt) + `cor` (15pt). Atingiu 30 → busca produtos.
+  - Stage 2 — *Detalhamento* (30→70, `enrichment`): `acabamento` (20pt) + `marca` (20pt). Atingiu 70 → continua perguntando.
+  - Stage 3 — *Pronto para Handoff* (70→100, `handoff`): `quantidade` (15pt) + `area` (15pt). Atingiu 100 → handoff com contexto rico.
+- **Clínica médica (consultas, 2 stages):**
+  - Stage 1 — *Triagem* (0→50, `enrichment`): `especialidade` (cardiologia, ortopedia — 30pt) + `urgencia` (urgente, eletivo — 20pt).
+  - Stage 2 — *Agendamento* (50→100, `handoff`): `preferencia_dia` (30pt) + `convenio` (20pt).
+- **Imobiliária (3 stages):**
+  - Stage 1 — *Briefing* (0→30, `search_products`): `tipo_imovel` + `bairro`.
+  - Stage 2 — *Refinamento* (30→70, `enrichment`): `quartos` + `faixa_preco`.
+  - Stage 3 — *Visita* (70→100, `handoff`): `disponibilidade` + `urgencia`.
+- **Lead frio (default, 1 stage):**
+  - *Qualificação básica* (0→100, `handoff`): `especificacao` (25pt) + `marca_preferida` (25pt) + `quantidade` (25pt). Sem categoria match → fallback para handoff direto.
+
+**Cenário completo Home Center com score:** Lead: "Oi, quero tinta" → Agente identifica categoria `tintas` (regex match) → score 0 → Stage Identificação. Pergunta `ambiente` (phrasing: "Para encontrar a melhor opção, qual ambiente? interno ou externo") → Lead: "Externo" → set_tags `['ambiente:externo']` → score +15 = 15. Pergunta `cor` → Lead: "Branca" → score +15 = 30 → atinge `max_score` → `exit_action: search_products` dispara. Encontra produtos → envia carrossel. Score persistido na tag `lead_score:30` + row em `lead_score_history`.
+
+> **Tecnico:** Config: `max_pre_search_questions` (default 3), `max_enrichment_questions` (default 2), `max_lead_messages` (default 8), `max_qualification_retries` (default 2). Contador atomico: `increment_lead_msg_count` RPC. Service Categories v2: `ai_agents.service_categories JSONB` carregado via `getCategoriesOrDefault()` em `_shared/serviceCategories.ts`. Tipos: `Stage`, `ExitAction`, `QualificationField` (com `score_value`). Match: `matchCategory(interesse, config)` testa regex. Stage atual: `getCurrentStage(score, category)` lê `min_score`/`max_score`. Próxima pergunta: `getNextField(stage, currentTags)` ordena por `priority` e exclui fields já respondidos. Score helpers: `getScoreFromTags(tags)` lê `lead_score:N`; `calculateScoreDelta(beforeTags, afterTags, stages)` soma `score_value` dos fields recém-respondidos. Persistência: handler de `set_tags` em `ai-agent/index.ts` chama RPC `add_lead_score_event` que insere em `lead_score_history` (M19 S2). Score reseta apenas em `ia_cleared:` (R79). **Tab dedicada:** `src/components/admin/ai-agent/ServiceCategoriesConfig.tsx` (UI 3 níveis com drag-drop, slider de score, preview de funil). **Backward compat:** migration v2 remapeia agentes em produção do schema plano para 3 stages padrão automaticamente.
 
 ---
 

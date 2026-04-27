@@ -1,73 +1,123 @@
-# Welcome to your Lovable project
+# WhatsPRO — CRM Multi-Tenant WhatsApp
 
-## Project info
+Plataforma multi-tenant de **atendimento WhatsApp** (helpdesk), **CRM Kanban**, **AI Agent**, **Leads**, **Campanhas**, **Funis** e **Automação**.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+**Produção:** [crm.wsmart.com.br](https://crm.wsmart.com.br)
 
-## How can I edit this code?
+---
 
-There are several ways of editing your application.
+## O que é
 
-**Use Lovable**
+Junção de WhatsApp Web profissional + CRM de vendas + IA vendedora + sistema de campanhas + construtor de funis — tudo num único navegador. Multi-tenant: múltiplas empresas isoladas com seus próprios números, dados e configurações.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### Funcionalidades principais
 
-Changes made via Lovable will be committed automatically to this repo.
+- **Helpdesk** real-time com Supabase Realtime, etiquetas, departamentos, bulk actions, busca global, NPS
+- **AI Agent (M10)** com 9 tools (search/carousel/media/handoff/labels/tags/kanban/profile/poll), SDR + qualificação + handoff inteligente, validator agent, TTS
+- **CRM Kanban** com boards customizáveis, integração de leads via `contact_id` FK
+- **Leads** com timeline de jornada, badge de origem, perfil com 25+ campos auto-preenchidos pela IA
+- **Campanhas UTM** com landing page, QR code, attribution guards, contexto IA
+- **Bio Link** Linktree-style com captação de leads e analytics
+- **Forms WhatsApp** via chat com 16 tipos de campo, validações, webhook externo
+- **Funis** que orquestram campanhas + bio + forms + kanban (7 tipos)
+- **Motor de Automação** sem IA: 7 gatilhos, 4 condições, 6 ações
+- **Enquetes nativas WhatsApp** + NPS automático pós-resolve
+- **Fluxos v3.0 (M18)** — orquestrador conversacional unificado, 12 templates
+- **Dashboard do Gestor (M19)** — fichas individuais, métricas de origem, painel de transbordo, IA conversacional
 
-**Use your preferred IDE**
+---
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Stack
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+| Camada | Tecnologia |
+|--------|-----------|
+| Frontend | React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui |
+| Backend | Supabase (PostgreSQL 17, Auth, Storage, Realtime, Edge Functions) |
+| WhatsApp API | UAZAPI (proxied via Edge Function) |
+| AI Agent (LLM primário) | OpenAI gpt-4.1-mini (function calling) |
+| AI Agent (fallback) | Gemini 2.5 Flash → Mistral Small → templates |
+| TTS | Gemini 2.5 Flash Preview TTS (6 vozes) |
+| Transcrição | Groq (Whisper) |
+| Resumos / Carrossel copy | Groq → Gemini → Mistral |
+| Data Fetching | TanStack React Query 5 |
 
-Follow these steps:
+---
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Roles de Usuário
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+| Role | Acesso |
+|------|--------|
+| `super_admin` | Tudo — instâncias, inboxes, usuários, agente IA, funis, automações, deploy |
+| `gerente` | Gerencia equipe nos inboxes atribuídos, CRM, leads, dashboard |
+| `user` | Atende conversas nos inboxes atribuídos |
 
-# Step 3: Install the necessary dependencies.
-npm i
+---
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+## Como rodar localmente
+
+```bash
+# 1. Clonar
+git clone <repo-url>
+cd whatspro
+
+# 2. Instalar
+npm install
+
+# 3. Configurar .env (copie de .env.example se existir, peça ao mantenedor)
+
+# 4. Rodar dev
 npm run dev
+
+# 5. Build de produção
+npm run build
+
+# 6. Verificar tipos / testes
+npx tsc --noEmit
+npx vitest run
 ```
 
-**Edit a file directly in GitHub**
+### Deploy de Edge Function
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy <nome> --project-ref euljumeflwtljegknawy
+```
 
-**Use GitHub Codespaces**
+---
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Deploy de Produção
 
-## What technologies are used for this project?
+- **URL:** crm.wsmart.com.br
+- **Infra:** Docker Swarm + Traefik + SSL (Hetzner CX42)
+- **CI/CD:** GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
+- **Portainer:** Stack `whatspro` na VPS Hetzner
 
-This project is built with:
+Antes de qualquer deploy, seguir [`wiki/deploy-checklist.md`](wiki/deploy-checklist.md).
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+---
 
-## How can I deploy this project?
+## Documentação
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+A base de conhecimento vive no vault Obsidian na raiz do projeto:
 
-## Can I connect a custom domain to my Lovable project?
+- **[`PRD.md`](PRD.md)** — Fonte de verdade: módulos, changelog versionado, roadmap
+- **[`CLAUDE.md`](CLAUDE.md)** — Orquestrador da IA (Claude Code) — protocolos, regras
+- **[`RULES.md`](RULES.md)** — Regras detalhadas (integridade, entrega, SYNC, CORS, AI Agent)
+- **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — Stack, edge functions, deploy
+- **[`PATTERNS.md`](PATTERNS.md)** — Padrões de implementação por área
+- **[`AGENTS.md`](AGENTS.md)** — Onboarding rápido em inglês para agentes externos
+- **[`index.md`](index.md)** — Master index de todas as wikis
 
-Yes, you can!
+Wikis especializadas em `wiki/` (visão geral, módulos, arquitetura, AI agent, banco de dados, fluxos, casos de uso, decisões-chave, erros e lições, roadmap).
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+---
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Comandos do Claude Code
+
+- `/prd` — PRD completo
+- `/uazapi` — Referência da API UAZAPI
+
+---
+
+## Licença
+
+Software proprietário. Uso restrito a clientes WhatsPRO. Para suporte ou licenciamento, contatar o mantenedor.

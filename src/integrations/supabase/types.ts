@@ -449,6 +449,7 @@ export type Database = {
           poll_nps_question: string | null
           prompt_sections: Json | null
           returning_greeting_message: string | null
+          service_categories: Json
           sub_agents: Json | null
           system_prompt: string | null
           temperature: number
@@ -506,6 +507,7 @@ export type Database = {
           poll_nps_question?: string | null
           prompt_sections?: Json | null
           returning_greeting_message?: string | null
+          service_categories?: Json
           sub_agents?: Json | null
           system_prompt?: string | null
           temperature?: number
@@ -563,6 +565,7 @@ export type Database = {
           poll_nps_question?: string | null
           prompt_sections?: Json | null
           returning_greeting_message?: string | null
+          service_categories?: Json
           sub_agents?: Json | null
           system_prompt?: string | null
           temperature?: number
@@ -5145,6 +5148,18 @@ export type Database = {
       }
     }
     Functions: {
+      add_lead_score_event: {
+        Args: {
+          _agent_id: string
+          _category_id?: string
+          _conversation_id?: string
+          _field_key?: string
+          _lead_id: string
+          _score_delta: number
+          _stage_id?: string
+        }
+        Returns: string
+      }
       append_ai_debounce_message:
         | {
             Args: {
@@ -5284,6 +5299,7 @@ export type Database = {
       }
       dblink_is_busy: { Args: { "": string }; Returns: number }
       delete_inbox: { Args: { _inbox_id: string }; Returns: undefined }
+      dispatch_backup_cleanup: { Args: never; Returns: Json }
       dispatch_retention_with_backup: { Args: never; Returns: Json }
       get_active_form_session: {
         Args: { p_conversation_id: string }

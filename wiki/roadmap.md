@@ -2,7 +2,7 @@
 title: Roadmap
 tags: [roadmap, milestones, fases, status]
 sources: [.planning/ROADMAP.md, .planning/STATE.md, CLAUDE.md]
-updated: 2026-04-13
+updated: 2026-04-27
 ---
 
 # Roadmap
