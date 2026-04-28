@@ -41,3 +41,14 @@ supabase/.temp/
 # Python bytecode (skill scripts)
 __pycache__/
 *.pyc
+
+# Playwright MCP runtime artifacts (snapshots, console logs)
+.playwright-mcp/
+# Snapshots YAML temporários do MCP debug (NUNCA commitar; docker-compose.yml é exceção via path explícito)
+/qualif*.yml
+/playground.yml
+/novo-field.yml
+/debug-expand.yml
+/test-guardrail.yml
+/avancado-tab.yml
+/prod-login.yml

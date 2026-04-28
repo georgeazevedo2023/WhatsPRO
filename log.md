@@ -7,6 +7,110 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-28 (Deploy v2 + 16 commits represados → prod)
+
+### Causa raiz
+
+Ao validar v2 (M19-S10 Service Categories) em prod, descoberto que a tab "Qualificacao" não aparecia em `crm.wsmart.com.br`. Investigação revelou que **origin/master estava em `c68a95b` (auditoria helpdesk de 2026-04-14)** e local master estava em `859dd3a` — **16 commits acumulados não pushados há 13 dias**. Backend (migrations + edge functions) já estava aplicado em prod via Supabase MCP, mas frontend (Docker imagem) nunca foi rebuilt desde 04-14. Resultado: descompasso silencioso — schema novo no banco, UI velha no browser.
+
+### Commits represados (master local → origin/master)
+
+`36a681c chore(deps): playwright` · `69437d1 feat(helpdesk): permissões granulares de inbox` · `86566d0 docs: D21 + R73` · `67b51f3 chore(planning): M19 S8` · `7075b25 feat(monitoring): M19 S8 Camada 1 — DbSize` · `4e40dc3 S8 Camada 2 — alerts` · `8ce1fe3 S8 Camada 3 — retention policies` · `b244df4 docs: fim sessão` · `2be66f4 docs: 5 retention policies ON` · `a356576 feat(monitoring): M19 S8.1 — Backup JSONL` · `0dc99d6 docs: S8.1 shipped` · `cc3cf0c docs: D22-D25 + R74-R77` · `7883f17 docs: helpdesk-detalhado §1.26` · `ce4fafc docs(orchestrator): refatorar CLAUDE.md` · `4ebde32 docs: fim sessão 04-26` · `859dd3a feat(m19-s10): service categories v2`
+
+### Operação realizada
+
+1. `git stash -u` do trabalho v3 em `feat/qualif-ux-redesign` (não-destrutivo, recuperado no fim)
+2. `git checkout master`
+3. `git push origin master` → 16 commits subiram (`c68a95b..859dd3a`)
+4. GitHub Action `deploy.yml` disparou automaticamente
+5. Build success em **53s** (`gh run 25027833217`)
+6. Imagem `ghcr.io/georgeazevedo2023/whatspro@sha256:2685a39d37c6a0264635f4b775ff6f731e9aec7b81a11959b72e1ed30f30b19d` taggeada como `859dd3a` + `latest` em 2026-04-28T00:54:54Z
+7. `git checkout feat/qualif-ux-redesign` + `git stash pop` → trabalho v3 restaurado integralmente
+
+### Auditoria pós-build
+
+| Check | Resultado |
+|-------|-----------|
+| Imagem em ghcr.io com `:latest` | ✅ sha `2685a39d…` |
+| RPC `add_lead_score_event` | ✅ existe (1) |
+| Agentes em formato v2 | ✅ 1/1 (Eletropiso migrado v1→v2) |
+| Tabela `lead_score_history` | ✅ |
+| Tabela `db_retention_policies` (S8) | ✅ |
+| Tabela `inbox_users` (helpdesk) | ✅ |
+| Backend ↔ frontend novo alinhados | ✅ banco já espera os campos do bundle novo |
+
+### Redeploy via Portainer service webhook
+
+Hetzner/Portainer não pulla `:latest` auto. Solução: usuário enviou o **service webhook** do Portainer (`https://app.wsmart.com.br/api/webhooks/34259f8a-9643-4963-90c4-bf2fed4cf786` — Service `whatspro_app`, image `ghcr.io/georgeazevedo2023/whatspro:latest`). Disparado via:
+
+```bash
+curl -X POST https://app.wsmart.com.br/api/webhooks/34259f8a-9643-4963-90c4-bf2fed4cf786
+# HTTP 204 No Content → Portainer aceita o webhook
+```
+
+Tempo total redeploy: ~45s (pull + recreate do service no Swarm).
+
+### ✅ Validação prod pós-redeploy
+
+| Check | Antes | Depois |
+|-------|-------|--------|
+| Bundle hash | `index-CTGISI-Z.js` | **`index-DrJ0Utbx.js`** ✅ |
+| Tabs do agente | 8 (sem Qualificacao) | **9** (Setup · Prompt Studio · Inteligencia · **Qualificacao** · Catalogo · Conhecimento · Seguranca · Canais · Metricas) ✅ |
+| RPC `add_lead_score_event` | já existia | OK ✅ |
+| Agente Eletropiso schema | já v2 | OK ✅ |
+
+Validação Playwright em `https://crm.wsmart.com.br/dashboard/ai-agent` (com `location.reload()` para invalidar cache do HTML — Playwright/Chromium cacheia agressivamente o index.html mesmo após `caches.delete`/`serviceWorker.unregister`; só `reload()` força re-fetch).
+
+### Lição operacional registrada (R80 candidata)
+
+**NUNCA acumular commits represados em local master por > 1 sprint.** A divergência entre backend (deployado feature-a-feature via MCP) e frontend (esperando `git push`) cria janelas de descompasso silencioso que só são detectadas por validação manual. Sugestão futura: hook pré-commit avisando se origin/master está mais de 5 commits atrás, ou política "push após cada feature concluída". Webhook do Portainer (`/api/webhooks/34259f8a-…`) é a forma rápida de forçar redeploy sem entrar na UI.
+
+### Lição (R80 candidata)
+
+NUNCA acumular commits represados em local master por > 1 sprint — a divergência entre backend (deployado via MCP) e frontend (esperando `git push`) cria janelas de descompasso silencioso que só são detectadas por validação manual. Sugestão: hook pré-commit que avisa se origin/master está mais de 5 commits atrás, ou política "push após cada feature concluída".
+
+### Restauração da branch v3
+
+Trabalho M19-S10 v3 (UX redesign) preservado integralmente:
+- 3 arquivos modificados (`ServiceCategoriesConfig.tsx` +449/-177, `serviceCategories.ts` +5/-3, `log.md` +29)
+- 9 arquivos novos em `src/components/admin/ai-agent/service-categories/` + `__tests__/` + `.planning/phases/M19-S10-qualif-ux-redesign/PLAN.md`
+- 24 testes vitest novos (regexCsvConvert 11 + useUiMode 5 + autoSlugifyGuardrail 8) — 24/24 passam
+- tsc 0 erros, vitest 550 passed (5 falhas pré-existentes sem relação)
+- HIGH RISK files intactos (C14 ✅), zero migrations adicionadas (C13 ✅)
+
+Branch `feat/qualif-ux-redesign` aguardando commit + PR review (ainda não merge'ada para master).
+
+---
+
+## 2026-04-27 (M19-S10 v3 — Qualif UX Redesign)
+
+### Goal & contexto
+
+Após audit pós-shipping da v2, identificado que a UX da tab "Qualificacao" usa muito jargão técnico (regex, slug, exit_action, score_value, priority, phrasing template). Inacessível para admins leigos. Branch `feat/qualif-ux-redesign` criada para refatorar UI sem tocar schema.
+
+### Snapshot DB Eletropiso pré-execução (M2 do audit)
+
+Estado atual antes de executar refactor — referência para validar backward compat após mudanças:
+
+- **Categoria `tintas`** (interesse_match: `tinta|esmalte|verniz|impermeabilizante`)
+  - Stage 1 `identificacao` (0-40, search_products): 3 fields — `tipo_tinta` (10pts, prio=1), `ambiente` (15pts, prio=2), `cor` (15pts, prio=3)
+  - Stage 2 `detalhamento` (40-70, enrichment): 2 fields — `acabamento` (20pts), `marca_preferida` (20pts)
+  - Stage 3 `fechamento` (70-100, handoff): 2 fields — `quantidade` (15pts), `area` (15pts)
+- **Categoria `impermeabilizantes`** (interesse_match: `impermeabilizante|manta`)
+  - Stage 1 `triagem` (0-60, search_products): `area` (30pts), `aplicacao` (30pts)
+  - Stage 2 `fechamento` (60-100, handoff): `marca_preferida` (40pts)
+- **Default fallback**: 1 stage `qualificacao_basica` (0-100, handoff): `especificacao` (25), `marca_preferida` (25), `quantidade` (25)
+
+Slugs imutáveis pós-refactor: `tintas`, `tipo_tinta`, `ambiente`, `cor`, `acabamento`, `marca_preferida`, `quantidade`, `area`, `impermeabilizantes`, `aplicacao`, `especificacao`, `identificacao`, `detalhamento`, `fechamento`, `triagem`, `qualificacao_basica`. Auto-slugify nunca regrava esses no modo Iniciante.
+
+### Plano
+
+`.planning/phases/M19-S10-qualif-ux-redesign/PLAN.md` — 24 tasks, 15 critérios, audit GO_WITH_CAVEATS aplicado (6 ajustes integrados).
+
+### Em andamento — abaixo, log da v2 preservado para histórico
+
+---
+
 ## 2026-04-27 (M19-S10 v2 — Stages + Score)
 
 ### Razão da evolução

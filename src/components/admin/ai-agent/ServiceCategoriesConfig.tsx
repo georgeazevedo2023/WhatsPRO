@@ -10,7 +10,7 @@
  * Supabase — quem orquestra persistência é o pai (AIAgentTab).
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -82,7 +82,18 @@ import {
   AlertCircle,
   Activity,
   ArrowRight,
+  Pencil,
+  MessageSquare,
+  Sliders,
+  Target,
+  LogOut,
+  Sparkles,
+  Wrench,
 } from 'lucide-react';
+
+import { useUiMode, type UiMode } from './service-categories/useUiMode';
+import { regexToCsv, csvToRegex, isSimpleAlternation } from './service-categories/regexCsvConvert';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import {
   type ServiceCategoriesConfig as ServiceCategoriesConfigType,
@@ -321,12 +332,24 @@ function validateDefault(def: DefaultCategory): DefaultErrors {
   return errors;
 }
 
+/**
+ * Erro REAL (bloqueante) num stage — exclui `scoreCap` que é só warning de score-cap proposital.
+ * Usado pelo banner vermelho "Corrija os erros antes de salvar".
+ */
+function stageHasBlockingError(s: StageErrors): boolean {
+  return !!(s.id || s.range || s.overlap || s.phrasing || Object.keys(s.fields).length > 0);
+}
+
 function categoryHasErrors(errs: CategoryErrors): boolean {
-  return !!(errs.id || errs.regex || Object.keys(errs.stages).length > 0);
+  return !!(
+    errs.id ||
+    errs.regex ||
+    Object.values(errs.stages).some(stageHasBlockingError)
+  );
 }
 
 function defaultHasErrors(errs: DefaultErrors): boolean {
-  return Object.keys(errs.stages).length > 0;
+  return Object.values(errs.stages).some(stageHasBlockingError);
 }
 
 function hasAnyError(catErrs: CategoryErrors[], defErrs: DefaultErrors): boolean {
@@ -343,9 +366,11 @@ interface FieldRowProps {
   errors?: FieldErrors;
   onChange: (idx: number, patch: Partial<QualificationField>) => void;
   onRemove: (idx: number) => void;
+  uiMode: UiMode;
+  initialSlugs: Set<string>;
 }
 
-function SortableFieldRow({ field, index, errors, onChange, onRemove }: FieldRowProps) {
+function SortableFieldRow({ field, index, errors, onChange, onRemove, uiMode, initialSlugs }: FieldRowProps) {
   const sortableId = `field-${field.key || `idx-${index}`}-${index}`;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: sortableId,
@@ -360,7 +385,7 @@ function SortableFieldRow({ field, index, errors, onChange, onRemove }: FieldRow
     <div
       ref={setNodeRef}
       style={style}
-      className="rounded-lg border bg-background p-3 space-y-2"
+      className="rounded-lg border bg-background p-4 space-y-3"
     >
       <div className="flex items-center gap-2">
         <button
@@ -394,81 +419,152 @@ function SortableFieldRow({ field, index, errors, onChange, onRemove }: FieldRow
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Chave (slug)
-          </Label>
-          <Input
-            value={field.key}
-            onChange={(e) => onChange(index, { key: slugify(e.target.value) })}
-            placeholder="acabamento"
-            className="h-8 font-mono text-xs"
-          />
-          {errors?.key && <p className="text-destructive text-[11px]">{errors.key}</p>}
-        </div>
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Label
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {uiMode === 'advanced' && (
+          <div className="space-y-1.5">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+              Identificador interno
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    Auto-gerado a partir do nome da pergunta. Não precisa editar.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </Label>
+            <Input
+              value={field.key}
+              onChange={(e) => onChange(index, { key: slugify(e.target.value) })}
+              placeholder="acabamento"
+              className="h-9 font-mono text-sm"
+            />
+            {errors?.key && <p className="text-destructive text-xs">{errors.key}</p>}
+          </div>
+        )}
+        <div className={uiMode === 'simple' ? 'space-y-1.5 sm:col-span-2' : 'space-y-1.5'}>
+          <Label className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <Pencil className="h-3.5 w-3.5" />
+            Nome da pergunta
           </Label>
           <Input
             value={field.label}
-            onChange={(e) => onChange(index, { label: e.target.value })}
-            placeholder="acabamento"
-            className="h-8 text-xs"
+            onChange={(e) => {
+              const newLabel = e.target.value;
+              const patch: Partial<QualificationField> = { label: newLabel };
+              // F2.3 guardrail: só auto-slugify em modo Iniciante E se a key NÃO existia no carregamento inicial
+              if (uiMode === 'simple' && !initialSlugs.has(field.key)) {
+                patch.key = slugify(newLabel) || field.key;
+              }
+              onChange(index, patch);
+            }}
+            placeholder="cor, acabamento, ambiente..."
+            className="h-9 text-sm"
           />
         </div>
-        <div className="space-y-1 sm:col-span-2">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Exemplos
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <MessageSquare className="h-3.5 w-3.5" />
+            Exemplos de resposta esperada
           </Label>
           <Input
             value={field.examples}
             onChange={(e) => onChange(index, { examples: e.target.value })}
             placeholder="fosco, acetinado, brilho"
-            className="h-8 text-xs"
+            className="h-9 text-sm"
           />
         </div>
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-            Score (pts)
+        <div className="space-y-1.5">
+          <Label className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <Sliders className="h-3.5 w-3.5" />
+            Peso da pergunta
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="h-3 w-3 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs text-xs">
-                  Pontos somados ao score do lead quando este campo é respondido.
+                  Quanto essa resposta vale na qualificação. Maior peso = mais importante.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={Number.isFinite(field.score_value) ? field.score_value : 0}
-            onChange={(e) => onChange(index, { score_value: parseInt(e.target.value, 10) || 0 })}
-            className="h-8 text-xs"
-          />
+          {uiMode === 'simple' ? (
+            <ScoreWeightRadio
+              value={field.score_value}
+              onChange={(v) => onChange(index, { score_value: v })}
+            />
+          ) : (
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={Number.isFinite(field.score_value) ? field.score_value : 0}
+              onChange={(e) => onChange(index, { score_value: parseInt(e.target.value, 10) || 0 })}
+              className="h-9 text-sm"
+            />
+          )}
           {errors?.score_value && (
-            <p className="text-destructive text-[11px]">{errors.score_value}</p>
+            <p className="text-destructive text-xs">{errors.score_value}</p>
           )}
         </div>
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Priority
-          </Label>
-          <Input
-            type="number"
-            min={1}
-            max={99}
-            value={Number.isFinite(field.priority) ? field.priority : 1}
-            onChange={(e) => onChange(index, { priority: parseInt(e.target.value, 10) || 1 })}
-            className="h-8 text-xs"
-          />
-        </div>
+        {uiMode === 'advanced' && (
+          <div className="space-y-1.5">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+              Priority
+            </Label>
+            <Input
+              type="number"
+              min={1}
+              max={99}
+              value={Number.isFinite(field.priority) ? field.priority : 1}
+              onChange={(e) => onChange(index, { priority: parseInt(e.target.value, 10) || 1 })}
+              className="h-9 text-sm"
+            />
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * ScoreWeightRadio — substitui input number por 3 opções pré-definidas em modo Iniciante.
+ * Mapeamento: leve=5, médio=10, importante=20. Score arbitrário em modo Avançado.
+ */
+function ScoreWeightRadio({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const presets = [
+    { label: 'Leve', value: 5 },
+    { label: 'Médio', value: 10 },
+    { label: 'Importante', value: 20 },
+  ];
+  // Valor atual mais próximo de algum preset?
+  const closest = presets.reduce((best, p) =>
+    Math.abs(p.value - value) < Math.abs(best.value - value) ? p : best,
+    presets[0],
+  );
+  return (
+    <div className="grid grid-cols-3 gap-1.5">
+      {presets.map((p) => (
+        <Button
+          key={p.value}
+          type="button"
+          variant={p.value === closest.value ? 'default' : 'outline'}
+          size="sm"
+          className="h-9 text-sm"
+          onClick={() => onChange(p.value)}
+        >
+          {p.label}
+        </Button>
+      ))}
     </div>
   );
 }
@@ -481,9 +577,11 @@ interface FieldListProps {
   fields: QualificationField[];
   fieldErrors: Record<number, FieldErrors>;
   onFieldsChange: (fields: QualificationField[]) => void;
+  uiMode: UiMode;
+  initialSlugs: Set<string>;
 }
 
-function FieldList({ fields, fieldErrors, onFieldsChange }: FieldListProps) {
+function FieldList({ fields, fieldErrors, onFieldsChange, uiMode, initialSlugs }: FieldListProps) {
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -556,6 +654,8 @@ function FieldList({ fields, fieldErrors, onFieldsChange }: FieldListProps) {
                   errors={fieldErrors[idx]}
                   onChange={updateField}
                   onRemove={removeField}
+                  uiMode={uiMode}
+                  initialSlugs={initialSlugs}
                 />
               ))}
             </div>
@@ -564,7 +664,7 @@ function FieldList({ fields, fieldErrors, onFieldsChange }: FieldListProps) {
       )}
       <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={addField}>
         <Plus className="h-3.5 w-3.5" />
-        Adicionar Field
+        Adicionar pergunta
       </Button>
     </div>
   );
@@ -585,7 +685,7 @@ function PhrasingPreview({ template, fields }: PhrasingPreviewProps) {
   const rendered = formatPreview(template, previewField);
   return (
     <div className="rounded-md bg-muted/40 border border-dashed px-3 py-2 mt-1.5">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
         Preview ao vivo
       </p>
       <p className="text-xs text-foreground italic">"{rendered}"</p>
@@ -620,7 +720,7 @@ function FunnelPreviewBar({ stages }: FunnelPreviewBarProps) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1 text-xs uppercase tracking-wide text-muted-foreground">
         <Activity className="h-3 w-3" />
         Funil de Score
       </div>
@@ -675,9 +775,11 @@ interface StageCardProps {
   errors?: StageErrors;
   onChange: (patch: Partial<Stage>) => void;
   onRemove: () => void;
+  uiMode: UiMode;
+  initialSlugs: Set<string>;
 }
 
-function StageCard({ stage, index, errors, onChange, onRemove }: StageCardProps) {
+function StageCard({ stage, index, errors, onChange, onRemove, uiMode, initialSlugs }: StageCardProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const fieldErrors = errors?.fields ?? {};
 
@@ -700,11 +802,11 @@ function StageCard({ stage, index, errors, onChange, onRemove }: StageCardProps)
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <Badge variant="outline" className="text-[10px] font-mono shrink-0">
-              Stage {index + 1}
+            <Badge variant="outline" className="text-xs font-mono shrink-0">
+              Etapa {index + 1}
             </Badge>
-            <CardTitle className="text-sm truncate">
-              {stage.label || stage.id || 'Novo Stage'}
+            <CardTitle className="text-base truncate">
+              {stage.label || stage.id || 'Nova Etapa'}
             </CardTitle>
             <Badge
               variant="secondary"
@@ -728,86 +830,118 @@ function StageCard({ stage, index, errors, onChange, onRemove }: StageCardProps)
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Identidade */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className={uiMode === 'simple' ? 'space-y-1.5' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
+          {uiMode === 'advanced' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs flex items-center gap-1">
+                Identificador interno
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs text-xs">
+                      Auto-gerado a partir do nome. Não precisa editar.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
+              <Input
+                value={stage.id}
+                onChange={(e) => onChange({ id: slugify(e.target.value) })}
+                placeholder="identificacao"
+                className="h-9 font-mono text-sm"
+              />
+              {errors?.id && <p className="text-destructive text-xs">{errors.id}</p>}
+            </div>
+          )}
           <div className="space-y-1.5">
-            <Label className="text-xs">ID (slug único no stage)</Label>
-            <Input
-              value={stage.id}
-              onChange={(e) => onChange({ id: slugify(e.target.value) })}
-              placeholder="identificacao"
-              className="h-8 font-mono text-xs"
-            />
-            {errors?.id && <p className="text-destructive text-[11px]">{errors.id}</p>}
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Label</Label>
+            <Label className="text-xs flex items-center gap-1.5">
+              <Pencil className="h-3.5 w-3.5" />
+              Nome desta etapa
+            </Label>
             <Input
               value={stage.label}
-              onChange={(e) => onChange({ label: e.target.value })}
+              onChange={(e) => {
+                const newLabel = e.target.value;
+                const patch: Partial<Stage> = { label: newLabel };
+                if (uiMode === 'simple' && !initialSlugs.has(stage.id)) {
+                  patch.id = slugify(newLabel) || stage.id;
+                }
+                onChange(patch);
+              }}
               placeholder="Identificação"
-              className="h-8 text-xs"
+              className="h-9 text-sm"
             />
           </div>
         </div>
 
         {/* Score Range */}
         <div className="space-y-1.5">
-          <Label className="text-xs flex items-center gap-1">
-            Range de Score
+          <Label className="text-sm flex items-center gap-1.5 font-medium">
+            <Activity className="h-4 w-4" />
+            Quando avançar para próxima etapa?
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="h-3 w-3 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs text-xs">
-                  O lead entra neste stage quando atinge min_score. Ao alcançar max_score, dispara a ação de saída.
+                  Pontos que o lead acumula. Quando atingir o limite máximo, dispara a ação configurada abaixo.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </Label>
           <div className="grid grid-cols-2 gap-3 items-end">
             <div className="space-y-1">
-              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Min Score
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                Começa em
               </Label>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                value={Number.isFinite(stage.min_score) ? stage.min_score : 0}
-                onChange={(e) => onChange({ min_score: parseInt(e.target.value, 10) || 0 })}
-                className="h-8 text-xs"
-              />
+              <div className="relative">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={Number.isFinite(stage.min_score) ? stage.min_score : 0}
+                  onChange={(e) => onChange({ min_score: parseInt(e.target.value, 10) || 0 })}
+                  className="h-9 text-sm pr-10"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">pts</span>
+              </div>
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Max Score
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                Termina em
               </Label>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                value={Number.isFinite(stage.max_score) ? stage.max_score : 0}
-                onChange={(e) => onChange({ max_score: parseInt(e.target.value, 10) || 0 })}
-                className="h-8 text-xs"
-              />
+              <div className="relative">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={Number.isFinite(stage.max_score) ? stage.max_score : 0}
+                  onChange={(e) => onChange({ max_score: parseInt(e.target.value, 10) || 0 })}
+                  className="h-9 text-sm pr-10"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">pts</span>
+              </div>
             </div>
           </div>
-          {errors?.range && <p className="text-destructive text-[11px]">{errors.range}</p>}
-          {errors?.overlap && <p className="text-destructive text-[11px]">{errors.overlap}</p>}
+          {errors?.range && <p className="text-destructive text-xs">{errors.range}</p>}
+          {errors?.overlap && <p className="text-destructive text-xs">{errors.overlap}</p>}
         </div>
 
         {/* Exit Action */}
         <div className="space-y-1.5">
-          <Label className="text-xs flex items-center gap-1">
-            Ação ao final do Stage (Exit Action)
+          <Label className="text-sm flex items-center gap-1.5 font-medium">
+            <LogOut className="h-4 w-4" />
+            O que a IA faz quando termina esta etapa?
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="h-3 w-3 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs text-xs">
-                  O que a IA faz quando o lead atinge o teto de score deste stage.
+                  Decide se a IA continua perguntando, busca produto ou transfere para vendedor humano.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -816,15 +950,15 @@ function StageCard({ stage, index, errors, onChange, onRemove }: StageCardProps)
             value={stage.exit_action}
             onValueChange={(v) => onChange({ exit_action: v as ExitAction })}
           >
-            <SelectTrigger className="h-9 text-xs">
+            <SelectTrigger className="h-10 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {EXIT_ACTION_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                  <div className="flex flex-col py-0.5">
+                <SelectItem key={opt.value} value={opt.value} className="text-sm">
+                  <div className="flex flex-col py-1">
                     <span className="font-medium">{opt.label}</span>
-                    <span className="text-[10px] text-muted-foreground">{opt.description}</span>
+                    <span className="text-xs text-muted-foreground">{opt.description}</span>
                   </div>
                 </SelectItem>
               ))}
@@ -835,9 +969,12 @@ function StageCard({ stage, index, errors, onChange, onRemove }: StageCardProps)
         {/* Fields */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-xs">Qualification Fields</Label>
-            <span className="text-[11px] text-muted-foreground">
-              Total possível: <strong className="text-foreground">{totalFieldScore} pts</strong>
+            <Label className="text-sm font-medium flex items-center gap-1.5">
+              <MessageSquare className="h-4 w-4" />
+              Perguntas desta etapa
+            </Label>
+            <span className="text-xs text-muted-foreground">
+              Total: <strong className="text-foreground">{totalFieldScore} pts</strong>
               {range > 0 && <> de {range}</>}
             </span>
           </div>
@@ -845,6 +982,8 @@ function StageCard({ stage, index, errors, onChange, onRemove }: StageCardProps)
             fields={stage.fields}
             fieldErrors={fieldErrors}
             onFieldsChange={onFieldsChange}
+            uiMode={uiMode}
+            initialSlugs={initialSlugs}
           />
           {errors?.scoreCap && (
             <p className="text-amber-600 dark:text-amber-400 text-[11px] flex items-start gap-1">
@@ -856,15 +995,16 @@ function StageCard({ stage, index, errors, onChange, onRemove }: StageCardProps)
 
         {/* Phrasing */}
         <div className="space-y-1.5">
-          <Label className="text-xs flex items-center gap-1">
-            Phrasing (template da pergunta)
+          <Label className="text-sm flex items-center gap-1.5 font-medium">
+            <Pencil className="h-4 w-4" />
+            Texto da pergunta
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="h-3 w-3 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs text-xs">
-                  Use {'{label}'} e {'{examples}'} como placeholders. A IA pergunta cada field deste stage usando este template.
+                  {`Modelo da pergunta. Clique nas tags abaixo para inserir [Nome da pergunta] = ${'{label}'} ou [Exemplos] = ${'{examples}'}.`}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -873,9 +1013,32 @@ function StageCard({ stage, index, errors, onChange, onRemove }: StageCardProps)
             value={stage.phrasing}
             onChange={(e) => onChange({ phrasing: e.target.value })}
             placeholder="Para encontrar a melhor opção, qual {label}? ({examples})"
-            className="min-h-[60px] text-xs resize-none"
+            className="min-h-[60px] text-sm resize-none"
           />
-          {errors?.phrasing && <p className="text-destructive text-[11px]">{errors.phrasing}</p>}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">Inserir:</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={() => onChange({ phrasing: stage.phrasing + '{label}' })}
+            >
+              <Plus className="h-3 w-3" />
+              Nome da pergunta
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={() => onChange({ phrasing: stage.phrasing + '{examples}' })}
+            >
+              <Plus className="h-3 w-3" />
+              Exemplos
+            </Button>
+          </div>
+          {errors?.phrasing && <p className="text-destructive text-xs">{errors.phrasing}</p>}
           <PhrasingPreview template={stage.phrasing} fields={stage.fields} />
         </div>
       </CardContent>
@@ -917,9 +1080,11 @@ interface StageListProps {
   stages: Stage[];
   stageErrors: Record<number, StageErrors>;
   onChange: (stages: Stage[]) => void;
+  uiMode: UiMode;
+  initialSlugs: Set<string>;
 }
 
-function StageList({ stages, stageErrors, onChange }: StageListProps) {
+function StageList({ stages, stageErrors, onChange, uiMode, initialSlugs }: StageListProps) {
   const updateStage = (idx: number, patch: Partial<Stage>) => {
     onChange(stages.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
   };
@@ -966,6 +1131,8 @@ function StageList({ stages, stageErrors, onChange }: StageListProps) {
               errors={stageErrors[idx]}
               onChange={(patch) => updateStage(idx, patch)}
               onRemove={() => removeStage(idx)}
+              uiMode={uiMode}
+              initialSlugs={initialSlugs}
             />
           ))}
           <Button
@@ -976,7 +1143,7 @@ function StageList({ stages, stageErrors, onChange }: StageListProps) {
             onClick={addStage}
           >
             <Plus className="h-3.5 w-3.5" />
-            Adicionar Stage
+            Adicionar etapa
           </Button>
         </>
       )}
@@ -997,6 +1164,8 @@ interface CategoryCardProps {
   onStagesChange: (stages: Stage[]) => void;
   onDuplicate: () => void;
   onRemove: () => void;
+  uiMode: UiMode;
+  initialSlugs: Set<string>;
 }
 
 function CategoryCard({
@@ -1008,6 +1177,8 @@ function CategoryCard({
   onStagesChange,
   onDuplicate,
   onRemove,
+  uiMode,
+  initialSlugs,
 }: CategoryCardProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const hasErrors = categoryHasErrors(errors);
@@ -1024,16 +1195,31 @@ function CategoryCard({
               <div className="flex items-center gap-2 min-w-0">
                 <Layers className="w-4 h-4 text-primary shrink-0" />
                 <div className="min-w-0">
-                  <CardTitle className="text-sm truncate">
+                  <CardTitle className="text-base truncate">
                     {category.label || category.id || 'Nova categoria'}
                   </CardTitle>
-                  <CardDescription className="text-[11px] font-mono truncate">
-                    id: {category.id || '—'}
-                    {category.interesse_match && (
-                      <>
-                        {' · '}match:{' '}
-                        <span className="text-foreground">{category.interesse_match}</span>
-                      </>
+                  <CardDescription className="text-xs truncate">
+                    {uiMode === 'simple' ? (
+                      category.interesse_match ? (
+                        <>
+                          Ativa quando o cliente diz:{' '}
+                          <span className="text-foreground font-medium">
+                            {regexToCsv(category.interesse_match)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="italic">Nenhuma palavra-chave configurada</span>
+                      )
+                    ) : (
+                      <span className="font-mono">
+                        id: {category.id || '—'}
+                        {category.interesse_match && (
+                          <>
+                            {' · '}match:{' '}
+                            <span className="text-foreground">{category.interesse_match}</span>
+                          </>
+                        )}
+                      </span>
                     )}
                   </CardDescription>
                 </div>
@@ -1044,8 +1230,8 @@ function CategoryCard({
                     <AlertCircle className="h-3 w-3" /> Erros
                   </Badge>
                 )}
-                <Badge variant="outline" className="text-[10px]">
-                  {stagesCount} stage{stagesCount !== 1 ? 's' : ''} · {fieldsCount} field
+                <Badge variant="outline" className="text-xs">
+                  {stagesCount} etapa{stagesCount !== 1 ? 's' : ''} · {fieldsCount} pergunta
                   {fieldsCount !== 1 ? 's' : ''}
                 </Badge>
                 <ChevronDown
@@ -1061,50 +1247,101 @@ function CategoryCard({
         <CollapsibleContent>
           <CardContent className="pt-0 space-y-5">
             {/* Identidade da categoria */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className={uiMode === 'simple' ? 'space-y-1.5' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
+              {uiMode === 'advanced' && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs flex items-center gap-1">
+                    Identificador interno
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-xs">
+                          Auto-gerado a partir do nome. Não precisa editar.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                  <Input
+                    value={category.id}
+                    onChange={(e) => onChange({ id: slugify(e.target.value) })}
+                    placeholder="tintas"
+                    className="h-9 font-mono text-sm"
+                  />
+                  {errors.id && <p className="text-destructive text-xs">{errors.id}</p>}
+                </div>
+              )}
               <div className="space-y-1.5">
-                <Label className="text-xs">ID (slug único)</Label>
-                <Input
-                  value={category.id}
-                  onChange={(e) => onChange({ id: slugify(e.target.value) })}
-                  placeholder="tintas"
-                  className="h-8 font-mono text-xs"
-                />
-                {errors.id && <p className="text-destructive text-[11px]">{errors.id}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Label</Label>
+                <Label className="text-sm flex items-center gap-1.5 font-medium">
+                  <Target className="h-4 w-4" />
+                  Nome do tipo de produto
+                </Label>
                 <Input
                   value={category.label}
-                  onChange={(e) => onChange({ label: e.target.value })}
+                  onChange={(e) => {
+                    const newLabel = e.target.value;
+                    const patch: Partial<ServiceCategory> = { label: newLabel };
+                    if (uiMode === 'simple' && !initialSlugs.has(category.id)) {
+                      patch.id = slugify(newLabel) || category.id;
+                    }
+                    onChange(patch);
+                  }}
                   placeholder="Tintas e Vernizes"
-                  className="h-8 text-xs"
+                  className="h-9 text-sm"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs flex items-center gap-1">
-                Interesse Match (regex)
+              <Label className="text-sm flex items-center gap-1.5 font-medium">
+                <MessageSquare className="h-4 w-4" />
+                Como o cliente costuma chamar?
                 <TooltipProvider delayDuration={200}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <HelpCircle className="h-3 w-3 text-muted-foreground" />
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-xs text-xs">
-                      Casa contra o valor da tag interesse:X do lead. Ex:
-                      &quot;tinta|esmalte|verniz&quot;.
+                      Quando o cliente usar uma dessas palavras na conversa, esta categoria é ativada.
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </Label>
-              <Input
-                value={category.interesse_match}
-                onChange={(e) => onChange({ interesse_match: e.target.value })}
-                placeholder="tinta|esmalte|verniz"
-                className="h-8 font-mono text-xs"
-              />
-              {errors.regex && <p className="text-destructive text-[11px]">{errors.regex}</p>}
+              {uiMode === 'simple' && !isSimpleAlternation(category.interesse_match) ? (
+                <div className="space-y-1.5">
+                  <Input
+                    value={category.interesse_match}
+                    onChange={(e) => onChange({ interesse_match: e.target.value })}
+                    placeholder="tinta|esmalte|verniz"
+                    className="h-9 font-mono text-sm"
+                  />
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1">
+                    <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                    Regex avançada detectada — edite no modo Avançado para ver o regex puro.
+                  </p>
+                </div>
+              ) : uiMode === 'simple' ? (
+                <>
+                  <Input
+                    value={regexToCsv(category.interesse_match)}
+                    onChange={(e) => onChange({ interesse_match: csvToRegex(e.target.value) })}
+                    placeholder="tinta, esmalte, verniz"
+                    className="h-9 text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Separe palavras por vírgula. A IA aceita qualquer uma delas.
+                  </p>
+                </>
+              ) : (
+                <Input
+                  value={category.interesse_match}
+                  onChange={(e) => onChange({ interesse_match: e.target.value })}
+                  placeholder="tinta|esmalte|verniz"
+                  className="h-9 font-mono text-sm"
+                />
+              )}
+              {errors.regex && <p className="text-destructive text-xs">{errors.regex}</p>}
             </div>
 
             {/* Funil visual */}
@@ -1112,7 +1349,7 @@ function CategoryCard({
 
             {/* Aviso: nenhum stage terminal */}
             {errors.noExitTerminal && (
-              <p className="text-amber-600 dark:text-amber-400 text-[11px] flex items-start gap-1 px-1">
+              <p className="text-amber-600 dark:text-amber-400 text-xs flex items-start gap-1 px-1">
                 <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                 {errors.noExitTerminal}
               </p>
@@ -1120,11 +1357,16 @@ function CategoryCard({
 
             {/* Lista de stages */}
             <div className="space-y-2">
-              <Label className="text-xs">Stages do Funil</Label>
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <Activity className="h-4 w-4" />
+                Etapas do funil
+              </Label>
               <StageList
                 stages={category.stages}
                 stageErrors={stageErrors}
                 onChange={onStagesChange}
+                uiMode={uiMode}
+                initialSlugs={initialSlugs}
               />
             </div>
 
@@ -1137,7 +1379,7 @@ function CategoryCard({
                 className="gap-1.5"
                 onClick={onDuplicate}
               >
-                <Copy className="h-3.5 w-3.5" /> Duplicar Categoria
+                <Copy className="h-3.5 w-3.5" /> Duplicar categoria
               </Button>
               <Button
                 type="button"
@@ -1192,6 +1434,8 @@ interface DefaultCategoryCardProps {
   expanded: boolean;
   onToggle: () => void;
   onStagesChange: (stages: Stage[]) => void;
+  uiMode: UiMode;
+  initialSlugs: Set<string>;
 }
 
 function DefaultCategoryCard({
@@ -1200,6 +1444,8 @@ function DefaultCategoryCard({
   expanded,
   onToggle,
   onStagesChange,
+  uiMode,
+  initialSlugs,
 }: DefaultCategoryCardProps) {
   const hasErrors = defaultHasErrors(errors);
   const stageErrors = errors.stages ?? {};
@@ -1215,8 +1461,8 @@ function DefaultCategoryCard({
               <div className="flex items-center gap-2 min-w-0">
                 <Lock className="w-4 h-4 text-primary shrink-0" />
                 <div className="min-w-0">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    Padrão (fallback)
+                  <CardTitle className="text-base flex items-center gap-2">
+                    Padrão (quando nenhuma categoria casa)
                     <TooltipProvider delayDuration={200}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1240,8 +1486,8 @@ function DefaultCategoryCard({
                     <AlertCircle className="h-3 w-3" /> Erros
                   </Badge>
                 )}
-                <Badge variant="outline" className="text-[10px]">
-                  {defaultCat.stages.length} stage{defaultCat.stages.length !== 1 ? 's' : ''}
+                <Badge variant="outline" className="text-xs">
+                  {defaultCat.stages.length} etapa{defaultCat.stages.length !== 1 ? 's' : ''}
                 </Badge>
                 <ChevronDown
                   className={`w-4 h-4 text-muted-foreground transition-transform ${
@@ -1256,11 +1502,16 @@ function DefaultCategoryCard({
           <CardContent className="pt-0 space-y-5">
             <FunnelPreviewBar stages={defaultCat.stages} />
             <div className="space-y-2">
-              <Label className="text-xs">Stages do Funil de Fallback</Label>
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <Activity className="h-4 w-4" />
+                Etapas do funil padrão
+              </Label>
               <StageList
                 stages={defaultCat.stages}
                 stageErrors={stageErrors}
                 onChange={onStagesChange}
+                uiMode={uiMode}
+                initialSlugs={initialSlugs}
               />
             </div>
           </CardContent>
@@ -1284,6 +1535,30 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [defaultExpanded, setDefaultExpanded] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
+  const [uiMode, setUiMode] = useUiMode();
+
+  // F2.3 Guardrail: capturar slugs presentes no carregamento inicial.
+  // Auto-slugify NUNCA regrava esses, mesmo em modo Iniciante.
+  // Razão: slugs são referenciados em qualification_data de leads existentes
+  // e em matchers de _shared/serviceCategories.ts. Mudar = quebrar histórico.
+  const initialSlugsRef = useRef<Set<string>>(new Set());
+  const [initialSlugsCaptured, setInitialSlugsCaptured] = useState(false);
+  if (!initialSlugsCaptured && config) {
+    const slugs = new Set<string>();
+    for (const cat of safeConfig.categories) {
+      slugs.add(cat.id);
+      for (const stage of cat.stages) {
+        slugs.add(stage.id);
+        for (const f of stage.fields) slugs.add(f.key);
+      }
+    }
+    for (const stage of safeConfig.default.stages) {
+      slugs.add(stage.id);
+      for (const f of stage.fields) slugs.add(f.key);
+    }
+    initialSlugsRef.current = slugs;
+    setInitialSlugsCaptured(true);
+  }
 
   // Validation
   const allCategoryIds = safeConfig.categories.map((c) => c.id);
@@ -1396,32 +1671,45 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
         <CardHeader className="pb-3">
           <div className="flex items-start sm:items-center justify-between gap-3 flex-wrap">
             <div className="space-y-1">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Layers className="w-4 h-4 text-primary" />
-                Categorias de Atendimento
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Layers className="w-5 h-5 text-primary" />
+                Categorias de atendimento
                 <TooltipProvider delayDuration={200}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="max-w-sm text-xs">
-                      Cada categoria tem etapas (stages) com pontuação. À medida que o lead
-                      responde, acumula score e progride entre etapas. Ao fim de cada etapa,
+                      Cada categoria tem etapas com pontuação. Conforme o lead responde,
+                      acumula score e progride entre etapas. Ao fim de cada etapa,
                       a IA executa a ação configurada (buscar produtos, enriquecer, transferir).
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </CardTitle>
-              <CardDescription>
-                Configure perguntas escalonadas por score, por categoria de produto/serviço.
-                Substitui regras hardcoded por nicho — funciona para qualquer mercado.
+              <CardDescription className="text-sm">
+                Configure as perguntas que a IA faz para qualificar o lead, por tipo de produto.
               </CardDescription>
             </div>
-            {blockedBySelfErrors && (
-              <Badge variant="destructive" className="gap-1.5">
-                <AlertCircle className="h-3 w-3" /> Corrija os erros antes de salvar
-              </Badge>
-            )}
+            <div className="flex items-center gap-3">
+              {blockedBySelfErrors && (
+                <Badge variant="destructive" className="gap-1.5">
+                  <AlertCircle className="h-3 w-3" /> Corrija os erros antes de salvar
+                </Badge>
+              )}
+              <Tabs value={uiMode} onValueChange={(v) => setUiMode(v as UiMode)}>
+                <TabsList className="h-9">
+                  <TabsTrigger value="simple" className="gap-1.5 text-sm">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Iniciante
+                  </TabsTrigger>
+                  <TabsTrigger value="advanced" className="gap-1.5 text-sm">
+                    <Wrench className="h-3.5 w-3.5" />
+                    Avançado
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
           </div>
         </CardHeader>
       </Card>
@@ -1449,6 +1737,8 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
               onStagesChange={(stages) => updateCategoryStages(idx, stages)}
               onDuplicate={() => duplicateCategory(idx)}
               onRemove={() => removeCategory(idx)}
+              uiMode={uiMode}
+              initialSlugs={initialSlugsRef.current}
             />
           ))
         )}
@@ -1474,6 +1764,8 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
         expanded={defaultExpanded}
         onToggle={() => setDefaultExpanded((v) => !v)}
         onStagesChange={updateDefaultStages}
+        uiMode={uiMode}
+        initialSlugs={initialSlugsRef.current}
       />
 
       {/* Footer */}

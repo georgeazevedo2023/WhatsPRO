@@ -67,10 +67,10 @@ export interface ServiceCategoriesConfig {
 }
 
 export const EXIT_ACTION_OPTIONS: { value: ExitAction; label: string; description: string }[] = [
-  { value: 'search_products', label: 'Buscar produtos', description: 'Quando atingir esse score, IA chama search_products' },
-  { value: 'enrichment',      label: 'Enriquecer',      description: 'Continua perguntando para coletar mais dados' },
-  { value: 'handoff',         label: 'Transferir',      description: 'IA transfere para vendedor humano' },
-  { value: 'continue',        label: 'Continuar',       description: 'Não faz nada especial, segue para próximo stage' },
+  { value: 'search_products', label: '🔍 IA busca produto',          description: 'Quando atingir esse score, IA mostra produtos do catálogo (search_products)' },
+  { value: 'enrichment',      label: '➕ Continua perguntando',       description: 'IA segue coletando mais detalhes para refinar a recomendação' },
+  { value: 'handoff',         label: '👤 Chama vendedor humano',      description: 'IA passa a conversa para um atendente humano' },
+  { value: 'continue',        label: '⏭️ Avança para próxima etapa',  description: 'Sem ação especial — apenas progride no funil' },
 ];
 
 /**
