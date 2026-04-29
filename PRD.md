@@ -40,6 +40,38 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.16.0 (2026-04-29) — Eletropiso 23 categorias + 7 fixes ai-agent + BusinessHoursEditor
+
+Sprint massiva em uma sessão. **23 categorias** ativas no service_categories do agente Eletropiso (era 2). **7 fixes** acumulados no edge function ai-agent (v162→v169). Componente UI novo `BusinessHoursEditor` pra cadastrar horário semanal.
+
+**Categorias adicionadas (21 novas, total 23):**
+
+Construção: cimento_argamassa, caixas_dagua, pregos_parafusos, ferramentas_manuais, furadeiras, escadas
+Hidráulica: canos, torneiras, registros, chuveiros, vasos_sanitarios, pias
+Elétrica: cabos, disjuntores, lampadas, tomadas_interruptores
+Esquadrias: portas, janelas, fechaduras
+Acabamento: revestimentos (cerâmica+porcelanato), tintas (já), impermeabilizantes (já)
+Outros: churrasqueiras
+
+Todas com `exit_action: handoff` (catálogo do Eletropiso ainda tem só 7 produtos). Quando admin cadastrar, mudança 1-a-1 (`handoff → search_products`).
+
+**7 fixes em ai-agent/index.ts:**
+1. `uniqueKeys` em buildEnrichmentInstructions usa SOMENTE keys da categoria
+2. `isWellQualified` força true quando `matchCategory` retorna categoria (evita PATH C hardcoded)
+3. `prompt_sections.sdr_flow` reescrito apontando pro service_categories (era ordem fixa "ambiente→marca→cor")
+4. **Aliasing automático em set_tags**: LLM pode usar key genérica (`material:`) → handler resolve sufixo (`material_porta:`) baseado em matchCategory
+5. **Exit action enforcement em set_tags**: quando `newScore >= max_score`, handler injeta instrução `[INTERNO]` obrigatória pro LLM (handoff/search/enrichment)
+6. Categoria torneiras (descoberta em teste)
+7. +10 categorias home center
+
+**VALID_KEYS expandido:** 60+ chaves (40 originais + 20 sufixadas para vasos/chuveiros/lâmpadas/tomadas/disjuntores/registros/cimento/caixas/ferramentas/pregos)
+
+**UI nova:** `src/components/admin/ai-agent/BusinessHoursEditor.tsx` — master toggle on/off + 7 dias da semana com toggle individual + time inputs + atalhos "Comércio padrão" / "Apagar tudo". Suporta migração do formato legacy `{start, end}` pra weekly.
+
+**Decisões D27** (handoff-first em catálogo embrionário) | **Regras R80-R84** (commits represados, prompt_sections precedência, aliasing, exit_action enforcement, VALID_KEYS sync)
+
+**Edge function ai-agent v169 em prod.**
+
 ### v7.15.0 (2026-04-29) — Eletropiso: 10 Categorias Novas + 6 FAQs + business_hours
 
 Sprint completa de configuração no agente Eletropiso (instância única de prod). Catálogo da loja tem 7 produtos cadastrados — estratégia **handoff em todas as categorias novas**: cliente é qualificado e passado pra vendedor humano. Conforme catálogo crescer, basta mudar `exit_action: handoff → search_products` por categoria.
