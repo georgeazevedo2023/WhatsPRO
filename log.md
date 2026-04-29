@@ -96,6 +96,34 @@ total_faqs: 13 ✅ (era 7)
 - Considerar criar categoria `cabos_dados` se Eletropiso cadastrar cabo de rede/HDMI (regex atual `cabo|cabos|fio elétrico|fio eletrico` pega só cabo elétrico)
 - Considerar regex mais específica em `pias` se cliente confundir com "cuba de churrasqueira" (atual: `pia|pias|lavatório|lavatorio|cuba|cubas` — risco baixo)
 
+### Sprint de bugfix pós-teste (mesma sessão) — 3 erros do agente em prod
+
+Após user testar via WhatsApp real, 3 problemas detectados nas categorias novas:
+1. IA perguntou "marca" em portas (não tem field marca no schema)
+2. IA usou exemplos errados ("interno, externo, banheiro" em vez de "sala, cozinha, quarto, banheiro")
+3. Ordem fixa "ambiente → marca → cor" em vez do priority do schema
+
+**Investigação em camadas (auditoria forense):**
+
+Cheguei a 3 fixes em sequência — só o 3º resolveu de fato:
+
+**Fix 1 — `buildEnrichmentInstructions` (ai-agent/index.ts:1392):** uniqueKeys somava `categoryKeys + fallbackKeys`. Mudei pra usar SOMENTE categoria quando detectada. Adicionei "REGRA DE FIDELIDADE" forçando uso literal dos examples. Deploy versão 164. **Não resolveu** — LLM nem chegava nessa função.
+
+**Fix 2 — `isWellQualified` (ai-agent/index.ts:1571):** força well-qualified=true quando `matchCategory` retorna categoria, evitando PATH C (texto hardcoded "cor, acabamento, marca alternativa, tamanho"). Deploy versão 165. **Não resolveu** — LLM seguia outro caminho.
+
+**Fix 3 — DEFINITIVO — `prompt_sections.sdr_flow` do agente:** descobri via SELECT que o sdr_flow do agente Eletropiso tinha texto hardcoded da era das tintas (regra ZERO-CALL com ordem fixa "1ª) Ambiente → 2ª) Marca → 3ª) Cor" + exemplos "(interno, externo, banheiro)" literais). LLM seguia religiosamente esse roteiro, IGNORANDO completamente o schema service_categories. UPDATE direto no banco com texto novo apontando pro service_categories como source of truth + regras de fidelidade explícitas. **Resolveu instantaneamente.**
+
+**Validação pós-fix 3:**
+- Conversa George: `interesse:porta`, `ambiente_porta:quarto`, `lead_score:10` ← key nova cadastrada, score subiu pela primeira vez
+- IA perguntou: ambiente (ex: quarto, banheiro, sala), material (ex: madeira, PVC ou alumínio), tipo (frisada ou lisa) — todos com exemplos corretos
+- Sem perguntas de marca/quantidade
+
+**Lição operacional (R82 candidata):** quando LLM ignora schema dinâmico (service_categories) e segue lógica fixa, **suspeitar primeiro do prompt_sections do agente no banco** — não do código. Prompt sections tem precedência comportamental sobre regras hardcoded em runtime. Auditar SELECT prompt_sections é mais barato que ler 2700 linhas de edge function.
+
+**Backup do sdr_flow antigo:** `.planning/phases/eletropiso-categories-2026-04-29/sdr_flow-old.txt`
+
+**Edge function ai-agent:** versão 165 em prod (com fixes 1+2 incluídos como reforço — prevenção de regressão se algum agente novo for criado sem sdr_flow custom).
+
 ### Sprint adicional (mesma sessão) — BusinessHoursEditor (UI semanal)
 
 Após validar que `business_hours` foi cadastrado em formato weekly (Seg-Sex/Sáb/Dom diferenciados) e descobrir que UI atual (`RulesConfig.tsx:184-222`) só editava formato legacy `{start, end}` único, criado componente novo `BusinessHoursEditor.tsx` em `src/components/admin/ai-agent/`. Suporta:

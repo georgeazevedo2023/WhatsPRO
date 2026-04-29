@@ -1386,15 +1386,27 @@ ${contextBlock}`
         ? ` Diga algo natural como: "${formatPhrasing(currentStage.phrasing, stageFields[0])}"`
         : ''
 
-      // Lista de keys válidas para set_tags (todas as keys de todos os stages da categoria + default)
+      // Lista de keys válidas para set_tags.
+      // FIX (2026-04-29): quando categoria está detectada, usar SOMENTE keys da categoria —
+      // antes somava com fallbackKeys (default) e o LLM perguntava marca_preferida/quantidade
+      // mesmo em categorias que não têm esses fields (ex: portas).
       const categoryKeys = category?.stages.flatMap(s => s.fields.map(f => f.key)) || []
       const fallbackKeys = fallback.stages.flatMap(s => s.fields.map(f => f.key))
-      const uniqueKeys = Array.from(new Set([...categoryKeys, ...fallbackKeys]))
+      const uniqueKeys = category
+        ? Array.from(new Set(categoryKeys))
+        : Array.from(new Set(fallbackKeys))
 
       // Contexto de stage para o LLM (interno, não vai pro lead) — ajuda LLM a entender em que ponto está
       const stageContext = ` Stage atual: "${currentStage.label}" (score ${score}/${currentStage.max_score}, exit_action=${currentStage.exit_action}).`
 
-      return `AÇÃO: faça UMA pergunta de enriquecimento para coletar mais dados para o vendedor.${stageContext} ${suggestionText}${urgency} NÃO diga que o produto não foi encontrado.${exampleSentence} Salve a resposta do lead com set_tags (chaves: ${uniqueKeys.join(', ')}). PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei".`
+      // Reforço de fidelidade ao phrasing: o LLM tende a reformular livremente os exemplos
+      // (ex: "interno, externo, garagem" em vez do "sala, cozinha, quarto ou banheiro" cadastrado).
+      // Esta instrução força uso literal dos examples do field e proíbe reformulação.
+      const phrasingDiscipline = stageFields.length > 0
+        ? ` REGRA DE FIDELIDADE: use EXATAMENTE os exemplos sugeridos entre parênteses do field — NUNCA invente outros exemplos. Se o field tem examples="sala, cozinha, quarto ou banheiro", a frase DEVE conter esse texto literal entre parênteses.`
+        : ''
+
+      return `AÇÃO: faça UMA pergunta de enriquecimento para coletar mais dados para o vendedor.${stageContext} ${suggestionText}${urgency} NÃO diga que o produto não foi encontrado.${exampleSentence}${phrasingDiscipline} Salve a resposta do lead com set_tags (chaves PERMITIDAS para esta categoria: ${uniqueKeys.join(', ')}). NÃO use chaves fora desta lista. PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei".`
     }
 
     function buildQualificationChain(tags: string[], pendingTags: Record<string, string>, name: string | null): string {
@@ -1556,7 +1568,17 @@ ${contextBlock}`
 
             const queryWords = searchText ? searchText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2) : []
             const hasInteresseTag = (conversation.tags || []).some((t: string) => t.startsWith('interesse:'))
-            const isWellQualified = queryWords.length >= 3 || (hasInteresseTag && queryWords.length >= 1)
+            // FIX (2026-04-29): se categoria está detectada via matchCategory, considerar bem-qualificado.
+            // Antes: search com 1 palavra e interesse já setado às vezes caía em PATH C
+            // (texto hardcoded "cor, acabamento, marca alternativa" da era das tintas).
+            // Agora: força PATH A (enrichment usando schema da categoria + REGRA DE FIDELIDADE).
+            const interesseFromTags = extractInteresseFromTags(conversation.tags || [])
+            const v2ConfigForWellQual = getCategoriesOrDefault(agent)
+            const detectedCategoryForWellQual = matchCategory(interesseFromTags, v2ConfigForWellQual)
+            const isWellQualified =
+              queryWords.length >= 3 ||
+              (hasInteresseTag && queryWords.length >= 1) ||
+              detectedCategoryForWellQual !== null
 
             // Build common tags: marca_indisponivel, produto, interesse
             const failTags: Record<string, string> = {}
