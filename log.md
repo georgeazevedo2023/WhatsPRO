@@ -168,6 +168,41 @@ Edge function v168 em prod.
 2. Deploy edge function (não basta UPDATE no banco)
 3. Idealmente: criar migration que torna VALID_KEYS dinâmico (lê do schema da categoria), eliminando esse acoplamento manual.
 
+### Fix 7 — 10 categorias home center genéricas
+
+User pediu pra adicionar mais 10 categorias comuns em home center, dado que loja tem ampla gama de produtos e nem todos são cadastrados no catálogo. Estratégia: IA qualifica por categoria → handoff pro vendedor.
+
+**Categorias adicionadas (10) — total agora 23:**
+
+| ID | Match regex | Fields |
+|----|-------------|--------|
+| `vasos_sanitarios` | vaso, sanitário, bacia, privada | tipo + cor |
+| `chuveiros` | chuveiro, ducha | tipo (elétrico/gás) + voltagem |
+| `lampadas` | lâmpada, luminária | tipo (LED/fluor/halog) + potência |
+| `tomadas_interruptores` | tomada, interruptor | tipo + quantidade |
+| `disjuntores` | disjuntor, quadro elétrico | amperagem + tipo (mono/bi/tri) |
+| `registros` | registro, válvula | aplicação (água/gás) + tamanho |
+| `cimento_argamassa` | cimento, argamassa, rejunte, AC1/AC2 | tipo + quantidade sacos |
+| `caixas_dagua` | caixa d'água, reservatório | capacidade + material |
+| `ferramentas_manuais` | ferramenta, martelo, alicate, chave de fenda, trena | qual + uso (prof/dom) |
+| `pregos_parafusos` | prego, parafuso, bucha, fixação | qual + tamanho |
+
+Todas com 1 stage, 2 fields, max_score=30, exit_action=handoff.
+
+**VALID_KEYS expandido com 20 keys novas:** tipo_vaso, cor_vaso, tipo_chuveiro, voltagem_chuveiro, tipo_lampada, potencia_lampada, tipo_eletrico, quantidade_eletrico, amperagem_disjuntor, tipo_disjuntor, aplicacao_registro, tamanho_registro, tipo_cimento, quantidade_cimento, capacidade_caixa, material_caixa, tipo_ferramenta, uso_ferramenta, tipo_fixacao, tamanho_fixacao.
+
+Edge function v169 em prod.
+
+**Estado final do agente Eletropiso (2026-04-29 fim do dia):**
+- 23 categorias configuradas (cobertura ampla de home center)
+- 13 FAQs na Knowledge Base
+- 17 handoff_triggers
+- business_hours NULL (atende 24h, conforme pedido pelo user)
+- VALID_KEYS com 60+ chaves (40 originais + 20 sufixadas)
+- Aliasing automático no set_tags handler (LLM pode usar key genérica → handler resolve sufixo da categoria)
+- Exit action enforcement no set_tags (atinge max_score → instrução [INTERNO] obrigatória)
+- sdr_flow apontando pro service_categories com regras anti-loop
+
 ### Sprint adicional (mesma sessão) — BusinessHoursEditor (UI semanal)
 
 Após validar que `business_hours` foi cadastrado em formato weekly (Seg-Sex/Sáb/Dom diferenciados) e descobrir que UI atual (`RulesConfig.tsx:184-222`) só editava formato legacy `{start, end}` único, criado componente novo `BusinessHoursEditor.tsx` em `src/components/admin/ai-agent/`. Suporta:
