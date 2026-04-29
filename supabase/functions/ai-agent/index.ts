@@ -2149,6 +2149,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
 
           // M19-S10 v2: score progressivo
           // Antes do merge, calcular contribuição das novas tags ao funil de qualificação e injetar lead_score:N
+          let exitInstruction = ''  // FIX (2026-04-29): instrução pro LLM quando score atinge max do stage
           try {
             const interesse = extractInteresseFromTags(conversation.tags || [])
             const v2Config = getCategoriesOrDefault(agent)
@@ -2176,6 +2177,25 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
                   if (e) log.warn('add_lead_score_event failed', { error: e.message })
                 })
               }
+
+              // FIX (2026-04-29): se score atingiu max_score do stage, instruir LLM a executar exit_action.
+              // Antes: LLM não tinha sinal claro de que stage encerrou — gerava resposta vazia ou repetia perguntas.
+              // Agora: handler retorna instrução explícita junto com confirmação de tags atualizadas.
+              const currentStage = getCurrentStage(newScore, v2Category, v2Config.default)
+              if (newScore >= currentStage.max_score) {
+                const qualSummary = newTags
+                  .filter(t => !t.startsWith('lead_score:') && !t.startsWith('motivo:') && !t.startsWith('interesse:'))
+                  .map(t => t.replace(/_/g, ' '))
+                  .join(', ')
+                if (currentStage.exit_action === 'handoff') {
+                  exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO (score ${newScore}/${currentStage.max_score}). AÇÃO: chame handoff_to_human AGORA com motivo="${interesse || 'qualificacao'} ${qualSummary}". Diga algo como "Vou te conectar com nosso consultor de vendas!" PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei". PROIBIDO fazer mais perguntas — handoff é obrigatório.`
+                } else if (currentStage.exit_action === 'search_products') {
+                  exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO (score ${newScore}/${currentStage.max_score}). AÇÃO: chame search_products AGORA com a query construída a partir das tags coletadas. NÃO faça mais perguntas antes de buscar.`
+                } else if (currentStage.exit_action === 'enrichment') {
+                  exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO. AÇÃO: continue perguntando para enriquecer dados (próximo stage do funil).`
+                }
+                log.info('Stage exit triggered', { stage: currentStage.label, score: newScore, max: currentStage.max_score, exit_action: currentStage.exit_action })
+              }
             }
           } catch (scoreErr) {
             // Score progressivo não pode bloquear o set_tags — log e segue
@@ -2198,13 +2218,13 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             const merged = Array.from(tagMap.values())
             await supabase.from('conversations').update({ tags: merged }).eq('id', conversation_id)
             conversation.tags = merged
-            return `Tags atualizadas: ${merged.join(', ')}`
+            return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}`
           }
 
           // Update local reference for subsequent tool calls
           const merged = updatedConv?.tags || [...(conversation.tags || []), ...newTags]
           conversation.tags = merged
-          return `Tags atualizadas: ${merged.join(', ')}`
+          return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}`
         }
 
         case 'move_kanban': {
