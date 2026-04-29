@@ -96,6 +96,32 @@ total_faqs: 13 ✅ (era 7)
 - Considerar criar categoria `cabos_dados` se Eletropiso cadastrar cabo de rede/HDMI (regex atual `cabo|cabos|fio elétrico|fio eletrico` pega só cabo elétrico)
 - Considerar regex mais específica em `pias` se cliente confundir com "cuba de churrasqueira" (atual: `pia|pias|lavatório|lavatorio|cuba|cubas` — risco baixo)
 
+### Sprint adicional (mesma sessão) — BusinessHoursEditor (UI semanal)
+
+Após validar que `business_hours` foi cadastrado em formato weekly (Seg-Sex/Sáb/Dom diferenciados) e descobrir que UI atual (`RulesConfig.tsx:184-222`) só editava formato legacy `{start, end}` único, criado componente novo `BusinessHoursEditor.tsx` em `src/components/admin/ai-agent/`. Suporta:
+
+- **Master toggle on/off** — off salva `null` (IA atende 24h)
+- **7 dias da semana** com toggle individual (aberto/fechado) + time inputs start/end
+- **Atalhos:** "Comércio padrão" (Seg-Sex 8-18, Sáb 8-12, Dom fechado) e "Apagar tudo"
+- **Migração automática** de formato legacy: `normalizeBusinessHours()` detecta `{start, end}` e expande pra weekly aplicando mesmo horário todos os dias
+- **Validação:** dias abertos com `start >= end` mostram borda vermelha + mensagem
+- **Mensagem fora do horário** integrada (Risco 2 do dia anterior — agente mudo se NULL)
+
+Arquivos:
+- `src/components/admin/ai-agent/BusinessHoursEditor.tsx` (novo, ~205 linhas)
+- `src/components/admin/ai-agent/__tests__/BusinessHoursEditor.test.tsx` (novo, 9 testes)
+- `src/components/admin/ai-agent/RulesConfig.tsx` (substituído card horário comercial por `<BusinessHoursEditor>`)
+
+Localização na UI: Tab **Segurança** do agente IA (não Inteligência — `AIAgentTab.tsx:548` renderiza RulesConfig em `activeTab === 'security'`).
+
+Validação:
+- `tsc 0 erros`
+- `vitest run BusinessHoursEditor.test.tsx` → 9/9 passed
+- Playwright: master OFF → banco null ✅; master ON → preset Comércio Padrão carregado e auto-save persistiu formato weekly completo ✅; master OFF de novo → banco volta a null ✅
+- Screenshot: `.playwright-mcp/business-hours-editor-on.png`
+
+Estado final do banco: `business_hours = NULL` (mantido desligado a pedido do user até ele mandar reativar).
+
 ---
 
 ## 2026-04-28 (Deploy v2 + 16 commits represados → prod)

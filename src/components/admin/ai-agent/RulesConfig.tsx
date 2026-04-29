@@ -3,7 +3,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ShieldAlert, Clock, Frown, Timer, MessageSquare, SearchX } from 'lucide-react';
+import { ShieldAlert, Clock, Frown, MessageSquare, SearchX } from 'lucide-react';
+import { BusinessHoursEditor } from './BusinessHoursEditor';
 
 interface RulesConfigProps {
   config: Record<string, any>;
@@ -180,46 +181,12 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
         </CardContent>
       </Card>
 
-      {/* Horário comercial */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Timer className="w-4 h-4 text-primary" />
-            Horário Comercial
-          </CardTitle>
-          <CardDescription>Defina o horário de funcionamento e a mensagem fora do expediente</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Abertura</Label>
-              <Input
-                type="time"
-                value={config.business_hours?.start || '08:00'}
-                onChange={(e) => onChange({ business_hours: { ...config.business_hours, start: e.target.value } })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Fechamento</Label>
-              <Input
-                type="time"
-                value={config.business_hours?.end || '18:00'}
-                onChange={(e) => onChange({ business_hours: { ...config.business_hours, end: e.target.value } })}
-              />
-            </div>
-          </div>
-          {config.business_hours?.start && config.business_hours?.end && config.business_hours.end <= config.business_hours.start && (
-            <p className="text-[11px] text-destructive font-medium">Horário de fechamento deve ser após a abertura.</p>
-          )}
-          <p className="text-[11px] text-muted-foreground">Fora deste horário, a IA envia a mensagem abaixo em vez de atender.</p>
-          <Textarea
-            value={config.out_of_hours_message || ''}
-            onChange={(e) => onChange({ out_of_hours_message: e.target.value })}
-            placeholder="Estamos fora do horário de atendimento. Retornaremos em breve!"
-            className="min-h-[60px] resize-none"
-          />
-        </CardContent>
-      </Card>
+      <BusinessHoursEditor
+        value={config.business_hours}
+        onChange={(newValue) => onChange({ business_hours: newValue })}
+        outOfHoursMessage={config.out_of_hours_message || ''}
+        onOutOfHoursMessageChange={(text) => onChange({ out_of_hours_message: text })}
+      />
     </div>
   );
 }
