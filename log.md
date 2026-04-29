@@ -7,6 +7,97 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-04-29 (Eletropiso — 10 categorias novas + FAQs + business_hours)
+
+### Goal & contexto
+
+Sprint completa em uma sessão única, autorizada com carta branca: configurar 10 novas categorias de qualificação no agente Eletropiso (instância única de prod), seguindo padrão Service Categories v2 (M19-S10). Catálogo da loja tem hoje só 7 produtos cadastrados — então **estratégia handoff** em todas as categorias novas (cliente é qualificado e passado pra vendedor humano). Conforme catálogo crescer, basta mudar `exit_action: handoff → search_products` por categoria.
+
+### 10 categorias novas (estrutura)
+
+Cada categoria tem 1 stage, score 0-30, exit_action=handoff, fields com score_value distribuído igual (15+15 ou 10+10+10).
+
+| # | Categoria | Fields (perguntas) | Phrasing |
+|---|-----------|--------------------|----------|
+| 1 | `portas` | material_porta, ambiente_porta, tipo_porta | "Pra te ajudar com a porta certa, {label}? ({examples})" |
+| 2 | `churrasqueiras` | tipo_churrasqueira (1 só) | "Temos churrasqueira pré-moldada e de alumínio. Qual delas te interessa?" |
+| 3 | `revestimentos` (cerâmica + porcelanato) | ambiente_revestimento, aplicacao_revestimento | "Pra encontrar a melhor opção, {label}? ({examples})" |
+| 4 | `fechaduras` | ambiente_fechadura, tipo_fechadura | "Pra te ajudar a escolher a fechadura certa, {label}? ({examples})" |
+| 5 | `escadas` | tipo_escada, degraus | "Pra encontrar a escada certa, {label}? ({examples})" |
+| 6 | `pias` (cozinha + banheiro/lavatório) | ambiente_pia, material_pia | "Pra te ajudar a escolher, {label}? ({examples})" |
+| 7 | `janelas` | material_janela, tamanho_janela | "Pra encontrar a janela certa, {label}? ({examples})" |
+| 8 | `cabos` (elétricos) | aplicacao_cabo, bitola | "Pra te ajudar com o cabo certo, {label}? ({examples})" |
+| 9 | `furadeiras` | voltagem, marca_furadeira | "Pra encontrar a furadeira certa, {label}? ({examples})" |
+| 10 | `canos` (funde 50+100) | diametro, tipo_cano | "Pra te ajudar, {label}? ({examples})" |
+
+Tintas (3 stages, search→enrich→handoff) e Impermeabilizantes (2 stages, search→handoff) **preservadas idênticas**. Default fallback intacto.
+
+### Achado bloqueador resolvido (R81 candidata)
+
+Antes de aplicar dado, descoberto que `set_tags` handler em `ai-agent/index.ts:2080` tem whitelist `VALID_KEYS` (Set) — chaves novas seriam rejeitadas silenciosamente, score nunca subiria, exit_action nunca dispararia. Adicionadas 20 strings novas ao Set (1 linha modificada). Mudança puramente aditiva — keys antigas continuam funcionando. SYNC RULE auditada: itens 2/3/4/6/7 não se aplicam (Set é interno ao edge function); item 8 (docs) cumprido nesta entrada.
+
+**Risco 2 mitigado:** descobri durante auditoria que cadastrar `business_hours` sem `out_of_hours_message` deixa agente **mudo** fora do horário (linhas 268-280 — `if (agent.out_of_hours_message)` é falso, mas `return skip` é executado). Cadastrei a mensagem junto.
+
+### Execução em 5 fases
+
+1. **Backup** local em `.planning/phases/eletropiso-categories-2026-04-29/BACKUP.json` (rollback trivial)
+2. **Edit code** `ai-agent/index.ts:2080` — VALID_KEYS expandido com 20 keys; `tsc 0 erros`, `vitest 550 passed` (5 falhas pré-existentes em FormBuilder/useForms — não relacionadas)
+3. **Deploy edge** via `npx supabase functions deploy ai-agent --no-verify-jwt --project-ref euljumeflwtljegknawy` (token do vault) — versão nova em prod
+4. **Aplicação no banco** via `mcp__supabase__execute_sql`:
+   - `UPDATE ai_agents` (service_categories JSONB com 12 categorias + 17 handoff_triggers + business_hours + out_of_hours_message)
+   - `INSERT INTO ai_agent_knowledge` × 6 FAQs (positions 8-13)
+5. **Validação UI** via Playwright — login persistente + navegação tab Qualificação + evaluate JS confirmou 12/12 categorias renderizadas. Screenshot: `.playwright-mcp/qualification-tab-12-categorias.png`
+
+### 6 FAQs novas (Knowledge Base)
+
+| Position | Tema |
+|----------|------|
+| 8 | O que é batente / Diferença entre kit completo e folha de porta |
+| 9 | R10 vs R11 / Cerâmica antiderrapante / NBR 13818 |
+| 10 | Diferença entre escada extensiva, articulada e plataforma |
+| 11 | Furadeira 220v vs 12v / Com fio vs bateria |
+| 12 | PVC marrom vs branco / Cano de água vs esgoto |
+| 13 | Churrasqueira pré-moldada vs alumínio |
+
+### 7 gatilhos handoff novos
+
+`'não entendi', 'nao entendi', 'não sei', 'nao sei', 'me explica', 'não conheço', 'nao conheco'` — adicionados aos 10 existentes (vendedor, atendente, humano, gerente, preco, desconto, negociar, parcelar, entrega, frete). Total: 17.
+
+### Validação final via SQL
+
+```
+total_categorias: 12 ✅
+ids_categorias: [cabos, canos, churrasqueiras, escadas, fechaduras, furadeiras,
+                 impermeabilizantes, janelas, pias, portas, revestimentos, tintas] ✅
+total_triggers: 17 ✅
+tem_business_hours: true ✅
+tem_oof_msg: true ✅
+total_faqs: 13 ✅ (era 7)
+```
+
+### Decisões UX que viraram regra
+
+- **Stage único com 1 pergunta = score=30 = `max_score=30` = `exit_action: handoff`** — padrão pra qualquer categoria sem catálogo
+- **Sufixo de categoria nas keys** (ex: `material_porta`, `material_pia`, `material_janela`) — evita conflito de tag entre conversas que mencionam múltiplas categorias
+- **Phrasing literal** (sem placeholders) é válido — categoria churrasqueiras usa "Temos churrasqueira pré-moldada e de alumínio. Qual delas te interessa?" sem `{label}`/`{examples}`
+- **Categorias sem catálogo** com `exit_action: handoff` direto não impedem `search_products` — LLM ainda chama busca quando lead menciona produto específico (regra hardcoded BUSCA OBRIGATÓRIA ANTES DE HANDOFF, `index.ts:1180`)
+
+### Notas finais (regra 13 do CLAUDE.md)
+
+- (a) **Conteúdo: 9.5/10** — 10 categorias estruturadas, FAQs com texto definitivo, regex `interesse_match` cobrindo sinônimos comuns (português correto + sem acento), score balanceado, business_hours + out_of_hours_message juntos pra evitar agente mudo. Único débito: smoke conversational pulado (validado por SQL+UI).
+- (b) **Orquestração: 9/10** — log.md, PRD.md changelog v7.15.0, wiki/ai-agent.md (VALID_KEYS), decisoes-chave.md (D27) cruzados; backup em `.planning/phases/`. Não atualizei `wiki/erros-e-licoes.md` (R81) porque mudança é aditiva sem incidente real.
+- (c) **Vault: 9/10** — log.md sob 200 linhas após arquivamento (vou rotacionar em sessão futura); planning files novos (BACKUP+NEW_STATE+ui-screenshot); PRD entrada v7.15.0 conforme regra 17.
+
+### Pendências operacionais
+
+- À medida que Eletropiso cadastrar produtos (porta, escada, fechadura, etc.), mudar `exit_action: handoff → search_products` no stage da categoria correspondente — 1 SQL update por categoria, ~30s cada
+- Rodar Agent QA Framework batch (M2 F4) com cenários por categoria pra validar cobertura
+- Smoke E2E manual via Playground ou WhatsApp real ao retomar
+- Considerar criar categoria `cabos_dados` se Eletropiso cadastrar cabo de rede/HDMI (regex atual `cabo|cabos|fio elétrico|fio eletrico` pega só cabo elétrico)
+- Considerar regex mais específica em `pias` se cliente confundir com "cuba de churrasqueira" (atual: `pia|pias|lavatório|lavatorio|cuba|cubas` — risco baixo)
+
+---
+
 ## 2026-04-28 (Deploy v2 + 16 commits represados → prod)
 
 ### Causa raiz
@@ -64,6 +155,43 @@ Validação Playwright em `https://crm.wsmart.com.br/dashboard/ai-agent` (com `l
 ### Lição operacional registrada (R80 candidata)
 
 **NUNCA acumular commits represados em local master por > 1 sprint.** A divergência entre backend (deployado feature-a-feature via MCP) e frontend (esperando `git push`) cria janelas de descompasso silencioso que só são detectadas por validação manual. Sugestão futura: hook pré-commit avisando se origin/master está mais de 5 commits atrás, ou política "push após cada feature concluída". Webhook do Portainer (`/api/webhooks/34259f8a-…`) é a forma rápida de forçar redeploy sem entrar na UI.
+
+### Deploy 2 — v3 UX redesign + fix score-cap (mesma sessão, ~1h depois)
+
+Após validação do deploy v2, usuário identificou 2 issues na UX em prod: (1) "ainda muito técnico" — redesign v3 não havia sido pushado, ficou parado em `feat/qualif-ux-redesign`; (2) banner vermelho "Corrija os erros antes de salvar" disparando indevidamente em score-cap proposital (Stage 2 com soma 40 em range 30 — válido como score-cap, é warning amber, não erro).
+
+**Operação:** commit `adb2bda` em `feat/qualif-ux-redesign` (10 files, +1240/-179) → `git checkout master` → `git merge feat/qualif-ux-redesign --ff-only` → `git push origin master` (859dd3a..adb2bda) → CI 46s success → webhook `https://app.wsmart.com.br/api/webhooks/34259f8a-…` HTTP 204 → bundle prod `index-DrJ0Utbx.js` → `index-0egZ2ilZ.js` em ~30s.
+
+**Fix score-cap:** novo helper `stageHasBlockingError()` em `ServiceCategoriesConfig.tsx` linhas 335-344. Antes: `categoryHasErrors`/`defaultHasErrors` consideravam scoreCap como erro bloqueante (disparando banner vermelho). Depois: ignoram scoreCap (continua só renderizando o aviso amber inline ao lado do field). Banner vermelho agora só dispara em erros REAIS (id duplicado, range inválido, overlap, phrasing vazio, fields com chave inválida).
+
+**Validação prod pós-redeploy 2 (Playwright em `https://crm.wsmart.com.br`):**
+
+| Check | Resultado |
+|-------|-----------|
+| Bundle hash | `index-0egZ2ilZ.js` ✅ |
+| Toggle Iniciante/Avançado visível | ✅ Iniciante=active (default) |
+| "Categorias de atendimento" (lower) | ✅ |
+| Tintas expandida — modo Iniciante | ✅ |
+| "Nome do tipo de produto" | ✅ |
+| "Como o cliente costuma chamar" | ✅ |
+| "Identificador interno" oculto (Iniciante) | ✅ |
+| Exit Action emoji "🔍 IA busca produto" | ✅ |
+| Exit Action "👤 Chama vendedor humano" | ✅ |
+| Exit Action "➕ Continua perguntando" | ✅ |
+| "Nome desta etapa" | ✅ |
+| "Quando avançar para próxima etapa" | ✅ |
+| "Começa em / Termina em" + sufixo pts | ✅ |
+| "Peso da pergunta" | ✅ |
+| RadioGroup Leve/Médio/Importante | ✅ |
+| "Nome da pergunta" | ✅ |
+| "Perguntas desta etapa" | ✅ |
+| "Texto da pergunta" + chips "Inserir" | ✅ |
+| CSV format `tinta, esmalte, verniz` | ✅ |
+| **Banner vermelho "Corrija os erros"** | ✅ **NÃO aparece** (fix score-cap funcionou) |
+
+### Status final
+
+✅ Em prod: tab Qualificacao + UX didática (modo Iniciante default) + fontes maiores + tooltips + chips de inserção + RadioGroup score + score-cap como warning não-bloqueante. 16 commits represados + 1 commit v3 = 17 commits totalmente deployed em ~3h. Trabalho 100% backward-compat (slugs preservados em modo Iniciante via guardrail M1).
 
 ### Lição (R80 candidata)
 

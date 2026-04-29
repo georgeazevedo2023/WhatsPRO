@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.14.0 | **Última atualização**: 2026-04-27 | **Status**: Produção + OpenAI gpt-4.1-mini + 38 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente (Motor+Perfis+Enquetes+NPS) + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 (Métricas + IA Conversacional + DB Monitoring & Auto-Cleanup) + M19 S10 v2 Service Categories Stages+Score
+> **Versão**: 7.15.0 | **Última atualização**: 2026-04-29 | **Status**: Produção + OpenAI gpt-4.1-mini + 38 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente (Motor+Perfis+Enquetes+NPS) + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 (Métricas + IA Conversacional + DB Monitoring & Auto-Cleanup) + M19 S10 v2 Service Categories Stages+Score + Eletropiso 10 Categorias
 
 ## Visão Geral
 
@@ -39,6 +39,48 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.15.0 (2026-04-29) — Eletropiso: 10 Categorias Novas + 6 FAQs + business_hours
+
+Sprint completa de configuração no agente Eletropiso (instância única de prod). Catálogo da loja tem 7 produtos cadastrados — estratégia **handoff em todas as categorias novas**: cliente é qualificado e passado pra vendedor humano. Conforme catálogo crescer, basta mudar `exit_action: handoff → search_products` por categoria.
+
+**10 categorias novas em `ai_agents.service_categories`:**
+
+| Categoria | Fields | Phrasing key |
+|-----------|--------|--------------|
+| `portas` | material_porta, ambiente_porta, tipo_porta | "Pra te ajudar com a porta certa..." |
+| `churrasqueiras` | tipo_churrasqueira | "Temos pré-moldada e de alumínio. Qual delas..." |
+| `revestimentos` (cerâmica + porcelanato) | ambiente_revestimento, aplicacao_revestimento | "Pra encontrar a melhor opção..." |
+| `fechaduras` | ambiente_fechadura, tipo_fechadura | "Pra te ajudar a escolher a fechadura..." |
+| `escadas` | tipo_escada, degraus | "Pra encontrar a escada certa..." |
+| `pias` (cozinha + lavatório) | ambiente_pia, material_pia | "Pra te ajudar a escolher..." |
+| `janelas` | material_janela, tamanho_janela | "Pra encontrar a janela certa..." |
+| `cabos` (elétricos) | aplicacao_cabo, bitola | "Pra te ajudar com o cabo certo..." |
+| `furadeiras` | voltagem, marca_furadeira | "Pra encontrar a furadeira certa..." |
+| `canos` (funde 50+100) | diametro, tipo_cano | "Pra te ajudar..." |
+
+Tintas (3 stages, search→enrich→handoff) e Impermeabilizantes (2 stages) **preservadas idênticas**.
+
+**Backend (HIGH RISK file editado):**
+- `supabase/functions/ai-agent/index.ts:2080` — VALID_KEYS expandido com 20 strings novas (`material_porta`, `ambiente_porta`, `tipo_porta`, `tipo_churrasqueira`, `ambiente_revestimento`, `aplicacao_revestimento`, `ambiente_fechadura`, `tipo_fechadura`, `tipo_escada`, `degraus`, `ambiente_pia`, `material_pia`, `material_janela`, `tamanho_janela`, `aplicacao_cabo`, `bitola`, `voltagem`, `marca_furadeira`, `diametro`, `tipo_cano`). Mudança puramente aditiva — sem regressão.
+- Deploy edge function via `npx supabase functions deploy ai-agent --no-verify-jwt --project-ref euljumeflwtljegknawy`
+
+**Knowledge Base — 6 FAQs novas:**
+1. O que é batente / kit completo vs folha de porta
+2. R10 vs R11 / cerâmica antiderrapante / NBR 13818
+3. Diferença entre escada extensiva, articulada e plataforma
+4. Furadeira 220v vs 12v / com fio vs bateria
+5. PVC marrom vs branco / cano de água vs esgoto
+6. Churrasqueira pré-moldada vs alumínio
+
+**Outros ajustes:**
+- 7 gatilhos handoff novos: `não entendi`, `nao entendi`, `não sei`, `nao sei`, `me explica`, `não conheço`, `nao conheco` — total 17 (era 10)
+- `business_hours` cadastrado: Seg-Sex 8h-18h, Sáb 8h-12h, Dom fechado
+- `out_of_hours_message` cadastrado junto (Risco 2 mitigado: `if (out_of_hours_message)` em `index.ts:268` — sem isso agente fica mudo fora do horário)
+
+**Decisão D27** | **Regra R81 (candidata)** | **SYNC RULE 8 itens cumprida**
+
+**Backward compat:** tintas e impermeabilizantes preservados; conversas ativas não afetadas (service_categories resolvido a cada mensagem); FAQs existentes intactas; tags antigas continuam funcionando.
 
 ### v7.14.0 (2026-04-27) — M19-S10 v2: Service Categories com Stages + Score Progressivo
 

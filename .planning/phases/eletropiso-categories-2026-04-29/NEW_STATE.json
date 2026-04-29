@@ -1,0 +1,348 @@
+{
+  "_meta": {
+    "applied_at": "2026-04-29",
+    "agent_id": "174af654-c370-431f-8443-1c9352155a16",
+    "agent_name": "Eletropiso",
+    "purpose": "Add 10 new service categories (handoff strategy) + 6 FAQs + 4 handoff_triggers + business_hours + out_of_hours_message"
+  },
+  "service_categories": {
+    "default": {
+      "stages": [
+        {
+          "id": "qualificacao_basica",
+          "label": "Qualificação básica",
+          "fields": [
+            { "key": "especificacao", "label": "detalhes", "examples": "qualquer informação relevante", "priority": 1, "score_value": 25 },
+            { "key": "marca_preferida", "label": "marca preferida", "examples": "", "priority": 2, "score_value": 25 },
+            { "key": "quantidade", "label": "quantidade necessária", "examples": "", "priority": 3, "score_value": 25 }
+          ],
+          "phrasing": "Para te ajudar melhor, me conta {label}?",
+          "max_score": 100,
+          "min_score": 0,
+          "exit_action": "handoff"
+        }
+      ]
+    },
+    "categories": [
+      {
+        "id": "tintas",
+        "label": "Tintas e Vernizes",
+        "interesse_match": "tinta|esmalte|verniz|impermeabilizante",
+        "stages": [
+          {
+            "id": "identificacao",
+            "label": "Identificação",
+            "fields": [
+              { "key": "ambiente", "label": "ambiente", "examples": "interno ou externo", "priority": 1, "score_value": 15 },
+              { "key": "tipo_tinta", "label": "tipo de tinta", "examples": "acrílica, esmalte sintético, epóxi", "priority": 2, "score_value": 10 },
+              { "key": "cor", "label": "cor", "examples": "branco, cinza, etc.", "priority": 3, "score_value": 15 }
+            ],
+            "phrasing": "Para encontrar a melhor opção, qual {label}? ({examples})",
+            "max_score": 40,
+            "min_score": 0,
+            "exit_action": "search_products"
+          },
+          {
+            "id": "detalhamento",
+            "label": "Detalhamento",
+            "fields": [
+              { "key": "acabamento", "label": "acabamento", "examples": "fosco, acetinado, brilho, semibrilho", "priority": 1, "score_value": 20 },
+              { "key": "marca_preferida", "label": "marca preferida", "examples": "Coral, Suvinil", "priority": 2, "score_value": 20 }
+            ],
+            "phrasing": "Certo! E sobre {label}, prefere {examples}?",
+            "max_score": 70,
+            "min_score": 40,
+            "exit_action": "enrichment"
+          },
+          {
+            "id": "fechamento",
+            "label": "Pronto para Handoff",
+            "fields": [
+              { "key": "quantidade", "label": "quantidade", "examples": "litros ou galões", "priority": 1, "score_value": 15 },
+              { "key": "area", "label": "metragem da área", "examples": "em m²", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Antes de te conectar com o vendedor, {label}?",
+            "max_score": 100,
+            "min_score": 70,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "impermeabilizantes",
+        "label": "Impermeabilizantes e Mantas",
+        "interesse_match": "impermeabilizante|manta",
+        "stages": [
+          {
+            "id": "triagem",
+            "label": "Triagem",
+            "fields": [
+              { "key": "area", "label": "área", "examples": "tamanho da área", "priority": 1, "score_value": 30 },
+              { "key": "aplicacao", "label": "tipo de aplicação", "examples": "laje, parede, piso", "priority": 2, "score_value": 30 }
+            ],
+            "phrasing": "Para encontrar a melhor opção, qual {label}? ({examples})",
+            "max_score": 60,
+            "min_score": 0,
+            "exit_action": "search_products"
+          },
+          {
+            "id": "fechamento",
+            "label": "Pronto para Handoff",
+            "fields": [
+              { "key": "marca_preferida", "label": "marca preferida", "examples": "", "priority": 1, "score_value": 40 }
+            ],
+            "phrasing": "Antes de transferir, {label}?",
+            "max_score": 100,
+            "min_score": 60,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "portas",
+        "label": "Portas",
+        "interesse_match": "porta|portas",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "material_porta", "label": "material", "examples": "madeira, PVC ou alumínio", "priority": 1, "score_value": 10 },
+              { "key": "ambiente_porta", "label": "ambiente", "examples": "sala, cozinha, quarto ou banheiro", "priority": 2, "score_value": 10 },
+              { "key": "tipo_porta", "label": "tipo", "examples": "frisada ou lisa", "priority": 3, "score_value": 10 }
+            ],
+            "phrasing": "Pra te ajudar com a porta certa, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "churrasqueiras",
+        "label": "Churrasqueiras",
+        "interesse_match": "churrasqueira|churrasqueiras|churrasco",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "tipo_churrasqueira", "label": "tipo", "examples": "pré-moldada ou alumínio", "priority": 1, "score_value": 30 }
+            ],
+            "phrasing": "Temos churrasqueira pré-moldada e de alumínio. Qual delas te interessa?",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "revestimentos",
+        "label": "Cerâmicas e Porcelanatos",
+        "interesse_match": "cerâmica|ceramica|cerâmicas|ceramicas|porcelanato|porcelanatos|revestimento|revestimentos|azulejo|azulejos",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "ambiente_revestimento", "label": "ambiente", "examples": "interno ou externo", "priority": 1, "score_value": 15 },
+              { "key": "aplicacao_revestimento", "label": "aplicação", "examples": "piso ou parede", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Pra encontrar a melhor opção, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "fechaduras",
+        "label": "Fechaduras",
+        "interesse_match": "fechadura|fechaduras|trinco|trincos|cadeado|cadeados",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "ambiente_fechadura", "label": "ambiente", "examples": "interno ou externo (porta de entrada)", "priority": 1, "score_value": 15 },
+              { "key": "tipo_fechadura", "label": "tipo", "examples": "rolete, tetra-chave ou digital", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Pra te ajudar a escolher a fechadura certa, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "escadas",
+        "label": "Escadas",
+        "interesse_match": "escada|escadas",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "tipo_escada", "label": "tipo", "examples": "extensiva, articulada/multifuncional ou plataforma", "priority": 1, "score_value": 15 },
+              { "key": "degraus", "label": "quantidade de degraus", "examples": "5, 7, 8 degraus", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Pra encontrar a escada certa, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "pias",
+        "label": "Pias e Lavatórios",
+        "interesse_match": "pia|pias|lavatório|lavatorio|lavatórios|lavatorios|cuba|cubas",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "ambiente_pia", "label": "ambiente", "examples": "cozinha ou banheiro", "priority": 1, "score_value": 15 },
+              { "key": "material_pia", "label": "material", "examples": "granito, mármore, inox ou sintético", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Pra te ajudar a escolher, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "janelas",
+        "label": "Janelas",
+        "interesse_match": "janela|janelas",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "material_janela", "label": "material", "examples": "madeira ou alumínio", "priority": 1, "score_value": 15 },
+              { "key": "tamanho_janela", "label": "tamanho", "examples": "largura x altura, em cm", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Pra encontrar a janela certa, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "cabos",
+        "label": "Cabos Elétricos",
+        "interesse_match": "cabo|cabos|fio elétrico|fio eletrico",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "aplicacao_cabo", "label": "aplicação", "examples": "instalação predial (tomada, lâmpada) ou força (chuveiro, forno, ar-condicionado)", "priority": 1, "score_value": 15 },
+              { "key": "bitola", "label": "bitola", "examples": "1.5mm, 2.5mm, 4mm, 6mm ou 10mm", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Pra te ajudar com o cabo certo, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "furadeiras",
+        "label": "Furadeiras",
+        "interesse_match": "furadeira|furadeiras|parafusadeira|parafusadeiras",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "voltagem", "label": "voltagem", "examples": "220v (com fio) ou 12v (bateria/sem fio)", "priority": 1, "score_value": 15 },
+              { "key": "marca_furadeira", "label": "marca", "examples": "Bosch, Makita, Black&Decker, Vonder ou qualquer", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Pra encontrar a furadeira certa, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      },
+      {
+        "id": "canos",
+        "label": "Canos e Tubos",
+        "interesse_match": "cano|canos|tubo|tubos|tubulação|tubulacao",
+        "stages": [
+          {
+            "id": "qualificacao",
+            "label": "Qualificação",
+            "fields": [
+              { "key": "diametro", "label": "diâmetro", "examples": "25, 32, 40, 50, 75, 100 ou 150 mm", "priority": 1, "score_value": 15 },
+              { "key": "tipo_cano", "label": "tipo", "examples": "água ou esgoto", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Pra te ajudar, {label}? ({examples})",
+            "max_score": 30,
+            "min_score": 0,
+            "exit_action": "handoff"
+          }
+        ]
+      }
+    ]
+  },
+  "handoff_triggers_added": ["não entendi", "nao entendi", "não sei", "nao sei", "me explica", "não conheço", "nao conheco"],
+  "business_hours": {
+    "mon": { "open": true, "start": "08:00", "end": "18:00" },
+    "tue": { "open": true, "start": "08:00", "end": "18:00" },
+    "wed": { "open": true, "start": "08:00", "end": "18:00" },
+    "thu": { "open": true, "start": "08:00", "end": "18:00" },
+    "fri": { "open": true, "start": "08:00", "end": "18:00" },
+    "sat": { "open": true, "start": "08:00", "end": "12:00" },
+    "sun": { "open": false, "start": "00:00", "end": "00:00" }
+  },
+  "out_of_hours_message": "Olá! 😊 Estamos fora do nosso horário de atendimento agora. Nosso horário é de Segunda a Sexta das 8h às 18h e Sábado das 8h às 12h. Sua mensagem foi recebida e retornaremos assim que possível!",
+  "valid_keys_added_to_ai_agent_index_ts": [
+    "material_porta", "ambiente_porta", "tipo_porta",
+    "tipo_churrasqueira",
+    "ambiente_revestimento", "aplicacao_revestimento",
+    "ambiente_fechadura", "tipo_fechadura",
+    "tipo_escada", "degraus",
+    "ambiente_pia", "material_pia",
+    "material_janela", "tamanho_janela",
+    "aplicacao_cabo", "bitola",
+    "voltagem", "marca_furadeira",
+    "diametro", "tipo_cano"
+  ],
+  "knowledge_base_faqs_added": [
+    {
+      "type": "faq",
+      "title": "O que é batente? / Diferença entre kit completo e folha de porta",
+      "content_short": "Explica que batente é o quadro de madeira que envolve a porta (moldura). Kit completo = folha + batente; só folha = sem moldura."
+    },
+    {
+      "type": "faq",
+      "title": "Qual a diferença entre R10 e R11? / Cerâmica antiderrapante / Piso de área molhada",
+      "content_short": "R10 antiderrapante padrão (varanda, sacada). R11 antiderrapante reforçado (piscina, área molhada). REGRA: cerâmica externa em área molhada DEVE ser antiderrapante por norma NBR 13818."
+    },
+    {
+      "type": "faq",
+      "title": "Diferença entre escada extensiva, articulada e plataforma",
+      "content_short": "Extensiva = 2 partes que deslizam (alturas maiores). Articulada/multifuncional = 4 articulações (vira A, I, plataforma). Plataforma = doméstica baixa com plataforma no topo."
+    },
+    {
+      "type": "faq",
+      "title": "Furadeira 220v ou 12v? / Com fio ou bateria?",
+      "content_short": "220v = com fio (potência alta, uso doméstico em tomada). 12v = bateria/sem fio (mobilidade, ideal pra trabalho em altura ou onde não tem tomada perto)."
+    },
+    {
+      "type": "faq",
+      "title": "Cano de água é diferente de esgoto? / PVC marrom / PVC branco",
+      "content_short": "Sim. Cano de água (PVC marrom, soldável) é pressurizado, paredes mais grossas. Cano de esgoto (PVC branco) é por gravidade, paredes mais finas. Não pode trocar um pelo outro."
+    },
+    {
+      "type": "faq",
+      "title": "Churrasqueira pré-moldada ou alumínio? / Qual escolher?",
+      "content_short": "Pré-moldada = alvenaria fixa, mais durável e tradicional, exige instalação. Alumínio = portátil, leve, ideal pra apartamento ou área externa pequena. Pré-moldada é mais consultiva (medir espaço); alumínio é venda direta."
+    }
+  ]
+}

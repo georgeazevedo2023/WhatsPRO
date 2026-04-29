@@ -1,0 +1,107 @@
+{
+  "_meta": {
+    "captured_at": "2026-04-29",
+    "agent_id": "174af654-c370-431f-8443-1c9352155a16",
+    "agent_name": "Eletropiso",
+    "purpose": "Pre-sprint backup before adding 10 new service categories"
+  },
+  "service_categories": {
+    "default": {
+      "stages": [
+        {
+          "id": "qualificacao_basica",
+          "label": "Qualificação básica",
+          "fields": [
+            { "key": "especificacao", "label": "detalhes", "examples": "qualquer informação relevante", "priority": 1, "score_value": 25 },
+            { "key": "marca_preferida", "label": "marca preferida", "examples": "", "priority": 2, "score_value": 25 },
+            { "key": "quantidade", "label": "quantidade necessária", "examples": "", "priority": 3, "score_value": 25 }
+          ],
+          "phrasing": "Para te ajudar melhor, me conta {label}?",
+          "max_score": 100,
+          "min_score": 0,
+          "exit_action": "handoff"
+        }
+      ]
+    },
+    "categories": [
+      {
+        "id": "tintas",
+        "label": "Tintas e Vernizes",
+        "stages": [
+          {
+            "id": "identificacao",
+            "label": "Identificação",
+            "fields": [
+              { "key": "ambiente", "label": "ambiente", "examples": "interno ou externo", "priority": 1, "score_value": 15 },
+              { "key": "tipo_tinta", "label": "tipo de tinta", "examples": "acrílica, esmalte sintético, epóxi", "priority": 2, "score_value": 10 },
+              { "key": "cor", "label": "cor", "examples": "branco, cinza, etc.", "priority": 3, "score_value": 15 }
+            ],
+            "phrasing": "Para encontrar a melhor opção, qual {label}? ({examples})",
+            "max_score": 40,
+            "min_score": 0,
+            "exit_action": "search_products"
+          },
+          {
+            "id": "detalhamento",
+            "label": "Detalhamento",
+            "fields": [
+              { "key": "acabamento", "label": "acabamento", "examples": "fosco, acetinado, brilho, semibrilho", "priority": 1, "score_value": 20 },
+              { "key": "marca_preferida", "label": "marca preferida", "examples": "Coral, Suvinil", "priority": 2, "score_value": 20 }
+            ],
+            "phrasing": "Certo! E sobre {label}, prefere {examples}?",
+            "max_score": 70,
+            "min_score": 40,
+            "exit_action": "enrichment"
+          },
+          {
+            "id": "fechamento",
+            "label": "Pronto para Handoff",
+            "fields": [
+              { "key": "quantidade", "label": "quantidade", "examples": "litros ou galões", "priority": 1, "score_value": 15 },
+              { "key": "area", "label": "metragem da área", "examples": "em m²", "priority": 2, "score_value": 15 }
+            ],
+            "phrasing": "Antes de te conectar com o vendedor, {label}?",
+            "max_score": 100,
+            "min_score": 70,
+            "exit_action": "handoff"
+          }
+        ],
+        "interesse_match": "tinta|esmalte|verniz|impermeabilizante"
+      },
+      {
+        "id": "impermeabilizantes",
+        "label": "Impermeabilizantes e Mantas",
+        "stages": [
+          {
+            "id": "triagem",
+            "label": "Triagem",
+            "fields": [
+              { "key": "area", "label": "área", "examples": "tamanho da área", "priority": 1, "score_value": 30 },
+              { "key": "aplicacao", "label": "tipo de aplicação", "examples": "laje, parede, piso", "priority": 2, "score_value": 30 }
+            ],
+            "phrasing": "Para encontrar a melhor opção, qual {label}? ({examples})",
+            "max_score": 60,
+            "min_score": 0,
+            "exit_action": "search_products"
+          },
+          {
+            "id": "fechamento",
+            "label": "Pronto para Handoff",
+            "fields": [
+              { "key": "marca_preferida", "label": "marca preferida", "examples": "", "priority": 1, "score_value": 40 }
+            ],
+            "phrasing": "Antes de transferir, {label}?",
+            "max_score": 100,
+            "min_score": 60,
+            "exit_action": "handoff"
+          }
+        ],
+        "interesse_match": "impermeabilizante|manta"
+      }
+    ]
+  },
+  "handoff_triggers": ["vendedor","atendente","humano","gerente","preco","desconto","negociar","parcelar","entrega","frete"],
+  "business_hours": null,
+  "knowledge_base_count": 7,
+  "rollback_sql_template": "UPDATE ai_agents SET service_categories = '<paste service_categories above as JSON string>'::jsonb, handoff_triggers = ARRAY['vendedor','atendente','humano','gerente','preco','desconto','negociar','parcelar','entrega','frete'], business_hours = NULL WHERE id = '174af654-c370-431f-8443-1c9352155a16';"
+}

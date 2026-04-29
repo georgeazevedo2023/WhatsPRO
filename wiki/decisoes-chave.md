@@ -130,6 +130,30 @@ CLAUDE.md 373→96 linhas. Conteúdo migrado: [[RULES.md]] (regras) | [[ARCHITEC
 
 **Não unifica:** `extraction_fields` (campos do perfil do lead — outro conceito), `prompt_sections` (texto livre).
 
+## D27 — Eletropiso: estratégia handoff-first em catálogo embrionário (2026-04-29)
+
+**Contexto:** agente Eletropiso (instância única de prod) tem catálogo com 7 produtos cadastrados, mas vai atender vários nichos (porta, fechadura, escada, cano, cabo, furadeira, churrasqueira, janela, pia, cerâmica). Não dá pra esperar catálogo crescer pra começar a usar IA — usuário quer começar agora.
+
+**Decisão:** configurar 10 categorias novas com `exit_action: handoff` direto (pula search_products) — IA qualifica (1-3 perguntas por categoria) e passa pra vendedor humano com contexto completo. Conforme catálogo crescer, mudar `exit_action: handoff → search_products` por categoria (1 SQL update, ~30s). **Tintas e impermeabilizantes preservadas** — essas têm catálogo e mantêm `search_products` no Stage 1.
+
+**Por que não cadastrar catálogo primeiro:** sprint do user precisa entregar valor agora; catálogo cresce em paralelo; estrutura preparada destrava migração 1-a-1.
+
+**Por que não usar `default` (qualificação básica) pra todas:** default tem só 1 stage genérico (especificacao + marca + quantidade). Categorias específicas (`material_porta`, `tipo_fechadura`, `bitola`) capturam dado de qualidade muito superior pra vendedor.
+
+**Convenções derivadas:**
+- **Sufixo de categoria nas keys** (ex: `material_porta`, `material_pia`, `material_janela`) — evita conflito de tag entre múltiplas categorias na mesma conversa
+- **Phrasing literal** sem placeholders é válido (ex: churrasqueiras: "Temos churrasqueira pré-moldada e de alumínio. Qual delas te interessa?")
+- **`exit_action: handoff` não impede `search_products`** — LLM ainda chama busca quando lead menciona produto específico (regra hardcoded BUSCA OBRIGATÓRIA, `index.ts:1180`); mecanismo aditivo
+
+**SYNC RULE auditada:**
+- Item 1 (banco): UPDATE service_categories ✅
+- Itens 2-7: não se aplicam (Set VALID_KEYS é interno ao edge function; tipos não expostos)
+- Item 8 (docs): cumprido aqui
+
+**Rollback:** trivial via `BACKUP.json` em `.planning/phases/eletropiso-categories-2026-04-29/` — 1 UPDATE com JSON antigo restaura estado pré-sprint.
+
+**Cruza com R81 candidata** (VALID_KEYS whitelist é silent reject) e **R8** (NUNCA dizer "não temos" — handoff resolve com contexto pro vendedor).
+
 ## Helpdesk — Permissões de Inbox (D21, 2026-04-25, hardening agendado em S9)
 
 ### Negar por padrão (least privilege)

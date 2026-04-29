@@ -46,6 +46,16 @@ Perfis de Atendimento substituem sub-agents. Cada perfil e um pacote reutilizave
 3. Search fail → enrichment (ate `max_enrichment_questions`) → handoff
 4. `max_lead_messages` (default 8) → auto-handoff
 
+## VALID_KEYS — whitelist do `set_tags` handler
+
+`ai-agent/index.ts:2080` mantém um Set `VALID_KEYS` com chaves aceitas. Tag com chave fora da lista é rejeitada silenciosamente (log warn, sem retornar erro ao LLM). Lista atual inclui:
+
+**Genéricas:** motivo, interesse, produto, objecao, sentimento, cidade, nome, search_fail, ia, ia_cleared, servico, agendamento, marca_indisponivel, acabamento, marca_preferida, quantidade, area, aplicacao, enrich_count, qualificacao_completa, funil, tipo_cliente, concorrente, intencao, motivo_perda, conversao, dado_pessoal, vendedor_*, venda_status, pagamento, lead_score, qualif_stage, ambiente, cor, especificacao
+
+**Categoria-específicas (Eletropiso, 2026-04-29):** material_porta, ambiente_porta, tipo_porta, tipo_churrasqueira, ambiente_revestimento, aplicacao_revestimento, ambiente_fechadura, tipo_fechadura, tipo_escada, degraus, ambiente_pia, material_pia, material_janela, tamanho_janela, aplicacao_cabo, bitola, voltagem, marca_furadeira, diametro, tipo_cano
+
+**Convenção:** quando categoria nova exige campo cuja chave conflita com outra categoria (ex: `material` em portas vs janelas), usar sufixo de categoria (`material_porta`, `material_janela`). Evita sobrescrita de tag entre conversas.
+
 ## Service Categories — Funil de Qualificação (M19-S10 v2)
 
 Cada agente tem `ai_agents.service_categories JSONB` com **categorias de atendimento que viram funil de qualificação com etapas (stages) e score progressivo**. Editáveis pelo admin via tab dedicada "Qualificação".
