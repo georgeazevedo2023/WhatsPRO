@@ -138,6 +138,36 @@ Edge function versão 166 deployed.
 
 **Lição R83 candidata:** schemas com keys sufixadas (ex: `material_porta`, `material_pia`) são frágeis quando LLMs reformulam livremente. Aliasing automático no handler é mais robusto que esperar que o LLM siga instrução exata. Adicionar mapa de alias sempre que houver namespacing por categoria.
 
+### Fix 5 — exit_action enforcement em set_tags
+
+User testou de novo: 3 perguntas certas, todas as tags cadastradas (aliasing funcionou), score=40, mas IA gerou response vazia ao atingir max_score (não fez handoff). LLM ficou sem direção depois das 3 perguntas (regra "1 pergunta por mensagem" + sem mais perguntas no schema → vazio → silêncio).
+
+**Fix:** handler `set_tags` (`ai-agent/index.ts:2185-2206`) detecta `newScore >= currentStage.max_score` e injeta instrução `[INTERNO]` explícita no retorno:
+- exit_action='handoff' → "AÇÃO: chame handoff_to_human AGORA com motivo=...; PROIBIDO fazer mais perguntas"
+- exit_action='search_products' → "AÇÃO: chame search_products AGORA"
+- exit_action='enrichment' → "AÇÃO: continue perguntando"
+
+Edge function v167 em prod.
+
+### Fix 6 — Categoria torneiras + reforço set_tags obrigatório
+
+User reportou conversa com lead "Josafa" perguntando torneira. IA caiu na default category (torneira não tinha schema), perguntou genérico, lead respondeu "Inox parede" e "Lorenzenti", mas IA não cadastrou tags (especificacao/marca_preferida) → score=0 → IA repetiu pergunta similar até estourar enrich_count.
+
+**Fixes aplicados:**
+1. **Categoria `torneiras` adicionada** ao service_categories (1 stage, 3 fields: ambiente_torneira, tipo_torneira, marca_torneira). Total: 13 categorias.
+2. **VALID_KEYS expandido** com `ambiente_torneira`, `tipo_torneira`, `marca_torneira`.
+3. **`prompt_sections.sdr_flow` reforçado** com 3 regras explícitas:
+   - "OBRIGATÓRIO — SET_TAGS APÓS CADA RESPOSTA DO LEAD" (com exemplos pra portas/torneiras/default)
+   - "Pode usar a chave genérica (sem sufixo) que o handler faz alias automático"
+   - "NÃO REPETIR PERGUNTA SIMILAR — se enrich_count atingiu 2, chame handoff_to_human IMEDIATAMENTE"
+
+Edge function v168 em prod.
+
+**Lição R84 candidata:** sempre que adicionar categoria nova ao service_categories, lembrar de:
+1. Adicionar keys novas ao VALID_KEYS no `set_tags` handler
+2. Deploy edge function (não basta UPDATE no banco)
+3. Idealmente: criar migration que torna VALID_KEYS dinâmico (lê do schema da categoria), eliminando esse acoplamento manual.
+
 ### Sprint adicional (mesma sessão) — BusinessHoursEditor (UI semanal)
 
 Após validar que `business_hours` foi cadastrado em formato weekly (Seg-Sex/Sáb/Dom diferenciados) e descobrir que UI atual (`RulesConfig.tsx:184-222`) só editava formato legacy `{start, end}` único, criado componente novo `BusinessHoursEditor.tsx` em `src/components/admin/ai-agent/`. Suporta:
