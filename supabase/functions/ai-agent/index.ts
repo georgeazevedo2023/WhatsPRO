@@ -2103,15 +2103,45 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
           const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro','frete','comparando','sem_urgencia'])
 
+          // FIX (2026-04-29): aliasing automático de keys genéricas pra sufixadas da categoria.
+          // O LLM tende a usar "material:madeira" em vez de "material_porta:madeira", caindo em
+          // VALID_KEYS rejection silenciosa. Score nunca sobe e IA entra em loop de enrichment.
+          // Solução: quando categoria detectada (via matchCategory), construir mapa de aliases
+          // (ex: "material" → "material_porta") e remapear tag antes de validar.
+          const aliasInteresse = extractInteresseFromTags(conversation.tags || [])
+          const aliasConfig = getCategoriesOrDefault(agent)
+          const aliasCategory = matchCategory(aliasInteresse, aliasConfig)
+          const aliasMap = new Map<string, string>()
+          if (aliasCategory) {
+            for (const stage of aliasCategory.stages) {
+              for (const field of stage.fields) {
+                const parts = field.key.split('_')
+                // Mapear primeiro segmento → key completa (ex: "material" → "material_porta")
+                if (parts.length >= 2 && !aliasMap.has(parts[0])) {
+                  aliasMap.set(parts[0], field.key)
+                }
+                // Mapear também a key inteira → ela mesma (passthrough seguro)
+                aliasMap.set(field.key, field.key)
+              }
+            }
+          }
+
           const newTags: string[] = []
           const rejected: string[] = []
-          for (const tag of rawTags) {
-            const [key, ...rest] = tag.split(':')
+          for (const rawTag of rawTags) {
+            const [rawKey, ...rest] = rawTag.split(':')
             const value = rest.join(':')
-            if (!key || !value) { rejected.push(tag); continue }
-            if (!VALID_KEYS.has(key)) { rejected.push(tag); log.warn('Tag rejected: invalid key', { tag }); continue }
-            if (key === 'motivo' && !VALID_MOTIVOS.has(value)) { rejected.push(tag); log.warn('Tag rejected: invalid motivo', { tag }); continue }
-            if (key === 'objecao' && !VALID_OBJECOES.has(value)) { rejected.push(tag); log.warn('Tag rejected: invalid objecao', { tag }); continue }
+            if (!rawKey || !value) { rejected.push(rawTag); continue }
+
+            // Resolver alias se categoria detectada e key é genérica
+            const resolvedKey = aliasMap.get(rawKey) || rawKey
+            const tag = `${resolvedKey}:${value}`
+            const key = resolvedKey
+
+            if (!VALID_KEYS.has(key)) { rejected.push(rawTag); log.warn('Tag rejected: invalid key', { rawTag, resolvedKey }); continue }
+            if (key === 'motivo' && !VALID_MOTIVOS.has(value)) { rejected.push(rawTag); log.warn('Tag rejected: invalid motivo', { tag }); continue }
+            if (key === 'objecao' && !VALID_OBJECOES.has(value)) { rejected.push(rawTag); log.warn('Tag rejected: invalid objecao', { tag }); continue }
+            if (rawKey !== resolvedKey) log.info('Tag aliased', { from: rawTag, to: tag })
             newTags.push(tag)
           }
 

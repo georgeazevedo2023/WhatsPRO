@@ -124,6 +124,20 @@ Cheguei a 3 fixes em sequência — só o 3º resolveu de fato:
 
 **Edge function ai-agent:** versão 165 em prod (com fixes 1+2 incluídos como reforço — prevenção de regressão se algum agente novo for criado sem sdr_flow custom).
 
+### Fix 4 (mesma sessão, pós-fix 3) — aliasing de keys genéricas em set_tags
+
+User testou de novo e descobriu que apesar das perguntas estarem certas (material/ambiente/tipo com exemplos do schema), o LLM perguntava marca como 4ª pergunta e travava. Investigação mostrou:
+
+**Tags pós-3-perguntas:** apenas `ambiente_porta:quarto` cadastrada. `material_porta:madeira` e `tipo_porta:frisada` perdidas. `lead_score:10` em vez de 30. `enrich_count:2` (max atingido).
+
+**Causa raiz:** o LLM chamava `set_tags(['material:madeira'])` em vez de `set_tags(['material_porta:madeira'])`. Como `material` (genérica) não está em VALID_KEYS, era rejeitada silenciosamente. Score nunca subia → IA continuava em fluxo de enrichment até max → próximo passo era handoff mas LLM perguntava marca antes (vinda de uniqueKeys da default que ainda incluía `marca_preferida` em algum caminho).
+
+**Fix:** aliasing automático no handler `set_tags` (`ai-agent/index.ts:2107-2129`). Quando `matchCategory` retorna categoria, constrói mapa `primeiro_segmento → key_sufixada` (ex: `material → material_porta`, `tipo → tipo_porta`, `degraus → degraus`). Remapeia tags ANTES de validar contra VALID_KEYS. Robusto contra LLM "esquecer" do sufixo de categoria. Logs de aliasing como `info` pra observabilidade.
+
+Edge function versão 166 deployed.
+
+**Lição R83 candidata:** schemas com keys sufixadas (ex: `material_porta`, `material_pia`) são frágeis quando LLMs reformulam livremente. Aliasing automático no handler é mais robusto que esperar que o LLM siga instrução exata. Adicionar mapa de alias sempre que houver namespacing por categoria.
+
 ### Sprint adicional (mesma sessão) — BusinessHoursEditor (UI semanal)
 
 Após validar que `business_hours` foi cadastrado em formato weekly (Seg-Sex/Sáb/Dom diferenciados) e descobrir que UI atual (`RulesConfig.tsx:184-222`) só editava formato legacy `{start, end}` único, criado componente novo `BusinessHoursEditor.tsx` em `src/components/admin/ai-agent/`. Suporta:
