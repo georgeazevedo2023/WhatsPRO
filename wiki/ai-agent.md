@@ -46,15 +46,19 @@ Perfis de Atendimento substituem sub-agents. Cada perfil e um pacote reutilizave
 3. Search fail → enrichment (ate `max_enrichment_questions`) → handoff
 4. `max_lead_messages` (default 8) → auto-handoff
 
-## VALID_KEYS — whitelist do `set_tags` handler
+## VALID_KEYS — whitelist do `set_tags` handler (dinâmica, D29 / R84)
 
-`ai-agent/index.ts:2080` mantém um Set `VALID_KEYS` com chaves aceitas. Tag com chave fora da lista é rejeitada silenciosamente (log warn, sem retornar erro ao LLM). Lista atual inclui:
+`ai-agent/index.ts:2156` calcula `VALID_KEYS` em runtime via `buildValidTagKeys(aliasConfig)` (`_shared/serviceCategories.ts`). Tag com chave fora da lista é rejeitada silenciosamente (log warn, sem retornar erro ao LLM).
 
-**Genéricas:** motivo, interesse, produto, objecao, sentimento, cidade, nome, search_fail, ia, ia_cleared, servico, agendamento, marca_indisponivel, acabamento, marca_preferida, quantidade, area, aplicacao, enrich_count, qualificacao_completa, funil, tipo_cliente, concorrente, intencao, motivo_perda, conversao, dado_pessoal, vendedor_*, venda_status, pagamento, lead_score, qualif_stage, ambiente, cor, especificacao
+**Composição:**
 
-**Categoria-específicas (Eletropiso, 2026-04-29):** material_porta, ambiente_porta, tipo_porta, tipo_churrasqueira, ambiente_revestimento, aplicacao_revestimento, ambiente_fechadura, tipo_fechadura, tipo_escada, degraus, ambiente_pia, material_pia, material_janela, tamanho_janela, aplicacao_cabo, bitola, voltagem, marca_furadeira, diametro, tipo_cano
+1. **`BASE_VALID_TAG_KEYS`** — keys de SISTEMA (não vêm do JSONB do agente, protegidas em código): `nome`, `cidade`, `dado_pessoal`, `ia`, `ia_cleared`, `search_fail`, `enrich_count`, `qualificacao_completa`, `lead_score`, `qualif_stage`, `marca_indisponivel`, `motivo`, `interesse`, `produto`, `objecao`, `sentimento`, `servico`, `agendamento`, `funil`, `intencao`, `tipo_cliente`, `concorrente`, `motivo_perda`, `conversao`, `venda_status`, `pagamento`, `vendedor_tom`, `vendedor_desconto`, `vendedor_upsell`, `vendedor_followup`, `vendedor_alternativa`.
 
-**Convenção:** quando categoria nova exige campo cuja chave conflita com outra categoria (ex: `material` em portas vs janelas), usar sufixo de categoria (`material_porta`, `material_janela`). Evita sobrescrita de tag entre conversas.
+2. **Keys dinâmicas** — `field.key` de todas as `service_categories.categories[].stages[].fields[]` + `service_categories.default.stages[].fields[]` do agente. Ex: ao cadastrar categoria "Tintas Eletropiso" com field `tipo_tinta`, o set passa a aceitar `tipo_tinta:fosco` automaticamente — zero alteração de código.
+
+**Por que ficou dinâmico (R84):** antes era um Set hardcoded com ~80 chaves. Toda categoria nova exigia editar o array no código + redeploy do edge function. Em prod, `tipo_tinta` foi cadastrado pelo admin no Eletropiso mas nunca foi adicionado ao código → tag rejeitada silenciosa, score nunca subia, IA entrava em loop de enrichment. Resolvido com `buildValidTagKeys()` que combina base + dinâmico.
+
+**Convenção de naming:** quando categoria nova exige campo cuja chave conflita com outra categoria (ex: `material` em portas vs janelas), usar sufixo de categoria (`material_porta`, `material_janela`). Evita sobrescrita de tag entre conversas. Aliasing genérico (`material:` → `material_porta:`) é feito ANTES da validação via `aliasMap` (R82).
 
 ## Service Categories — Funil de Qualificação (M19-S10 v2)
 

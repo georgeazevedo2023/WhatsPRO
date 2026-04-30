@@ -40,6 +40,36 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.17.2 (2026-04-30) — D29 VALID_KEYS dinâmico (R84 resolvido)
+
+**Refactor não-funcional + fix de bug ativo no Eletropiso:**
+
+Antes desta versão, o handler `set_tags` em `ai-agent/index.ts:2143` mantinha `VALID_KEYS` como um Set hardcoded com ~80 chaves. Toda categoria nova adicionada ao `service_categories` JSONB (via UI admin) exigia também editar manualmente a lista no código + redeploy. Acoplamento manual entre dado (banco) e código (whitelist) — quebra do princípio "config é dado, não código" (R78).
+
+**Bug ativo descoberto via SQL:** o agente Eletropiso tinha `tipo_tinta` cadastrado em uma das 23 categorias mas `tipo_tinta` NUNCA foi adicionado ao Set hardcoded → toda tag `tipo_tinta:fosco` era rejeitada silenciosamente em prod, score nunca subia, IA entrava em loop de enrichment em conversas sobre tinta.
+
+**Implementação:**
+
+- **`_shared/serviceCategories.ts`** — adicionado `BASE_VALID_TAG_KEYS` (Set readonly, ~30 keys de SISTEMA: identidade do lead, controle de fluxo, telemetria, vendas, shadow do vendedor) + função `buildValidTagKeys(config)` que combina base com `field.key` de todas as `stages.fields[]` da config (categories + default). Defesa em profundidade: aceita config null/undefined/malformada → cai em `DEFAULT_SERVICE_CATEGORIES_V2`.
+- **`ai-agent/index.ts`** — substituído `new Set([...80 strings])` por `buildValidTagKeys(aliasConfig)` (linha 2156). Reordenação leve: `aliasConfig` agora é calculado antes de `VALID_KEYS`.
+- **`_shared/serviceCategories.test.ts`** — 9 testes novos cobrindo: base sempre presente, dynamic keys de categoria, default keys, custom config substitui categorias, null/undefined fallback, config malformada, dedup, key vazia ignorada, regressão Eletropiso (`tipo_tinta`).
+
+**Comportamento depois do fix:**
+- Adicionar categoria nova com fields novos → valida automaticamente. Zero alteração de código.
+- Remover categoria do JSONB → keys somem do Set automaticamente.
+- Agente sem `service_categories` → cai em `DEFAULT_SERVICE_CATEGORIES_V2` + base. Zero crash.
+
+**Cruza com R82** (aliasing) — aliasing roda ANTES da validação, então `material:` → `material_porta` continua funcionando.
+
+**Auditoria:**
+- `deno check` — 3 erros pré-existentes, 0 novos
+- `npm test` — 595 passed (+9 novos), 0 nova regressão (5 falhas FormBuilder pré-existentes)
+- SQL Eletropiso confirmou que as 52 keys dinâmicas batem com o hardcoded antigo + 1 nova (`tipo_tinta`) que estava bugada
+
+**Pendência:** deploy do edge function ai-agent v172 → v173 (não shipou nesta sessão — MCP Supabase desconectou).
+
+R84 marcada como **RESOLVIDO** em `wiki/erros-e-licoes.md`. D29 documentada com rationale completa em `wiki/decisoes-chave.md`.
+
 ### v7.17.1 (2026-04-30) — D28 validado em prod + R88 fix CHECK constraint + R89 fix UI bug
 
 **Validação D28 em prod com lead George (telefone 558193856099):**

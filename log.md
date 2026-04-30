@@ -7,7 +7,7 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
-## 2026-04-30 (D28 Excluded Products + R85/R86/R87/R88 + bug fixes UI + validação prod)
+## 2026-04-30 (D28 Excluded Products + R85/R86/R87/R88 + bug fixes UI + validação prod + D29 VALID_KEYS dinâmico)
 
 ### Goal & contexto
 
@@ -116,13 +116,40 @@ Após teste real, descoberto que log `excluded_product_match` NÃO aparecia em `
 - (b) **Orquestração: 9.5/10** — D28 ↔ R85 ↔ R86 ↔ R87 ↔ R88 ↔ PRD changelog ↔ ai-agent.md ↔ ExcludedProductsConfig.tsx todos cruzados; SYNC RULE auditada item-a-item; helper duplicado em 2 arquivos com comentário explícito (edge function vs runtime test)
 - (c) **Vault: 9.5/10** — log.md rotacionado novamente (entrada 2026-04-29 → archive); migration registrada com comentário detalhado; commits com mensagens descritivas (feat/fix/test/docs)
 
+### D29 — VALID_KEYS dinâmico (R84 resolvido)
+
+User pediu para encerrar a dívida R84 (acoplamento manual entre `service_categories` JSONB e Set hardcoded de ~80 keys em `ai-agent/index.ts:2143`). Validação via SQL no Eletropiso revelou bug ATIVO: `tipo_tinta` cadastrado nas categorias mas ausente do hardcoded → tag rejeitada silenciosa em prod (score nunca subia em conversas sobre tinta).
+
+**Implementação (3 arquivos):**
+
+1. **`_shared/serviceCategories.ts`** — adicionado `BASE_VALID_TAG_KEYS` (Set readonly, ~30 keys de sistema) + função `buildValidTagKeys(config)` que combina base com `field.key` de todas as `stages.fields[]` da config (categories + default). Defesa em profundidade: aceita config null/undefined/malformada → cai em `DEFAULT_SERVICE_CATEGORIES_V2`.
+
+2. **`ai-agent/index.ts`** — substituído `new Set([...80 strings])` por `buildValidTagKeys(aliasConfig)` (linha 2156). `aliasConfig` é calculado um pouco antes; reordenei para que `aliasConfig` venha primeiro. Comentário antigo (#25) renomeado para "#25 + R84 (2026-04-30)".
+
+3. **`_shared/serviceCategories.test.ts`** — 9 testes novos para `buildValidTagKeys` cobrindo: base sempre presente, dynamic keys de categoria, default keys, custom config substitui categorias, null/undefined fallback, config malformada, dedup, key vazia ignorada, Eletropiso-like (regressão `tipo_tinta`).
+
+**Nova decisão D29:** documentada com rationale completa (por que manter base em código, por que reutilizar service_categories, comportamento depois do fix, cruza com R82/R84). Wiki erros-e-licoes R84 marcada como **RESOLVIDO** (riscado + nota com data).
+
+**Impacto em prod (após deploy do edge function):**
+- Eletropiso: `tipo_tinta` passa a validar — bug R84 ativo é resolvido
+- Tenants futuros: zero acoplamento manual; admin adiciona categoria nova e funciona sozinho
+
+### Auditoria
+
+- **Tipos:** `deno check` — 3 erros pré-existentes (nullability em outras linhas), 0 novos
+- **Tests:** vitest run — 595 passed (+9 novos), 5 failed (FormBuilder pré-existente, não relacionado)
+- **Grep regressão:** único match de `'motivo','interesse'` é a própria base que escrevi
+- **SQL Eletropiso:** confirmado que as 52 keys dinâmicas batem com o hardcoded antigo + 1 nova (`tipo_tinta`) que estava bugada
+
 ### Pendências operacionais
 
+- 🚀 **Deploy do edge function ai-agent v172 → v173** (refactor não-funcional + fix R84). MCP do Supabase desconectou na sessão; user pode rodar `supabase functions deploy ai-agent` ou aguardar próxima sessão com MCP ativo.
 - ✏️ User pode testar mais cenários (geladeira, freezer, microondas, airfryer) — sinônimos cobertos
 - 📊 Próxima vez que excluded match disparar, verificar `ai_agent_logs WHERE event = 'excluded_product_match'` (R88 corrigido — vai aparecer)
 - 🐌 Latência ~22s entre msg do lead e resposta — provavelmente debounce 10s + processamento. Investigar se virar incômodo
 - 📝 Adicionar `wiki/casos-de-uso/excluded-products-detalhado.md` (padrão dual didático+técnico)
-- 🔄 Considerar `VALID_KEYS` dinâmico (lê do schema service_categories) — R84 candidato
+- 🟡 Migrar 13 INSERTs em `ai_agent_logs` para `insertLogSafe` — defensivo, baixo risco
+- 🟡 Particionar `decisoes-chave.md` (D7-D20 antigos têm arquivo pra mover) ou `leads-detalhado.md` (374 linhas)
 
 ---
 

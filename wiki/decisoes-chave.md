@@ -1,6 +1,6 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca, funis, automacao, polls, perfis, nps, fluxos-unificados, validator, shadow, metrics, assistant, db-retention, service-categories, service-categories-v2, excluded-products, d28]
+tags: [decisoes, regras, padroes, seguranca, funis, automacao, polls, perfis, nps, fluxos-unificados, validator, shadow, metrics, assistant, db-retention, service-categories, service-categories-v2, excluded-products, d28, valid-keys-dinamico, d29]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
 updated: 2026-04-30
 ---
@@ -196,6 +196,34 @@ CLAUDE.md 373→96 linhas. Conteúdo migrado: [[RULES.md]] (regras) | [[ARCHITEC
 - Item 8 (docs): D28 + R87 + log ✅
 
 **Cruza com R85** (skip auto-handoff em shadow) e **R86** (reset counter em shadow) — feature funciona em sinergia: excluded_product responde sem incrementar counter, evitando que múltiplas perguntas sobre produtos não vendidos estourem o limit e disparem auto-handoff.
+
+## D29 — VALID_KEYS dinâmico no handler set_tags (R84 resolvido, 2026-04-30)
+
+**Contexto:** O handler `set_tags` em `ai-agent/index.ts` valida que cada tag `"key:value"` pertence a uma whitelist (`VALID_KEYS`). Antes desta decisão, a whitelist era um `new Set([...80 strings...])` hardcoded — toda vez que admin adicionava categoria nova ao `service_categories` JSONB com fields novos (ex: `tipo_tinta`, `material_porta`), era preciso lembrar de expandir o Set + redeploy do edge function. Acoplamento manual entre dado (JSONB no banco) e código (whitelist em TS) — quebra o princípio de "config é dado, não código" (R78).
+
+**Sintoma do bug ativo (descoberto em 2026-04-30 via SQL):** o agente Eletropiso tinha `tipo_tinta` em uma das 23 categorias do `service_categories`, mas `tipo_tinta` NÃO estava no Set hardcoded → toda vez que LLM tentava setar `tipo_tinta:fosco` a tag era rejeitada silenciosamente, score nunca subia, IA entrava em loop de enrichment.
+
+**Decisão:** extrair `VALID_KEYS` para função `buildValidTagKeys(config)` em `_shared/serviceCategories.ts` que combina:
+
+1. **`BASE_VALID_TAG_KEYS`** — keys de SISTEMA (não vêm de service_categories): identidade do lead, controle de fluxo, telemetria, vendas, shadow do vendedor (~30 keys constantes)
+2. **Keys dinâmicas** — `field.key` de todas as `config.categories[].stages[].fields[]` + `config.default.stages[].fields[]`
+
+```ts
+const VALID_KEYS = buildValidTagKeys(aliasConfig)  // antes: new Set([...80 strings])
+```
+
+**Por que não eliminar a base e ler tudo do banco:** keys de sistema (motivo, lead_score, qualif_stage, ia_cleared, vendedor_*, etc.) NÃO são dados do tenant — são taxonomia interna do AI Agent que deve estar protegida em código. Se o admin acidentalmente sobrescrever o JSONB e remover essas keys, o sistema continua funcional.
+
+**Por que não eliminar a parte dinâmica e listar TUDO no banco como "tag schema":** complexidade desnecessária. As keys dinâmicas já estão em `service_categories.stages.fields[].key` por necessidade do score progressivo — reutilizar é grátis.
+
+**Comportamento depois do fix:**
+- Adicionar categoria nova com fields novos → valida automaticamente. Zero alteração de código.
+- Remover categoria do JSONB → keys somem do Set automaticamente (não há "limpeza manual" pra esquecer).
+- Agente sem `service_categories` configurado → cai em `DEFAULT_SERVICE_CATEGORIES_V2` + base. Zero crash.
+
+**Cruza com R82** (aliasing de keys genéricas) — o aliasing acontece ANTES da validação contra VALID_KEYS, então `material:` → `material_porta` continua funcionando. Cruza com R84 — agora resolvido.
+
+**Validação:** 9 testes novos em `serviceCategories.test.ts` (99 total, 100%); audit do schema do Eletropiso confirmou que todas as 52 keys dinâmicas são geradas corretamente, incluindo `tipo_tinta` que estava bugado em prod.
 
 ## Helpdesk — Permissões de Inbox (D21, 2026-04-25, hardening agendado em S9)
 

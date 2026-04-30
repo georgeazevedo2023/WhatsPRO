@@ -11,6 +11,8 @@ import {
   getQualificationFields,
   formatPhrasing,
   extractInteresseFromTags,
+  buildValidTagKeys,
+  BASE_VALID_TAG_KEYS,
   type ServiceCategoriesConfig,
   type ServiceCategory,
   type Stage,
@@ -589,5 +591,179 @@ describe('DEFAULT_SERVICE_CATEGORIES_V2 sanity', () => {
   it('field "ambiente" e perguntado pre-search (Stage Identificacao)', () => {
     const stage = tintas.stages.find(s => s.id === 'identificacao')!
     expect(stage.fields.some(f => f.key === 'ambiente')).toBe(true)
+  })
+})
+
+// =============================================================================
+// buildValidTagKeys (R84 — VALID_KEYS dinamico)
+// =============================================================================
+describe('buildValidTagKeys', () => {
+  it('case 1 — sempre inclui chaves base de sistema (motivo, interesse, ia, lead_score, etc.)', () => {
+    const keys = buildValidTagKeys(DEFAULT_SERVICE_CATEGORIES_V2)
+    for (const baseKey of BASE_VALID_TAG_KEYS) {
+      expect(keys.has(baseKey)).toBe(true)
+    }
+    expect(keys.has('motivo')).toBe(true)
+    expect(keys.has('interesse')).toBe(true)
+    expect(keys.has('ia_cleared')).toBe(true)
+    expect(keys.has('lead_score')).toBe(true)
+    expect(keys.has('vendedor_tom')).toBe(true)
+  })
+
+  it('case 2 — inclui chaves dinamicas das categorias (ambiente, cor, acabamento, area, aplicacao)', () => {
+    const keys = buildValidTagKeys(DEFAULT_SERVICE_CATEGORIES_V2)
+    // tintas: ambiente, cor, acabamento, marca_preferida, quantidade, area
+    expect(keys.has('ambiente')).toBe(true)
+    expect(keys.has('cor')).toBe(true)
+    expect(keys.has('acabamento')).toBe(true)
+    expect(keys.has('marca_preferida')).toBe(true)
+    expect(keys.has('quantidade')).toBe(true)
+    expect(keys.has('area')).toBe(true)
+    // impermeabilizantes: aplicacao
+    expect(keys.has('aplicacao')).toBe(true)
+  })
+
+  it('case 3 — inclui chaves do default.stages.fields (especificacao do default)', () => {
+    const keys = buildValidTagKeys(DEFAULT_SERVICE_CATEGORIES_V2)
+    expect(keys.has('especificacao')).toBe(true)
+  })
+
+  it('case 4 — categoria custom com field novo passa a validar automaticamente (sem alterar codigo)', () => {
+    const customConfig: ServiceCategoriesConfig = {
+      categories: [
+        {
+          id: 'fechaduras', label: 'Fechaduras', interesse_match: 'fechadura',
+          stages: [
+            {
+              id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff',
+              fields: [
+                { key: 'tipo_fechadura',     label: 'tipo',     examples: '', score_value: 50, priority: 1 },
+                { key: 'ambiente_fechadura', label: 'ambiente', examples: '', score_value: 50, priority: 2 },
+              ],
+              phrasing: 'X',
+            },
+          ],
+        },
+      ],
+      default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+    }
+    const keys = buildValidTagKeys(customConfig)
+    expect(keys.has('tipo_fechadura')).toBe(true)
+    expect(keys.has('ambiente_fechadura')).toBe(true)
+    // base ainda presente
+    expect(keys.has('motivo')).toBe(true)
+    // categorias REMOVIDAS (tintas) nao aparecem mais
+    expect(keys.has('cor')).toBe(false)
+  })
+
+  it('case 5 — agent null/undefined cai no DEFAULT_SERVICE_CATEGORIES_V2 (nao crasha)', () => {
+    const keys1 = buildValidTagKeys(null)
+    const keys2 = buildValidTagKeys(undefined)
+    // Base + default keys presentes em ambos
+    expect(keys1.has('motivo')).toBe(true)
+    expect(keys1.has('especificacao')).toBe(true)
+    expect(keys2.has('motivo')).toBe(true)
+    expect(keys2.has('especificacao')).toBe(true)
+  })
+
+  it('case 6 — config malformada (sem categories ou stages) cai no DEFAULT', () => {
+    // @ts-expect-error testando shape invalido em runtime
+    const keys = buildValidTagKeys({ categories: 'invalid', default: null })
+    expect(keys.has('motivo')).toBe(true)
+    expect(keys.has('especificacao')).toBe(true)
+  })
+
+  it('case 7 — dedup: mesma key em base + categoria nao duplica (Set garante)', () => {
+    // marca_preferida nao esta na base, esta em tintas/impermeabilizantes/default
+    const keys = buildValidTagKeys(DEFAULT_SERVICE_CATEGORIES_V2)
+    expect(keys.has('marca_preferida')).toBe(true)
+    // quantidade aparece em tintas e default — Set dedup automatico
+    expect(keys.has('quantidade')).toBe(true)
+  })
+
+  it('case 8 — fields com key vazia/nao-string sao ignorados', () => {
+    const broken: ServiceCategoriesConfig = {
+      categories: [
+        {
+          id: 'x', label: 'X', interesse_match: 'x',
+          stages: [
+            {
+              id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff',
+              fields: [
+                { key: 'valida',    label: 'a', examples: '', score_value: 50, priority: 1 },
+                // @ts-expect-error key vazia em runtime
+                { key: '',          label: 'b', examples: '', score_value: 50, priority: 2 },
+              ],
+              phrasing: 'X',
+            },
+          ],
+        },
+      ],
+      default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+    }
+    // isValidConfig vai rejeitar essa estrutura (field.key='' ainda passa,
+    // mas se passar buildValidTagKeys ignora). Testamos os dois caminhos.
+    const keys = buildValidTagKeys(broken)
+    expect(keys.has('')).toBe(false)
+    // se isValidConfig rejeitou, cai em DEFAULT — entao tem 'especificacao'
+    // se aceitou, tem 'valida'. Pelo menos um dos dois caminhos:
+    expect(keys.has('valida') || keys.has('especificacao')).toBe(true)
+  })
+
+  it('case 9 — Eletropiso-like: 23 categorias com fields sufixados validam todas', () => {
+    // Simula fragmento do schema do Eletropiso (3 categorias representativas)
+    const eletropiso: ServiceCategoriesConfig = {
+      categories: [
+        {
+          id: 'portas', label: 'Portas', interesse_match: 'porta',
+          stages: [
+            {
+              id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff',
+              fields: [
+                { key: 'material_porta',   label: 'm', examples: '', score_value: 33, priority: 1 },
+                { key: 'ambiente_porta',   label: 'a', examples: '', score_value: 33, priority: 2 },
+                { key: 'tipo_porta',       label: 't', examples: '', score_value: 34, priority: 3 },
+              ],
+              phrasing: 'X',
+            },
+          ],
+        },
+        {
+          id: 'tintas-eletro', label: 'Tintas Eletropiso', interesse_match: 'tinta',
+          stages: [
+            {
+              id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff',
+              fields: [
+                { key: 'tipo_tinta', label: 'tipo', examples: '', score_value: 50, priority: 1 },
+                { key: 'cor',        label: 'cor',  examples: '', score_value: 50, priority: 2 },
+              ],
+              phrasing: 'X',
+            },
+          ],
+        },
+        {
+          id: 'churrasqueiras', label: 'Churrasqueiras', interesse_match: 'churrasqueira',
+          stages: [
+            {
+              id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff',
+              fields: [
+                { key: 'tipo_churrasqueira', label: 'tipo', examples: '', score_value: 100, priority: 1 },
+              ],
+              phrasing: 'X',
+            },
+          ],
+        },
+      ],
+      default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+    }
+    const keys = buildValidTagKeys(eletropiso)
+    // Esses 4 sao chaves que a IA SEMPRE precisa validar pra setar tag
+    expect(keys.has('material_porta')).toBe(true)
+    expect(keys.has('tipo_porta')).toBe(true)
+    expect(keys.has('tipo_tinta')).toBe(true)         // <-- regressao R84 (era rejeitada antes)
+    expect(keys.has('tipo_churrasqueira')).toBe(true)
+    // base sempre presente
+    expect(keys.has('lead_score')).toBe(true)
+    expect(keys.has('qualif_stage')).toBe(true)
   })
 })

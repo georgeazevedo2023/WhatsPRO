@@ -503,6 +503,100 @@ export function extractInteresseFromTags(tags: string[] | null | undefined): str
 }
 
 // =============================================================================
+// VALID_KEYS dinamico (R84) — set_tags handler whitelist
+//
+// O handler `set_tags` em ai-agent/index.ts valida que cada tag "key:value"
+// tem `key` em uma whitelist. Antes de R84 essa whitelist era um Set hardcoded
+// com ~80 chaves; sempre que se adicionava categoria nova ao service_categories
+// JSONB, era preciso lembrar de atualizar o Set + redeploy. Ja causou tag
+// rejeitada silenciosa (ex: `tipo_tinta` no Eletropiso) — score nao subia, IA
+// entrava em loop de enrichment.
+//
+// buildValidTagKeys(config) combina:
+//   1. BASE_VALID_TAG_KEYS — chaves de SISTEMA (nao vem de service_categories):
+//      identidade do lead, telemetria, controle de fluxo, vendas, etc.
+//   2. Chaves dinamicas — todos os field.key de config.categories[].stages[]
+//      e config.default.stages[].
+//
+// Resultado: nova categoria + field.key novo => valida automaticamente sem
+// alterar codigo. Chaves de sistema continuam protegidas pela base.
+// =============================================================================
+
+/**
+ * Chaves de sistema (nao derivadas de service_categories).
+ * Inclui:
+ *  - identidade do lead: nome, cidade, dado_pessoal
+ *  - controle/telemetria: ia, ia_cleared, search_fail, enrich_count,
+ *    qualificacao_completa, lead_score, qualif_stage, marca_indisponivel
+ *  - taxonomia comum: motivo, interesse, produto, objecao, sentimento,
+ *    servico, agendamento, funil, intencao
+ *  - vendas/negociacao: tipo_cliente, concorrente, motivo_perda, conversao,
+ *    venda_status, pagamento
+ *  - shadow do vendedor: vendedor_tom, vendedor_desconto, vendedor_upsell,
+ *    vendedor_followup, vendedor_alternativa
+ */
+export const BASE_VALID_TAG_KEYS: ReadonlySet<string> = new Set([
+  // identidade
+  'nome', 'cidade', 'dado_pessoal',
+  // controle/telemetria
+  'ia', 'ia_cleared', 'search_fail', 'enrich_count',
+  'qualificacao_completa', 'lead_score', 'qualif_stage', 'marca_indisponivel',
+  // taxonomia comum
+  'motivo', 'interesse', 'produto', 'objecao', 'sentimento',
+  'servico', 'agendamento', 'funil', 'intencao',
+  // vendas/negociacao
+  'tipo_cliente', 'concorrente', 'motivo_perda', 'conversao',
+  'venda_status', 'pagamento',
+  // shadow do vendedor
+  'vendedor_tom', 'vendedor_desconto', 'vendedor_upsell',
+  'vendedor_followup', 'vendedor_alternativa',
+])
+
+/**
+ * Constroi o Set de chaves validas para o handler `set_tags` combinando
+ * BASE_VALID_TAG_KEYS com todas as chaves dinamicas de stages.fields[].key.
+ *
+ * - Aceita config null/undefined/malformada — usa DEFAULT_SERVICE_CATEGORIES_V2.
+ * - Itera sobre config.categories[].stages[].fields[] e config.default.stages[]
+ *   .fields[]. Dedup automatico via Set.
+ * - Sempre retorna Set nao-vazio (BASE garante minimo).
+ *
+ * Ex (Eletropiso, 23 categorias):
+ *   buildValidTagKeys(config) inclui BASE + ~52 chaves dinamicas
+ *   (material_porta, tipo_churrasqueira, tipo_tinta, etc.)
+ */
+export function buildValidTagKeys(
+  config: ServiceCategoriesConfig | null | undefined,
+): Set<string> {
+  const result = new Set<string>(BASE_VALID_TAG_KEYS)
+
+  const safe: ServiceCategoriesConfig = (config && isValidConfig(config))
+    ? config
+    : DEFAULT_SERVICE_CATEGORIES_V2
+
+  const collectFromStages = (stages: Stage[] | undefined): void => {
+    if (!Array.isArray(stages)) return
+    for (const stage of stages) {
+      if (!stage || !Array.isArray(stage.fields)) continue
+      for (const field of stage.fields) {
+        if (field && typeof field.key === 'string' && field.key.length > 0) {
+          result.add(field.key)
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(safe.categories)) {
+    for (const cat of safe.categories) {
+      if (cat) collectFromStages(cat.stages)
+    }
+  }
+  if (safe.default) collectFromStages(safe.default.stages)
+
+  return result
+}
+
+// =============================================================================
 // LEGACY v1 — compat shim para chamadas existentes em ai-agent/index.ts
 //
 // askPreSearch=true  -> retorna fields do PRIMEIRO stage (equivale a "Identificação"

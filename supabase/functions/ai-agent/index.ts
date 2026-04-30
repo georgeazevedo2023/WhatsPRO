@@ -21,6 +21,7 @@ import {
   getScoreFromTags,
   calculateScoreDelta,
   getExitAction,
+  buildValidTagKeys,
 } from '../_shared/serviceCategories.ts'
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
 
@@ -2139,11 +2140,6 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           const rawTags: string[] = args.tags || []
           if (rawTags.length === 0) return 'Nenhuma tag informada.'
 
-          // #25: Enforcement — validate tag keys and motivo values
-          const VALID_KEYS = new Set(['motivo','interesse','produto','objecao','sentimento','cidade','nome','search_fail','ia','ia_cleared','servico','agendamento','marca_indisponivel','acabamento','marca_preferida','quantidade','area','aplicacao','enrich_count','qualificacao_completa','funil','tipo_cliente','concorrente','intencao','motivo_perda','conversao','dado_pessoal','vendedor_tom','vendedor_desconto','vendedor_upsell','vendedor_followup','vendedor_alternativa','venda_status','pagamento','lead_score','qualif_stage','ambiente','cor','especificacao','material_porta','ambiente_porta','tipo_porta','tipo_churrasqueira','ambiente_revestimento','aplicacao_revestimento','ambiente_fechadura','tipo_fechadura','tipo_escada','degraus','ambiente_pia','material_pia','material_janela','tamanho_janela','aplicacao_cabo','bitola','voltagem','marca_furadeira','diametro','tipo_cano','ambiente_torneira','tipo_torneira','marca_torneira','tipo_vaso','cor_vaso','tipo_chuveiro','voltagem_chuveiro','tipo_lampada','potencia_lampada','tipo_eletrico','quantidade_eletrico','amperagem_disjuntor','tipo_disjuntor','aplicacao_registro','tamanho_registro','tipo_cimento','quantidade_cimento','capacidade_caixa','material_caixa','tipo_ferramenta','uso_ferramenta','tipo_fixacao','tamanho_fixacao'])
-          const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
-          const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro','frete','comparando','sem_urgencia'])
-
           // FIX (2026-04-29): aliasing automático de keys genéricas pra sufixadas da categoria.
           // O LLM tende a usar "material:madeira" em vez de "material_porta:madeira", caindo em
           // VALID_KEYS rejection silenciosa. Score nunca sobe e IA entra em loop de enrichment.
@@ -2152,6 +2148,14 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           const aliasInteresse = extractInteresseFromTags(conversation.tags || [])
           const aliasConfig = getCategoriesOrDefault(agent)
           const aliasCategory = matchCategory(aliasInteresse, aliasConfig)
+
+          // #25 + R84 (2026-04-30): Enforcement de keys/motivo/objecao.
+          // VALID_KEYS = base (sistema) ∪ stages.fields[].key dinamicas do agente.
+          // Antes era hardcoded ~80 chaves; agora qualquer field novo em
+          // service_categories valida sem alterar codigo (ver buildValidTagKeys).
+          const VALID_KEYS = buildValidTagKeys(aliasConfig)
+          const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
+          const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro','frete','comparando','sem_urgencia'])
           const aliasMap = new Map<string, string>()
           if (aliasCategory) {
             for (const stage of aliasCategory.stages) {
