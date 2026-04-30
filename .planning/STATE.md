@@ -3,6 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: "Refatoracao e Blindagem do Modulo Agente IA"
 status: completed
+deprecated: true
+deprecated_at: "2026-04-29"
+deprecated_reason: "Workflow GSD inativo desde M2 (2026-04-04). Estado real do projeto vive em PRD.md (changelog versionado), wiki/roadmap.md, log.md e wiki/modulos.md. Snapshot abaixo é histórico — NÃO usar como fonte de verdade."
 last_updated: "2026-04-04T09:55:18.831Z"
 progress:
   total_phases: 7
@@ -11,7 +14,15 @@ progress:
   completed_plans: 17
 ---
 
-# STATE.md — WhatsPRO (Snapshot 2026-04-04)
+> **⚠️ DEPRECATED (2026-04-29):** Este arquivo retrata o estado de v1.0 (2026-04-04). O projeto evoluiu para M2, M12-M19 (S1-S10) e Sprint Eletropiso desde então. Para o estado atual, ver:
+> - `PRD.md` — fonte de verdade com changelog versionado (v7.16.0+ atual)
+> - `wiki/roadmap.md` — milestones e sprints com status
+> - `log.md` — sessão atual
+> - `wiki/modulos.md` — lista de módulos M1-M19
+>
+> Este arquivo é mantido como histórico. Não atualizar.
+
+# STATE.md — WhatsPRO (Snapshot 2026-04-04, DEPRECATED)
 
 ## Project Reference
 

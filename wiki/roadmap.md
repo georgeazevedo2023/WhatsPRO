@@ -1,8 +1,8 @@
 ---
 title: Roadmap
-tags: [roadmap, milestones, fases, status]
-sources: [.planning/ROADMAP.md, .planning/STATE.md, CLAUDE.md]
-updated: 2026-04-27
+tags: [roadmap, milestones, fases, status, m19-s10, eletropiso]
+sources: [.planning/ROADMAP.md (deprecated), .planning/STATE.md (deprecated), CLAUDE.md, PRD.md]
+updated: 2026-04-29
 ---
 
 # Roadmap
@@ -91,6 +91,10 @@ updated: 2026-04-27
 | S8 | DB Monitoring & Auto-Cleanup | ✅ Shipped (2026-04-25) | 3 camadas: Camada 1 (DbSizeCard + semáforo 300 MB + top tabelas), Camada 2 (db-size-monitor pg_cron 06:07 UTC + NotificationBell super_admin), Camada 3 slice seguro (db_retention_policies + 6 seed policies OFF + AdminRetention UI + pg_cron weekly). 8% atual (24 MB). Plano: [[.planning/m19-s8-PLAN]] |
 | S8.1 | DB Backup JSONL Integration | ✅ Shipped (2026-04-25) | Bucket privado + 2 edge functions (db-retention-backup gzipa→upload→delete; db-cleanup-old-backups limpa >365d) + 2 crons (weekly backup, monthly backup retention). Policy conversation_messages liberada. E2E validado. |
 | S9 | Hardening RLS Permissões Helpdesk | — | Estender `can_view_conversation` para enforçar `can_view_unassigned` e `can_view_all_in_dept` (hoje SOFT/frontend-only — R73). Agendado: ~3 semanas após ship das permissões de inbox (2026-04-25). |
+| S10 v1 | Service Categories (Backend + UI plana) | ✅ Shipped (2026-04-27) | Migration `20260427000001` + helper `_shared/serviceCategories.ts` + `ServiceCategoriesConfig.tsx` (UI plana com `qualification_fields[]` + `ask_pre_search`). Substitui 4 hardcodes de tinta no AI Agent. **Superseded por v2 na mesma sessão** antes de UI integrar. |
+| S10 v2 | Service Categories — Stages + Score | ✅ Shipped (2026-04-27) | Migration `20260427000002` (stages + score + RPC `add_lead_score_event`) + UI v2 (drag-drop em stages e fields, slider score, preview funil). Hierarquia: Categoria → Stage → Field. Score persiste em `lead_score:N` + `lead_score_history`. F3 v2 em ai-agent/index.ts (4 edits HIGH RISK). F5: nova tab "Qualificação" (9ª). 7 sub-decisões D26.1–D26.7. |
+| S10 v3 | Qualif UX Redesign (modo Iniciante) | ✅ Shipped (2026-04-28) | UX didática: toggle Iniciante/Avançado (default Iniciante), fontes maiores, tooltips, chips "Inserir", RadioGroup Leve/Médio/Importante para score, score-cap como warning não-bloqueante (banner vermelho só em erros REAIS). Backward-compat 100% (slugs preservados via guardrail M1). Commit `adb2bda`. |
+| Sprint Eletropiso | 23 categorias + 7 fixes ai-agent + BusinessHoursEditor | ✅ Shipped (2026-04-29) | Agente Eletropiso configurado com 23 categorias home center (portas, fechaduras, escadas, cabos, canos, churrasqueiras, revestimentos, fechaduras, pias, janelas, furadeiras, torneiras, vasos_sanitarios, chuveiros, lampadas, tomadas_interruptores, disjuntores, registros, cimento_argamassa, caixas_dagua, ferramentas_manuais, pregos_parafusos + tintas/impermeabilizantes preservadas). 7 fixes em `ai-agent/index.ts` (v162→v169): uniqueKeys/categoria, isWellQualified, sdr_flow do banco, aliasing automático em set_tags, exit_action enforcement, +13 categorias, BusinessHoursEditor (UI semanal). VALID_KEYS expandido (60+ keys). 13 FAQs na KB. 17 handoff_triggers. R80-R84 promovidas. D27 (handoff-first em catálogo embrionário). |
 
 **Plano completo:** [[wiki/metricas-plano-implementacao]]
 

@@ -1,5 +1,11 @@
 # Roadmap: WhatsPRO
 
+> **⚠️ DEPRECATED (2026-04-29):** Última atualização efetiva foi M13 (2026-04-05). O projeto continuou para M14, M15, M16, M17 (5 fases), M18 (12 sprints), M19 (S1-S10) e Sprint Eletropiso (2026-04-29) sem refletir aqui. Para o roadmap atual, ver:
+> - `wiki/roadmap.md` — fonte de verdade com todos os milestones e sprints
+> - `PRD.md` — changelog versionado (v7.16.0 atual)
+>
+> Este arquivo é mantido como histórico do workflow GSD inicial. Não atualizar.
+
 ## Milestones
 
 - ✅ **v1.0 Refatoração e Blindagem** — Phases 1-7 (shipped 2026-04-04)

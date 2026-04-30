@@ -1,6 +1,6 @@
 ---
 title: WhatsPRO — Master Index
-updated: 2026-04-27
+updated: 2026-04-29
 type: index
 ---
 
@@ -64,7 +64,9 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/log-arquivo-2026-04-13-m19-s1s2]] | M19 S1+S2: Shadow + Agregação + Deploy (2026-04-13) |
 | [[wiki/log-arquivo-2026-04-14-helpdesk-audit]] | Helpdesk audit 10 fixes (2026-04-14) |
 | [[wiki/log-arquivo-2026-04-25-s8-helpdesk]] | Sessão maratona: Helpdesk inbox + M19 S8 + S8.1 (2026-04-25) |
-| [[wiki/handoff-2026-04-27]] | **HANDOFF da sessão 2026-04-27** — Auditoria geral + M19-S10 v2 Service Categories shipped + pendências de teste |
+| [[wiki/log-arquivo-2026-04-27-a-28-m19-s10]] | M19-S10 v1+v2+v3 (Service Categories Stages+Score) + Deploy 16 commits represados (2026-04-27 a 04-28) |
+| [[wiki/handoff-2026-04-27]] | HANDOFF da sessão 2026-04-27 — Auditoria geral + M19-S10 v2 Service Categories shipped |
+| [[log.md]] | **Sessão atual 2026-04-29** — Sprint Eletropiso 23 categorias + 7 fixes ai-agent (v162→v169) + BusinessHoursEditor + audit vault |
 | [[wiki/melhorias-auditoria-2026-04-27]] | Auditoria 2026-04-27: 24 bugs + 210 melhorias (índice geral) |
 | [[wiki/melhorias-modulos-comunicacao]] | Melhorias: Helpdesk, Broadcast, Forms (30 itens) |
 | [[wiki/melhorias-modulos-inteligencia]] | Melhorias: AI Agent, Profiles, Motor, Enquetes/NPS, Fluxos (50 itens) |
@@ -164,4 +166,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Ultima atualizacao: 2026-04-27 — Auditoria geral do projeto (somente leitura). 24 inconsistências detectadas, 210 melhorias documentadas em 5 wikis temáticas. Achado: pergunta "brilho/fosco" hardcoded em 4 locais sem UI admin. Sessão anterior (04-26): Refactor do orquestrador. Próximo: corrigir top-10 documentais (README, PRD header, AGENTS) ou seguir M19 S6/S7.*
+*Última atualização: 2026-04-29 — Sprint Eletropiso (23 categorias home center + 7 fixes ai-agent v162→v169 + BusinessHoursEditor) + audit do vault. Top-5 críticos do audit corrigidos: (1) log.md rotacionado para 200 linhas, (2) wiki/roadmap.md atualizada com S10 v1/v2/v3 + Eletropiso, (3) index.md sincronizada, (4) `.planning/STATE.md` e `.planning/ROADMAP.md` marcados como deprecated (workflow GSD inativo desde M2), (5) R80-R84 promovidas do "candidata" para erros-e-licoes.md. Próximo: smoke E2E manual ou Agent QA Framework batch.*
