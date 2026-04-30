@@ -500,13 +500,17 @@ Deno.serve(async (req) => {
 
     // 5.55 Excluded products check (D28, R87 — 2026-04-30)
     // Lead asked about a product/service the tenant DOES NOT sell.
-    // Reply with admin-configured polite message + suggestions, NO handoff, NO counter increment.
+    // Reply with admin-configured polite message (or fallback) — NO handoff, NO counter increment.
     // Skip if already in shadow (don't reply at all).
     if (conversation.status_ia !== STATUS_IA.SHADOW) {
       const excluded = (agent.excluded_products || []) as ExcludedProduct[]
       const matched = matchExcludedProduct(incomingText, excluded)
       if (matched) {
-        log.info('Excluded product matched — replying without handoff', { id: matched.id, keywords: matched.keywords })
+        log.info('Excluded product matched — replying without handoff', {
+          id: matched.product.id,
+          matchedKeyword: matched.matchedKeyword,
+          usingFallback: !matched.product.message || matched.product.message.trim() === '',
+        })
         await sendTextMsg(matched.message)
         await supabase.from('conversation_messages').insert({
           conversation_id, direction: 'outgoing', content: matched.message, media_type: 'text',
@@ -514,10 +518,14 @@ Deno.serve(async (req) => {
         await supabase.from('ai_agent_logs').insert({
           agent_id, conversation_id, event: 'excluded_product_match',
           latency_ms: Date.now() - startTime,
-          metadata: { excluded_id: matched.id, incoming_text: incomingText.substring(0, 200) },
+          metadata: {
+            excluded_id: matched.product.id,
+            matched_keyword: matched.matchedKeyword,
+            incoming_text: incomingText.substring(0, 200),
+          },
         })
         broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: matched.message, media_type: 'text' })
-        return new Response(JSON.stringify({ ok: true, response: matched.message, excluded_product: matched.id }), {
+        return new Response(JSON.stringify({ ok: true, response: matched.message, excluded_product: matched.product.id }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }

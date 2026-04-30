@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,7 +10,7 @@ import { Ban, Plus, Trash2, AlertCircle } from 'lucide-react'
 export interface ExcludedProduct {
   id: string
   keywords: string[]
-  message: string
+  message?: string  // Opcional — se vazio, IA usa fallback "Não trabalhamos com [keyword], posso te ajudar com outro produto?"
   suggested_categories?: string[]
 }
 
@@ -27,6 +27,51 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .substring(0, 40) || 'item'
+}
+
+/**
+ * Sub-componente isolado pra keywords com estado local de texto.
+ * Resolve bug onde `.trim()` em onChange impedia digitar espaço.
+ * O texto raw fica em useState local; o array parsed só atualiza no onBlur ou quando limpa via , .
+ */
+function KeywordsInput({
+  initialValue,
+  onSave,
+  hasError,
+  itemId,
+}: {
+  initialValue: string[]
+  onSave: (kws: string[]) => void
+  hasError: boolean
+  itemId: string  // pra detectar mudança de item externo (ex: troca de agente)
+}) {
+  const [text, setText] = useState(() => (initialValue || []).join(', '))
+  const lastItemIdRef = useRef(itemId)
+
+  // Sync quando o ITEM externo muda (troca de agente, novo item adicionado)
+  // Não sincroniza quando initialValue muda por causa do nosso próprio onChange
+  useEffect(() => {
+    if (lastItemIdRef.current !== itemId) {
+      lastItemIdRef.current = itemId
+      setText((initialValue || []).join(', '))
+    }
+  }, [itemId, initialValue])
+
+  const handleChange = (newText: string) => {
+    setText(newText)
+    // Parse e propaga: split por vírgula, trim cada elemento, remove vazios
+    const keywords = newText.split(',').map((k) => k.trim()).filter(Boolean)
+    onSave(keywords)
+  }
+
+  return (
+    <Input
+      value={text}
+      onChange={(e) => handleChange(e.target.value)}
+      placeholder="caixa de correio, correio, mailbox"
+      className={hasError ? 'border-destructive' : ''}
+    />
+  )
 }
 
 export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsConfigProps) {
@@ -77,14 +122,6 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
     updateItems(items.filter((_, i) => i !== index))
   }
 
-  const setKeywords = (index: number, csv: string) => {
-    const keywords = csv
-      .split(',')
-      .map((k) => k.trim())
-      .filter(Boolean)
-    updateItem(index, { keywords })
-  }
-
   return (
     <Card>
       <CardHeader>
@@ -100,6 +137,7 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
         <CardDescription>
           Liste produtos ou serviços que sua loja não trabalha. Quando o lead perguntar sobre algum,
           a IA responde educadamente <strong>sem fazer transbordo</strong> e sugere alternativas.
+          Se a "Resposta da IA" ficar em branco, ela usa automaticamente <em>"Não trabalhamos com [palavra-chave], posso te ajudar com outro produto?"</em>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -122,8 +160,9 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
             {items.map((item, index) => {
               const idDup = duplicateIds.has(item.id)
               const noKeywords = !item.keywords || item.keywords.length === 0
-              const noMessage = !item.message || item.message.trim() === ''
-              const hasError = idDup || noKeywords || noMessage
+              const hasError = idDup || noKeywords
+              const firstKeyword = item.keywords?.[0] || '[palavra-chave]'
+              const fallbackPreview = `Não trabalhamos com ${firstKeyword}, posso te ajudar com outro produto?`
 
               return (
                 <div
@@ -167,11 +206,11 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
                       Palavras-chave que o lead pode usar
                       <span className="text-muted-foreground ml-1">(separadas por vírgula)</span>
                     </Label>
-                    <Input
-                      value={(item.keywords || []).join(', ')}
-                      onChange={(e) => setKeywords(index, e.target.value)}
-                      placeholder="caixa de correio, correio, mailbox"
-                      className={noKeywords ? 'border-destructive' : ''}
+                    <KeywordsInput
+                      initialValue={item.keywords || []}
+                      onSave={(kws) => updateItem(index, { keywords: kws })}
+                      hasError={noKeywords}
+                      itemId={item.id}
                     />
                     {noKeywords && (
                       <p className="text-xs text-destructive flex items-center gap-1">
@@ -186,21 +225,20 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Resposta da IA quando o lead perguntar</Label>
+                    <Label className="text-xs">
+                      Resposta da IA quando o lead perguntar
+                      <span className="text-muted-foreground ml-1">(opcional)</span>
+                    </Label>
                     <Textarea
-                      value={item.message}
+                      value={item.message || ''}
                       onChange={(e) => updateItem(index, { message: e.target.value })}
-                      placeholder="Não trabalhamos com caixa de correio, mas posso te ajudar com cofres ou fechaduras se interessar."
-                      className={`min-h-[70px] text-sm ${noMessage ? 'border-destructive' : ''}`}
+                      placeholder={fallbackPreview}
+                      className="min-h-[70px] text-sm"
                     />
-                    {noMessage && (
-                      <p className="text-xs text-destructive flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        Mensagem obrigatória
-                      </p>
-                    )}
                     <p className="text-[11px] text-muted-foreground">
-                      Dica: cite alternativas que você vende para reaproveitar o interesse do lead.
+                      {item.message
+                        ? 'Dica: cite alternativas que você vende para reaproveitar o interesse do lead.'
+                        : <>Em branco, IA responde: <em>"{fallbackPreview}"</em></>}
                     </p>
                   </div>
                 </div>
@@ -220,6 +258,7 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
             <li>A IA verifica a mensagem do lead antes de qualquer outra regra</li>
             <li>Match exato em palavra-inteira (não casa partes — "correio" não casa "correios")</li>
             <li>Se casar, IA responde e <strong>NÃO faz transbordo</strong> nem incrementa contador de mensagens</li>
+            <li>Se a "Resposta da IA" estiver em branco, IA usa fallback automático com a palavra-chave que casou</li>
             <li>Se o lead insistir ou pedir vendedor depois, fluxo normal de transbordo se aplica</li>
           </ul>
         </div>
