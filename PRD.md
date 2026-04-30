@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.15.0 | **Última atualização**: 2026-04-29 | **Status**: Produção + OpenAI gpt-4.1-mini + 38 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente (Motor+Perfis+Enquetes+NPS) + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 (Métricas + IA Conversacional + DB Monitoring & Auto-Cleanup) + M19 S10 v2 Service Categories Stages+Score + Eletropiso 10 Categorias
+> **Versão**: 7.17.0 | **Última atualização**: 2026-04-30 | **Status**: Produção + OpenAI gpt-4.1-mini + 38 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente (Motor+Perfis+Enquetes+NPS) + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 (Métricas + IA Conversacional + DB Monitoring & Auto-Cleanup) + M19 S10 v2 Service Categories Stages+Score + Eletropiso 23 Categorias + D28 Excluded Products
 
 ## Visão Geral
 
@@ -39,6 +39,48 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.17.0 (2026-04-30) — D28 Excluded Products + R85/R86 fix handoffs duplicados
+
+**D28 — Lista de produtos que a tenant NÃO vende, configurável via UI:**
+
+Antes desta feature, lead que perguntava sobre produto fora do portfólio (ex: caixa de correio em home center) caía em default category → handoff genérico → vendedor respondia "não temos" manualmente. Desperdício de atenção humana.
+
+**Implementação:**
+- Migration `ai_agents_excluded_products`: coluna `excluded_products JSONB DEFAULT '[]'` em `ai_agents`
+- Helper `_shared/excludedProducts.ts`: `matchExcludedProduct()` (regex `\b...\b` case-insensitive + remove acentos) + `validateExcludedProducts()`. **19 testes** unit cobrindo match exato, sinônimos, palavras parciais (não casa "correios" se keyword é "correio"), texto vazio, lista vazia
+- Edge function `ai-agent/index.ts`: check antes do counter (linha ~504) — se matched, IA envia `item.message`, log `event: 'excluded_product_match'`, **NÃO incrementa lead_msg_count**, **NÃO faz handoff**, early return
+- UI `ExcludedProductsConfig.tsx`: nova subseção da tab Qualificação com cards (id auto-slugify + keywords CSV + mensagem) + validação inline + estados de erro (id duplicado, keywords vazias, message vazia)
+- `ALLOWED_FIELDS` em `AIAgentTab.tsx` expandido com `excluded_products`
+- `types.ts` patcheado (Row+Insert+Update) com `excluded_products: Json | null`
+
+**Schema:**
+```json
+[
+  {
+    "id": "caixa_correio",
+    "keywords": ["caixa de correio", "correio"],
+    "message": "Não trabalhamos com caixa de correio. Posso te ajudar com cofres ou fechaduras?",
+    "suggested_categories": ["fechaduras"]
+  }
+]
+```
+
+**Convenções:**
+- Match por palavra-inteira — "correio" não casa "correios"
+- Case-insensitive + remove acentos via NFD normalize
+- Primeiro match na ordem da lista vence
+- Skip total se conversation já em SHADOW (não responde nada)
+
+**R85 — Auto-handoff por message limit agora skip quando shadow:**
+
+Bug detectado na conversa Josafa (lead 558199220678 — Eletropiso): após primeiro handoff em "Bosch" (counter chegou em 8 = MAX_LEAD_MESSAGES), TODA mensagem subsequente do lead em SHADOW disparava o auto-handoff de novo, gerando "Vou te encaminhar..." 3x consecutivos (16:48, 16:50, 16:51). Fix: linha 536 agora exige `&& conversation.status_ia !== STATUS_IA.SHADOW`.
+
+**R86 — Reset `lead_msg_count: 0` em todos os 5 paths SHADOW:**
+
+Sem reset, lead que volta dias depois imediatamente estoura o limit (counter não zera com o tempo) e dispara auto-handoff antes mesmo da IA responder. Aplicado em: auto-handoff por message limit, handoff_to_human tool, handoff trigger por texto, validator BLOCK, implicit text-handoff, deferred handoff trigger.
+
+**Edge function ai-agent v171 deployed.**
 
 ### v7.16.0 (2026-04-29) — Eletropiso 23 categorias + 7 fixes ai-agent + BusinessHoursEditor
 

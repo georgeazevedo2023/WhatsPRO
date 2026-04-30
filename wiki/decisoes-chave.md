@@ -154,6 +154,49 @@ CLAUDE.md 373→96 linhas. Conteúdo migrado: [[RULES.md]] (regras) | [[ARCHITEC
 
 **Cruza com R81 candidata** (VALID_KEYS whitelist é silent reject) e **R8** (NUNCA dizer "não temos" — handoff resolve com contexto pro vendedor).
 
+## D28 — Excluded Products: lista de produtos NÃO vendidos editável pelo admin (2026-04-30)
+
+**Contexto:** Antes desta feature, a IA só sabia distinguir 2 estados: produto VENDE (casou em service_categories → qualifica e busca) ou NÃO-CADASTRADO (cai em default → handoff genérico). Quando lead pergunta sobre produto que a tenant simplesmente não trabalha (ex: caixa de correio em home center, ar-condicionado em loja de tinta), o vendedor recebia handoffs vazios e respondia "não temos" manualmente. Desperdício de atenção humana.
+
+**Decisão:** adicionar coluna `ai_agents.excluded_products JSONB` editável via UI no admin (subseção da tab Qualificação). Schema:
+
+```json
+[
+  {
+    "id": "caixa_correio",
+    "keywords": ["caixa de correio", "correio"],
+    "message": "Não trabalhamos com caixa de correio. Posso te ajudar com cofres ou fechaduras?",
+    "suggested_categories": ["fechaduras"]
+  }
+]
+```
+
+**Comportamento em runtime:**
+1. Lead manda mensagem → ai-agent verifica `matchExcludedProduct(text, agent.excluded_products)` ANTES de incrementar counter, ANTES de checar handoff triggers, ANTES de carregar contexto LLM
+2. Se matched → envia `item.message` direto, log `event: 'excluded_product_match'`, **NÃO incrementa lead_msg_count**, **NÃO faz handoff**, early return
+3. Se lead em SHADOW → skip (não responde nada)
+
+**Por que não reaproveitar `blocked_topics`:** semanticamente diferente. blocked_topics são temas tabu (concorrentes, política) — IA nunca discute. excluded_products são produtos que simplesmente não estão no portfólio — IA discute educadamente e sugere alternativas.
+
+**Por que não usar `service_categories` com flag `excluded: true`:** mistura listas (categorias que vende vs categorias que não vende) e o schema de service_categories tem stages+score para qualificação progressiva — não faz sentido para "não vendemos".
+
+**Convenções:**
+- Match por palavra-inteira (regex `\b...\b`) — "correio" não casa "correios"
+- Case-insensitive + remove acentos via `normalize('NFD')`
+- Primeiro match na ordem da lista vence
+- Mensagem polida e termina sugerindo categoria alternativa quando possível
+
+**SYNC RULE auditada:**
+- Item 1 (banco): migration `ai_agents_excluded_products` ✅
+- Item 2 (types.ts): patch surgical (Row+Insert+Update) ✅
+- Item 3 (Admin UI): `ExcludedProductsConfig.tsx` na tab Qualificação ✅
+- Item 4 (ALLOWED_FIELDS): `'excluded_products'` adicionado ✅
+- Item 5 (backend): `_shared/excludedProducts.ts` + check em `index.ts` linha 504 ✅
+- Itens 6+7 (prompt + system_settings): N/A (não envolve LLM nem default global)
+- Item 8 (docs): D28 + R87 + log ✅
+
+**Cruza com R85** (skip auto-handoff em shadow) e **R86** (reset counter em shadow) — feature funciona em sinergia: excluded_product responde sem incrementar counter, evitando que múltiplas perguntas sobre produtos não vendidos estourem o limit e disparem auto-handoff.
+
 ## Helpdesk — Permissões de Inbox (D21, 2026-04-25, hardening agendado em S9)
 
 ### Negar por padrão (least privilege)

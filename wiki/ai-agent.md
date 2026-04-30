@@ -78,6 +78,32 @@ Cada agente tem `ai_agents.service_categories JSONB` com **categorias de atendim
 
 **Backward compat v1→v2:** migration v2 detecta agentes com schema plano e remapeia automaticamente para 3 stages padrão (Identificação=qualif, Detalhamento=enrichment, Fechamento=handoff).
 
+## Excluded Products — Lista de produtos NÃO vendidos (D28, 2026-04-30)
+
+`ai_agents.excluded_products JSONB` — lista de produtos/serviços que a tenant não trabalha. Editável pelo admin via subseção da tab Qualificação.
+
+**Schema:**
+```json
+[
+  {
+    "id": "caixa_correio",
+    "keywords": ["caixa de correio", "correio"],
+    "message": "Não trabalhamos com caixa de correio. Posso te ajudar com cofres ou fechaduras?",
+    "suggested_categories": ["fechaduras"]
+  }
+]
+```
+
+**Comportamento em runtime:**
+1. Lead manda mensagem → `matchExcludedProduct(text, agent.excluded_products)` é checado **antes** do counter increment, **antes** de handoff triggers, **antes** de qualquer LLM
+2. Match exato em palavra-inteira (regex `\b...\b`) + case-insensitive + remove acentos
+3. Se matched → IA envia `item.message`, log `event: 'excluded_product_match'`, **NÃO incrementa lead_msg_count**, **NÃO faz handoff**, early return
+4. Se conversa em SHADOW → skip total
+
+**Diferença vs blocked_topics:** semanticamente diferente. blocked_topics são tabu (concorrentes, política) — IA nunca discute. excluded_products são produtos fora do portfólio — IA discute educadamente e sugere alternativas.
+
+**Helper:** `_shared/excludedProducts.ts` (`matchExcludedProduct` + `validateExcludedProducts`, 19 testes).
+
 ## Handoff
 
 - So em pedido explicito ("vendedor", "atendente"), sentimento negativo persistente, ou pergunta sem resposta
