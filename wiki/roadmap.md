@@ -1,8 +1,8 @@
 ---
 title: Roadmap
-tags: [roadmap, milestones, fases, status, m19-s10, eletropiso]
+tags: [roadmap, milestones, fases, status, m19-s10, eletropiso, d28-excluded-products]
 sources: [.planning/ROADMAP.md (deprecated), .planning/STATE.md (deprecated), CLAUDE.md, PRD.md]
-updated: 2026-04-29
+updated: 2026-04-30
 ---
 
 # Roadmap
@@ -95,6 +95,7 @@ updated: 2026-04-29
 | S10 v2 | Service Categories — Stages + Score | ✅ Shipped (2026-04-27) | Migration `20260427000002` (stages + score + RPC `add_lead_score_event`) + UI v2 (drag-drop em stages e fields, slider score, preview funil). Hierarquia: Categoria → Stage → Field. Score persiste em `lead_score:N` + `lead_score_history`. F3 v2 em ai-agent/index.ts (4 edits HIGH RISK). F5: nova tab "Qualificação" (9ª). 7 sub-decisões D26.1–D26.7. |
 | S10 v3 | Qualif UX Redesign (modo Iniciante) | ✅ Shipped (2026-04-28) | UX didática: toggle Iniciante/Avançado (default Iniciante), fontes maiores, tooltips, chips "Inserir", RadioGroup Leve/Médio/Importante para score, score-cap como warning não-bloqueante (banner vermelho só em erros REAIS). Backward-compat 100% (slugs preservados via guardrail M1). Commit `adb2bda`. |
 | Sprint Eletropiso | 23 categorias + 7 fixes ai-agent + BusinessHoursEditor | ✅ Shipped (2026-04-29) | Agente Eletropiso configurado com 23 categorias home center (portas, fechaduras, escadas, cabos, canos, churrasqueiras, revestimentos, fechaduras, pias, janelas, furadeiras, torneiras, vasos_sanitarios, chuveiros, lampadas, tomadas_interruptores, disjuntores, registros, cimento_argamassa, caixas_dagua, ferramentas_manuais, pregos_parafusos + tintas/impermeabilizantes preservadas). 7 fixes em `ai-agent/index.ts` (v162→v169): uniqueKeys/categoria, isWellQualified, sdr_flow do banco, aliasing automático em set_tags, exit_action enforcement, +13 categorias, BusinessHoursEditor (UI semanal). VALID_KEYS expandido (60+ keys). 13 FAQs na KB. 17 handoff_triggers. R80-R84 promovidas. D27 (handoff-first em catálogo embrionário). |
+| D28 Excluded Products + Fix Handoffs Duplicados | ✅ Shipped (2026-04-30) | **Feature D28**: lista `ai_agents.excluded_products JSONB` editável via UI (subseção tab Qualificação). Helper `_shared/excludedProducts.ts` (matcher word-boundary case-insensitive) + check em ai-agent ANTES do counter → IA responde polidamente sem transbordo e sem incrementar contador. Fallback automático "Não trabalhamos com {kw}, posso te ajudar com outro produto?" quando admin deixa message vazio. **Fix R85+R86**: 3 handoffs duplicados na conversa Josafa — guard `status_ia !== SHADOW` no auto-handoff por message limit + reset `lead_msg_count: 0` em 5 paths SHADOW. **R88**: CHECK constraint silent fail (`chk_ai_agent_logs_event` faltava `excluded_product_match` → INSERT falhava sem throw). **R89**: UI controlled input com `.trim()` em onChange impede digitar espaço — solução: sub-componente com useState local. Edge function v170→v172. Bundle prod `index-CFmkOcne.js`. 47 testes (27 unit + 20 integrated). Validado real com lead George em prod. |
 
 **Plano completo:** [[wiki/metricas-plano-implementacao]]
 

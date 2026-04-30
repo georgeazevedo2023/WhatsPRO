@@ -1,6 +1,6 @@
 ---
 title: WhatsPRO — Master Index
-updated: 2026-04-29
+updated: 2026-04-30
 type: index
 ---
 
@@ -66,7 +66,8 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/log-arquivo-2026-04-25-s8-helpdesk]] | Sessão maratona: Helpdesk inbox + M19 S8 + S8.1 (2026-04-25) |
 | [[wiki/log-arquivo-2026-04-27-a-28-m19-s10]] | M19-S10 v1+v2+v3 (Service Categories Stages+Score) + Deploy 16 commits represados (2026-04-27 a 04-28) |
 | [[wiki/handoff-2026-04-27]] | HANDOFF da sessão 2026-04-27 — Auditoria geral + M19-S10 v2 Service Categories shipped |
-| [[log.md]] | **Sessão atual 2026-04-29** — Sprint Eletropiso 23 categorias + 7 fixes ai-agent (v162→v169) + BusinessHoursEditor + audit vault |
+| [[wiki/log-arquivo-2026-04-29-eletropiso]] | Sprint Eletropiso 23 categorias + 7 fixes ai-agent (v162→v169) + BusinessHoursEditor + audit vault (2026-04-29) |
+| [[log.md]] | **Sessão atual 2026-04-30** — D28 Excluded Products + R85/R86/R87/R88 fix handoffs duplicados + UI bug fixes + validação prod |
 | [[wiki/melhorias-auditoria-2026-04-27]] | Auditoria 2026-04-27: 24 bugs + 210 melhorias (índice geral) |
 | [[wiki/melhorias-modulos-comunicacao]] | Melhorias: Helpdesk, Broadcast, Forms (30 itens) |
 | [[wiki/melhorias-modulos-inteligencia]] | Melhorias: AI Agent, Profiles, Motor, Enquetes/NPS, Fluxos (50 itens) |
@@ -166,4 +167,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Última atualização: 2026-04-29 — Sprint Eletropiso (23 categorias home center + 7 fixes ai-agent v162→v169 + BusinessHoursEditor) + audit do vault. Top-5 críticos do audit corrigidos: (1) log.md rotacionado para 200 linhas, (2) wiki/roadmap.md atualizada com S10 v1/v2/v3 + Eletropiso, (3) index.md sincronizada, (4) `.planning/STATE.md` e `.planning/ROADMAP.md` marcados como deprecated (workflow GSD inativo desde M2), (5) R80-R84 promovidas do "candidata" para erros-e-licoes.md. Próximo: smoke E2E manual ou Agent QA Framework batch.*
+*Última atualização: 2026-04-30 — D28 Excluded Products shipped (UI editável de produtos não vendidos + matcher word-boundary + fallback automático), R85+R86 fix handoffs duplicados Josafa, R87+R88+R89 promovidas (CHECK constraint silent fail + UI controlled input bug). Edge function ai-agent v170→v172. Bundle prod `index-CFmkOcne.js`. 47 testes (27 unit + 20 integrated). Validação real em prod com lead George. log.md rotacionado novamente (entrada 2026-04-29 → archive). Próximo: cadastrar mais excluded products + smoke múltiplos cenários + considerar wiki/casos-de-uso/excluded-products-detalhado.*

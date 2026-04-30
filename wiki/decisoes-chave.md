@@ -1,8 +1,8 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca, funis, automacao, polls, perfis, nps, fluxos-unificados, validator, shadow, metrics, assistant, db-retention, service-categories, service-categories-v2]
+tags: [decisoes, regras, padroes, seguranca, funis, automacao, polls, perfis, nps, fluxos-unificados, validator, shadow, metrics, assistant, db-retention, service-categories, service-categories-v2, excluded-products, d28]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-27
+updated: 2026-04-30
 ---
 
 # Decisões-Chave

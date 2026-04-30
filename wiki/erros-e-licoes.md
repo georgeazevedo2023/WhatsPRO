@@ -1,8 +1,8 @@
 ---
 title: Erros e Lições
-tags: [erros, bugs, licoes, preventivo, retention, cron, storage]
+tags: [erros, bugs, licoes, preventivo, retention, cron, storage, db-constraint, controlled-input]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-27
+updated: 2026-04-30
 ---
 
 # Erros e Lições
@@ -102,6 +102,8 @@ updated: 2026-04-27
 | 85 | Auto-handoff por `lead_msg_count >= MAX_LEAD_MESSAGES` (linha 536) DEVE checar `conversation.status_ia !== STATUS_IA.SHADOW` — sem o guard, conversa em shadow re-dispara mensagem de handoff a cada nova mensagem do lead, gerando spam. Sintoma: lead recebe "Vou te encaminhar..." 2-3x em sequência sem pedir nada. | AI Agent |
 | 86 | TODOS os paths que transitam conversa para `status_ia=SHADOW` DEVEM resetar `lead_msg_count: 0` no UPDATE — sem reset, lead que volta dias depois imediatamente estoura o limit (counter não zera com o tempo) e dispara auto-handoff antes mesmo da IA responder. Aplicar em: auto-handoff por message limit, handoff_to_human tool, handoff trigger por texto, validator BLOCK, implicit text-handoff, deferred handoff trigger. | AI Agent |
 | 87 | Quando lead pergunta sobre produto que a tenant NÃO vende, IA hoje cai em default category → handoff genérico → vendedor responde "não trabalhamos" manualmente. Solução: cadastrar lista `ai_agents.excluded_products JSONB` via UI admin (D28) — match por keyword detecta cedo, IA responde polidamente sem handoff e sem incrementar counter. NUNCA reaproveitar `blocked_topics` (semanticamente diferente — tabu vs ausente). | AI Agent |
+| 88 | INSERT no Supabase JS retorna `{data, error}` em vez de throw — sem check explícito do `error`, falhas viram silent. Especialmente perigoso em CHECK constraints: adicionar event type novo no código sem atualizar `chk_*_event` na migration faz o INSERT falhar sem rastro. SEMPRE: (1) conferir CHECK constraints da tabela com `\d+ tabela`, (2) atualizar whitelist via migration, (3) wrap INSERTs de telemetria em try/catch + log.error. Detectado em D28: log `excluded_product_match` não persistia. | DB |
+| 89 | UI Input com `value={array.join(', ')}` controlado + `onChange` que faz split+trim+filter quebra digitação livre — espaço final é removido a cada keystroke, impedindo digitar mais que 1 palavra. Solução: sub-componente com `useState` local pra texto raw + sincronização externa por `useEffect` em `itemId` (não em `initialValue` para evitar override do input do user). Aplicado em `ExcludedProductsConfig.KeywordsInput`. | React |
 
 ---
 

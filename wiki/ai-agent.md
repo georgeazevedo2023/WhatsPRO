@@ -1,8 +1,8 @@
 ---
 title: AI Agent (M10)
-tags: [ai-agent, openai, sdr, handoff, validator, tts, shadow, profiles, polls, service-categories]
+tags: [ai-agent, openai, sdr, handoff, validator, tts, shadow, profiles, polls, service-categories, excluded-products]
 sources: [CLAUDE.md, supabase/functions/ai-agent/]
-updated: 2026-04-27
+updated: 2026-04-30
 ---
 
 # AI Agent (M10)
@@ -102,7 +102,15 @@ Cada agente tem `ai_agents.service_categories JSONB` com **categorias de atendim
 
 **Diferença vs blocked_topics:** semanticamente diferente. blocked_topics são tabu (concorrentes, política) — IA nunca discute. excluded_products são produtos fora do portfólio — IA discute educadamente e sugere alternativas.
 
-**Helper:** `_shared/excludedProducts.ts` (`matchExcludedProduct` + `validateExcludedProducts`, 19 testes).
+**Mensagem opcional + fallback:** quando admin deixa `message` vazio, IA usa fallback automático "Não trabalhamos com {matched_keyword}, posso te ajudar com outro produto?" — keyword preserva case/acento original cadastrado pelo admin.
+
+**Helper:** `_shared/excludedProducts.ts` (`matchExcludedProduct` retorna `{product, matchedKeyword, message}` + `validateExcludedProducts` + `buildFallbackMessage`, 27 testes unit + 20 runtime integrated em `scripts/test-excluded-products-runtime.mjs`).
+
+**Validação prod:** testado com lead real ("Tem caixa de correio?" → fallback automático sem transbordo, counter NÃO subiu — preservou mensagens disponíveis pro lead).
+
+**Bugs históricos relacionados:**
+- **R88** — INSERT de telemetria falhava silenciosamente até adicionar `excluded_product_match` à whitelist `chk_ai_agent_logs_event` (migration `20260430000001`)
+- **R89** — UI bug: input controlado com `.trim()` em onChange impedia digitar espaço; resolvido com sub-componente `KeywordsInput` com useState local
 
 ## Handoff
 

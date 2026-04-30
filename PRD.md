@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.17.0 | **Última atualização**: 2026-04-30 | **Status**: Produção + OpenAI gpt-4.1-mini + 38 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente (Motor+Perfis+Enquetes+NPS) + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 (Métricas + IA Conversacional + DB Monitoring & Auto-Cleanup) + M19 S10 v2 Service Categories Stages+Score + Eletropiso 23 Categorias + D28 Excluded Products
+> **Versão**: 7.17.1 | **Última atualização**: 2026-04-30 | **Status**: Produção + OpenAI gpt-4.1-mini + 38 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente (Motor+Perfis+Enquetes+NPS) + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 (Métricas + IA Conversacional + DB Monitoring & Auto-Cleanup) + M19 S10 v2 Service Categories Stages+Score + Eletropiso 23 Categorias + D28 Excluded Products (validado em prod)
 
 ## Visão Geral
 
@@ -39,6 +39,39 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.17.1 (2026-04-30) — D28 validado em prod + R88 fix CHECK constraint + R89 fix UI bug
+
+**Validação D28 em prod com lead George (telefone 558193856099):**
+
+Sequência confirmada via SQL:
+- 07:47 lead "Bom dia" → counter=1, greeting
+- 07:51 lead "George" → counter=2, LLM responde
+- 07:51 lead "Tem caixa de correio?" → counter **FICOU em 2** (excluded product NÃO conta)
+- 07:52 IA responde fallback automático: "Não trabalhamos com caixa de correio, posso te ajudar com outro produto?"
+
+✅ status_ia continuou `ligada`, ✅ tags limpas (sem poluição), ✅ sem handoff disparado.
+
+**R88 — CHECK constraint silent fail:**
+
+Após teste real, descoberto que log `excluded_product_match` NÃO aparecia em `ai_agent_logs`. Causa: `chk_ai_agent_logs_event` tinha whitelist com 11 valores fixos. INSERT com event novo violava constraint, mas Supabase JS retorna `{error}` em vez de throw → erro silencioso.
+
+**Fix:** Migration `20260430000001_excluded_product_match_event.sql` adiciona `excluded_product_match` à whitelist. Aplicada via REST API + comitada para histórico. Comportamento da feature D28 não foi afetado (apenas observabilidade).
+
+**R89 — UI controlled input com trim impede digitar espaço:**
+
+User reportou que ao digitar "caixa de correio" no campo keywords, só salvava "caixadecorreio". Causa: `setKeywords` fazia `.split().trim().filter()` em onChange, removendo espaço imediato após digitação. Display controlado por `value={join(', ')}` reescrevia o input a cada keystroke.
+
+**Fix:** Sub-componente `KeywordsInput` em `ExcludedProductsConfig.tsx` com `useState` local pra texto raw. Parse de array só dispara onChange (sem afetar text input). Sincronização com prop externa via `useEffect` watching `itemId` (não `initialValue`).
+
+**UX — message opcional com fallback automático:**
+
+User pediu fallback genérico. Implementado:
+- `message` agora opcional no schema
+- Helper retorna `{product, matchedKeyword, message}`. Se admin deixou vazio, gera fallback usando `matchedKeyword` original (preserva case/acento)
+- UI removeu validação "Mensagem obrigatória"; placeholder mostra preview do fallback dinamicamente
+
+Edge function ai-agent **v172** deployed. Bundle prod **`index-CFmkOcne.js`**.
 
 ### v7.17.0 (2026-04-30) — D28 Excluded Products + R85/R86 fix handoffs duplicados
 
