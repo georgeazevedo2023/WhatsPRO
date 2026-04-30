@@ -143,7 +143,7 @@ User pediu para encerrar a dívida R84 (acoplamento manual entre `service_catego
 
 ### Pendências operacionais
 
-- 🚀 **Deploy do edge function ai-agent v172 → v173** (refactor não-funcional + fix R84). MCP do Supabase desconectou na sessão; user pode rodar `supabase functions deploy ai-agent` ou aguardar próxima sessão com MCP ativo.
+- ✅ **Deploy ai-agent v173 SHIPADO** via Supabase CLI (`SUPABASE_ACCESS_TOKEN=... supabase functions deploy ai-agent --project-ref euljumeflwtljegknawy`). MCP estava offline mas CLI funcionou. R84 agora resolvido EM PROD — `tipo_tinta` no Eletropiso passa a validar.
 - ✏️ User pode testar mais cenários (geladeira, freezer, microondas, airfryer) — sinônimos cobertos
 - 📊 Próxima vez que excluded match disparar, verificar `ai_agent_logs WHERE event = 'excluded_product_match'` (R88 corrigido — vai aparecer)
 - 🐌 Latência ~22s entre msg do lead e resposta — provavelmente debounce 10s + processamento. Investigar se virar incômodo

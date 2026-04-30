@@ -66,7 +66,7 @@ Antes desta versão, o handler `set_tags` em `ai-agent/index.ts:2143` mantinha `
 - `npm test` — 595 passed (+9 novos), 0 nova regressão (5 falhas FormBuilder pré-existentes)
 - SQL Eletropiso confirmou que as 52 keys dinâmicas batem com o hardcoded antigo + 1 nova (`tipo_tinta`) que estava bugada
 
-**Pendência:** deploy do edge function ai-agent v172 → v173 (não shipou nesta sessão — MCP Supabase desconectou).
+**Deploy:** edge function ai-agent **v173 shipado em prod** via Supabase CLI (MCP estava offline; fallback de CLI funcionou).
 
 R84 marcada como **RESOLVIDO** em `wiki/erros-e-licoes.md`. D29 documentada com rationale completa em `wiki/decisoes-chave.md`.
 
