@@ -139,8 +139,13 @@
 
 ## Admin AI Agent
 
-- 20 componentes: GeneralConfig, BrainConfig, CatalogConfig, CatalogTable, CatalogProductForm, CsvProductImport, BatchScrapeImport, KnowledgeConfig, RulesConfig, GuardrailsConfig, VoiceConfig, ExtractionConfig, MetricsConfig, ValidatorMetrics, ProfilesConfig, BlockedNumbersConfig, FollowUpConfig, BusinessInfoConfig, PromptStudio, PollConfigSection
-- 8 tabs: Setup, Prompt Studio, Inteligencia, Catalogo, Conhecimento, Seguranca, Canais, Metricas
+- 22 componentes (após D28): GeneralConfig, BrainConfig, CatalogConfig, CatalogTable, CatalogProductForm, CsvProductImport, BatchScrapeImport, KnowledgeConfig, RulesConfig, GuardrailsConfig, VoiceConfig, ExtractionConfig, MetricsConfig, ValidatorMetrics, ProfilesConfig, BlockedNumbersConfig, FollowUpConfig, BusinessInfoConfig, BusinessHoursEditor, PromptStudio, PollConfigSection, ServiceCategoriesConfig, ExcludedProductsConfig
+- 9 tabs: Setup, Prompt Studio, Inteligencia, Qualificacao (Service Categories + Excluded Products), Catalogo, Conhecimento, Seguranca, Canais, Metricas
+
+## Telemetria / Logging defensivo (R88)
+
+- `insertLogSafe(supabase, logger, payload)` em `_shared/agentHelpers.ts` — wrap try/catch + check `{error}` em `ai_agent_logs.insert`. Supabase JS NÃO throw em CHECK violation/RLS denial — sem este wrapper, telemetria pode ser perdida silenciosamente.
+- Antes de adicionar event type novo no código: conferir whitelist `chk_ai_agent_logs_event` + atualizar via migration.
 
 ## Playground / QA
 

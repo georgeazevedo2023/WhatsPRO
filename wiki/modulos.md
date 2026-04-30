@@ -119,7 +119,7 @@ updated: 2026-04-27
 
 ## M17 — Plataforma Inteligente ✅ COMPLETO (F1-F5 shipped 2026-04-08 a 2026-04-09)
 
-> Plano: [[wiki/plano-enquetes-polls]] | UAZAPI: [[wiki/uazapi-polls-interativos]]
+> Plano: [[wiki/historico-planos/plano-enquetes-polls]] | UAZAPI: [[wiki/uazapi-polls-interativos]]
 
 | Fase | Entrega |
 |------|---------|
@@ -129,7 +129,7 @@ updated: 2026-04-27
 | F4 — Enquetes Nativas | `poll_messages`/`poll_responses`, action `send-poll` no uazapi-proxy, tool `send_poll` (9ª tool), webhook `poll_update`, broadcast tab "Enquete", helpdesk render `media_type=poll` |
 | F5 — NPS + Métricas | 5 campos NPS em ai_agents, `is_nps` flag, `notifications` table, PollConfigSection, PollMetricsCard + PollNpsChart, `triggerNpsIfEnabled()`, TicketResolutionDrawer agenda NPS, nota ruim notifica gerentes |
 
-**Decisões D1-D10:** ver [[wiki/plano-enquetes-polls]] e [[wiki/decisoes-chave]] (D10 = Agent Profiles)
+**Decisões D1-D10:** ver [[wiki/historico-planos/plano-enquetes-polls]] e [[wiki/decisoes-chave]] (D10 = Agent Profiles)
 
 ## M18 — Fluxos v3.0 ✅ COMPLETO (2026-04-12, 12 sprints em 4 camadas)
 
@@ -165,7 +165,7 @@ updated: 2026-04-27
 
 - [[wiki/ai-agent]] — Agente IA em profundidade
 - [[wiki/roadmap]] — Status e próximos módulos
-- [[wiki/plano-enquetes-polls]] — Plano de enquetes (sprints, tasks, schema)
+- [[wiki/historico-planos/plano-enquetes-polls]] — Plano de enquetes (sprints, tasks, schema)
 - [[wiki/uazapi-polls-interativos]] — UAZAPI mensagens interativas
 - [[wiki/casos-de-uso/fluxos-detalhado]] — M18 casos de uso completos
 - [[wiki/fluxos-visao-arquitetura]] — Arquitetura e templates de fluxos

@@ -47,7 +47,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/banco-de-dados]] | Tabelas Supabase, RLS, materialized views |
 | [[wiki/integracao-funis]] | Campanhas + Bio + Forms + AI Agent (M15) |
 | [[wiki/uazapi-polls-interativos]] | UAZAPI Mensagens Interativas |
-| [[wiki/plano-enquetes-polls]] | Plano M17: Motor + Funis Agenticos + Enquetes |
+| [[wiki/historico-planos/plano-enquetes-polls]] | Plano M17 (histórico): Motor + Funis Agenticos + Enquetes |
 
 ## Wiki — Operacional (sempre consultar)
 
@@ -117,7 +117,12 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/helpdesk-comunicacao]] | 5 | Templates `/`, 10 tipos de mídia, rascunhos automáticos, emoji, reply (citação) |
 | ↳ [[wiki/casos-de-uso/helpdesk-ux]] | 7 | Layout 3 paineis, typing indicator, tempo de espera, histórico, busca global Ctrl+K, filtros, realtime + som |
 | ↳ [[wiki/casos-de-uso/helpdesk-permissoes]] | 1+ | Permissões granulares de inbox (D21, R73) + árvore de componentes |
-| [[wiki/casos-de-uso/ai-agent-detalhado]] | 15 | 9 tools, SDR, shadow, validator, TTS, prompt studio, profiles, NPS, knowledge base, circuit breaker, debounce, greeting, memoria, contexto canal |
+| [[wiki/casos-de-uso/ai-agent-detalhado]] | 15 (índice) | Particionado 2026-04-30 em 4 sub-wikis abaixo |
+| ↳ [[wiki/casos-de-uso/ai-agent-cerebro-tools-detalhado]] | 2.1+2.2 | Cérebro LLM gpt-4.1-mini + circuit breaker + 9 ferramentas (search/carousel/media/handoff/labels/tags/kanban/profile/poll) |
+| ↳ [[wiki/casos-de-uso/ai-agent-sdr-shadow-detalhado]] | 2.3+2.4 | Fluxo SDR com Service Categories (stages+score) + Shadow Mode (extração silenciosa pós-handoff) |
+| ↳ [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] | 2.5-2.7 | Validator Agent (supervisor) + TTS (voz) + Prompt Studio (9 seções editáveis) |
+| ↳ [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] | 2.8-2.14 | Perfis + NPS + Knowledge Base + Debounce + Greeting + Memória + Contexto Canal + Painel 9 tabs |
+| [[wiki/casos-de-uso/excluded-products-detalhado]] | 7 | D28 — Lista de produtos NÃO vendidos: schema, matcher word-boundary, fallback automático, integração no edge function, validação prod, R88+R89 |
 | [[wiki/casos-de-uso/leads-detalhado]] | 12 | Perfil 25+ campos, badge origem, timeline jornada, block IA, clear context, CSV, auto-criacao, formularios, funil card, modal conversa, CRM |
 | [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 | Boards, colunas drag&drop, cards, campos 5 tipos, entidades, acesso, filtros, IA move_kanban, ticket resolution, funis 7 templates |
 | [[wiki/casos-de-uso/catalogo-detalhado]] | 10 | Tabela visual, formulario, URL scraping, CSV, batch scrape, imagens, busca fuzzy 4 camadas, categorias, bio link, IA descricao |

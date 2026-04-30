@@ -224,3 +224,63 @@ export function computeScenarioResults(
 
   return { tools_used: uniqueTools, tools_expected: expected.tools_must_use, tools_missing, tools_unexpected, handoff_occurred, blocked_occurred, total_tokens: tokens, total_latency_ms: latency, pass }
 }
+
+// ── Defensive log INSERT (R88, 2026-04-30) ──
+//
+// Supabase JS .insert() retorna {data, error} em vez de throw. Sem check explícito,
+// CHECK constraint violations (event type fora da whitelist), RLS denial e outros
+// erros viram silent fail — telemetria é perdida sem rastro.
+//
+// Uso (no ai-agent/index.ts):
+//   await insertLogSafe(supabase, log, {
+//     agent_id, conversation_id,
+//     event: 'excluded_product_match',
+//     latency_ms: Date.now() - startTime,
+//     metadata: { excluded_id, matched_keyword }
+//   })
+//
+// Migração progressiva: trocar `await supabase.from('ai_agent_logs').insert({...})`
+// por `await insertLogSafe(supabase, log, {...})` ao tocar em cada região.
+
+interface LogEventPayload {
+  agent_id: string
+  conversation_id: string
+  event: string
+  latency_ms?: number
+  metadata?: Record<string, unknown>
+}
+
+interface LoggerLike {
+  warn: (msg: string, meta?: Record<string, unknown>) => void
+  error?: (msg: string, meta?: Record<string, unknown>) => void
+}
+
+interface SupabaseLike {
+  from: (table: string) => {
+    insert: (row: Record<string, unknown>) => Promise<{ error: { message?: string; code?: string; details?: string } | null }>
+  }
+}
+
+export async function insertLogSafe(
+  supabase: SupabaseLike,
+  logger: LoggerLike,
+  payload: LogEventPayload,
+): Promise<void> {
+  try {
+    const { error } = await supabase.from('ai_agent_logs').insert(payload)
+    if (error) {
+      logger.warn('ai_agent_logs insert failed (silent fail prevented)', {
+        event: payload.event,
+        error_code: error.code,
+        error_message: error.message,
+        error_details: error.details,
+      })
+    }
+  } catch (err) {
+    logger.warn('ai_agent_logs insert threw', {
+      event: payload.event,
+      error: (err as Error).message,
+    })
+  }
+}
+

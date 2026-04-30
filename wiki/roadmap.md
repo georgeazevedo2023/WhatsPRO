@@ -75,7 +75,7 @@ updated: 2026-04-30
 **Pré-requisito UAZAPI:** Só na F4 (Task 4.1 teste ao vivo). F1-F3 não dependem de UAZAPI.
 **Módulos afetados:** AI Agent, Broadcast, Forms, Funis, Webhook, Helpdesk, Dashboard, Kanban/CRM (8 módulos)
 **Decisões aprovadas (10):** D1 (imagem=checkbox), D2 (tags=IA+editável), D3 (activateFunnel centralizado), D4 (prompt por funil), D5 (transbordo=dept+timeout), D6 (NPS=pós-resolve+notifica), D7 (form-bot poll, NUNCA opções numeradas), D8 (motor automação MVP, tags+etiquetas como gatilhos), D9 (Motor+Agêntico ambos dentro do Funil — cérebro=global, funil=por contexto), D10 (Agent Profiles — unifica sub-agents+funnel_prompt)
-**Plano completo:** [[wiki/plano-enquetes-polls]]
+**Plano completo (histórico):** [[wiki/historico-planos/plano-enquetes-polls]]
 
 ## M19: Plataforma de Métricas & IA Conversacional (em andamento)
 
