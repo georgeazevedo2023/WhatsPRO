@@ -24,6 +24,7 @@ import { ExtractionConfig } from './ai-agent/ExtractionConfig';
 import { MetricsConfig } from './ai-agent/MetricsConfig';
 import { ProfilesConfig } from './ai-agent/ProfilesConfig';
 import { ServiceCategoriesConfig } from './ai-agent/ServiceCategoriesConfig';
+import { ExcludedProductsConfig } from './ai-agent/ExcludedProductsConfig';
 import { BlockedNumbersConfig } from './ai-agent/BlockedNumbersConfig';
 import { FollowUpConfig } from './ai-agent/FollowUpConfig';
 import { BusinessInfoConfig } from './ai-agent/BusinessInfoConfig';
@@ -80,6 +81,8 @@ const ALLOWED_FIELDS = [
   'poll_nps_options', 'poll_nps_notify_on_bad',
   // M19-S10: Service Categories (qualificação dinâmica por nicho)
   'service_categories',
+  // M19-S11 (D28): Excluded Products — produtos que a tenant NÃO vende
+  'excluded_products',
 ];
 
 export default function AIAgentTab() {
@@ -526,12 +529,18 @@ export default function AIAgentTab() {
                   </div>
                 )}
 
-                {/* QUALIFICACAO: Service Categories (M19-S10 v2 — stages + score) */}
+                {/* QUALIFICACAO: Service Categories (M19-S10 v2 — stages + score) + Excluded Products (D28) */}
                 {activeTab === 'qualification' && (
-                  <ServiceCategoriesConfig
-                    config={(config.service_categories as any) ?? null}
-                    onChange={(value) => handleChange({ service_categories: value as any })}
-                  />
+                  <div className="space-y-6">
+                    <ServiceCategoriesConfig
+                      config={(config.service_categories as any) ?? null}
+                      onChange={(value) => handleChange({ service_categories: value as any })}
+                    />
+                    <ExcludedProductsConfig
+                      config={config}
+                      onChange={handleChange}
+                    />
+                  </div>
                 )}
 
                 {/* CATALOGO */}

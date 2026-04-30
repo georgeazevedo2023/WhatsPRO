@@ -419,6 +419,7 @@ export type Database = {
           created_at: string
           debounce_seconds: number
           enabled: boolean
+          excluded_products: Json | null
           extraction_address_enabled: boolean | null
           extraction_fields: Json | null
           follow_up_enabled: boolean | null
@@ -477,6 +478,7 @@ export type Database = {
           created_at?: string
           debounce_seconds?: number
           enabled?: boolean
+          excluded_products?: Json | null
           extraction_address_enabled?: boolean | null
           extraction_fields?: Json | null
           follow_up_enabled?: boolean | null
@@ -535,6 +537,7 @@ export type Database = {
           created_at?: string
           debounce_seconds?: number
           enabled?: boolean
+          excluded_products?: Json | null
           extraction_address_enabled?: boolean | null
           extraction_fields?: Json | null
           follow_up_enabled?: boolean | null

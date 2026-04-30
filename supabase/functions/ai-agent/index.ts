@@ -22,6 +22,7 @@ import {
   calculateScoreDelta,
   getExitAction,
 } from '../_shared/serviceCategories.ts'
+import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -473,6 +474,7 @@ Deno.serve(async (req) => {
           await supabase.from('conversations').update({
             status_ia: STATUS_IA.SHADOW,
             tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+            lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
           }).eq('id', conversation_id)
 
           await supabase.from('ai_agent_logs').insert({
@@ -494,6 +496,31 @@ Deno.serve(async (req) => {
     const clearedTags = (conversation.tags || []).filter((t: string) => t.startsWith('ia_cleared:'))
     if (clearedTags.length > 0) {
       sessionStartDt = clearedTags[clearedTags.length - 1].replace('ia_cleared:', '')
+    }
+
+    // 5.55 Excluded products check (D28, R87 — 2026-04-30)
+    // Lead asked about a product/service the tenant DOES NOT sell.
+    // Reply with admin-configured polite message + suggestions, NO handoff, NO counter increment.
+    // Skip if already in shadow (don't reply at all).
+    if (conversation.status_ia !== STATUS_IA.SHADOW) {
+      const excluded = (agent.excluded_products || []) as ExcludedProduct[]
+      const matched = matchExcludedProduct(incomingText, excluded)
+      if (matched) {
+        log.info('Excluded product matched — replying without handoff', { id: matched.id, keywords: matched.keywords })
+        await sendTextMsg(matched.message)
+        await supabase.from('conversation_messages').insert({
+          conversation_id, direction: 'outgoing', content: matched.message, media_type: 'text',
+        })
+        await supabase.from('ai_agent_logs').insert({
+          agent_id, conversation_id, event: 'excluded_product_match',
+          latency_ms: Date.now() - startTime,
+          metadata: { excluded_id: matched.id, incoming_text: incomingText.substring(0, 200) },
+        })
+        broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: matched.message, media_type: 'text' })
+        return new Response(JSON.stringify({ ok: true, response: matched.message, excluded_product: matched.id }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
     }
 
     // 5.6 Rate limit: atomic lead message counter + auto-handoff (D-06/D-07/D-09)
@@ -533,7 +560,11 @@ Deno.serve(async (req) => {
       leadMsgCount = counterErr ? 0 : (counterRow?.lead_msg_count ?? 0)
     }
 
-    if (isFinite(MAX_LEAD_MESSAGES) && leadMsgCount >= MAX_LEAD_MESSAGES) {
+    if (
+      isFinite(MAX_LEAD_MESSAGES)
+      && leadMsgCount >= MAX_LEAD_MESSAGES
+      && conversation.status_ia !== STATUS_IA.SHADOW  // R85: skip if already in shadow (counter still increments but no re-handoff)
+    ) {
       log.info('Lead message limit reached — auto handoff', { count: leadMsgCount, max: MAX_LEAD_MESSAGES, handoffRule: effectiveHandoffRule })
       let handoffMsg = agent.handoff_message || 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado!'
       // #M17 F3: Profile > Funnel > Agent handoff message
@@ -544,9 +575,11 @@ Deno.serve(async (req) => {
         conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
       })
       // All handoffs → SHADOW (AI continues extracting data silently)
+      // R86: reset lead_msg_count to 0 so returning lead doesn't immediately re-trigger auto-handoff
       const handoffUpdate: Record<string, unknown> = {
         status_ia: STATUS_IA.SHADOW,
         tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        lead_msg_count: 0,
       }
       // #M17 F3: Profile > Funnel department
       if (profileData?.handoff_department_id) {
@@ -2393,9 +2426,11 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           })
 
           // Set IA to SHADOW + tag
+          // R86: reset lead_msg_count to 0 so returning lead doesn't immediately re-trigger auto-handoff
           await supabase.from('conversations').update({
             status_ia: newStatus,
             tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+            lead_msg_count: 0,
           }).eq('id', conversation_id)
 
           // Auto-assign "Atendimento Humano" label if available
@@ -2712,6 +2747,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           await supabase.from('conversations').update({
             status_ia: STATUS_IA.SHADOW,
             tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+            lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
           }).eq('id', conversation_id)
           broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
           return new Response(JSON.stringify({
@@ -2780,6 +2816,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       await supabase.from('conversations').update({
         status_ia: STATUS_IA.SHADOW,
         tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
       }).eq('id', conversation_id)
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'implicit_handoff',
@@ -2949,6 +2986,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       await supabase.from('conversations').update({
         status_ia: STATUS_IA.SHADOW,
         tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
       }).eq('id', conversation_id)
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'handoff_trigger',
