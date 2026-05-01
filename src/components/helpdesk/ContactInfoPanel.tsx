@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
 import { useContactProfilePic } from '@/hooks/useContactProfilePic';
+import { useCurrentSessionStart } from '@/hooks/useCurrentSessionStart';
 import { ContactAvatar } from './ContactAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -76,17 +77,37 @@ export const ContactInfoPanel = ({
   const kpiAtendidoIA = convTags.some(t => t.startsWith('ia:shadow')) ? 'Shadow' : (convTags.some(t => t.startsWith('motivo:') || t.startsWith('produto:') || t.startsWith('interesse:')) ? 'Sim' : 'Não');
   const fmtTime = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
   const fmtDate = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
-  const kpiInicio = useMemo(() => `${fmtDate(conversation.created_at)} ${fmtTime(conversation.created_at)}`, [conversation.created_at]);
-  const kpiFim = useMemo(() => conversation.last_message_at ? `${fmtDate(conversation.last_message_at as string)} ${fmtTime(conversation.last_message_at as string)}` : '—', [conversation.last_message_at]);
-  const kpiTempoMin = useMemo(() => {
-    const start = new Date(conversation.created_at).getTime();
-    const end = conversation.last_message_at ? new Date(conversation.last_message_at as string).getTime() : Date.now();
-    const mins = Math.round((end - start) / 60000);
+  const fmtDateTime = (iso: string | null | undefined) => iso ? `${fmtDate(iso)} ${fmtTime(iso)}` : '—';
+  const fmtDuration = (ms: number): string => {
+    const mins = Math.round(ms / 60000);
+    if (mins < 1) return '< 1min';
     if (mins < 60) return `${mins}min`;
     const h = Math.floor(mins / 60);
     const m = mins % 60;
-    return m > 0 ? `${h}h ${m}min` : `${h}h`;
-  }, [conversation.created_at, conversation.last_message_at]);
+    if (h < 24) return m > 0 ? `${h}h ${m}min` : `${h}h`;
+    const d = Math.floor(h / 24);
+    const hRem = h % 24;
+    return hRem > 0 ? `${d}d ${hRem}h` : `${d}d`;
+  };
+  // PRIMEIRO CONTATO: created_at da conversation (raramente muda — singleton por contact+inbox)
+  const kpiPrimeiroContato = useMemo(() => fmtDateTime(conversation.created_at), [conversation.created_at]);
+  // ÚLTIMO CONTATO: última mensagem na conversa
+  const kpiUltimoContato = useMemo(() => fmtDateTime(conversation.last_message_at), [conversation.last_message_at]);
+  // INÍCIO DA SESSÃO ATUAL: primeira msg após gap ≥ 12h ou após resolved_at
+  const sessionStartIso = useCurrentSessionStart(
+    conversation.id,
+    conversation.last_message_at,
+    (conversation as any).resolved_at,
+  );
+  const kpiInicioAtual = useMemo(() => fmtDateTime(sessionStartIso), [sessionStartIso]);
+  // DURAÇÃO ATUAL: last_message − sessionStart (não primeiro contato eterno!)
+  const kpiDuracaoAtual = useMemo(() => {
+    if (!sessionStartIso || !conversation.last_message_at) return '—';
+    const start = new Date(sessionStartIso).getTime();
+    const end = new Date(conversation.last_message_at as string).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '—';
+    return fmtDuration(end - start);
+  }, [sessionStartIso, conversation.last_message_at]);
   const [manageLabelsOpen, setManageLabelsOpen] = useState(false);
   const [inboxMemberIds, setInboxMemberIds] = useState<string[]>([]);
   const { profiles: agentProfiles } = useUserProfiles({ userIds: inboxMemberIds, enabled: inboxMemberIds.length > 0 });
@@ -641,23 +662,28 @@ export const ContactInfoPanel = ({
                 <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-red-400/70"><AlertCircle className="w-2.5 h-2.5" />Em falta</span>
                 <span className="text-[11px] font-medium text-red-300 leading-tight truncate" title={kpiProdutoFalta ?? '—'}>{kpiProdutoFalta ?? '—'}</span>
               </div>
-              {/* Início */}
-              <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2 py-1.5">
-                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Início</span>
-                <span className="text-[11px] font-medium text-slate-300 leading-tight">{kpiInicio}</span>
+              {/* Primeiro contato — eterno (data de criação do contato) */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2 py-1.5" title="Primeira vez que este contato falou com a empresa">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Primeiro contato</span>
+                <span className="text-[11px] font-medium text-slate-300 leading-tight">{kpiPrimeiroContato}</span>
               </div>
-              {/* Fim */}
-              <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2 py-1.5">
-                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Fim</span>
-                <span className="text-[11px] font-medium text-slate-300 leading-tight">{kpiFim}</span>
+              {/* Último contato — última mensagem registrada */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2 py-1.5" title="Última mensagem trocada">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Último contato</span>
+                <span className="text-[11px] font-medium text-slate-300 leading-tight">{kpiUltimoContato}</span>
               </div>
-              {/* Tempo */}
-              <div className="flex flex-col gap-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1.5">
-                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-amber-400/70"><Clock className="w-2.5 h-2.5" />Duração</span>
-                <span className="text-[11px] font-medium text-amber-300 leading-tight">{kpiTempoMin}</span>
+              {/* Início da sessão atual — primeira msg após gap ≥ 12h ou após resolved_at */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-1.5" title="Início da conversa atual (sessão após o último gap de inatividade ≥ 12h)">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-emerald-400/70"><Clock className="w-2.5 h-2.5" />Início atual</span>
+                <span className="text-[11px] font-medium text-emerald-300 leading-tight">{kpiInicioAtual}</span>
               </div>
-              {/* Atendido por IA */}
-              <div className="flex flex-col gap-0.5 rounded-md bg-primary/10 border border-primary/20 px-2 py-1.5">
+              {/* Duração da sessão atual */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1.5" title="Tempo desde o início da conversa atual até a última mensagem">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-amber-400/70"><Clock className="w-2.5 h-2.5" />Duração atual</span>
+                <span className="text-[11px] font-medium text-amber-300 leading-tight">{kpiDuracaoAtual}</span>
+              </div>
+              {/* Atendido por IA — ocupa as 2 colunas pra fechar a grid */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-primary/10 border border-primary/20 px-2 py-1.5 col-span-2">
                 <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-primary/70"><Bot className="w-2.5 h-2.5" />Atendido por IA</span>
                 <span className={`text-[11px] font-medium leading-tight ${kpiAtendidoIA === 'Sim' ? 'text-primary' : kpiAtendidoIA === 'Shadow' ? 'text-yellow-400' : 'text-muted-foreground'}`}>{kpiAtendidoIA}</span>
               </div>
