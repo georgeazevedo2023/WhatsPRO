@@ -346,7 +346,7 @@ export const ContactInfoPanel = ({
 
       {/* Contact */}
       <div className="flex flex-col items-center text-center">
-        <ContactAvatar src={contactPic} name={name} size={64} className="mb-2" />
+        <ContactAvatar src={contactPic} name={name} size={64} className="mb-2" contactId={contact?.id} />
         <h3 className="font-semibold">{name}</h3>
         <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
           <Phone className="w-3 h-3" />

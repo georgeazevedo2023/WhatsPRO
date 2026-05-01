@@ -63,6 +63,9 @@ verify_jwt = true
 [functions.group-reasons]
 verify_jwt = true
 
+[functions.refresh-avatar]
+verify_jwt = true
+
 # ── Internal functions (called by triggers/cron/other functions with ANON_KEY) ─
 # ANON_KEY is a valid signed JWT, so verify_jwt = true still works
 [functions.auto-summarize]

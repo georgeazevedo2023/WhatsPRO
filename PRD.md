@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.17.1 | **Última atualização**: 2026-04-30 | **Status**: Produção + OpenAI gpt-4.1-mini + 38 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente (Motor+Perfis+Enquetes+NPS) + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 (Métricas + IA Conversacional + DB Monitoring & Auto-Cleanup) + M19 S10 v2 Service Categories Stages+Score + Eletropiso 23 Categorias + D28 Excluded Products (validado em prod)
+> **Versão**: 7.18.0 | **Última atualização**: 2026-04-30 | **Status**: Produção + OpenAI gpt-4.1-mini + 39 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + Avatares em Storage (resolve 403 CDN WhatsApp)
 
 ## Visão Geral
 
@@ -39,6 +39,37 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.18.0 (2026-04-30) — Avatares de contatos em Storage (resolve 403 do CDN do WhatsApp)
+
+**Problema:** dashboard `/dashboard/leads` mostrava 10+ erros `GET pps.whatsapp.net/... 403 Forbidden` no console. Causa: WhatsApp CDN devolve URLs assinadas que expiram em ~24h, e o webhook gravava esse URL temporário direto em `contacts.profile_pic_url`. Quando a foto era renderizada depois de expirar, o navegador disparava 403 antes de cair no fallback de iniciais.
+
+**Por que UAZAPI sozinha não resolve:** o endpoint `GET /contact/getProfilePic` (validado na doc) sempre devolve uma URL `pps.whatsapp.net/...` nova — também temporária. Não existe endpoint de binário. Refresh on-demand só adia o problema 24h.
+
+**Solução:** baixar a foto, armazenar em Supabase Storage (bucket público `contact-avatars`) e apontar `profile_pic_url` para o nosso domínio. URL fica estável até a próxima sincronização.
+
+**Implementação:**
+
+- **Migration `20260430000002_contact_avatars_storage.sql`** — adiciona `contacts.profile_pic_storage_path` + `contacts.profile_pic_synced_at`; cria bucket público `contact-avatars` (1 MB, image/*); policy `Service role manages contact-avatars`.
+- **Helper `_shared/avatarStorage.ts`** — `syncContactAvatar()` faz pipeline UAZAPI → fetch (timeout 5s, max 1 MB) → magic-byte detection (JPEG/PNG/WEBP) → upload com cache 7d → UPDATE contacts. Funções auxiliares: `isWhatsAppCdnUrl`, `extractProfilePicUrl`, `detectImageMime`, `fetchProfilePicUrlFromUazapi`, `downloadAvatar`, `uploadAvatarToStorage`.
+- **Edge function `refresh-avatar`** — POST `{contact_id}` invocada pelo frontend (lazy rehydrate quando `<img onError>` dispara). Throttle 5min para evitar loop em contatos sem foto. verify_jwt=true.
+- **Webhook `whatsapp-webhook`** — não grava mais URL pps.whatsapp.net direto. Async fire-and-forget chama `syncContactAvatar()` quando contato sem `profile_pic_storage_path` ou URL atual é stale.
+- **Sync `sync-conversations`** — substitui o fetch manual de `/contact/getProfilePic` pelo helper compartilhado.
+- **Frontend** — `ContactAvatar` aceita prop `contactId` e dispara `refresh-avatar` no `onError` (cache em memória `Set<contactId>` evita re-disparos). Filtro `pps.whatsapp.net` embutido — qualquer URL stale cai direto no fallback de iniciais sem GET 403. Hook `useContactProfilePic` continua atuando como filtro defensivo. Atualizado em 4 call sites (`Leads.tsx`, `LeadProfileSection.tsx`, `ChatPanel.tsx`, `ContactInfoPanel.tsx`).
+
+**Auditoria:**
+- TS frontend — 0 erros
+- `deno check` edge functions — 4 erros pré-existentes, 0 novos
+- `npm test` — 624 passed (+29 novos do `avatarStorage.test.ts`), 5 falhas FormBuilder pré-existentes (sem regressão)
+- Build frontend — `index-BciGHYho.js`, 0 erros
+
+**Performance/custo estimado:** ~20KB por avatar; 1000 contatos = 20MB no Storage. Sync é fire-and-forget no webhook (não impacta latência da mensagem). Endpoint `refresh-avatar` é idempotente e throttle por 5min.
+
+**Pendências (próxima sessão):**
+- Deploy edge functions: `refresh-avatar`, `whatsapp-webhook`, `sync-conversations`
+- Deploy bundle frontend
+- Backfill: contatos existentes com URL stale serão re-sincronizados automaticamente na próxima mensagem recebida (não precisa migration de dados)
+- Cron mensal opcional: refrescar `profile_pic_synced_at < now() - 30d` para capturar contatos cuja foto mudou
 
 ### v7.17.2 (2026-04-30) — D29 VALID_KEYS dinâmico (R84 resolvido)
 

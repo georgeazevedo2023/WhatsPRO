@@ -11,6 +11,7 @@ import type { ExtractionField, InstanceOption } from './types';
 
 interface LeadProfileSectionProps {
   contact: {
+    id?: string;
     display_name: string;
     phone: string;
     profile_pic_url: string | null;
@@ -120,7 +121,7 @@ export function LeadProfileSection({
       <CardContent className="space-y-5">
         {/* Header with avatar + score */}
         <div className="flex items-start gap-4">
-          <ContactAvatar src={contact.profile_pic_url} name={contact.display_name} size={80} />
+          <ContactAvatar src={contact.profile_pic_url} name={contact.display_name} size={80} contactId={contact.id} />
           <div className="flex-1 min-w-0">
             <h2 className="text-2xl font-bold truncate">{contact.display_name}</h2>
             <div className="flex items-center gap-2 mt-1 text-muted-foreground">

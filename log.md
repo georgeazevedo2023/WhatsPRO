@@ -151,6 +151,31 @@ User pediu para encerrar a dívida R84 (acoplamento manual entre `service_catego
 - 🟡 Migrar 13 INSERTs em `ai_agent_logs` para `insertLogSafe` — defensivo, baixo risco
 - 🟡 Particionar `decisoes-chave.md` (D7-D20 antigos têm arquivo pra mover) ou `leads-detalhado.md` (374 linhas)
 
+### v7.18.0 — Avatares em Storage (resolve 403 do CDN do WhatsApp)
+
+User reportou no console da página `/dashboard/leads`: 10+ erros `GET pps.whatsapp.net/... 403 Forbidden`. Diagnóstico: WhatsApp CDN devolve URLs assinadas que expiram em ~24h, e o webhook gravava esse URL temporário direto em `contacts.profile_pic_url`. Quando renderizava depois, navegador disparava 403 antes do fallback de iniciais.
+
+Consultei a doc UAZAPI: endpoint `GET /contact/getProfilePic` existe mas devolve outra URL `pps.whatsapp.net` — também temporária. Não há endpoint de binário. **Refresh on-demand não resolve permanentemente**.
+
+**Solução implementada:** baixar foto + armazenar em Supabase Storage (bucket público `contact-avatars`), apontar `profile_pic_url` para nosso domínio.
+
+**Componentes:**
+- Migration `20260430000002` aplicada via MCP — colunas `profile_pic_storage_path` + `profile_pic_synced_at` + bucket público + policy
+- Helper `_shared/avatarStorage.ts` — pipeline UAZAPI → fetch (5s, max 1 MB) → magic-byte detection → upload (cache 7d) → UPDATE
+- Edge function `refresh-avatar` — invocada pelo frontend (lazy rehydrate `onError`), throttle 5min
+- `whatsapp-webhook` — substitui grava-URL-direto por `syncContactAvatar()` async; não impacta latência
+- `sync-conversations` — usa o mesmo helper no bulk import
+- `ContactAvatar` — prop `contactId` opcional + filtro `pps.whatsapp.net` embutido + cache `Set<contactId>` para não loopar
+
+**Auditoria:** TS frontend 0 erros · `deno check` 4 erros pré-existentes 0 novos · vitest 624 passed (+29) 5 falhas FormBuilder pré-existentes · build `index-BciGHYho.js` ok.
+
+**Pendência operacional:** deploy de `refresh-avatar`, `whatsapp-webhook`, `sync-conversations` + bundle frontend. Aguardando confirmação do user antes de shipar (mexe em prod).
+
+**Notas (regra 13):**
+- (a) **Conteúdo: 9/10** — pesquisei doc UAZAPI antes de decidir, comparei 4 opções (filtro frontend, refresh on-demand, baixar+storage, proxy live) com tabela de trade-offs, helper testável (10 funções puras), throttle defensivo
+- (b) **Orquestração: 9/10** — PRD changelog v7.18.0 + log.md + memória conceitual. SYNC RULE NÃO se aplica (não toca AI Agent). Falta wiki/casos-de-uso/avatares-detalhado e atualizar wiki/banco-de-dados.md (decidi adiar para próxima sessão para deploy primeiro)
+- (c) **Vault: 9/10** — versão bumpada no header, changelog completo, pendência operacional clara
+
 ---
 
 > Sessão 2026-04-29 (Eletropiso — 23 categorias + 7 fixes ai-agent v162→v169 + BusinessHoursEditor + audit) arquivada em:

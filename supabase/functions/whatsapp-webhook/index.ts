@@ -4,6 +4,7 @@ import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { unauthorizedResponse } from '../_shared/auth.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { syncContactAvatar, isWhatsAppCdnUrl } from '../_shared/avatarStorage.ts'
 
 // Module-level singleton: reuse connection pool across requests in same Deno isolate
 const supabase = createServiceClient()
@@ -681,7 +682,7 @@ Deno.serve(async (req) => {
             .maybeSingle()
         : Promise.resolve({ data: null }),
       // 3. Contact lookup
-      supabase.from('contacts').select('id, name, profile_pic_url').eq('jid', contactJid).maybeSingle(),
+      supabase.from('contacts').select('id, name, profile_pic_url, profile_pic_storage_path').eq('jid', contactJid).maybeSingle(),
     ])
 
     // Process media result
@@ -715,45 +716,42 @@ Deno.serve(async (req) => {
       ? (chat?.wa_contactName || chat?.name || contactPhone)
       : (chat?.wa_contactName || chat?.name || message.senderName || contactPhone)
     const contactProfilePic = chat?.imagePreview || chat?.image || message.profilePicUrl || message.profilePic || null
-
-    // Resolve profile picture: prefer payload data, then fetch from UAZAPI in background
-    let resolvedProfilePic = contactProfilePic ? String(contactProfilePic) : null
+    const payloadPicUrl = contactProfilePic ? String(contactProfilePic) : null
     let { data: contact } = contactResult
 
-    // Profile pic fetch: moved to non-blocking background (doesn't delay message processing)
-    if (!resolvedProfilePic && (!contact || !contact.profile_pic_url) && instance?.token && contactJid) {
-      // Fire-and-forget: fetch profile pic and update contact later
-      const uazapiUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
-      fetchWithTimeout(`${uazapiUrl}/contact/getProfilePic`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'token': instance.token },
-        body: JSON.stringify({ id: contactJid }),
-      }, 5000).then(async (picResp) => {
-        if (picResp.ok) {
-          const picData = await picResp.json()
-          const picUrl = picData.profilePicUrl || picData.imgUrl || picData.url || picData.eurl || null
-          if (picUrl && typeof picUrl === 'string' && picUrl.startsWith('http')) {
-            await supabase.from('contacts').update({ profile_pic_url: picUrl }).eq('jid', contactJid)
-            log.info('Profile pic updated async', { jid: contactJid })
-          }
-        }
-      }).catch(() => {}) // Non-critical
-    }
-
     if (!contact) {
+      // Novo contato: NÃO grava URL pps.whatsapp.net (expira). Storage sync rola async abaixo.
       const { data: newContact } = await supabase
         .from('contacts')
-        .insert({ jid: contactJid, phone: contactPhone, name: contactName, profile_pic_url: resolvedProfilePic })
-        .select('id, name, profile_pic_url')
+        .insert({ jid: contactJid, phone: contactPhone, name: contactName })
+        .select('id, name, profile_pic_url, profile_pic_storage_path, profile_pic_synced_at')
         .single()
       contact = newContact
     } else {
-      // Update contact info if changed (pushname, profile pic)
       const updates: Record<string, string> = {}
-      if (resolvedProfilePic && !contact.profile_pic_url) updates.profile_pic_url = resolvedProfilePic
       if (contactName && contactName !== contactPhone && contactName !== (contact as any).name) updates.name = contactName
       if (Object.keys(updates).length > 0) {
         await supabase.from('contacts').update(updates).eq('id', contact.id)
+      }
+    }
+
+    // Async sync de avatar pra Storage. Roda só se: contato sem avatar
+    // armazenado OU URL atual é do CDN do WhatsApp (que expira). Não bloqueia.
+    if (contact && instance?.token && contactJid) {
+      const c = contact as { id: string; profile_pic_url?: string | null; profile_pic_storage_path?: string | null }
+      const needsSync = !c.profile_pic_storage_path || isWhatsAppCdnUrl(c.profile_pic_url)
+      if (needsSync) {
+        const uazapiServerUrl = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
+        syncContactAvatar({
+          supabase,
+          contactId: c.id,
+          contactJid,
+          uazapiServerUrl,
+          instanceToken: instance.token,
+          existingUrl: payloadPicUrl,
+        })
+          .then((r) => { if (r.ok) log.info('Avatar synced', { jid: contactJid }) })
+          .catch(() => {})
       }
     }
 

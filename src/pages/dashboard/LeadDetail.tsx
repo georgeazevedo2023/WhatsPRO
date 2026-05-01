@@ -474,6 +474,7 @@ const LeadDetail = () => {
           {/* Profile Section */}
           <LeadProfileSection
             contact={{
+              id: contactId,
               display_name: displayName,
               phone: contact.phone,
               profile_pic_url: contact.profile_pic_url,

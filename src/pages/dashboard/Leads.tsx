@@ -702,7 +702,7 @@ const Leads = () => {
                   onClick={() => navigate(`/dashboard/leads/${lead.contact_id}?instance=${selectedInstanceId}`)}
                 >
                   <TableCell>
-                    <ContactAvatar src={lead.profile_pic_url} name={lead.display_name} size={40} />
+                    <ContactAvatar src={lead.profile_pic_url} name={lead.display_name} size={40} contactId={lead.contact_id} />
                   </TableCell>
                   <TableCell>
                     <div>

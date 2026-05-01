@@ -3,6 +3,7 @@ import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { syncContactAvatar } from '../_shared/avatarStorage.ts'
 
 const serviceClient = createServiceClient()
 const log = createLogger('sync-conversations')
@@ -148,55 +149,30 @@ Deno.serve(async (req) => {
         const jid = String(chat.wa_chatid || chat.wa_fastid || chat.jid || chat.id || '')
         const chatName = String(chat.wa_contactName || chat.wa_name || chat.name || chat.pushName || '')
         const phone = jid.split('@')[0]
-        let profilePic: string | null = (chat.imagePreview || chat.image || null) as string | null
-
-        // If no profile pic from chat data, try fetching via UAZAPI API
-        if (!profilePic && jid) {
-          try {
-            const picRes = await fetchWithTimeout(`${uazapiUrl}/contact/getProfilePic`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'token': instanceToken },
-              body: JSON.stringify({ id: jid }),
-            })
-            if (picRes.ok) {
-              const picData = await picRes.json()
-              const picUrl = picData?.profilePicUrl || picData?.imgUrl || picData?.url || picData?.eurl || null
-              if (picUrl && typeof picUrl === 'string' && picUrl.startsWith('http')) {
-                profilePic = picUrl
-              }
-            }
-          } catch (picErr) {
-            log.info('Failed to fetch profile pic', { jid, error: picErr instanceof Error ? picErr.message : String(picErr) })
-          }
-        }
+        const payloadPicUrl: string | null = (chat.imagePreview || chat.image || null) as string | null
 
         if (!jid || !phone) continue
 
-        // 5a. Upsert contact
+        // 5a. Upsert contact (sem gravar URL pps.whatsapp.net — Storage sync rola depois)
         const { data: existingContact } = await supabase
           .from('contacts')
-          .select('id, profile_pic_url')
+          .select('id, profile_pic_storage_path')
           .eq('jid', jid)
           .maybeSingle()
 
         let contactId: string
+        let needsAvatarSync = false
 
         if (existingContact) {
           contactId = existingContact.id
-          const updateData: Record<string, unknown> = {}
-          if (chatName) updateData.name = chatName
-          if (profilePic) updateData.profile_pic_url = String(profilePic)
-          // Always try to update profile pic if contact doesn't have one
-          if (!existingContact.profile_pic_url && profilePic) {
-            updateData.profile_pic_url = String(profilePic)
+          if (chatName) {
+            await supabase.from('contacts').update({ name: chatName }).eq('id', contactId)
           }
-          if (Object.keys(updateData).length > 0) {
-            await supabase.from('contacts').update(updateData).eq('id', contactId)
-          }
+          needsAvatarSync = !existingContact.profile_pic_storage_path
         } else {
           const { data: newContact, error: insertErr } = await supabase
             .from('contacts')
-            .insert({ jid, phone, name: chatName || null, profile_pic_url: profilePic ? String(profilePic) : null })
+            .insert({ jid, phone, name: chatName || null })
             .select('id')
             .single()
 
@@ -206,6 +182,20 @@ Deno.serve(async (req) => {
             continue
           }
           contactId = newContact.id
+          needsAvatarSync = true
+        }
+
+        // Avatar sync async (fire-and-forget): baixa do CDN do WhatsApp e
+        // sobe pro bucket contact-avatars. Não bloqueia o loop.
+        if (needsAvatarSync) {
+          syncContactAvatar({
+            supabase: serviceClient,
+            contactId,
+            contactJid: jid,
+            uazapiServerUrl: uazapiUrl,
+            instanceToken,
+            existingUrl: payloadPicUrl,
+          }).catch(() => {})
         }
 
         // 5b. Upsert conversation
