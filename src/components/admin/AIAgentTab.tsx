@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { usePersistedState } from '@/hooks/usePersistedState';
 import { SCHEMA_MAP } from './ai-agent/validationSchemas';
 import { supabase } from '@/integrations/supabase/client';
 import { useInstances } from '@/hooks/useInstances';
@@ -88,10 +89,11 @@ const ALLOWED_FIELDS = [
 export default function AIAgentTab() {
   const { instances } = useInstances();
   const [agents, setAgents] = useState<AIAgent[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  // Persistido em sessionStorage: sobrevive a refresh acidental, escopo por aba.
+  const [selectedAgentId, setSelectedAgentId] = usePersistedState<string | null>('aiagent.selectedAgentId', null);
   const [config, setConfig] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('setup');
+  const [activeTab, setActiveTab] = usePersistedState<string>('aiagent.activeTab', 'setup');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const fieldErrorsRef = useRef<Record<string, string>>({});
@@ -118,9 +120,16 @@ export default function AIAgentTab() {
       if (error) throw error;
       const list = (data || []) as AIAgent[];
       setAgents(list);
-      if (list.length > 0 && !selectedAgentId) {
-        setSelectedAgentId(list[0].id);
-        setConfig(list[0]);
+      if (list.length > 0) {
+        // Fallback: ID persistido em sessionStorage pode apontar pra agente deletado.
+        const persistedExists = selectedAgentId && list.some(a => a.id === selectedAgentId);
+        if (!persistedExists) {
+          setSelectedAgentId(list[0].id);
+          setConfig(list[0]);
+        }
+      } else if (selectedAgentId) {
+        // Lista vazia mas há ID persistido — limpa.
+        setSelectedAgentId(null);
       }
     } catch (err) {
       handleError(err, 'Erro ao carregar agentes', 'Fetch AI agents');

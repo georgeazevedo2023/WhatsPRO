@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { usePersistedState, clearPersistedState } from '@/hooks/usePersistedState';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -71,13 +72,31 @@ function parseStock(raw: string): boolean {
 }
 
 export function CsvProductImport({ agentId, existingProducts, onImported }: CsvProductImportProps) {
-  const [step, setStep] = useState<'upload' | 'mapping' | 'importing' | 'done'>('upload');
-  const [parsed, setParsed] = useState<ParsedData | null>(null);
-  const [mapping, setMapping] = useState<ColumnMapping>({ title: -1, price: -1, description: -1, category: -1, subcategory: -1, sku: -1, images: -1, stock: -1 });
+  // Wizard state persistido em sessionStorage por agente — refresh acidental
+  // no meio do mapping não obriga começar do zero (o user só re-faz upload do CSV).
+  const stepKey = `aiagent.csvImport.${agentId}.step`;
+  const mappingKey = `aiagent.csvImport.${agentId}.mapping`;
+  const [step, setStep] = usePersistedState<'upload' | 'mapping' | 'importing' | 'done'>(stepKey, 'upload');
+  const [parsed, setParsed] = useState<ParsedData | null>(null); // não persiste — pode ser grande
+  const [mapping, setMapping] = usePersistedState<ColumnMapping>(mappingKey, { title: -1, price: -1, description: -1, category: -1, subcategory: -1, sku: -1, images: -1, stock: -1 });
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<{ imported: number; duplicates: number; errors: number; errorRows: string[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Recovery após refresh acidental:
+  // - 'mapping'/'importing' sem parsed → volta pra 'upload' (CSV precisa ser re-enviado;
+  //   o mapping persistido sobrevive e é re-aplicado no próximo upload).
+  // - 'done' sem results → limpa tudo (página de resultado depende do state em memória).
+  useEffect(() => {
+    if ((step === 'mapping' || step === 'importing') && !parsed) {
+      setStep('upload');
+    } else if (step === 'done' && !results) {
+      setStep('upload');
+      clearPersistedState(mappingKey);
+      clearPersistedState(stepKey);
+    }
+  }, [step, parsed, results, setStep, mappingKey, stepKey]);
 
   // Parse file (CSV or Excel)
   const handleFile = async (file: File) => {
@@ -187,7 +206,15 @@ export function CsvProductImport({ agentId, existingProducts, onImported }: CsvP
     toast.success(`${imported} produtos importados${duplicates ? `, ${duplicates} duplicados` : ''}${errors ? `, ${errors} erros` : ''}`);
   };
 
-  const reset = () => { setStep('upload'); setParsed(null); setResults(null); setProgress(0); };
+  const reset = () => {
+    setStep('upload');
+    setParsed(null);
+    setResults(null);
+    setProgress(0);
+    // Limpa storage do wizard finalizado.
+    clearPersistedState(mappingKey);
+    clearPersistedState(stepKey);
+  };
 
   // Step: Upload
   if (step === 'upload') return (
