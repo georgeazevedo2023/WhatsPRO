@@ -3,6 +3,7 @@
 // Só visível para super_admin e gerente
 
 import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Sparkles, X, Minimize2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
@@ -11,9 +12,14 @@ import AssistantMessageBubble from './AssistantMessageBubble';
 import AssistantInput from './AssistantInput';
 import AssistantSuggestions from './AssistantSuggestions';
 
+// Rotas onde o FAB do assistente NÃO deve aparecer.
+// Helpdesk tem seu próprio composer e o FAB sobrepõe a área de envio.
+const HIDDEN_ROUTES = ['/dashboard/helpdesk'];
+
 export default function AssistantChatWidget() {
   const { isSuperAdmin, isGerente } = useAuth();
   const { data: instances } = useManagerInstances();
+  const location = useLocation();
 
   const [open, setOpen] = useState(() => localStorage.getItem('wp-assistant-open') === '1');
   const [instanceId, setInstanceId] = useState<string | null>(
@@ -66,6 +72,9 @@ export default function AssistantChatWidget() {
 
   // Só renderiza para gerente/super_admin
   if (!isSuperAdmin && !isGerente) return null;
+
+  // Esconde em rotas específicas (ex: helpdesk — FAB conflita com composer)
+  if (HIDDEN_ROUTES.some(r => location.pathname.startsWith(r))) return null;
 
   // Botão flutuante quando fechado
   if (!open) {
