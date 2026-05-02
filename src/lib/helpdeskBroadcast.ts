@@ -55,9 +55,14 @@ export async function updateConversationAndBroadcast(
   }
 }
 
-/** Assign agent to conversation with DB update + broadcast */
+/**
+ * Assign agent to conversation with DB update + broadcast in both helpdesk channels.
+ * Throws on DB error so callers can show toast / rollback. Caminho ÚNICO de atribuição
+ * — não duplicar UPDATE em outros lugares.
+ */
 export async function assignAgent(conversationId: string, agentId: string | null) {
-  await supabase.from('conversations').update({ assigned_to: agentId }).eq('id', conversationId);
+  const { error } = await supabase.from('conversations').update({ assigned_to: agentId }).eq('id', conversationId);
+  if (error) throw error;
   await broadcastAssignedAgent(conversationId, agentId);
 }
 

@@ -91,7 +91,7 @@ const HelpDesk = () => {
     conversations, setConversations,
     selectedConversation, setSelectedConversation,
     loading, loadingMore, hasMoreConversations,
-    conversationLabelsMap, conversationNotesSet,
+    conversationLabelsMap, conversationNotesSet, draftSet,
     fetchConversations, fetchConversationLabels, loadMoreConversations,
   } = useHelpdeskConversations(selectedInboxId, statusFilter);
 
@@ -384,6 +384,7 @@ const HelpDesk = () => {
     onLabelsChanged: handleLabelsChanged,
     agentNamesMap,
     conversationNotesSet,
+    draftSet,
     assignmentFilter,
     onAssignmentFilterChange: setAssignmentFilter,
     priorityFilter,
@@ -406,7 +407,7 @@ const HelpDesk = () => {
     defaultAssignmentFilter,
   }), [sortedConversations, selectedId, searchQuery, loading, inboxLabels,
     conversationLabelsMap, labelFilter, selectedInboxId, agentNamesMap,
-    conversationNotesSet, assignmentFilter, priorityFilter, inboxDepartments,
+    conversationNotesSet, draftSet, assignmentFilter, priorityFilter, inboxDepartments,
     departmentFilter, hasMoreConversations, loadingMore, sortBy, messageSearchCount,
     selectedIds, toggleSelect, toggleSelectAll, clearSelection, handleBulkAction,
     handleSelectConversation, handleLabelsChanged, loadMoreConversations, fetchConversationLabels,

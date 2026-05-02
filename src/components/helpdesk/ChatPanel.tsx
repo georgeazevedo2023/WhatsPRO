@@ -207,7 +207,9 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         if (payload.payload?.conversation_id === conversation.id && payload.payload?.agent_id !== currentUserId) {
           setTypingAgent(payload.payload.agent_name as string);
           clearTimeout(typingTimerRef.current);
-          typingTimerRef.current = setTimeout(() => setTypingAgent(null), 4000);
+          // Sender broadcasta a cada 3s (throttle em ChatInput); receiver expira em
+          // 6s para deixar margem ao reenvio do próximo broadcast e evitar piscar.
+          typingTimerRef.current = setTimeout(() => setTypingAgent(null), 6000);
         }
       })
       .subscribe((status) => {

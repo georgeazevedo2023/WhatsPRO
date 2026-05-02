@@ -1,25 +1,11 @@
 import { supabase } from '@/integrations/supabase/client';
+import { getAlternateBrazilianJid, normalizePhoneForMatch } from '@/lib/phoneUtils';
 
 interface HelpdeskMessageData {
   content: string | null;
   media_type: string; // 'text' | 'image' | 'video' | 'audio' | 'document' | 'carousel'
   media_url?: string | null;
 }
-
-/**
- * Normalize a phone number for matching by extracting DDD + number (last 10-11 digits).
- * Using only 8 digits caused false positives across different DDDs.
- * Brazilian numbers: 55 + DDD(2) + 9?(1) + number(8) = 12 or 13 digits.
- */
-const normalizePhone = (phone: string): string => {
-  const digits = phone.replace(/\D/g, '');
-  // Return last 11 digits (DDD + 9 + number) for safe matching
-  // This avoids matching different DDDs with same suffix
-  if (digits.length >= 11) return digits.slice(-11);
-  // For shorter numbers, return last 10 digits (DDD + number without 9)
-  if (digits.length >= 10) return digits.slice(-10);
-  return digits;
-};
 
 /**
  * After a successful broadcast send, save the outgoing message to the HelpDesk
@@ -64,18 +50,8 @@ export const saveToHelpdesk = async (
           .eq('id', contactId);
       }
     } else {
-      // Fallback 1: Try JID variation (Brazilian 9th digit issue)
-      // e.g. 5581993856099@s.whatsapp.net vs 558193856099@s.whatsapp.net
-      const jidNumber = contactJid.replace('@s.whatsapp.net', '');
-      let altJid = '';
-      // If number has 13 digits (55 + 2-digit DDD + 9 + 8 digits), try without the 9
-      if (jidNumber.length === 13 && jidNumber.startsWith('55')) {
-        altJid = '55' + jidNumber.slice(2, 4) + jidNumber.slice(5) + '@s.whatsapp.net';
-      }
-      // If number has 12 digits (55 + 2-digit DDD + 8 digits), try with the 9
-      else if (jidNumber.length === 12 && jidNumber.startsWith('55')) {
-        altJid = '55' + jidNumber.slice(2, 4) + '9' + jidNumber.slice(4) + '@s.whatsapp.net';
-      }
+      // Fallback 1: tenta variação do 9º dígito (BR). Helper canônico em phoneUtils.
+      const altJid = getAlternateBrazilianJid(contactJid);
 
       if (altJid) {
         const { data: altContact } = await supabase
@@ -95,9 +71,9 @@ export const saveToHelpdesk = async (
         }
       }
 
-      // Fallback 2: Search by phone suffix (last 8 digits) directly in DB
+      // Fallback 2: Search by phone suffix (last 10-11 digits) directly in DB
       if (!contactId) {
-        const suffix = normalizePhone(contactPhone);
+        const suffix = normalizePhoneForMatch(contactPhone);
         const { data: phoneMatch } = await supabase
           .from('contacts')
           .select('id')
@@ -153,13 +129,9 @@ export const saveToHelpdesk = async (
 
     if (existingConv) {
       conversationId = existingConv.id;
-      const lastPreview = messageData.content || (messageData.media_type === 'image' ? '📷 Foto' : messageData.media_type === 'video' ? '🎥 Vídeo' : messageData.media_type === 'audio' ? '🎵 Áudio' : messageData.media_type === 'document' ? '📎 Documento' : '');
-      // Update last_message_at and last_message
-      const { error: updateErr } = await supabase
-        .from('conversations')
-        .update({ last_message_at: now, updated_at: now, last_message: lastPreview })
-        .eq('id', conversationId);
-      if (updateErr) console.error('[saveToHelpdesk] Error updating conversation:', updateErr);
+      // last_message_at + last_message são atualizados pelo trigger
+      // `update_conversation_on_message_insert` quando a mensagem entrar no INSERT abaixo.
+      // updated_at é atualizado pelo trigger BEFORE UPDATE existente quando alguma coluna mudar.
     } else {
       const { data: newConv, error: convErr } = await supabase
         .from('conversations')

@@ -14,9 +14,10 @@ interface ConversationItemProps {
   labels?: Label[];
   agentName?: string | null;
   hasNotes?: boolean;
+  hasDraft?: boolean;
 }
 
-export const ConversationItem = memo(function ConversationItem({ conversation, isSelected, onClick, labels = [], agentName, hasNotes }: ConversationItemProps) {
+export const ConversationItem = memo(function ConversationItem({ conversation, isSelected, onClick, labels = [], agentName, hasNotes, hasDraft = false }: ConversationItemProps) {
   const contact = conversation.contact;
   const name = contact?.name || contact?.phone || 'Desconhecido';
   const initials = name.charAt(0).toUpperCase();
@@ -51,7 +52,6 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
   };
 
   const waitInfo = getWaitInfo();
-  const hasDraft = !!localStorage.getItem(`helpdesk-draft-${conversation.id}`);
 
   return (
     <button

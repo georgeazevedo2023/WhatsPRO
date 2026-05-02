@@ -841,16 +841,8 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Update conversation
-    const lastMessagePreview = content || (mediaType === 'image' ? '📷 Foto' : mediaType === 'video' ? '🎥 Vídeo' : mediaType === 'audio' ? '🎵 Áudio' : mediaType === 'document' ? '📎 Documento' : '')
-    const updateData: Record<string, unknown> = { last_message_at: msgTimestamp, last_message: lastMessagePreview }
-    if (direction === 'incoming') {
-      updateData.is_read = false
-    }
-    await supabase
-      .from('conversations')
-      .update(updateData)
-      .eq('id', conversation.id)
+    // last_message_at + last_message + is_read (incoming) são atualizados pelo trigger
+    // `update_conversation_on_message_insert` no INSERT acima.
 
     // Auto-add contact to instance lead database (fire-and-forget, atomic upsert)
     if (direction === 'incoming' && contactPhone && contactJid) {

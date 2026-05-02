@@ -15,6 +15,7 @@ import { STATUS_IA } from '@/constants/statusIa';
 import { nowBRISO } from '@/lib/dateUtils';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { useSendFile } from '@/hooks/useSendFile';
+import { mediaPreview } from '@/lib/messagePreview';
 import type { Conversation, Label, Message } from '@/types';
 
 interface ChatInputProps {
@@ -113,18 +114,30 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
     }
   }, [conversation.id]);
 
-  // Draft: save on text change (debounced)
+  // Draft: save on text change (debounced) + notify list to refresh draft Set
   useEffect(() => {
     if (!text.trim()) {
+      const had = !!localStorage.getItem(draftKey);
       localStorage.removeItem(draftKey);
       setIsDraft(false);
+      if (had) {
+        window.dispatchEvent(new CustomEvent('helpdesk-draft-changed', {
+          detail: { conversationId: conversation.id, hasDraft: false },
+        }));
+      }
       return;
     }
     const timer = setTimeout(() => {
+      const had = !!localStorage.getItem(draftKey);
       localStorage.setItem(draftKey, text);
+      if (!had) {
+        window.dispatchEvent(new CustomEvent('helpdesk-draft-changed', {
+          detail: { conversationId: conversation.id, hasDraft: true },
+        }));
+      }
     }, 300);
     return () => clearTimeout(timer);
-  }, [text, draftKey]);
+  }, [text, draftKey, conversation.id]);
 
   // Typing indicator: broadcast when text changes (throttled 3s)
   const lastTypingRef = useRef(0);
@@ -177,20 +190,14 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
 
   const statusOptions = STATUS_OPTIONS;
 
-  const handleStatusChange = async (newStatus: string) => {
-    const { error } = await supabase
-      .from('conversations')
-      .update({ status: newStatus })
-      .eq('id', conversation.id);
-
-    if (!error) {
-      onStatusChange?.(newStatus);
-      toast.success('Status atualizado');
-      setMenuOpen(false);
-      setShowStatus(false);
-    } else {
-      toast.error('Erro ao atualizar status');
-    }
+  // Delegamos a mudança de status para o ChatPanel/HelpDesk, que faz
+  // optimistic update + persistência + broadcast num só caminho.
+  // Antes este handler fazia UPDATE local e disparava callback, resultando
+  // em 2 queries e perdendo o broadcast `status-changed` para outras tabs/Kanban.
+  const handleStatusChange = (newStatus: string) => {
+    onStatusChange?.(newStatus);
+    setMenuOpen(false);
+    setShowStatus(false);
   };
 
   const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -244,9 +251,11 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
       }).select().single();
       if (error) throw error;
 
+      // last_message_at + last_message são atualizados pelo trigger
+      // `update_conversation_on_message_insert`. Aqui só atualizamos status_ia.
       await supabase
         .from('conversations')
-        .update({ last_message_at: new Date().toISOString(), last_message: '🎵 Áudio', status_ia: STATUS_IA.DESLIGADA })
+        .update({ status_ia: STATUS_IA.DESLIGADA })
         .eq('id', conversation.id);
 
       await supabase.channel('helpdesk-realtime').send({
@@ -347,9 +356,11 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
         }).select().single();
         if (error) throw error;
 
+        // last_message_at + last_message são atualizados pelo trigger
+        // `update_conversation_on_message_insert`. Aqui só atualizamos status_ia.
         await supabase
           .from('conversations')
-          .update({ last_message_at: new Date().toISOString(), last_message: finalContent, status_ia: STATUS_IA.DESLIGADA })
+          .update({ status_ia: STATUS_IA.DESLIGADA })
           .eq('id', conversation.id);
 
         const { broadcastNewMessage } = await import('@/lib/helpdeskBroadcast');
@@ -371,7 +382,14 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
       }
       setText('');
       onClearReply?.();
-      localStorage.removeItem(`helpdesk-draft-${conversation.id}`);
+      const draftKeyToClear = `helpdesk-draft-${conversation.id}`;
+      const hadDraft = !!localStorage.getItem(draftKeyToClear);
+      localStorage.removeItem(draftKeyToClear);
+      if (hadDraft) {
+        window.dispatchEvent(new CustomEvent('helpdesk-draft-changed', {
+          detail: { conversationId: conversation.id, hasDraft: false },
+        }));
+      }
       onMessageSent();
     } catch (err) {
       handleError(err, 'Erro ao enviar', 'Send error');
@@ -613,7 +631,13 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
               value={text}
               onChange={e => { setText(e.target.value); setIsDraft(false); }}
               onKeyDown={handleKeyDown}
-              placeholder={isNote ? 'Escrever nota privada...' : 'Escrever mensagem...'}
+              placeholder={
+                isNote
+                  ? 'Escrever nota privada...'
+                  : templates.length > 0
+                    ? 'Escrever mensagem... (digite / para respostas rápidas)'
+                    : 'Escrever mensagem...'
+              }
               aria-label={isNote ? 'Escrever nota privada' : 'Escrever mensagem'}
               className="min-h-[40px] max-h-32 resize-none text-sm md:text-sm text-base"
               rows={1}

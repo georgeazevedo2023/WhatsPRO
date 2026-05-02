@@ -282,26 +282,13 @@ export const ContactInfoPanel = ({
     const agent = agentId ? agents.find(a => a.user_id === agentId) : null;
     const agentName = agent?.full_name || null;
 
-    // Update DB
-    const { error } = await supabase
-      .from('conversations')
-      .update({ assigned_to: agentId })
-      .eq('id', conversation.id);
-
-    if (error) {
-      toast.error('Erro ao atribuir agente');
+    try {
+      const { assignAgent } = await import('@/lib/helpdeskBroadcast');
+      await assignAgent(conversation.id, agentId);
+    } catch (err) {
+      handleError(err, 'Erro ao atribuir agente', '[ContactInfoPanel] assignAgent');
       return;
     }
-
-    // Broadcast para sync em tempo real
-    await supabase.channel('helpdesk-conversations').send({
-      type: 'broadcast',
-      event: 'assigned-agent',
-      payload: {
-        conversation_id: conversation.id,
-        assigned_to: agentId,
-      },
-    });
 
     // Update local via callback
     onUpdateConversation(conversation.id, { assigned_to: agentId });

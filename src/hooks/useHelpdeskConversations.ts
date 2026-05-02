@@ -1,17 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { mediaPreview } from '@/lib/messagePreview';
 import type { Conversation } from '@/types';
-
-function mediaPreview(mediaType: string): string {
-  switch (mediaType) {
-    case 'image': return '📷 Foto';
-    case 'video': return '🎥 Vídeo';
-    case 'audio': return '🎵 Áudio';
-    case 'document': return '📎 Documento';
-    default: return '';
-  }
-}
 
 const PAGE_SIZE = 50;
 
@@ -24,6 +15,11 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
   const [hasMoreConversations, setHasMoreConversations] = useState(false);
   const [conversationLabelsMap, setConversationLabelsMap] = useState<Record<string, string[]>>({});
   const [conversationNotesSet, setConversationNotesSet] = useState<Set<string>>(new Set());
+  // Drafts: Set de conversation IDs que tem rascunho não enviado em localStorage.
+  // Recalculado quando conversas mudam ou quando ChatInput salva/limpa rascunho
+  // (via evento `helpdesk-draft-changed`). Evita ler localStorage em cada render
+  // de ConversationItem dentro da lista virtualizada.
+  const [draftSet, setDraftSet] = useState<Set<string>>(new Set());
 
   const mapConversations = useCallback((data: Record<string, unknown>[]): Conversation[] => {
     return data.map((c: Record<string, unknown>) => ({
@@ -137,6 +133,65 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
     }
   }, [user, selectedInboxId, loadingMore, conversations.length, buildQuery, mapConversations, fetchConversationLabels, fetchConversationNotes]);
 
+  // Recompute draft set whenever conversations list changes, plus listen
+  // for inline updates broadcast by ChatInput when user types/clears a draft.
+  const recomputeDrafts = useCallback((ids: string[]) => {
+    const next = new Set<string>();
+    for (const id of ids) {
+      if (localStorage.getItem(`helpdesk-draft-${id}`)) next.add(id);
+    }
+    setDraftSet(next);
+  }, []);
+
+  useEffect(() => {
+    recomputeDrafts(conversations.map(c => c.id));
+  }, [conversations, recomputeDrafts]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { conversationId: string; hasDraft: boolean } | undefined;
+      if (!detail) return;
+      setDraftSet(prev => {
+        const next = new Set(prev);
+        if (detail.hasDraft) next.add(detail.conversationId);
+        else next.delete(detail.conversationId);
+        return next;
+      });
+    };
+    window.addEventListener('helpdesk-draft-changed', handler);
+    return () => window.removeEventListener('helpdesk-draft-changed', handler);
+  }, []);
+
+  // Spring-cleaning: remover localStorage entries `helpdesk-draft-<id>` cujas
+  // conversas foram deletadas/arquivadas. Roda 1x por sessão para não custar
+  // queries por navegação. Drafts validos permanecem; só limpa os órfãos.
+  useEffect(() => {
+    if (!user) return;
+    const flag = 'helpdesk-drafts-cleaned';
+    if (sessionStorage.getItem(flag)) return;
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('helpdesk-draft-')) keys.push(k);
+    }
+    if (keys.length === 0) {
+      sessionStorage.setItem(flag, '1');
+      return;
+    }
+    const ids = keys.map(k => k.replace('helpdesk-draft-', ''));
+    supabase
+      .from('conversations')
+      .select('id')
+      .in('id', ids)
+      .then(({ data }) => {
+        const valid = new Set((data || []).map((r: { id: string }) => r.id));
+        for (const id of ids) {
+          if (!valid.has(id)) localStorage.removeItem(`helpdesk-draft-${id}`);
+        }
+        sessionStorage.setItem(flag, '1');
+      });
+  }, [user]);
+
   // Reset selected conversation when inbox changes
   useEffect(() => {
     setSelectedConversation(prev => {
@@ -227,6 +282,7 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
     hasMoreConversations,
     conversationLabelsMap,
     conversationNotesSet,
+    draftSet,
     fetchConversations,
     fetchConversationLabels,
     loadMoreConversations,

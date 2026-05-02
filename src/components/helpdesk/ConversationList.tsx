@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo, CSSProperties } from 'react';
 import { List, useListRef } from 'react-window';
-import { Search, Inbox, UserCheck, AlertCircle, Building2, SlidersHorizontal, Tag, X, ArrowUpDown, ChevronDown, Eye, CheckCircle2, Archive } from 'lucide-react';
+import { Search, Inbox, UserCheck, AlertCircle, Building2, SlidersHorizontal, Tag, X, ArrowUpDown, ChevronDown, Eye, CheckCircle2, Archive, CheckSquare } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ interface ConversationListProps {
   onLabelsChanged?: () => void;
   agentNamesMap?: Record<string, string>;
   conversationNotesSet?: Set<string>;
+  draftSet?: Set<string>;
   assignmentFilter?: 'todas' | 'minhas' | 'nao-atribuidas';
   onAssignmentFilterChange?: (v: 'todas' | 'minhas' | 'nao-atribuidas') => void;
   priorityFilter?: 'todas' | 'alta' | 'media' | 'baixa';
@@ -61,8 +62,12 @@ const priorityOptions: { value: 'todas' | 'alta' | 'media' | 'baixa'; label: str
   { value: 'baixa', label: '🔵 Baixa' },
 ];
 
-const BASE_ROW_HEIGHT = 64;
-const RICH_ROW_HEIGHT = 90;
+// Altura fixa única (rica, ~88px). Antes alternávamos entre BASE (64px) e RICH (90px)
+// conforme labels/agente/notas/depto/draft, o que causava reflow brusco no react-window
+// quando uma label/agente era adicionado e a row "crescia". Manter altura constante
+// elimina esse jump e simplifica o cálculo virtualizado. Items simples ganham um pouco
+// de respiração extra — preferível ao flicker.
+const ROW_HEIGHT = 88;
 
 interface ConversationRowProps {
   conversations: Conversation[];
@@ -72,6 +77,7 @@ interface ConversationRowProps {
   conversationLabelsMap: Record<string, string[]>;
   agentNamesMap: Record<string, string>;
   conversationNotesSet: Set<string>;
+  draftSet: Set<string>;
   bulkMode: boolean;
   selectedIds: Set<string>;
   onToggleSelect?: (id: string) => void;
@@ -87,6 +93,7 @@ function ConversationRow({
   conversationLabelsMap,
   agentNamesMap,
   conversationNotesSet,
+  draftSet,
   bulkMode,
   selectedIds,
   onToggleSelect,
@@ -112,6 +119,7 @@ function ConversationRow({
           labels={inboxLabels.filter(l => (conversationLabelsMap[c.id] || []).includes(l.id))}
           agentName={c.assigned_to ? agentNamesMap[c.assigned_to] || null : null}
           hasNotes={conversationNotesSet.has(c.id)}
+          hasDraft={draftSet.has(c.id)}
         />
       </div>
     </div>
@@ -133,6 +141,7 @@ export const ConversationList = ({
   onLabelsChanged,
   agentNamesMap = {},
   conversationNotesSet = new Set(),
+  draftSet = new Set(),
   assignmentFilter = 'todas',
   onAssignmentFilterChange,
   priorityFilter = 'todas',
@@ -156,8 +165,18 @@ export const ConversationList = ({
 }: ConversationListProps) => {
   const [manageOpen, setManageOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  // bulkActive lets users enter selection mode WITHOUT auto-selecting any item.
+  // Antes era inferido só por `selectedIds.size > 0`, o que forçava clicar
+  // num item específico para entrar no modo.
+  const [bulkActive, setBulkActive] = useState(false);
   const listRef = useListRef();
-  const bulkMode = selectedIds.size > 0;
+  const bulkMode = bulkActive || selectedIds.size > 0;
+
+  // Sai do modo seleção quando não há mais itens marcados
+  const exitBulkMode = useCallback(() => {
+    setBulkActive(false);
+    onClearSelection?.();
+  }, [onClearSelection]);
 
   const visibleAssignmentOptions = useMemo(() => {
     if (!userPermissions) return assignmentOptions; // no permissions = show all (super_admin)
@@ -187,16 +206,6 @@ export const ConversationList = ({
     listRef.current?.scrollToRow({ index: 0 });
   }, [conversations.length, searchQuery, assignmentFilter, priorityFilter, labelFilter, departmentFilter]);
 
-  const getRowHeight = useCallback((index: number) => {
-    const c = conversations[index];
-    if (!c) return BASE_ROW_HEIGHT;
-    const hasLabels = (conversationLabelsMap[c.id] || []).length > 0;
-    const hasAgent = !!c.assigned_to;
-    const hasNotes = conversationNotesSet.has(c.id);
-    const hasDept = !!c.department_id;
-    return (hasLabels || hasAgent || hasNotes || hasDept) ? RICH_ROW_HEIGHT : BASE_ROW_HEIGHT;
-  }, [conversations, conversationLabelsMap, conversationNotesSet]);
-
   const rowProps = useMemo<ConversationRowProps>(() => ({
     conversations,
     selectedId,
@@ -205,10 +214,11 @@ export const ConversationList = ({
     conversationLabelsMap,
     agentNamesMap,
     conversationNotesSet,
+    draftSet,
     bulkMode,
     selectedIds,
     onToggleSelect,
-  }), [conversations, selectedId, onSelect, inboxLabels, conversationLabelsMap, agentNamesMap, conversationNotesSet, bulkMode, selectedIds, onToggleSelect]);
+  }), [conversations, selectedId, onSelect, inboxLabels, conversationLabelsMap, agentNamesMap, conversationNotesSet, draftSet, bulkMode, selectedIds, onToggleSelect]);
 
   return (
     <>
@@ -246,7 +256,7 @@ export const ConversationList = ({
                 <SelectItem value="recentes" className="text-xs">Recentes</SelectItem>
                 <SelectItem value="antigas" className="text-xs">Mais antigas</SelectItem>
                 <SelectItem value="prioridade" className="text-xs">Prioridade</SelectItem>
-                <SelectItem value="nao-lidas" className="text-xs">Nao lidas</SelectItem>
+                <SelectItem value="nao-lidas" className="text-xs">Não lidas</SelectItem>
               </SelectContent>
             </Select>
           )}
@@ -394,21 +404,20 @@ export const ConversationList = ({
 
               {/* Clear all */}
               {hasActiveFilters && (
-                <Badge
-                  variant="destructive"
-                  className="h-7 px-2.5 rounded-lg text-[11px] cursor-pointer gap-1 flex items-center hover:bg-destructive/90 transition-colors"
+                <button
+                  type="button"
                   onClick={() => {
                     onAssignmentFilterChange?.(defaultAssignmentFilter);
                     onPriorityFilterChange?.('todas');
                     onLabelFilterChange?.(null);
                     onDepartmentFilterChange?.(null);
                   }}
-                  role="button"
                   aria-label="Limpar todos os filtros"
+                  className="h-7 px-2.5 rounded-lg text-[11px] gap-1 flex items-center bg-secondary/40 border border-border/20 text-muted-foreground hover:text-foreground hover:bg-secondary/70 transition-colors"
                 >
                   <X className="w-3 h-3" />
                   Limpar filtros
-                </Badge>
+                </button>
               )}
             </div>
           </div>
@@ -436,7 +445,7 @@ export const ConversationList = ({
             <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => onBulkAction?.('archive')}>
               <Archive className="w-3 h-3" />Arquivar
             </Button>
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onClearSelection}>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={exitBulkMode}>
               <X className="w-3 h-3" />
             </Button>
           </div>
@@ -445,18 +454,21 @@ export const ConversationList = ({
 
       {/* Conversation count */}
       <div className="px-3 py-1.5 flex items-center gap-2" aria-live="polite">
-        {!bulkMode && conversations.length > 0 && (
-          <Checkbox
-            checked={false}
-            onCheckedChange={() => onToggleSelect?.(conversations[0]?.id)}
-            className="mr-1 opacity-40 hover:opacity-100"
-            aria-label="Iniciar seleção"
-          />
-        )}
         <span className="text-[11px] text-muted-foreground font-medium">
           {conversations.length}{hasMore ? '+' : ''} {conversations.length === 1 ? 'conversa' : 'conversas'}
           {hasActiveFilters && ' (filtradas)'}
         </span>
+        {!bulkMode && conversations.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setBulkActive(true)}
+            aria-label="Iniciar seleção em massa"
+            className="ml-auto inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 rounded-md px-1.5 py-0.5 transition-colors"
+          >
+            <CheckSquare className="w-3 h-3" />
+            Selecionar
+          </button>
+        )}
         {messageSearchCount > 0 && (
           <span className="text-[10px] text-primary font-medium">
             {messageSearchCount} com mensagens correspondentes
@@ -496,7 +508,7 @@ export const ConversationList = ({
               <List
                 listRef={listRef}
                 rowCount={conversations.length}
-                rowHeight={getRowHeight}
+                rowHeight={ROW_HEIGHT}
                 rowComponent={ConversationRow}
                 rowProps={rowProps as any}
                 overscanCount={5}

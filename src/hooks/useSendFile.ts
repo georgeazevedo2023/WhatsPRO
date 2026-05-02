@@ -102,13 +102,11 @@ export function useSendFile(): UseSendFileReturn {
           .single();
         if (error) throw error;
 
+        // last_message_at + last_message são atualizados pelo trigger DB
+        // `update_conversation_on_message_insert`. Aqui só atualizamos status_ia.
         await supabase
           .from('conversations')
-          .update({
-            last_message_at: new Date().toISOString(),
-            last_message: mediaType === 'image' ? '📷 Foto' : '📎 Documento',
-            status_ia: STATUS_IA.DESLIGADA,
-          })
+          .update({ status_ia: STATUS_IA.DESLIGADA })
           .eq('id', conversationId);
 
         // Broadcast for realtime
