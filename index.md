@@ -69,6 +69,8 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/log-arquivo-2026-04-29-eletropiso]] | Sprint Eletropiso 23 categorias + 7 fixes ai-agent (v162→v169) + BusinessHoursEditor + audit vault (2026-04-29) |
 | [[log.md]] | **Sessão atual 2026-04-30** — D28 Excluded Products + R85/R86/R87/R88 fix handoffs duplicados + UI bug fixes + validação prod |
 | [[wiki/melhorias-auditoria-2026-04-27]] | Auditoria 2026-04-27: 24 bugs + 210 melhorias (índice geral) |
+| [[wiki/auditoria-helpdesk-2026-05-02]] | Auditoria profunda Helpdesk + Banco (2026-05-02): nota 7.4/10, 6 sprints de plano de ação |
+| [[wiki/melhorias-helpdesk-2026-05-02]] | 20 Melhorias do Helpdesk: duplicações, inconsistências, UI (5 quick wins shipados 2026-05-02) |
 | [[wiki/melhorias-modulos-comunicacao]] | Melhorias: Helpdesk, Broadcast, Forms (30 itens) |
 | [[wiki/melhorias-modulos-inteligencia]] | Melhorias: AI Agent, Profiles, Motor, Enquetes/NPS, Fluxos (50 itens) |
 | [[wiki/melhorias-modulos-leads-crm]] | Melhorias: Leads, Kanban, Catálogo (30 itens) |

@@ -7,6 +7,59 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-02 (Auditoria Profunda — Helpdesk)
+
+### Goal & contexto
+Usuário pediu auditoria profunda e completa do módulo helpdesk + banco. Mapeamento completo: 21 arquivos frontend (5.697 linhas), 9 tabelas, RLS de todas, advisors security/performance.
+
+### Findings principais
+- **Nota global: 7.4/10**. Sem bugs críticos; sem dados órfãos; RLS coerente.
+- 5 funções `SECURITY DEFINER` sem `SET search_path` (alto risco)
+- 6 RPCs `SECURITY DEFINER` chamáveis por `anon`/`authenticated` via `/rest/v1/rpc/*` — incluindo `is_super_admin` (alto)
+- 28 policies reavaliando `auth.uid()` por linha (perf)
+- 144 violações `multiple_permissive_policies`
+- 5 FKs sem índice de cobertura (`conversations.contact_id`, `departments.inbox_id`, `inboxes.instance_id`, `labels.inbox_id`, `conversation_labels.label_id`)
+- Atualização de `last_message_at` espalhada em 4 lugares — recomenda trigger AFTER INSERT centralizado
+- Sem testes para hooks/componentes do helpdesk
+
+### Documentado
+- `wiki/auditoria-helpdesk-2026-05-02.md` (relatório completo com plano de ação em 6 sprints)
+- `wiki/melhorias-helpdesk-2026-05-02.md` (20 melhorias detalhadas — duplicações, inconsistências, UI)
+
+### Quick wins shipados (Onda 1 — 5)
+- #1 `mediaPreview()` extraído para `src/lib/messagePreview.ts` (remove duplicação em 4 arquivos frontend)
+- #11 typo "Nao lidas" → "Não lidas" em ConversationList
+- #16 drafts movidos para Set no hook (remove localStorage I/O por render)
+- #18 placeholder com hint `(digite / para templates)`
+- #B1 badge "Limpar filtros" sem variant destructive
+
+### Quick wins shipados (Onda 2 — 4)
+- #1 (extra) `_shared/messagePreview.ts` para edge functions — sync-conversations e whatsapp-webhook agora usam o helper. Zero hardcode de preview restante em frontend ou backend
+- #10 ChatInput delega mudança de status — eliminou duplo UPDATE no banco e fix do broadcast `status-changed` perdido
+- #14 typing receiver 4s → 6s (margem contra latência)
+- #B4 spring-cleaning de drafts órfãos no localStorage (1x por sessão via sessionStorage flag)
+
+### Onda 5 — Refactor + UX
+- #3 assignAgent unificado: ContactInfoPanel passa a usar helpdeskBroadcast.assignAgent (que agora throws on error). Caminho único de atribuição
+- #6 JID brasileiro 9º dígito: saveToHelpdesk usa getAlternateBrazilianJid + normalizePhoneForMatch de phoneUtils (já existentes). Removeu 16 linhas de manipulação inline
+- #17 row height fixa 88px (antes alternava 64/90 com flicker no react-window ao mudar metadata)
+
+### Onda 4 — UX + descoberta
+- #15 botão "Selecionar" explícito + state bulkActive em ConversationList (entra em modo seleção sem auto-selecionar nada)
+- #B3 **already-fixed**: dedup de auto-summarize já existe (janela de 5 min em auto-summarize + cache check em summarize-conversation)
+
+### Onda 3 — Trigger DB para last_message_at (#2)
+- Migration `conversations_auto_update_last_message` criada via apply_migration: trigger AFTER INSERT em conversation_messages atualiza last_message_at, last_message, is_read centralmente
+- Função SECURITY DEFINER com search_path fixo + REVOKE EXECUTE de anon/authenticated/PUBLIC
+- Idempotente: NEW.created_at >= last_message_at (safe para sync-conversations inserindo fora de ordem)
+- Pula direction='private_note'
+- Smoke test passou: novo / antigo (idempotência) / private_note (skip)
+- 5 UPDATEs manuais removidos (ChatInput.handleSend, handleSendAudio, useSendFile, saveToHelpdesk, whatsapp-webhook, sync-conversations)
+- AI Agent + process-follow-ups ainda fazem UPDATE redundante (HIGH RISK, não tocados; trigger absorve)
+
+### Discussão de design
+- Filtro status (tabs topo) vs atribuição (Todas/Minhas/Não atribuídas) — usuário propôs unificar; decidimos manter pois são eixos ortogonais. Sugerido melhorar default text para evitar três "Todas" em série.
+
 ## 2026-04-30 (D28 Excluded Products + R85/R86/R87/R88 + bug fixes UI + validação prod + D29 VALID_KEYS dinâmico)
 
 ### Goal & contexto
