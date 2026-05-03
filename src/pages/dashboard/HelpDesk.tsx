@@ -299,10 +299,12 @@ const HelpDesk = () => {
   );
   const canSeeUnassigned = isSuperAdmin || !!userPermissions?.canViewUnassigned;
   const canSeeAll = isSuperAdmin || !!userPermissions?.canViewAllInDept || !!userPermissions?.canViewAll;
+  // shortLabel = mobile (cabe em ~88px por tab quando pane=320px); label = desktop ≥sm
   const assignmentTabs = [
     {
       value: 'minhas' as const,
       label: 'Minhas',
+      shortLabel: 'Minhas',
       icon: User,
       color: 'text-emerald-500',
       count: tabBase.filter(c => c.assigned_to === user?.id).length,
@@ -311,6 +313,7 @@ const HelpDesk = () => {
     {
       value: 'nao-atribuidas' as const,
       label: 'Não atribuídas',
+      shortLabel: 'Livres',
       icon: UserMinus,
       color: 'text-amber-500',
       count: tabBase.filter(c => c.assigned_to === null).length,
@@ -319,6 +322,7 @@ const HelpDesk = () => {
     {
       value: 'todas' as const,
       label: 'Todas',
+      shortLabel: 'Todas',
       icon: Users,
       color: 'text-muted-foreground',
       count: tabBase.length,
@@ -326,46 +330,46 @@ const HelpDesk = () => {
     },
   ].filter(t => t.visible);
 
-  // Shared header
+  // Cap counts visualmente para evitar quebra (3 dígitos estouram tab estreito)
+  const formatCount = (n: number) => (n > 99 ? '99+' : String(n));
+
+  // Shared header — mobile-first, 2 rows: inbox pill + escopo tabs.
+  // Removido o título "Atendimento" (redundante com breadcrumb + sidebar ativa)
+  // ganhando ~40px verticais. Tabs com touch target ≥44px no mobile.
   const unifiedHeader = (
     <div className="shrink-0">
-      <div className="flex items-center gap-3 px-4 py-2.5">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
-            <InboxIcon className="w-4 h-4 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="font-display font-bold text-sm leading-tight truncate">Atendimento</h2>
-            {inboxes.length > 0 && (
-              <Select value={inboxSelectValue} onValueChange={handleInboxChange}>
-                <SelectTrigger className="h-5 text-[10px] border-0 bg-transparent p-0 gap-1 text-muted-foreground hover:text-foreground shadow-none focus:ring-0 w-auto max-w-[180px]" aria-label="Selecionar caixa de entrada">
-                  <InboxIcon className="w-2.5 h-2.5 shrink-0 opacity-60" />
-                  <SelectValue placeholder="Selecionar inbox" />
-                </SelectTrigger>
-                <SelectContent>
-                  {inboxes.map(inbox => {
-                    const depts = allInboxDepts[inbox.id] || [];
-                    return (
-                      <SelectGroup key={inbox.id}>
-                        <SelectItem value={inbox.id}>
-                          {inbox.name}
-                        </SelectItem>
-                        {depts.map(dept => (
-                          <SelectItem key={dept.id} value={`${inbox.id}|${dept.id}`} className="pl-8 text-xs text-muted-foreground">
-                            ↳ {dept.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
+      {/* Row 1 — inbox como pill prominente, tappable */}
+      {inboxes.length > 0 && (
+        <div className="px-3 pt-2 pb-1.5">
+          <Select value={inboxSelectValue} onValueChange={handleInboxChange}>
+            <SelectTrigger
+              aria-label="Selecionar caixa de entrada"
+              className="h-10 sm:h-9 px-3 gap-2 rounded-lg bg-secondary/60 hover:bg-secondary/80 border-border/40 text-sm font-medium text-foreground transition-colors w-auto max-w-full"
+            >
+              <InboxIcon className="w-4 h-4 shrink-0 text-primary" />
+              <SelectValue placeholder="Selecionar inbox" />
+            </SelectTrigger>
+            <SelectContent>
+              {inboxes.map(inbox => {
+                const depts = allInboxDepts[inbox.id] || [];
+                return (
+                  <SelectGroup key={inbox.id}>
+                    <SelectItem value={inbox.id}>{inbox.name}</SelectItem>
+                    {depts.map(dept => (
+                      <SelectItem key={dept.id} value={`${inbox.id}|${dept.id}`} className="pl-8 text-xs text-muted-foreground">
+                        ↳ {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                );
+              })}
+            </SelectContent>
+          </Select>
         </div>
-      </div>
+      )}
 
-      <div className="px-3 pb-2.5">
+      {/* Row 2 — escopo tabs full-width, touch target 44px mobile / 36px desktop */}
+      <div className="px-3 pb-2">
         <div className="flex items-center bg-muted/50 rounded-xl p-1 gap-1" role="tablist" aria-label="Filtro por escopo">
           {assignmentTabs.map(tab => {
             const TabIcon = tab.icon;
@@ -375,21 +379,25 @@ const HelpDesk = () => {
                 key={tab.value}
                 onClick={() => { setAssignmentFilter(tab.value); clearSelection(); }}
                 aria-pressed={active}
+                title={tab.label}
                 className={cn(
-                  'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200 whitespace-nowrap',
+                  'flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition-all duration-200',
                   active
                     ? 'bg-card text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
+                    : 'text-muted-foreground hover:text-foreground active:bg-card/40'
                 )}
               >
-                <TabIcon className={cn('w-3 h-3', active ? tab.color : 'text-muted-foreground/60')} />
-                <span className="hidden sm:inline">{tab.label}</span>
+                <TabIcon className={cn('w-3.5 h-3.5 sm:w-3 sm:h-3 shrink-0', active ? tab.color : 'text-muted-foreground/60')} />
+                <span className="truncate">
+                  <span className="sm:hidden">{tab.shortLabel}</span>
+                  <span className="hidden sm:inline">{tab.label}</span>
+                </span>
                 {tab.count > 0 && (
                   <span className={cn(
-                    'text-[9px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-1',
+                    'text-[10px] sm:text-[9px] font-bold tabular-nums min-w-[18px] h-[18px] sm:min-w-[16px] sm:h-4 flex items-center justify-center rounded-full px-1 shrink-0',
                     active ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
                   )}>
-                    {tab.count}
+                    {formatCount(tab.count)}
                   </span>
                 )}
               </button>

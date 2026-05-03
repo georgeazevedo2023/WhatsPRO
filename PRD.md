@@ -40,6 +40,28 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.20.1 (2026-05-03) — Helpdesk: header mobile-first (drop título, inbox como pill, touch targets)
+
+**Problema:** depois de v7.20.0, atendente reportou que ainda "ficava muito espaço em cima". Auditando o header herdado: título grande "Atendimento" + inbox como texto cinza pequeno embaixo + tabs com `py-1.5` (≈28px, abaixo do mínimo 44pt da Apple HIG) + labels escondidos no mobile (`hidden sm:inline`) — fundamentalmente desktop-first.
+
+**Plano auditado (anti-padrões corrigidos):**
+- Original tinha 1 linha no desktop / 2 no mobile = código duplicado e cramped em pane 320px
+- Não considerei touch targets nem que labels somem no mobile
+- "Não atribuídas" (14 chars) estoura tab de 88px
+
+**Mudanças (HelpDesk.tsx — apenas o `unifiedHeader`):**
+- Removido título "Atendimento" (redundante: breadcrumb topo + sidebar ativa já indicam)
+- Inbox vira pill `bg-secondary/60 rounded-lg px-3 h-10 sm:h-9` — tappable, prominente
+- Tabs com `py-2.5 sm:py-1.5` → 44px mobile / 32px desktop (HIG compliant)
+- Tabs com label sempre visível: `Minhas/Livres/Todas` no mobile, `Minhas/Não atribuídas/Todas` em ≥sm via `<span className="sm:hidden|hidden sm:inline">`
+- Counts com `tabular-nums` + cap `99+`
+- Ícones maiores no mobile (`w-3.5 h-3.5 sm:w-3 sm:h-3`)
+- Ganho vertical: ~40px (uma linha de header eliminada)
+
+**Arquivo:** `src/pages/dashboard/HelpDesk.tsx` (50+/42- linhas no mesmo `unifiedHeader`)
+
+**Auditoria:** TS 0 erros · validação visual em localhost antes de build.
+
 ### v7.20.0 (2026-05-03) — Helpdesk: top tabs viram ESCOPO (Minhas/Não atribuídas/Todas)
 
 **Problema relatado pelo atendente:**
