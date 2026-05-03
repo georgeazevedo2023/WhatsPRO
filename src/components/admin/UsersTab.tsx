@@ -26,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import {
   Search, Inbox, Users, Loader2, Trash2, Settings, MonitorSmartphone, Shield, Pencil,
   Headphones, Mail, Briefcase, Building2, AlertTriangle, ChevronDown, ChevronRight,
+  Plus, X, Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
@@ -459,107 +460,212 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                         </div>
                       </div>
 
-                      {/* Expanded state */}
+                      {/* Expanded state — restructured: per-inbox cards (role + permissions + departments together) */}
                       <CollapsibleContent>
                         <div className="border-t border-border/30 px-4 py-4 space-y-5 bg-muted/10">
-                          {/* Caixas de Entrada section */}
-                          <div className="space-y-3">
-                            <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold flex items-center gap-1.5">
-                              <Inbox className="w-3.5 h-3.5" /> Caixas de Entrada
-                            </p>
-                            {allInboxes.length === 0 ? (
-                              <p className="text-sm text-muted-foreground pl-1">Nenhuma caixa disponível</p>
-                            ) : (
-                              <div className="space-y-2">
-                                {allInboxes.map(inbox => {
-                                  const membership = u.inboxMemberships.find(m => m.inbox_id === inbox.id);
-                                  const isMember = !!membership;
-                                  const isSaving = savingInboxMembership === `${u.id}-${inbox.id}`;
 
+                          {/* SEÇÃO: Acesso por Caixa (consolida role + permissões + departamentos) */}
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold flex items-center gap-1.5">
+                                <Inbox className="w-3.5 h-3.5" /> Acesso e Departamentos
+                              </p>
+                              <Link
+                                to="/dashboard/admin/departments"
+                                className="text-[11px] text-muted-foreground hover:text-primary hover:underline"
+                              >
+                                Gerenciar departamentos →
+                              </Link>
+                            </div>
+
+                            {u.inboxMemberships.length === 0 ? (
+                              <div className="rounded-lg border border-dashed border-border/40 bg-card/20 p-4 text-center">
+                                <Inbox className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                                <p className="text-sm text-muted-foreground">Nenhuma caixa vinculada</p>
+                                <p className="text-xs text-muted-foreground/70 mt-1">Adicione abaixo para liberar acesso</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {u.inboxMemberships.map(membership => {
+                                  const inboxDepts = allDepartments.filter(d => d.inbox_id === membership.inbox_id);
+                                  const memberDeptIds = new Set(u.departments.map(d => d.id));
+                                  const isRemoving = savingInboxMembership === `${u.id}-${membership.inbox_id}`;
                                   return (
-                                    <div key={inbox.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-card/60 border border-border/20">
-                                      <Checkbox
-                                        checked={isMember}
-                                        disabled={isSaving}
-                                        onCheckedChange={() => handleToggleInboxMembership(u, inbox.id, isMember)}
-                                        aria-label={`${isMember ? 'Remover de' : 'Adicionar a'} ${inbox.name}`}
-                                      />
-                                      <div className="flex-1 min-w-0">
-                                        <span className="text-sm font-medium truncate block">{inbox.name}</span>
-                                        {inbox.instance_name && <span className="text-xs text-muted-foreground">{inbox.instance_name}</span>}
-                                      </div>
-                                      {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />}
-                                      {isMember && !isSaving && (
-                                        <div className="flex items-center gap-3">
-                                          <Select
-                                            value={membership.role}
-                                            onValueChange={(v: string) => handleChangeInboxRole(u, inbox.id, v as InboxRole)}
-                                          >
-                                            <SelectTrigger className="w-28 h-7 text-xs shrink-0" aria-label={`Papel em ${inbox.name}`}><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                              <SelectItem value="admin">Admin</SelectItem>
-                                              <SelectItem value="gestor">Gestor</SelectItem>
-                                              <SelectItem value="agente">Agente</SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                          <div className="flex items-center gap-3 ml-2">
-                                            <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-muted/40 border border-border/20">
-                                              <span className="text-[9px] text-muted-foreground/60 mr-1">Depto:</span>
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <div className="flex items-center gap-1">
-                                                    <Checkbox
-                                                      checked={membership.can_view_unassigned}
-                                                      onCheckedChange={(checked) => handleToggleVisibility(u.id, inbox.id, 'can_view_unassigned', !!checked)}
-                                                      aria-label="Ver não atribuídas no departamento"
-                                                      className="h-3 w-3"
-                                                    />
-                                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">Não atrib.</span>
-                                                  </div>
-                                                </TooltipTrigger>
-                                                <TooltipContent side="bottom"><p>Ver conversas não atribuídas nos seus departamentos</p></TooltipContent>
-                                              </Tooltip>
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <div className="flex items-center gap-1">
-                                                    <Checkbox
-                                                      checked={membership.can_view_all_in_dept}
-                                                      onCheckedChange={(checked) => handleToggleVisibility(u.id, inbox.id, 'can_view_all_in_dept', !!checked)}
-                                                      aria-label="Ver todas no departamento"
-                                                      className="h-3 w-3"
-                                                    />
-                                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">Todas</span>
-                                                  </div>
-                                                </TooltipTrigger>
-                                                <TooltipContent side="bottom"><p>Ver todas as conversas nos seus departamentos (incluindo de outros agentes)</p></TooltipContent>
-                                              </Tooltip>
-                                            </div>
-                                            <Tooltip>
-                                              <TooltipTrigger asChild>
-                                                <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-muted/40 border border-border/20">
-                                                  <Checkbox
-                                                    checked={membership.can_view_all}
-                                                    onCheckedChange={(checked) => handleToggleVisibility(u.id, inbox.id, 'can_view_all', !!checked)}
-                                                    aria-label="Ver outros departamentos"
-                                                    className="h-3 w-3"
-                                                  />
-                                                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">Outros deptos</span>
-                                                </div>
-                                              </TooltipTrigger>
-                                              <TooltipContent side="bottom"><p>Ver conversas de todos os departamentos (não apenas os seus)</p></TooltipContent>
-                                            </Tooltip>
-                                          </div>
+                                    <div key={membership.inbox_id} className="rounded-xl border border-border/40 bg-card/40 p-3 sm:p-4 space-y-3">
+                                      {/* Header da caixa */}
+                                      <div className="flex items-start sm:items-center gap-3 flex-wrap sm:flex-nowrap">
+                                        <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                          <Inbox className="w-4 h-4 text-primary" />
                                         </div>
-                                      )}
+                                        <div className="flex-1 min-w-0">
+                                          <p className="font-semibold text-sm truncate">{membership.inbox_name}</p>
+                                          {membership.instance_name && (
+                                            <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                                              <MonitorSmartphone className="w-2.5 h-2.5 opacity-60" />
+                                              {membership.instance_name}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <Select
+                                          value={membership.role}
+                                          onValueChange={(v: string) => handleChangeInboxRole(u, membership.inbox_id, v as InboxRole)}
+                                        >
+                                          <SelectTrigger
+                                            className={cn(
+                                              'h-9 sm:h-8 w-32 text-xs shrink-0 border',
+                                              ROLE_COLORS[membership.role]
+                                            )}
+                                            aria-label={`Papel em ${membership.inbox_name}`}
+                                          >
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="admin"><span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-primary" /> Admin</span></SelectItem>
+                                            <SelectItem value="gestor"><span className="flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5 text-blue-400" /> Gestor</span></SelectItem>
+                                            <SelectItem value="agente"><span className="flex items-center gap-1.5"><Headphones className="w-3.5 h-3.5 text-amber-400" /> Agente</span></SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-9 w-9 sm:h-8 sm:w-8 text-destructive/60 hover:text-destructive hover:bg-destructive/10 shrink-0"
+                                              disabled={isRemoving}
+                                              onClick={() => handleToggleInboxMembership(u, membership.inbox_id, true)}
+                                              aria-label={`Remover de ${membership.inbox_name}`}
+                                            >
+                                              {isRemoving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-4 h-4" />}
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="bottom"><p>Remover desta caixa</p></TooltipContent>
+                                        </Tooltip>
+                                      </div>
+
+                                      {/* Bloco: Visibilidade */}
+                                      <div className="rounded-lg bg-muted/30 border border-border/20 p-2.5 sm:p-3 space-y-2">
+                                        <p className="text-[11px] font-semibold text-muted-foreground/80 flex items-center gap-1.5">
+                                          <Eye className="w-3 h-3" /> Visibilidade de conversas
+                                        </p>
+                                        <div className="space-y-1.5">
+                                          {([
+                                            { key: 'can_view_unassigned' as const, label: 'Não atribuídas no meu depto', value: membership.can_view_unassigned },
+                                            { key: 'can_view_all_in_dept' as const, label: 'Todas no meu depto (inclui outros agentes)', value: membership.can_view_all_in_dept },
+                                            { key: 'can_view_all' as const, label: 'De outros departamentos (acesso global)', value: membership.can_view_all },
+                                          ]).map(perm => {
+                                            const permKey = `${u.id}-${membership.inbox_id}-${perm.key}`;
+                                            const isSavingPerm = savingInboxMembership === permKey;
+                                            return (
+                                              <label
+                                                key={perm.key}
+                                                className="flex items-center gap-2 cursor-pointer text-xs hover:bg-muted/40 rounded-md px-1.5 py-1 transition-colors"
+                                              >
+                                                <Checkbox
+                                                  checked={perm.value}
+                                                  disabled={isSavingPerm}
+                                                  onCheckedChange={(checked) => handleToggleVisibility(u.id, membership.inbox_id, perm.key, !!checked)}
+                                                  aria-label={perm.label}
+                                                  className="h-4 w-4"
+                                                />
+                                                <span className="text-muted-foreground flex-1">{perm.label}</span>
+                                                {isSavingPerm && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+
+                                      {/* Bloco: Departamentos */}
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-semibold text-muted-foreground/80 flex items-center gap-1.5">
+                                          <Building2 className="w-3 h-3" /> Departamentos
+                                          {inboxDepts.length > 0 && (
+                                            <span className="text-muted-foreground/60 font-normal">
+                                              ({inboxDepts.filter(d => memberDeptIds.has(d.id)).length}/{inboxDepts.length})
+                                            </span>
+                                          )}
+                                        </p>
+                                        {inboxDepts.length === 0 ? (
+                                          <p className="text-xs text-muted-foreground/70">
+                                            Nenhum departamento nesta caixa.{' '}
+                                            <Link to="/dashboard/admin/departments" className="text-primary hover:underline">
+                                              Criar →
+                                            </Link>
+                                          </p>
+                                        ) : (
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {inboxDepts.map(dept => {
+                                              const isMember = memberDeptIds.has(dept.id);
+                                              const isSaving = savingDeptMembership === `${u.id}-${dept.id}`;
+                                              return (
+                                                <label
+                                                  key={dept.id}
+                                                  className={cn(
+                                                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-all select-none',
+                                                    isMember
+                                                      ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/15'
+                                                      : 'bg-muted/30 border-border/30 text-muted-foreground hover:bg-muted/50',
+                                                    isSaving && 'opacity-60 cursor-wait'
+                                                  )}
+                                                >
+                                                  <Checkbox
+                                                    checked={isMember}
+                                                    disabled={isSaving}
+                                                    onCheckedChange={() => handleToggleDepartmentMembership(u, dept.id, isMember)}
+                                                    aria-label={`${isMember ? 'Remover' : 'Adicionar'} ${dept.name}`}
+                                                    className="h-3.5 w-3.5"
+                                                  />
+                                                  <span className="font-medium">{dept.name}</span>
+                                                  {dept.is_default && <span className="text-[9px] opacity-60">padrão</span>}
+                                                  {isSaving && <Loader2 className="w-3 h-3 animate-spin shrink-0" />}
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
                               </div>
                             )}
+
+                            {/* Adicionar a outra caixa */}
+                            {(() => {
+                              const memberInboxIds = new Set(u.inboxMemberships.map(m => m.inbox_id));
+                              const availableInboxes = allInboxes.filter(ib => !memberInboxIds.has(ib.id));
+                              if (availableInboxes.length === 0) return null;
+                              return (
+                                <div className="rounded-lg border border-dashed border-border/40 bg-card/20 p-3 space-y-2">
+                                  <p className="text-[11px] font-semibold text-muted-foreground/80 flex items-center gap-1.5">
+                                    <Plus className="w-3 h-3" /> Adicionar a outra caixa
+                                  </p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {availableInboxes.map(inbox => {
+                                      const isSaving = savingInboxMembership === `${u.id}-${inbox.id}`;
+                                      return (
+                                        <button
+                                          key={inbox.id}
+                                          type="button"
+                                          disabled={isSaving}
+                                          onClick={() => handleToggleInboxMembership(u, inbox.id, false)}
+                                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border/30 bg-muted/30 hover:bg-muted/60 hover:border-primary/30 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-60 disabled:cursor-wait"
+                                          aria-label={`Adicionar a ${inbox.name}`}
+                                        >
+                                          {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                                          <span className="font-medium">{inbox.name}</span>
+                                          {inbox.instance_name && <span className="opacity-60 text-[10px]">· {inbox.instance_name}</span>}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
 
-                          {/* Instâncias section */}
-                          <div className="space-y-3">
+                          {/* SEÇÃO: Instâncias */}
+                          <div className="space-y-2">
                             <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold flex items-center gap-1.5">
                               <MonitorSmartphone className="w-3.5 h-3.5" /> Instâncias ({u.instances.length})
                             </p>
@@ -585,76 +691,6 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                             >
                               <Settings className="w-3.5 h-3.5" /> Gerenciar Instâncias
                             </Button>
-                          </div>
-
-                          {/* Departamentos section — agora editável via checkboxes por caixa */}
-                          <div className="space-y-3">
-                            <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold flex items-center gap-1.5">
-                              <Building2 className="w-3.5 h-3.5" /> Departamentos ({u.departments.length})
-                            </p>
-                            {u.inboxMemberships.length === 0 ? (
-                              <p className="text-sm text-muted-foreground pl-1">
-                                Vincule o membro a uma caixa primeiro para gerenciar departamentos
-                              </p>
-                            ) : (
-                              <div className="space-y-3">
-                                {u.inboxMemberships.map(membership => {
-                                  const inboxDepts = allDepartments.filter(d => d.inbox_id === membership.inbox_id);
-                                  const memberDeptIds = new Set(u.departments.map(d => d.id));
-                                  return (
-                                    <div key={membership.inbox_id} className="space-y-1.5">
-                                      <p className="text-[11px] text-muted-foreground/80 font-medium pl-1 flex items-center gap-1">
-                                        <Inbox className="w-3 h-3 opacity-70" />
-                                        {membership.inbox_name}
-                                      </p>
-                                      {inboxDepts.length === 0 ? (
-                                        <p className="text-xs text-muted-foreground/70 pl-3">
-                                          Nenhum departamento nesta caixa.{' '}
-                                          <Link to="/admin/departments" className="text-primary hover:underline">
-                                            Criar →
-                                          </Link>
-                                        </p>
-                                      ) : (
-                                        <div className="flex flex-wrap gap-2 pl-3">
-                                          {inboxDepts.map(dept => {
-                                            const isMember = memberDeptIds.has(dept.id);
-                                            const isSaving = savingDeptMembership === `${u.id}-${dept.id}`;
-                                            return (
-                                              <label
-                                                key={dept.id}
-                                                className={cn(
-                                                  'flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-colors select-none',
-                                                  isMember
-                                                    ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/15'
-                                                    : 'bg-muted/30 border-border/30 text-muted-foreground hover:bg-muted/50',
-                                                  isSaving && 'opacity-60 cursor-wait'
-                                                )}
-                                              >
-                                                <Checkbox
-                                                  checked={isMember}
-                                                  disabled={isSaving}
-                                                  onCheckedChange={() => handleToggleDepartmentMembership(u, dept.id, isMember)}
-                                                  aria-label={`${isMember ? 'Remover' : 'Adicionar'} ${dept.name}`}
-                                                  className="h-3.5 w-3.5"
-                                                />
-                                                <span className="font-medium">{dept.name}</span>
-                                                {dept.is_default && <span className="text-[9px] opacity-60">padrão</span>}
-                                                {isSaving && <Loader2 className="w-3 h-3 animate-spin shrink-0" />}
-                                              </label>
-                                            );
-                                          })}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                <p className="text-[11px] text-muted-foreground/60 pl-1">
-                                  <Link to="/admin/departments" className="hover:text-primary hover:underline">
-                                    Gerenciar departamentos →
-                                  </Link>
-                                </p>
-                              </div>
-                            )}
                           </div>
                         </div>
                       </CollapsibleContent>

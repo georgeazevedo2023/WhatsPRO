@@ -40,6 +40,29 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.20.3 (2026-05-03) — Equipe: redesign do expanded view (cards por caixa) + fix link 404
+
+**2 problemas reportados pelo user:**
+1. Link "Gerenciar departamentos →" da v7.20.2 levava a `/admin/departments` (404). Rota correta é `/dashboard/admin/departments` — todas as rotas filhas estão sob o parent `/dashboard/*` em `App.tsx:211`.
+2. Layout do expanded view do membro estava cramped/desktop-first: permissões em chips minúsculos com checkbox `h-3 w-3`, todas as caixas listadas com checkbox plano (sem cards), departamentos em seção separada.
+
+**Mudanças (`src/components/admin/UsersTab.tsx`):**
+- **Fix link**: 2 ocorrências de `/admin/departments` → `/dashboard/admin/departments`
+- **Restructure expanded view** — 2 seções (era 3):
+  - **Acesso e Departamentos**: cada caixa do membro vira CARD próprio (rounded-xl bg-card/40) contendo:
+    - Header: ícone + nome da caixa + instância + Select de role (com cores ROLE_COLORS) + botão X de remover (com tooltip)
+    - Bloco "Visibilidade de conversas": 3 toggles labeled (`Não atribuídas no meu depto` / `Todas no meu depto` / `De outros departamentos`) com checkbox `h-4 w-4` (touch HIG)
+    - Bloco "Departamentos": chips por depto da caixa, contador `(X/Y)` no header
+  - **Adicionar a outra caixa**: caixas que o membro NÃO é membro viram botões clicáveis em uma linha (não checkboxes em lista cheia). Mostra só se houver caixas disponíveis.
+  - **Instâncias**: mantém padrão (badges + botão Gerenciar Instâncias)
+- **Empty state quando 0 caixas**: card centralizado com ícone Inbox e CTA "Adicione abaixo"
+- **Mobile-friendly**: toggle de permissões com label clicável + padding decente, role select `h-9 sm:h-8`, botão X `h-9 w-9 sm:h-8 sm:w-8`
+- **Link "Gerenciar departamentos →"** movido pro header da seção (antes ficava no footer da seção Departamentos)
+
+**Arquivo:** `src/components/admin/UsersTab.tsx` — +180/-160 (rewrite do `CollapsibleContent`)
+
+**Auditoria:** TS 0 erros · validação visual pendente em localhost.
+
 ### v7.20.2 (2026-05-03) — Equipe: gerenciar departamentos do membro inline (UsersTab)
 
 **Problema relatado:** "não consigo editar departamentos ou remover o departamento de um membro ou adicionar outro etc". Auditando a UI, a seção "DEPARTAMENTOS" do member view era read-only (apenas badges) e ficava escondida quando `u.departments.length === 0` (linha 558) — atendente sem departamento não via affordance pra adicionar.
