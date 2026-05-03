@@ -28,6 +28,8 @@ import {
   Headphones, Mail, Briefcase, Building2, AlertTriangle, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 import ManageUserInstancesDialog from '@/components/dashboard/ManageUserInstancesDialog';
 import type { Database } from '@/integrations/supabase/types';
 
@@ -74,7 +76,7 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
   const [allInboxes, setAllInboxes] = useState<InboxSimple[]>([]);
   const [allInstances, setAllInstances] = useState<{ id: string; name: string }[]>([]);
   const [allInboxesRaw, setAllInboxesRaw] = useState<{ id: string; name: string; instance_id: string }[]>([]);
-  const [allDepartments, setAllDepartments] = useState<{ id: string; name: string; inbox_id: string }[]>([]);
+  const [allDepartments, setAllDepartments] = useState<{ id: string; name: string; inbox_id: string; is_default: boolean }[]>([]);
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
 
   // Create user
@@ -116,6 +118,8 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
 
   // Inline inbox membership saving state
   const [savingInboxMembership, setSavingInboxMembership] = useState<string | null>(null);
+  // Inline department membership saving state
+  const [savingDeptMembership, setSavingDeptMembership] = useState<string | null>(null);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -151,7 +155,7 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
       })));
       setAllInstances((instRes.data || []).map(i => ({ id: i.id, name: i.name })));
       setAllInboxesRaw(inboxesList.map(ib => ({ id: ib.id, name: ib.name, instance_id: ib.instance_id })));
-      setAllDepartments((deptsRes.data || []).map(d => ({ id: d.id, name: d.name, inbox_id: d.inbox_id })));
+      setAllDepartments((deptsRes.data || []).map(d => ({ id: d.id, name: d.name, inbox_id: d.inbox_id, is_default: d.is_default })));
 
       const resolveRole = (userId: string): AppRole => {
         const userRoles = roles.filter(r => r.user_id === userId).map(r => r.role);
@@ -262,6 +266,35 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
       fetchUsers(); // rollback
     } finally {
       setSavingInboxMembership(null);
+    }
+  };
+
+  // ── Department membership handler ──────────────────────────────────────────
+
+  const handleToggleDepartmentMembership = async (user: UserWithRole, deptId: string, isCurrentlyMember: boolean) => {
+    const key = `${user.id}-${deptId}`;
+    setSavingDeptMembership(key);
+    try {
+      if (isCurrentlyMember) {
+        const { error } = await supabase
+          .from('department_members')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('department_id', deptId);
+        if (error) throw error;
+        toast.success('Removido do departamento');
+      } else {
+        const { error } = await supabase
+          .from('department_members')
+          .insert({ user_id: user.id, department_id: deptId });
+        if (error) throw error;
+        toast.success('Adicionado ao departamento');
+      }
+      fetchUsers();
+    } catch (err) {
+      handleError(err, 'Erro ao alterar vínculo com departamento');
+    } finally {
+      setSavingDeptMembership(null);
     }
   };
 
@@ -554,24 +587,75 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                             </Button>
                           </div>
 
-                          {/* Departamentos section */}
-                          {u.departments.length > 0 && (
-                            <div className="space-y-3">
-                              <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold flex items-center gap-1.5">
-                                <Building2 className="w-3.5 h-3.5" /> Departamentos ({u.departments.length})
+                          {/* Departamentos section — agora editável via checkboxes por caixa */}
+                          <div className="space-y-3">
+                            <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold flex items-center gap-1.5">
+                              <Building2 className="w-3.5 h-3.5" /> Departamentos ({u.departments.length})
+                            </p>
+                            {u.inboxMemberships.length === 0 ? (
+                              <p className="text-sm text-muted-foreground pl-1">
+                                Vincule o membro a uma caixa primeiro para gerenciar departamentos
                               </p>
-                              <div className="flex flex-wrap gap-2">
-                                {u.departments.map(d => (
-                                  <Badge key={d.id} variant="outline" className="gap-1.5 text-sm py-1 px-2.5 bg-primary/5 text-primary border-primary/20 cursor-default">
-                                    <Building2 className="w-3.5 h-3.5" />
-                                    {d.name}
-                                    {d.is_default && <span className="text-[10px] opacity-60">(padrão)</span>}
-                                    {d.inbox_name && <span className="text-[10px] opacity-60"> - {d.inbox_name}</span>}
-                                  </Badge>
-                                ))}
+                            ) : (
+                              <div className="space-y-3">
+                                {u.inboxMemberships.map(membership => {
+                                  const inboxDepts = allDepartments.filter(d => d.inbox_id === membership.inbox_id);
+                                  const memberDeptIds = new Set(u.departments.map(d => d.id));
+                                  return (
+                                    <div key={membership.inbox_id} className="space-y-1.5">
+                                      <p className="text-[11px] text-muted-foreground/80 font-medium pl-1 flex items-center gap-1">
+                                        <Inbox className="w-3 h-3 opacity-70" />
+                                        {membership.inbox_name}
+                                      </p>
+                                      {inboxDepts.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground/70 pl-3">
+                                          Nenhum departamento nesta caixa.{' '}
+                                          <Link to="/admin/departments" className="text-primary hover:underline">
+                                            Criar →
+                                          </Link>
+                                        </p>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-2 pl-3">
+                                          {inboxDepts.map(dept => {
+                                            const isMember = memberDeptIds.has(dept.id);
+                                            const isSaving = savingDeptMembership === `${u.id}-${dept.id}`;
+                                            return (
+                                              <label
+                                                key={dept.id}
+                                                className={cn(
+                                                  'flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-colors select-none',
+                                                  isMember
+                                                    ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/15'
+                                                    : 'bg-muted/30 border-border/30 text-muted-foreground hover:bg-muted/50',
+                                                  isSaving && 'opacity-60 cursor-wait'
+                                                )}
+                                              >
+                                                <Checkbox
+                                                  checked={isMember}
+                                                  disabled={isSaving}
+                                                  onCheckedChange={() => handleToggleDepartmentMembership(u, dept.id, isMember)}
+                                                  aria-label={`${isMember ? 'Remover' : 'Adicionar'} ${dept.name}`}
+                                                  className="h-3.5 w-3.5"
+                                                />
+                                                <span className="font-medium">{dept.name}</span>
+                                                {dept.is_default && <span className="text-[9px] opacity-60">padrão</span>}
+                                                {isSaving && <Loader2 className="w-3 h-3 animate-spin shrink-0" />}
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                <p className="text-[11px] text-muted-foreground/60 pl-1">
+                                  <Link to="/admin/departments" className="hover:text-primary hover:underline">
+                                    Gerenciar departamentos →
+                                  </Link>
+                                </p>
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       </CollapsibleContent>
                     </div>

@@ -58,6 +58,35 @@ Recomendação A (padrão Intercom/Front/Zendesk). User confirmou A.
 - Push dos commits acumulados (2 da sessão anterior + este)
 - Backlog do helpdesk continua intacto: #5 consolidar canais broadcast, #4 useUpdateConversation, #19 notificações, #20 split ContactInfoPanel
 
+### Sprint 2 — Mobile-first do header (PRD v7.20.1, commit 7bcb751)
+
+User reportou que ainda "ficava muito espaço em cima". Auditoria do plano original revelou 7 problemas (touch targets <44pt, labels escondidos no mobile, "Não atribuídas" estoura tab de 88px, etc).
+
+Refactor mobile-first do `unifiedHeader`:
+- Drop título "Atendimento" (redundante com breadcrumb + sidebar)
+- Inbox vira pill `bg-secondary/60 h-10 sm:h-9` (tappable)
+- Tabs `py-2.5 sm:py-1.5` (44px mobile / 32px desktop, HIG compliant)
+- Labels SEMPRE visíveis: `Minhas/Livres/Todas` mobile, `Minhas/Não atribuídas/Todas` ≥sm via responsive spans
+- Counts com `tabular-nums` + cap `99+`
+- Mesmo código serve mobile e desktop (sem caminhos duplicados)
+
+### Sprint 3 — Gerenciar departamentos do membro inline (PRD v7.20.2)
+
+User reportou: "não consigo editar departamentos ou remover o departamento de um membro ou adicionar outro etc".
+
+Diagnóstico: seção "DEPARTAMENTOS" no `UsersTab.tsx` era read-only e ficava ESCONDIDA quando membro tinha 0 deptos (`{u.departments.length > 0 && (...)}`) — sem affordance.
+
+Refactor:
+- Seção sempre visível
+- Agrupada por caixa do membro (cada caixa mostra seus deptos)
+- Cada depto = chip com checkbox (toggle insert/delete em `department_members`)
+- Empty state "Vincule a uma caixa primeiro" se 0 inboxes
+- Empty state "Nenhum depto. Criar →" se caixa sem deptos
+- Footer link "Gerenciar departamentos →" para CRUD em `/admin/departments`
+- Handler `handleToggleDepartmentMembership` + state `savingDeptMembership`
+
+Arquivo: `src/components/admin/UsersTab.tsx` (+73/-13).
+
 ---
 
 ## 2026-05-02 (Auditoria Profunda — Helpdesk)

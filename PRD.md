@@ -40,6 +40,24 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.20.2 (2026-05-03) — Equipe: gerenciar departamentos do membro inline (UsersTab)
+
+**Problema relatado:** "não consigo editar departamentos ou remover o departamento de um membro ou adicionar outro etc". Auditando a UI, a seção "DEPARTAMENTOS" do member view era read-only (apenas badges) e ficava escondida quando `u.departments.length === 0` (linha 558) — atendente sem departamento não via affordance pra adicionar.
+
+**Mudanças (`src/components/admin/UsersTab.tsx`):**
+- Seção "Departamentos" agora SEMPRE visível (mesmo com 0 departamentos)
+- Render agrupado por caixa: cada caixa do membro mostra seus departamentos como chips com checkbox para toggle de membership
+- Novo handler `handleToggleDepartmentMembership` (insert/delete em `department_members`) com saving state por chip (`savingDeptMembership`)
+- Visual: chip ativo `bg-primary/10` (membro), inativo `bg-muted/30`. Tag "padrão" preservada
+- Empty state quando membro não tem nenhuma caixa: "Vincule a uma caixa primeiro"
+- Empty state quando caixa não tem departamentos: "Nenhum departamento nesta caixa. Criar →" (link `/admin/departments`)
+- Footer link "Gerenciar departamentos →" para CRUD completo
+- `allDepartments` state agora armazena `is_default` (já vinha no fetch, faltava propagar)
+
+**Arquivo:** `src/components/admin/UsersTab.tsx` — +73/-13 (apenas seção Departamentos + handler + state)
+
+**Auditoria:** TS 0 erros · usa mesmo padrão de saving state das outras toggles · validação visual em localhost.
+
 ### v7.20.1 (2026-05-03) — Helpdesk: header mobile-first (drop título, inbox como pill, touch targets)
 
 **Problema:** depois de v7.20.0, atendente reportou que ainda "ficava muito espaço em cima". Auditando o header herdado: título grande "Atendimento" + inbox como texto cinza pequeno embaixo + tabs com `py-1.5` (≈28px, abaixo do mínimo 44pt da Apple HIG) + labels escondidos no mobile (`hidden sm:inline`) — fundamentalmente desktop-first.
