@@ -110,14 +110,15 @@ updated: 2026-05-02
 - **B3**. `auto-summarize` trigger + `ContactInfoPanel.handleSummarize` manual — sem dedup local, fácil pagar 2x LLM.
 - **B4**. Drafts em `localStorage` nunca expiram. `cleanupStaleDrafts(validIds)` no fetch inicial.
 
-## Sobre filtros de status × atribuição (decisão 2026-05-02)
+## Sobre filtros de status × atribuição (decisão 2026-05-02 — REVERTIDA em 2026-05-03)
 
-User propôs unificar tabs do topo (status: Atendendo/Aguardando/Resolvidas/Todas) com filtro inferior (atribuição: Todas/Minhas/Não atribuídas). **Decisão: manter ambos** — são eixos ortogonais.
+**Decisão original (2026-05-02):** manter ambos os eixos separados (status no topo, atribuição no filtro inferior).
 
-Mas concordamos que UI pode melhorar:
-- Trocar default "Todas" → "Todos os agentes" no filtro de atribuição (clareza)
-- Filtro só aparece destacado quando ≠ default (atualmente já é o caso, parcialmente)
-- Memoizar última escolha de atribuição em sessionStorage (volta no "Minhas" automaticamente)
+**Revertida em 2026-05-03:** atendente reportou bug visual em prod — "Atendendo 13" + "0 conversas / Nenhuma atribuída a você". Counts de status ignoravam filtro de atribuição (default `minhas` para atendente). User reabriu a discussão.
+
+**Nova decisão:** topo passa a ser ESCOPO (`Minhas / Não atribuídas / Todas`), Status (Atendendo/Aguardando/Resolvidas/Todas) virou Select dentro do filtro expansível. Permissões granulares ocultam tabs proibidas. PRD v7.20.0.
+
+**Lição:** quando há bug visual real, ortogonalidade pura cede para o mental model do usuário primário (atendente quer responder mentalmente "o que é meu" antes de "em que estado está").
 
 ## Quick wins shipados (2026-05-02)
 

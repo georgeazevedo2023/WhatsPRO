@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef, useEffect, useMemo, CSSProperties } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, CSSProperties, ComponentType } from 'react';
 import { List, useListRef } from 'react-window';
-import { Search, Inbox, UserCheck, AlertCircle, Building2, SlidersHorizontal, Tag, X, ArrowUpDown, ChevronDown, Eye, CheckCircle2, Archive, CheckSquare } from 'lucide-react';
+import { Search, Inbox, AlertCircle, Building2, SlidersHorizontal, Tag, X, ArrowUpDown, ChevronDown, Eye, CheckCircle2, Archive, CheckSquare, Activity } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,9 @@ interface ConversationListProps {
   inboxDepartments?: { id: string; name: string }[];
   departmentFilter?: string | null;
   onDepartmentFilterChange?: (v: string | null) => void;
+  statusFilter?: string;
+  onStatusFilterChange?: (v: string) => void;
+  statusOptions?: { value: string; label: string; icon: ComponentType<{ className?: string }>; color: string }[];
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
@@ -48,12 +51,6 @@ interface ConversationListProps {
   userPermissions?: { canViewAll: boolean; canViewUnassigned: boolean; canViewAllInDept: boolean };
   defaultAssignmentFilter?: 'todas' | 'minhas' | 'nao-atribuidas';
 }
-
-const assignmentOptions: { value: 'todas' | 'minhas' | 'nao-atribuidas'; label: string }[] = [
-  { value: 'todas', label: 'Todas' },
-  { value: 'minhas', label: 'Minhas' },
-  { value: 'nao-atribuidas', label: 'Não atribuídas' },
-];
 
 const priorityOptions: { value: 'todas' | 'alta' | 'media' | 'baixa'; label: string }[] = [
   { value: 'todas', label: 'Todas' },
@@ -143,7 +140,7 @@ export const ConversationList = ({
   conversationNotesSet = new Set(),
   draftSet = new Set(),
   assignmentFilter = 'todas',
-  onAssignmentFilterChange,
+  onAssignmentFilterChange: _onAssignmentFilterChange,
   priorityFilter = 'todas',
   onPriorityFilterChange,
   inboxDepartments = [],
@@ -160,8 +157,11 @@ export const ConversationList = ({
   onToggleSelectAll,
   onClearSelection,
   onBulkAction,
-  userPermissions,
-  defaultAssignmentFilter = 'todas',
+  userPermissions: _userPermissions,
+  defaultAssignmentFilter: _defaultAssignmentFilter = 'todas',
+  statusFilter = 'aberta',
+  onStatusFilterChange,
+  statusOptions = [],
 }: ConversationListProps) => {
   const [manageOpen, setManageOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -178,24 +178,16 @@ export const ConversationList = ({
     onClearSelection?.();
   }, [onClearSelection]);
 
-  const visibleAssignmentOptions = useMemo(() => {
-    if (!userPermissions) return assignmentOptions; // no permissions = show all (super_admin)
-    return assignmentOptions.filter(opt => {
-      if (opt.value === 'minhas') return true; // always visible
-      if (opt.value === 'nao-atribuidas') return userPermissions.canViewUnassigned;
-      if (opt.value === 'todas') return userPermissions.canViewAllInDept || userPermissions.canViewAll;
-      return true;
-    });
-  }, [userPermissions]);
+  const statusIsDefault = statusFilter === 'aberta';
 
   const hasActiveFilters =
-    assignmentFilter !== defaultAssignmentFilter ||
+    !statusIsDefault ||
     priorityFilter !== 'todas' ||
     !!labelFilter ||
     !!departmentFilter;
 
   const activeFilterCount = [
-    assignmentFilter !== defaultAssignmentFilter,
+    !statusIsDefault,
     priorityFilter !== 'todas',
     !!labelFilter,
     !!departmentFilter,
@@ -204,7 +196,7 @@ export const ConversationList = ({
   // Reset scroll when filters change
   useEffect(() => {
     listRef.current?.scrollToRow({ index: 0 });
-  }, [conversations.length, searchQuery, assignmentFilter, priorityFilter, labelFilter, departmentFilter]);
+  }, [conversations.length, searchQuery, statusFilter, priorityFilter, labelFilter, departmentFilter]);
 
   const rowProps = useMemo<ConversationRowProps>(() => ({
     conversations,
@@ -289,31 +281,39 @@ export const ConversationList = ({
         >
           <div className="overflow-hidden">
             <div className="flex flex-wrap gap-1.5 pb-1">
-              {/* Assignment */}
-              <Select
-                value={assignmentFilter}
-                onValueChange={(v) => onAssignmentFilterChange?.(v as 'todas' | 'minhas' | 'nao-atribuidas')}
-              >
-                <SelectTrigger
-                  aria-label="Filtrar por atribuição"
-                  className={cn(
-                    'h-7 text-[11px] rounded-lg border gap-1 px-2.5 w-auto',
-                    assignmentFilter !== defaultAssignmentFilter
-                      ? 'bg-primary/15 border-primary/30 text-primary font-medium'
-                      : 'bg-secondary/40 border-border/20 text-muted-foreground'
-                  )}
+              {/* Status (was top tab — now a filter pill, default = Atendendo) */}
+              {onStatusFilterChange && statusOptions.length > 0 && (
+                <Select
+                  value={statusFilter}
+                  onValueChange={(v) => onStatusFilterChange(v)}
                 >
-                  <UserCheck className="w-3 h-3 shrink-0" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {visibleAssignmentOptions.map(opt => (
-                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  <SelectTrigger
+                    aria-label="Filtrar por status"
+                    className={cn(
+                      'h-7 text-[11px] rounded-lg border gap-1 px-2.5 w-auto',
+                      !statusIsDefault
+                        ? 'bg-primary/15 border-primary/30 text-primary font-medium'
+                        : 'bg-secondary/40 border-border/20 text-muted-foreground'
+                    )}
+                  >
+                    <Activity className="w-3 h-3 shrink-0" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map(opt => {
+                      const Icon = opt.icon;
+                      return (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <Icon className={cn('w-3 h-3 shrink-0', opt.color)} />
+                            {opt.label}
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              )}
 
               {/* Priority */}
               <Select
@@ -407,7 +407,7 @@ export const ConversationList = ({
                 <button
                   type="button"
                   onClick={() => {
-                    onAssignmentFilterChange?.(defaultAssignmentFilter);
+                    onStatusFilterChange?.('aberta');
                     onPriorityFilterChange?.('todas');
                     onLabelFilterChange?.(null);
                     onDepartmentFilterChange?.(null);
@@ -489,6 +489,11 @@ export const ConversationList = ({
               <>
                 <p className="text-sm font-medium">Nenhuma conversa atribuída a você</p>
                 <p className="text-xs mt-1 opacity-70">Quando conversas forem atribuídas a você, aparecerão aqui</p>
+              </>
+            ) : assignmentFilter === 'nao-atribuidas' ? (
+              <>
+                <p className="text-sm font-medium">Nenhuma conversa sem atribuição</p>
+                <p className="text-xs mt-1 opacity-70">Tudo já foi atribuído. Veja em "Minhas" ou "Todas".</p>
               </>
             ) : hasActiveFilters ? (
               <>

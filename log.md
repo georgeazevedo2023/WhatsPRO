@@ -7,6 +7,59 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-03 (Helpdesk — Top tabs viram ESCOPO)
+
+### Goal & contexto
+
+Sessão começou com leitura do vault (índice + roadmap + erros + log + decisões). User logado como atendente reportou: "Atendendo 13 / Aguardando / Resolvidas / Todas 13" com lista vazia ("Nenhuma conversa atribuída a você"). Bug visual — counts de status ignoravam o filtro de atribuição (default `minhas` para atendente).
+
+User propôs trocar tabs por: Minhas / Não atribuídas / Todas. Mesma discussão apareceu em 2026-05-02 (decidimos manter por ortogonalidade), mas o bug visual de hoje justifica revisitar.
+
+### Discussão de design (formato canônico — feedback rule)
+
+Apresentadas 3 opções:
+- **A** — substituir tabs por escopo, status vira filtro
+- **B** — duas linhas (escopo em cima, status embaixo)
+- **C** — manter status + dropdown de escopo ao lado
+
+Recomendação A (padrão Intercom/Front/Zendesk). User confirmou A.
+
+### Implementação (2 arquivos)
+
+- `src/pages/dashboard/HelpDesk.tsx`:
+  - `statusTabs` → `assignmentTabs` (Minhas/Não atribuídas/Todas com ícones User/UserMinus/Users)
+  - Counts: `tabBase = conversations.filter(by department)` → minhas/nao-atribuidas/todas
+  - `statusOptions` definido aqui e passado via listProps para ConversationList
+  - Permissões: `canSeeUnassigned` / `canSeeAll` ocultam tabs proibidas (atendente sem `canViewAll` só vê "Minhas")
+- `src/components/helpdesk/ConversationList.tsx`:
+  - Removido pill de Atribuição do grupo expansível (virou tab)
+  - Novo pill de Status com Select + ícones coloridos por opção
+  - `hasActiveFilters` agora usa `statusFilter !== 'aberta'` no lugar do assignment
+  - "Limpar filtros" reseta para `aberta`
+  - Empty state ganhou variante para `nao-atribuidas` ("Tudo já foi atribuído")
+
+### Defaults preservados
+
+- Status = `aberta` (Atendendo) — comportamento de hoje
+- Escopo = `minhas` (atendente) / `todas` (super_admin) — via `defaultAssignmentFilter` em useHelpdeskFilters
+
+### Auditoria
+
+- `npx tsc --noEmit` = 0 erros
+- Sem testes específicos do componente (não criados)
+- Validação visual: dev server localhost:8081 confirmado pelo user
+
+### PRD
+
+- v7.20.0 adicionada com contexto, mudanças, arquivos, auditoria
+
+### Próximo
+
+- Push dos commits acumulados (2 da sessão anterior + este)
+- Backlog do helpdesk continua intacto: #5 consolidar canais broadcast, #4 useUpdateConversation, #19 notificações, #20 split ContactInfoPanel
+
+---
+
 ## 2026-05-02 (Auditoria Profunda — Helpdesk)
 
 ### Goal & contexto

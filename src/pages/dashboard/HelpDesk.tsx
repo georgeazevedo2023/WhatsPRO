@@ -4,7 +4,7 @@ import { useDepartments } from '@/hooks/useDepartments';
 import { useHelpdeskInboxes } from '@/hooks/useHelpdeskInboxes';
 import { useHelpdeskConversations } from '@/hooks/useHelpdeskConversations';
 import { useHelpdeskFilters } from '@/hooks/useHelpdeskFilters';
-import { Inbox as InboxIcon, Circle, Clock, CheckCircle2, LayoutList, Lock } from 'lucide-react';
+import { Inbox as InboxIcon, Circle, Clock, CheckCircle2, LayoutList, Lock, User, UserMinus, Users } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
@@ -284,12 +284,47 @@ const HelpDesk = () => {
     ? `${selectedInboxId}|${departmentFilter}`
     : selectedInboxId;
 
-  const statusTabs = [
-    { value: 'aberta', label: 'Atendendo', icon: Circle, color: 'text-emerald-500', count: conversations.filter(c => c.status === 'aberta').length },
-    { value: 'pendente', label: 'Aguardando', icon: Clock, color: 'text-yellow-500', count: conversations.filter(c => c.status === 'pendente').length },
-    { value: 'resolvida', label: 'Resolvidas', icon: CheckCircle2, color: 'text-blue-500', count: conversations.filter(c => c.status === 'resolvida').length },
-    { value: 'todas', label: 'Todas', icon: LayoutList, color: 'text-muted-foreground', count: conversations.length },
+  // Status filter options — now rendered inside ConversationList (no longer top tabs)
+  const statusOptions = [
+    { value: 'aberta', label: 'Atendendo', icon: Circle, color: 'text-emerald-500' },
+    { value: 'pendente', label: 'Aguardando', icon: Clock, color: 'text-yellow-500' },
+    { value: 'resolvida', label: 'Resolvidas', icon: CheckCircle2, color: 'text-blue-500' },
+    { value: 'todas', label: 'Todas', icon: LayoutList, color: 'text-muted-foreground' },
   ];
+
+  // Escopo (assignment) tabs — now the primary navigation. Counts respect current
+  // status + department, so they reflect what the attendant can act on right now.
+  const tabBase = conversations.filter(c =>
+    !departmentFilter || c.department_id === departmentFilter
+  );
+  const canSeeUnassigned = isSuperAdmin || !!userPermissions?.canViewUnassigned;
+  const canSeeAll = isSuperAdmin || !!userPermissions?.canViewAllInDept || !!userPermissions?.canViewAll;
+  const assignmentTabs = [
+    {
+      value: 'minhas' as const,
+      label: 'Minhas',
+      icon: User,
+      color: 'text-emerald-500',
+      count: tabBase.filter(c => c.assigned_to === user?.id).length,
+      visible: true,
+    },
+    {
+      value: 'nao-atribuidas' as const,
+      label: 'Não atribuídas',
+      icon: UserMinus,
+      color: 'text-amber-500',
+      count: tabBase.filter(c => c.assigned_to === null).length,
+      visible: canSeeUnassigned,
+    },
+    {
+      value: 'todas' as const,
+      label: 'Todas',
+      icon: Users,
+      color: 'text-muted-foreground',
+      count: tabBase.length,
+      visible: canSeeAll,
+    },
+  ].filter(t => t.visible);
 
   // Shared header
   const unifiedHeader = (
@@ -331,14 +366,14 @@ const HelpDesk = () => {
       </div>
 
       <div className="px-3 pb-2.5">
-        <div className="flex items-center bg-muted/50 rounded-xl p-1 gap-1" role="tablist" aria-label="Filtro por status">
-          {statusTabs.map(tab => {
+        <div className="flex items-center bg-muted/50 rounded-xl p-1 gap-1" role="tablist" aria-label="Filtro por escopo">
+          {assignmentTabs.map(tab => {
             const TabIcon = tab.icon;
-            const active = statusFilter === tab.value;
+            const active = assignmentFilter === tab.value;
             return (
               <button
                 key={tab.value}
-                onClick={() => { setStatusFilter(tab.value); clearSelection(); }}
+                onClick={() => { setAssignmentFilter(tab.value); clearSelection(); }}
                 aria-pressed={active}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200 whitespace-nowrap',
@@ -405,13 +440,16 @@ const HelpDesk = () => {
     onBulkAction: handleBulkAction,
     userPermissions: isSuperAdmin ? undefined : userPermissions,
     defaultAssignmentFilter,
+    statusFilter,
+    onStatusFilterChange: (v: string) => { setStatusFilter(v); clearSelection(); },
+    statusOptions,
   }), [sortedConversations, selectedId, searchQuery, loading, inboxLabels,
     conversationLabelsMap, labelFilter, selectedInboxId, agentNamesMap,
     conversationNotesSet, draftSet, assignmentFilter, priorityFilter, inboxDepartments,
     departmentFilter, hasMoreConversations, loadingMore, sortBy, messageSearchCount,
     selectedIds, toggleSelect, toggleSelectAll, clearSelection, handleBulkAction,
     handleSelectConversation, handleLabelsChanged, loadMoreConversations, fetchConversationLabels,
-    isSuperAdmin, userPermissions, defaultAssignmentFilter]);
+    isSuperAdmin, userPermissions, defaultAssignmentFilter, statusFilter]);
 
   const labelsDialog = selectedInboxId && (
     <ManageLabelsDialog

@@ -40,6 +40,25 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.20.0 (2026-05-03) — Helpdesk: top tabs viram ESCOPO (Minhas/Não atribuídas/Todas)
+
+**Problema relatado pelo atendente:**
+Tabs de status no topo (Atendendo/Aguardando/Resolvidas/Todas) mostravam contagem total da inbox, mas a lista filtrava por atribuição (`minhas` é default para atendente). Resultado: "Atendendo 13" + lista vazia → confusão sobre o que o número significa.
+
+**Mudança de UX:**
+- Topo agora é ESCOPO: `Minhas (X) · Não atribuídas (Y) · Todas (Z)` — mental model do atendente direto ("o que é meu, o que está livre, tudo")
+- Status (Atendendo/Aguardando/Resolvidas/Todas) virou Select dentro do botão de filtros, com ícones coloridos
+- Default preserva: status = "Atendendo", escopo = "Minhas" (atendente) / "Todas" (super_admin)
+- Counts respeitam status atual + departamento → o que aparece na tab é o que cabe na lista
+- Permissões granulares: oculta "Não atribuídas" sem `canViewUnassigned`, oculta "Todas" sem `canViewAllInDept`/`canViewAll`
+- Empty state ganhou variante para "Não atribuídas" ("Tudo já foi atribuído")
+
+**Arquivos:**
+- `src/pages/dashboard/HelpDesk.tsx` — `statusTabs` → `assignmentTabs`; `statusOptions` desce para ConversationList via props
+- `src/components/helpdesk/ConversationList.tsx` — pill de assignment removido (virou tab), novo pill de Status com ícones, empty state expandido
+
+**Auditoria:** TS 0 erros · sem testes específicos do componente.
+
 ### v7.19.0 (2026-05-02) — Auditoria profunda Helpdesk + 14 melhorias UX shipadas
 
 **Contexto:** sessão de auditoria completa do módulo Helpdesk (frontend + banco + RLS) culminando em 14 melhorias estruturais, eliminando duplicações e dívidas técnicas conhecidas.
