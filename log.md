@@ -60,6 +60,19 @@ Usuário pediu auditoria profunda e completa do módulo helpdesk + banco. Mapeam
 ### Discussão de design
 - Filtro status (tabs topo) vs atribuição (Todas/Minhas/Não atribuídas) — usuário propôs unificar; decidimos manter pois são eixos ortogonais. Sugerido melhorar default text para evitar três "Todas" em série.
 
+### Encerramento da sessão (2026-05-02)
+- 2 commits criados (não pushados): `5088783 feat(helpdesk)` + `9d58d09 docs(helpdesk)`. Working tree limpo. 2 ahead de origin/master.
+- Migration `conversations_auto_update_last_message` aplicada em prod via apply_migration; trigger ativa, função protegida (REVOKE de anon/auth/PUBLIC).
+- Dev server iniciado para validação visual e parado ao final.
+- PRD.md atualizado com entrada v7.19.0 no changelog.
+- TypeScript: 0 erros. Testes: 644 passam (5 falhas pré-existentes em Forms, sem regressão).
+
+### Próxima sessão — pontos de retomada
+1. **Push** dos 2 commits para origin/master (após validação visual)
+2. **Backlog priorizado**: #5 (consolidar canais broadcast), #4 (hook useUpdateConversation), #12+#13 (decidir arquivada + filtro), #19 (notificações), #20 (split ContactInfoPanel)
+3. **Backlog DB** (auditoria): A1 fix search_path em 5 funções, A2 REVOKE EXECUTE em 6 RPCs, A3+A4 reescrever 28 policies com `(SELECT auth.uid())` e consolidar permissivas, M1 adicionar 5 índices de FK
+4. **Validação visual pendente**: 10 fluxos documentados em `wiki/melhorias-helpdesk-2026-05-02.md`
+
 ## 2026-04-30 (D28 Excluded Products + R85/R86/R87/R88 + bug fixes UI + validação prod + D29 VALID_KEYS dinâmico)
 
 ### Goal & contexto

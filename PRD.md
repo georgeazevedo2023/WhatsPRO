@@ -40,6 +40,67 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.19.0 (2026-05-02) — Auditoria profunda Helpdesk + 14 melhorias UX shipadas
+
+**Contexto:** sessão de auditoria completa do módulo Helpdesk (frontend + banco + RLS) culminando em 14 melhorias estruturais, eliminando duplicações e dívidas técnicas conhecidas.
+
+**Auditoria (Nota 7.4/10):**
+- Identifica 5 funções `SECURITY DEFINER` com `search_path` mutável; 6 RPCs (`is_super_admin`, `has_inbox_access`, etc.) chamáveis por `anon`/`authenticated` via `/rest/v1/rpc/*`; 28 policies reavaliando `auth.uid()` por linha; 144 violações `multiple_permissive_policies`; 5 FKs sem índice de cobertura; ContactInfoPanel 949L com 5 useEffects independentes
+- Sem bugs críticos; sem dados órfãos; RLS funcionalmente coerente
+- Documentado em `wiki/auditoria-helpdesk-2026-05-02.md` (plano de ação 6 sprints) e `wiki/melhorias-helpdesk-2026-05-02.md` (20 melhorias detalhadas)
+
+**Migration aplicada — `conversations_auto_update_last_message`:**
+- Trigger `AFTER INSERT ON conversation_messages` atualiza `last_message_at`, `last_message`, `is_read` centralmente
+- Função SECURITY DEFINER com `SET search_path = public, pg_temp` + REVOKE EXECUTE de anon/authenticated/PUBLIC
+- Idempotente (`NEW.created_at >= last_message_at` protege contra inserts fora de ordem em sync-conversations)
+- Pula `direction='private_note'`
+- Smoke test passou: novo / antigo (idempotência) / private_note (skip)
+
+**14 melhorias shipadas em código:**
+
+*Duplicações eliminadas (6):*
+- `mediaPreview()` extraído para `src/lib/messagePreview.ts` (frontend) + `supabase/functions/_shared/messagePreview.ts` (edge). Zero hardcode de preview emoji em qualquer caminho
+- 5 UPDATEs manuais de `last_message_at` removidos em ChatInput, useSendFile, saveToHelpdesk, whatsapp-webhook, sync-conversations (trigger absorve)
+- `assignAgent` unificado: helper de `helpdeskBroadcast.ts` agora throws on error; `ContactInfoPanel.handleAssignAgent` passa a usar o helper canônico (caminho único: UPDATE + broadcast em 2 canais)
+- `saveToHelpdesk` usa `getAlternateBrazilianJid` + `normalizePhoneForMatch` de `phoneUtils.ts` (helpers já existentes); -16 linhas inline
+- `ChatInput.handleStatusChange` delega ao callback `onStatusChange` (elimina duplo UPDATE no banco e fix do broadcast `status-changed` perdido pelo menu `+`)
+
+*UI / UX (8):*
+- Botão "Selecionar" explícito + state `bulkActive` em ConversationList — entra no modo seleção sem auto-marcar item
+- Row height fixa em 88px (era dinâmica 64/90, causava reflow no react-window ao adicionar label/agente/nota)
+- Drafts movidos para `Set<string>` no hook `useHelpdeskConversations` — sem `localStorage` por render em listas virtualizadas
+- Spring-cleaning de drafts órfãos no `localStorage` 1x por sessão via flag em sessionStorage
+- Hint dinâmico `(digite / para respostas rápidas)` no placeholder do ChatInput
+- Typing receiver expira em 6s (era 4s) — margem maior contra latência de Realtime evitando flicker
+- Typo "Nao lidas" → "Não lidas" no sort dropdown
+- Badge "Limpar filtros" sem variant destructive (não é ação destrutiva)
+
+**Confirmado já resolvido:**
+- Dedup auto-summarize: janela de 5 min em `auto-summarize/index.ts:148` + cache em `summarize-conversation/index.ts:74`
+
+**Declinado com fundamento:**
+- Unificar nav props `ChatPanel` (`onBack/onShowInfo/onToggleList/onToggleInfo`): ao reanalisar, são 4 ações semanticamente distintas (mobile = mudar view; desktop = toggle visibility)
+
+**Métricas:**
+- 14 arquivos modificados (+248 / -149) + 2 novos shared helpers
+- TypeScript: 0 erros
+- Testes: 644 passam · 5 falhas pré-existentes em Forms (sem regressão)
+- 2 commits: `5088783 feat(helpdesk): trigger DB centraliza last_message + 14 melhorias UX`, `9d58d09 docs(helpdesk): auditoria profunda + 20 melhorias roadmap`
+
+**Backlog priorizado (6 itens grandes restantes do plano original):**
+- #5 consolidar 2 canais broadcast em 1 (1d, médio risco — Realtime)
+- #4 hook `useUpdateConversation` mutation centralizado (1d)
+- #7 reply estruturado com `reply_to_id` no DB (1d)
+- #8 áudio só via Storage URL (1 caminho em vez de 2) (1d)
+- #19 `useHelpdeskNotifications` (badge + Notification API + som) (1d)
+- #20 split `ContactInfoPanel` + RPC `get_contact_context()` (2d)
+- #12+#13 decidir status `arquivada` vs `archived boolean` + filtro "Arquivadas" na UI (1d)
+
+**Pendências:**
+- Migration `conversations_auto_update_last_message` já aplicada em prod via apply_migration
+- Deploy frontend (commits ainda em working tree local, 2 ahead de origin/master)
+- Validação visual manual sugerida antes de push (10 fluxos de smoke test documentados em `wiki/melhorias-helpdesk-2026-05-02.md`)
+
 ### v7.18.0 (2026-04-30) — Avatares de contatos em Storage (resolve 403 do CDN do WhatsApp)
 
 **Problema:** dashboard `/dashboard/leads` mostrava 10+ erros `GET pps.whatsapp.net/... 403 Forbidden` no console. Causa: WhatsApp CDN devolve URLs assinadas que expiram em ~24h, e o webhook gravava esse URL temporário direto em `contacts.profile_pic_url`. Quando a foto era renderizada depois de expirar, o navegador disparava 403 antes de cair no fallback de iniciais.
