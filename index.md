@@ -131,8 +131,14 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/leads-visao-perfil]] | 4 | Página de Leads, KPIs, Card+Perfil 25+ campos, Badge Origem, Timeline Jornada |
 | ↳ [[wiki/casos-de-uso/leads-inteligencia-controle]] | 4 | Block IA, Clear Context, Funil Ativo, Kanban CRM |
 | ↳ [[wiki/casos-de-uso/leads-captura-historico]] | 4 | Importação CSV, Auto-Criação, Formulários Respondidos, Modal de Conversa |
-| [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 | Boards, colunas drag&drop, cards, campos 5 tipos, entidades, acesso, filtros, IA move_kanban, ticket resolution, funis 7 templates |
-| [[wiki/casos-de-uso/catalogo-detalhado]] | 10 | Tabela visual, formulario, URL scraping, CSV, batch scrape, imagens, busca fuzzy 4 camadas, categorias, bio link, IA descricao |
+| [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
+| ↳ [[wiki/casos-de-uso/crm-kanban-estrutura]] | 4 | Página de Boards, Quadro Kanban (Colunas + Drag&Drop), Gestão de Colunas, Controle de Acesso |
+| ↳ [[wiki/casos-de-uso/crm-kanban-cards-campos]] | 4 | Cards, Campos Customizáveis, Entidades Reutilizáveis, Filtros e Busca |
+| ↳ [[wiki/casos-de-uso/crm-kanban-integracoes]] | 3 | IA `move_kanban`, Finalização de Ticket, Integração com Funis |
+| [[wiki/casos-de-uso/catalogo-detalhado]] | 10 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
+| ↳ [[wiki/casos-de-uso/catalogo-crud-ui]] | 5 | Tabela, Formulário, Imagens, Categorias, Descrição IA |
+| ↳ [[wiki/casos-de-uso/catalogo-importacao]] | 3 | Importação URL (scraping), CSV, Batch Scrape |
+| ↳ [[wiki/casos-de-uso/catalogo-busca-integracoes]] | 2 | Busca Inteligente (4 camadas + fuzzy), Bio Link |
 | [[wiki/casos-de-uso/broadcast-detalhado]] | 12 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
 | ↳ [[wiki/casos-de-uso/broadcast-conteudo]] | 3 | 4 Tipos de Conteúdo (texto/mídia/carrossel/enquete), Templates, Construtor de Carrossel |
 | ↳ [[wiki/casos-de-uso/broadcast-audiencia]] | 4 | Modos Grupos vs Leads, Importador 4 formas, Lead Databases, Verificação de Números |
@@ -150,8 +156,14 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/funis-wizard-tipos]] | 4 | Wizard de Criação, 7 Tipos, Importar Recursos, Sidebar Unificada |
 | ↳ [[wiki/casos-de-uso/funis-operacao-visualizacao]] | 5 | Lista+KPIs, Detalhe+5 Tabs, Tag funil:SLUG, LeadFunnelCard, OriginBadge |
 | ↳ [[wiki/casos-de-uso/funis-inteligencia-metricas]] | 4 | Motor Automação F1, Funis Agênticos F2, Perfis F3, Métricas |
-| [[wiki/casos-de-uso/motor-automacao-detalhado]] | 9 | 7 gatilhos detalhados, 4 condicoes, 6 acoes, fluxo execucao, editor visual, CRUD hooks, NPS trigger, tratamento erros |
-| [[wiki/casos-de-uso/enquetes-nps-detalhado]] | 10 | 4 canais envio, UAZAPI /send/menu, rastreamento votos, auto-tags D2, NPS automatico, notificacao nota ruim, dashboard metricas, config admin |
+| [[wiki/casos-de-uso/motor-automacao-detalhado]] | 9 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
+| ↳ [[wiki/casos-de-uso/motor-automacao-componentes]] | 3 | Os 7 Gatilhos, As 4 Condições, As 6 Ações |
+| ↳ [[wiki/casos-de-uso/motor-automacao-execucao]] | 4 | Fluxo de Execução, Onde gatilhos são chamados, NPS via Motor, Tratamento de Erros |
+| ↳ [[wiki/casos-de-uso/motor-automacao-editor]] | 2 | Editor Visual de Regras, CRUD de Regras |
+| [[wiki/casos-de-uso/enquetes-nps-detalhado]] | 10 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
+| ↳ [[wiki/casos-de-uso/enquetes-nps-criacao-canais]] | 3 | Criação (PollEditor), 4 Canais de Envio, Endpoint UAZAPI |
+| ↳ [[wiki/casos-de-uso/enquetes-nps-respostas-tags]] | 3 | Rastreamento de Respostas, Auto-Tags por Opção (D2), Exibição no Helpdesk |
+| ↳ [[wiki/casos-de-uso/enquetes-nps-metricas-admin]] | 4 | NPS Automático, Notificação Nota Ruim, Dashboard, Configuração Admin |
 | [[wiki/casos-de-uso/fluxos-detalhado]] | 18 | Fluxos v3.0 M18: orquestrador, 12 sprints, 8 subagentes, validator, shadow, metricas, templates, migração por instância, E2E |
 | [[wiki/casos-de-uso/agendamentos-detalhado]] | 6 | Unico/recorrente (diario/semanal/mensal), delay anti-ban, tipos agendaveis, gestao status, edge function processamento |
 | [[wiki/casos-de-uso/dashboard-detalhado]] | 8 | KPIs principais, graficos, performance atendentes, tempo resposta IA/humano, Intelligence (analise IA), filtros, shift reports |
