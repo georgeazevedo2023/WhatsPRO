@@ -7,11 +7,7 @@ updated: 2026-05-04
 
 # Integração de Funis — Cinco Jornadas Completas
 
-> Cinco cenários reais ponta-a-ponta mostrando como Campanhas, Bio Link, Formulários e AI Agent trabalham juntos. Inclui passo a passo do admin, jornada do lead e o que aparece no painel.
-
----
-
-## 4. Cinco Exemplos de Jornada Completa
+> Cinco cenários ponta-a-ponta de Campanhas + Bio Link + Formulários + AI Agent juntos. Cada jornada: passo admin → jornada do lead → painel.
 
 ### Jornada 1: SORTEIO no Instagram
 
@@ -183,24 +179,15 @@ updated: 2026-05-04
 
 ---
 
-## 5. Tabela de Referência Rápida
+## 5. Tabela de Referência Rápida (recursos criados por jornada)
 
-### O que é criado em cada jornada
-
-| Recurso | Campanha+Form | Bio+WhatsApp | WhatsApp Form | Campanha+Bio+Form | Bio+Catálogo |
+| Recurso | Camp+Form | Bio+WA | WA Form | Camp+Bio+Form | Bio+Cat |
 |---------|:---:|:---:|:---:|:---:|:---:|
-| utm_visits | sim | - | - | sim | - |
-| contacts | sim | sim | (já existe) | sim | sim |
-| lead_profiles | sim | sim | sim | sim | sim |
-| form_submissions | sim | - | sim | sim | - |
-| bio_lead_captures | - | sim | - | - | sim |
-| kanban_cards | sim (se board) | - | - | sim (se board) | - |
-| Tags campanha: | sim | - | - | sim | - |
-| Tags formulario: | sim | - | sim | sim | - |
-| Tags bio_page: | - | sim | - | sim | sim |
-| AI <campaign_context> | sim | - | - | sim | - |
-| AI <form_data> | sim | - | sim | sim | - |
-| AI <bio_context> | - | sim | - | sim | sim |
+| utm_visits / form_submissions | ✓ / ✓ | - / - | - / ✓ | ✓ / ✓ | - / - |
+| contacts + lead_profiles | ✓ | ✓ | ✓ | ✓ | ✓ |
+| bio_lead_captures / kanban_cards | - / opt | ✓ / - | - / - | - / opt | ✓ / - |
+| Tags campanha: / formulario: / bio_page: | ✓ / ✓ / - | - / - / ✓ | - / ✓ / - | ✓ / ✓ / ✓ | - / - / ✓ |
+| AI campaign_context / form_data / bio_context | ✓ / ✓ / - | - / - / ✓ | - / ✓ / - | ✓ / ✓ / ✓ | - / - / ✓ |
 
 ---
 

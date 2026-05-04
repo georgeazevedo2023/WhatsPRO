@@ -137,48 +137,17 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] | 2.5-2.7 | Validator Agent (supervisor) + TTS (voz) + Prompt Studio (9 seções editáveis) |
 | ↳ [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] | 2.8-2.14 | Perfis + NPS + Knowledge Base + Debounce + Greeting + Memória + Contexto Canal + Painel 9 tabs |
 | [[wiki/casos-de-uso/excluded-products-detalhado]] | 7 | D28 — Lista de produtos NÃO vendidos: schema, matcher word-boundary, fallback automático, integração no edge function, validação prod, R88+R89 |
-| [[wiki/casos-de-uso/leads-detalhado]] | 12 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/leads-visao-perfil]] | 4 | Página de Leads, KPIs, Card+Perfil 25+ campos, Badge Origem, Timeline Jornada |
-| ↳ [[wiki/casos-de-uso/leads-inteligencia-controle]] | 4 | Block IA, Clear Context, Funil Ativo, Kanban CRM |
-| ↳ [[wiki/casos-de-uso/leads-captura-historico]] | 4 | Importação CSV, Auto-Criação, Formulários Respondidos, Modal de Conversa |
-| [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/crm-kanban-estrutura]] | 4 | Página de Boards, Quadro Kanban (Colunas + Drag&Drop), Gestão de Colunas, Controle de Acesso |
-| ↳ [[wiki/casos-de-uso/crm-kanban-cards-campos]] | 4 | Cards, Campos Customizáveis, Entidades Reutilizáveis, Filtros e Busca |
-| ↳ [[wiki/casos-de-uso/crm-kanban-integracoes]] | 3 | IA `move_kanban`, Finalização de Ticket, Integração com Funis |
-| [[wiki/casos-de-uso/catalogo-detalhado]] | 10 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/catalogo-crud-ui]] | 5 | Tabela, Formulário, Imagens, Categorias, Descrição IA |
-| ↳ [[wiki/casos-de-uso/catalogo-importacao]] | 3 | Importação URL (scraping), CSV, Batch Scrape |
-| ↳ [[wiki/casos-de-uso/catalogo-busca-integracoes]] | 2 | Busca Inteligente (4 camadas + fuzzy), Bio Link |
-| [[wiki/casos-de-uso/broadcast-detalhado]] | 12 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/broadcast-conteudo]] | 3 | 4 Tipos de Conteúdo (texto/mídia/carrossel/enquete), Templates, Construtor de Carrossel |
-| ↳ [[wiki/casos-de-uso/broadcast-audiencia]] | 4 | Modos Grupos vs Leads, Importador 4 formas, Lead Databases, Verificação de Números |
-| ↳ [[wiki/casos-de-uso/broadcast-execucao]] | 5 | Agendamento, Delay anti-ban, Progresso real-time, Seleção Instância, Histórico |
-| [[wiki/casos-de-uso/campanhas-detalhado]] | 12 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/campanhas-criacao]] | 5 | Criação, Link/QR, Landing Page, Fluxo Redirect, 6 Tipos+Templates |
-| ↳ [[wiki/casos-de-uso/campanhas-tracking]] | 3 | Atribuição automática+tags, Contexto IA, Visitas com metadados |
-| ↳ [[wiki/casos-de-uso/campanhas-operacao]] | 4 | Métricas, Clone, Leads convertidos, Gestão de Status |
-| [[wiki/casos-de-uso/formularios-detalhado]] | 13 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/formularios-construtor]] | 3 | Construtor, 16 Tipos de Campo, 12 Templates Prontos |
-| ↳ [[wiki/casos-de-uso/formularios-execucao]] | 4 | FORM:slug trigger, form-bot session, validações, form-public landing |
-| ↳ [[wiki/casos-de-uso/formularios-integracao]] | 6 | Webhook externo, Auto-criação lead, Contexto AI, "Usado em", Submissões+CSV, Automação |
-| [[wiki/casos-de-uso/bio-link-detalhado]] | 10 (índice) | Particionado 2026-05-04 em 2 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/bio-link-configuracao]] | 4 | Criação/Edição, 5 Tipos de Botão, Página Pública, Gestão e Status |
-| ↳ [[wiki/casos-de-uso/bio-link-operacao]] | 6 | Captação de Leads, Analytics, Contexto IA, Funis, Formulários, Catálogo |
-| [[wiki/casos-de-uso/funis-detalhado]] | 13 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/funis-wizard-tipos]] | 4 | Wizard de Criação, 7 Tipos, Importar Recursos, Sidebar Unificada |
-| ↳ [[wiki/casos-de-uso/funis-operacao-visualizacao]] | 5 | Lista+KPIs, Detalhe+5 Tabs, Tag funil:SLUG, LeadFunnelCard, OriginBadge |
-| ↳ [[wiki/casos-de-uso/funis-inteligencia-metricas]] | 4 | Motor Automação F1, Funis Agênticos F2, Perfis F3, Métricas |
-| [[wiki/casos-de-uso/motor-automacao-detalhado]] | 9 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/motor-automacao-componentes]] | 3 | Os 7 Gatilhos, As 4 Condições, As 6 Ações |
-| ↳ [[wiki/casos-de-uso/motor-automacao-execucao]] | 4 | Fluxo de Execução, Onde gatilhos são chamados, NPS via Motor, Tratamento de Erros |
-| ↳ [[wiki/casos-de-uso/motor-automacao-editor]] | 2 | Editor Visual de Regras, CRUD de Regras |
-| [[wiki/casos-de-uso/enquetes-nps-detalhado]] | 10 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/enquetes-nps-criacao-canais]] | 3 | Criação (PollEditor), 4 Canais de Envio, Endpoint UAZAPI |
-| ↳ [[wiki/casos-de-uso/enquetes-nps-respostas-tags]] | 3 | Rastreamento de Respostas, Auto-Tags por Opção (D2), Exibição no Helpdesk |
-| ↳ [[wiki/casos-de-uso/enquetes-nps-metricas-admin]] | 4 | NPS Automático, Notificação Nota Ruim, Dashboard, Configuração Admin |
-| [[wiki/casos-de-uso/fluxos-detalhado]] | 18 (índice) | Particionado 2026-05-04 em 2 sub-wikis abaixo |
-| ↳ [[wiki/casos-de-uso/fluxos-orquestrador-subagentes]] | 12 | Criação (form/guiada/templates), Gatilhos, Intent Detector, 7 Subagentes |
-| ↳ [[wiki/casos-de-uso/fluxos-templates-metricas-migracao]] | 6 | Validator, Shadow Mode, Métricas, Migração Gradual, E2E, Memory Service |
+| [[wiki/casos-de-uso/leads-detalhado]] | 12 (3 sub) | Perfil 25+ campos, badge origem, timeline, block IA, clear context, CSV, auto-criação, funil card, kanban — *particionado 2026-05-04* |
+| [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 (3 sub) | Boards, drag&drop, cards, campos customizáveis, entidades, acesso, IA `move_kanban`, ticket resolution, funis |
+| [[wiki/casos-de-uso/catalogo-detalhado]] | 10 (3 sub) | Tabela, formulário, URL scraping, CSV, batch scrape, imagens, busca fuzzy 4 camadas, categorias, bio link, IA |
+| [[wiki/casos-de-uso/broadcast-detalhado]] | 12 (3 sub) | 4 tipos conteúdo, grupos vs leads, importador 4 métodos, delay anti-ban, agendamento, histórico, templates |
+| [[wiki/casos-de-uso/campanhas-detalhado]] | 12 (3 sub) | Link rastreável, QR, landing page, atribuição, métricas, contexto IA, clone, 6 tipos, leads convertidos |
+| [[wiki/casos-de-uso/formularios-detalhado]] | 13 (3 sub) | Form builder, 16 tipos campo, 12 templates, FORM:slug, form-bot, form-public, webhook, auto-lead, contexto IA |
+| [[wiki/casos-de-uso/bio-link-detalhado]] | 10 (2 sub) | Linktree-style, 5 tipos botão, 3 templates, captação leads, analytics, contexto IA, agendamento, catálogo |
+| [[wiki/casos-de-uso/funis-detalhado]] | 13 (3 sub) | Wizard 4 passos, 7 tipos, auto-criação tudo, motor automação (7+4+6), agênticos, perfis IA, métricas, kanban visual |
+| [[wiki/casos-de-uso/motor-automacao-detalhado]] | 9 (3 sub) | 7 gatilhos, 4 condições, 6 ações, fluxo execução, editor visual, CRUD hooks, NPS trigger, tratamento erros |
+| [[wiki/casos-de-uso/enquetes-nps-detalhado]] | 10 (3 sub) | 4 canais envio, UAZAPI /send/menu, rastreamento votos, auto-tags D2, NPS auto, notificação nota ruim, dashboard |
+| [[wiki/casos-de-uso/fluxos-detalhado]] | 18 (2 sub) | Fluxos v3.0 M18: orquestrador, 12 sprints, 8 subagentes, validator, shadow, métricas, templates, migração, E2E |
 | [[wiki/casos-de-uso/agendamentos-detalhado]] | 6 | Unico/recorrente (diario/semanal/mensal), delay anti-ban, tipos agendaveis, gestao status, edge function processamento |
 | [[wiki/casos-de-uso/dashboard-detalhado]] | 8 | KPIs principais, graficos, performance atendentes, tempo resposta IA/humano, Intelligence (analise IA), filtros, shift reports |
 | [[wiki/casos-de-uso/agent-qa-detalhado]] | 8 | Batches, 30+ cenarios, score composto (4 fatores), aprovacao humana, regressao, ciclo automatizado, playground, historico |
