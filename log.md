@@ -37,6 +37,11 @@ Relatório retificado em `wiki/auditoria-admin-2026-05-04.md` (198 linhas): 1 cr
 
 **Pendências Sprint 3**: ex-C2 (role em update-user), M1 (RoadmapTab dead code), M4+M5 (`as any` → Database types), M19 (rate limit).
 
+### Hotfix R90 — bug ativo "Erro ao alterar papel"
+User reportou ao tentar trocar Lucas de Gerente → Atendente: toast "Erro ao alterar papel" + Network 400 em `user_roles?on_conflict=user_id`. Auditoria SQL em prod expôs: tabela `user_roles` tem PK em `id` (uuid próprio) **sem UNIQUE em `user_id`** — `upsert({...}, { onConflict: 'user_id' })` no `confirmRoleChange` falha pois PostgREST não acha a constraint (R36 ativo). Bonus: 1 user (george) tinha 2 roles (super_admin + user — segundo da trigger `handle_new_user`).
+
+Migration `20260504000001_user_roles_unique_user_id`: (1) dedupe por hierarquia super_admin > gerente > user, (2) `ADD CONSTRAINT user_roles_user_id_key UNIQUE (user_id)`. Aplicada em prod via `apply_migration` MCP. R90 documentada em `erros-e-licoes.md`. Sem alteração de código frontend — `confirmRoleChange` original passou a funcionar.
+
 ---
 
 ## 2026-05-03 (Helpdesk — Top tabs viram ESCOPO)
