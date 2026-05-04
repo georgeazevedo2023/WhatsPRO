@@ -39,13 +39,20 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 | Pagina | Resumo |
 |--------|--------|
-| [[wiki/visao-geral-completa]] | Visao geral: problema, solucao, 17 modulos, jornada, numeros, stack |
+| [[wiki/visao-geral-completa]] | Visão geral (índice — particionado 2026-05-04 em 4 sub-wikis abaixo) |
+| ↳ [[wiki/visao-geral-projeto]] | O que é, problema, para quem, papéis, análise competitiva |
+| ↳ [[wiki/visao-geral-modulos]] | Os 19 módulos em 5 grupos (Comunicação, Inteligência, CRM/Leads, Campanhas/Funis, Infra) |
+| ↳ [[wiki/visao-geral-arquitetura]] | Stack, docs, banco (59 tabelas), fluxo de dados ponta-a-ponta |
+| ↳ [[wiki/visao-geral-jornadas-numeros]] | Jornada do lead, números, roadmap milestones, ideias futuras |
 | [[wiki/visao-produto]] | Visao resumida: modulos, roles, proposta de valor |
 | [[wiki/arquitetura]] | Stack, estrutura de pastas, fluxo de dados, edge functions |
 | [[wiki/ai-agent]] | Agente IA M10: tools, SDR, handoff, shadow, validator, prompts |
 | [[wiki/modulos]] | Todos os modulos (M1-M17) com status |
 | [[wiki/banco-de-dados]] | Tabelas Supabase, RLS, materialized views |
-| [[wiki/integracao-funis]] | Campanhas + Bio + Forms + AI Agent (M15) |
+| [[wiki/integracao-funis]] | M15 Integração Funis (índice — particionado 2026-05-04 em 3 sub-wikis abaixo) |
+| ↳ [[wiki/integracao-funis-arquitetura]] | Visão dos 4 sistemas, leadHelper.ts, tags unificadas, contexto AI |
+| ↳ [[wiki/integracao-funis-painel]] | Onde ver tudo no painel (Campanhas, Bio, Forms, Lead, AI Agent) |
+| ↳ [[wiki/integracao-funis-jornadas]] | 5 jornadas completas (Sorteio, Vaga, Lançamento, Form, Captação) |
 | [[wiki/uazapi-polls-interativos]] | UAZAPI Mensagens Interativas (índice — particionado 2026-05-04) |
 | [[wiki/uazapi-polls-poll]] | Endpoint `/send/menu` (poll), webhook poll_update, plano de implementação |
 | [[wiki/uazapi-polls-list-quickreply]] | Endpoints `/send/list` e `/send/quickreply` + tabela comparativa |
