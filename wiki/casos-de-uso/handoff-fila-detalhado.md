@@ -7,9 +7,9 @@ updated: 2026-05-04
 
 # Handoff com Fila Inteligente — Distribuição Automática de Atendimentos
 
-> Quando a IA decide transbordar (ex: lead pediu humano, qualificação completa, validator block), em vez de deixar a conversa "livre" para qualquer atendente pegar (estado atual: `assigned_user_id = NULL`), o sistema **atribui automaticamente** a um vendedor específico seguindo regras configuráveis. Inclui timeout com reatribuição, pausa em horário não-comercial e modo manual via gestor.
+> Quando a IA decide transbordar (ex: lead pediu humano, qualificação completa, validator block), em vez de deixar a conversa "livre" para qualquer atendente pegar (estado atual: `conversations.assigned_to = NULL`), o sistema **atribui automaticamente** a um vendedor específico seguindo regras configuráveis. Inclui timeout com reatribuição, pausa em horário não-comercial e modo manual via gestor.
 >
-> **Status: especificada em 2026-05-04 (sessão de design completa). Implementação em 8 sprints (~3-4 dias). Não shippada ainda.**
+> **Status: Sprint A shipped 2026-05-04 (5 migrations + RPC `pick_next_assignee` + smoke test rotação OK). Sprints B-H pendentes.**
 
 ---
 
@@ -157,7 +157,7 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 
 | Sprint | Escopo | h |
 |:-:|---|:-:|
-| **A** | 5 migrations + RPC `pick_next_assignee` (atômico) | 3.5 |
+| ✅ **A** | 5 migrations + RPC `pick_next_assignee` (atômico) — *shipped 2026-05-04* | 3.5 |
 | **B** | `assign-handoff` edge fn + integrar 6 paths em ai-agent (HIGH RISK) + dept resolution + try/catch | 5 |
 | **C** | `requeue-conversations` cron + lógica horário + atendente órfão + Realtime broadcast | 5 |
 | **D** | DepartmentsTab QueueConfig + AdminInboxes default_dept + audit logs (4 actions novas) | 3 |
@@ -172,7 +172,9 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 ## 10. Riscos e Pendências (durante implementação)
 
 - **HIGH RISK**: Sprint B mexe em `ai-agent/index.ts` em 6 paths. Mitigação: fallback try/catch em cada path, smoke E2E manual antes do deploy
-- **R91 candidato**: race condition em RR sem `SELECT FOR UPDATE` — documentar após Sprint A
+- **R91 mitigado** (Sprint A): RPC `pick_next_assignee` usa `SELECT … FOR UPDATE` no cursor `departments.last_assignee_position` — evita 2 conversas pegarem o mesmo atendente em chamadas concorrentes. Smoke test 2026-05-04: 5 atendentes ativos rotaram corretamente (gestor com `gestor_in_queue=false` excluído como esperado), loop infinito ao final OK.
+- **Sprint A nota:** wiki original dizia `assigned_user_id` em `conversations` — coluna real é `assigned_to` (uuid → auth.users). Sprint B usa este nome.
+- **Backfill:** A migration A.2 backfilla `queue_position` de membros existentes (espaçado por 10) para que o round-robin funcione antes do drag-drop UI da Sprint D.
 - **Dependência de Realtime**: badge "em fila" precisa Realtime cobrir `conversations.assigned_user_id` (verificar existing canal helpdesk:)
 - **Retention**: adicionar `handoff_queue_events` em `db_retention_policies` (D25) — 90 dias default
 - **Backwards compat**: tenants sem dept configurado → fila não dispara (default OFF). Não pode quebrar handoff existente

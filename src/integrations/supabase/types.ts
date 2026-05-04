@@ -420,6 +420,7 @@ export type Database = {
           debounce_seconds: number
           enabled: boolean
           excluded_products: Json | null
+          extended_hours_until: string | null
           extraction_address_enabled: boolean | null
           extraction_fields: Json | null
           follow_up_enabled: boolean | null
@@ -479,6 +480,7 @@ export type Database = {
           debounce_seconds?: number
           enabled?: boolean
           excluded_products?: Json | null
+          extended_hours_until?: string | null
           extraction_address_enabled?: boolean | null
           extraction_fields?: Json | null
           follow_up_enabled?: boolean | null
@@ -538,6 +540,7 @@ export type Database = {
           debounce_seconds?: number
           enabled?: boolean
           excluded_products?: Json | null
+          extended_hours_until?: string | null
           extraction_address_enabled?: boolean | null
           extraction_fields?: Json | null
           follow_up_enabled?: boolean | null
@@ -1071,6 +1074,44 @@ export type Database = {
         }
         Relationships: []
       }
+      business_hours_exceptions: {
+        Row: {
+          agent_id: string
+          created_at: string
+          exception_date: string
+          id: string
+          note: string | null
+          schedule: Json
+          updated_at: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          exception_date: string
+          id?: string
+          note?: string | null
+          schedule?: Json
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          exception_date?: string
+          id?: string
+          note?: string | null
+          schedule?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_hours_exceptions_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           created_at: string
@@ -1079,6 +1120,8 @@ export type Database = {
           jid: string
           name: string | null
           phone: string
+          profile_pic_storage_path: string | null
+          profile_pic_synced_at: string | null
           profile_pic_url: string | null
         }
         Insert: {
@@ -1088,6 +1131,8 @@ export type Database = {
           jid: string
           name?: string | null
           phone: string
+          profile_pic_storage_path?: string | null
+          profile_pic_synced_at?: string | null
           profile_pic_url?: string | null
         }
         Update: {
@@ -1097,6 +1142,8 @@ export type Database = {
           jid?: string
           name?: string | null
           phone?: string
+          profile_pic_storage_path?: string | null
+          profile_pic_synced_at?: string | null
           profile_pic_url?: string | null
         }
         Relationships: []
@@ -1457,19 +1504,31 @@ export type Database = {
         Row: {
           created_at: string
           department_id: string
+          gestor_in_queue: boolean
           id: string
+          queue_paused: boolean
+          queue_paused_reason: string | null
+          queue_position: number | null
           user_id: string
         }
         Insert: {
           created_at?: string
           department_id: string
+          gestor_in_queue?: boolean
           id?: string
+          queue_paused?: boolean
+          queue_paused_reason?: string | null
+          queue_position?: number | null
           user_id: string
         }
         Update: {
           created_at?: string
           department_id?: string
+          gestor_in_queue?: boolean
           id?: string
+          queue_paused?: boolean
+          queue_paused_reason?: string | null
+          queue_position?: number | null
           user_id?: string
         }
         Relationships: [
@@ -1485,29 +1544,41 @@ export type Database = {
       departments: {
         Row: {
           created_at: string
+          default_assignee_id: string | null
           description: string | null
           id: string
           inbox_id: string
           is_default: boolean
+          last_assignee_position: number
           name: string
+          queue_mode_enabled: boolean
+          queue_mode_timeout_minutes: number
           updated_at: string
         }
         Insert: {
           created_at?: string
+          default_assignee_id?: string | null
           description?: string | null
           id?: string
           inbox_id: string
           is_default?: boolean
+          last_assignee_position?: number
           name: string
+          queue_mode_enabled?: boolean
+          queue_mode_timeout_minutes?: number
           updated_at?: string
         }
         Update: {
           created_at?: string
+          default_assignee_id?: string | null
           description?: string | null
           id?: string
           inbox_id?: string
           is_default?: boolean
+          last_assignee_position?: number
           name?: string
+          queue_mode_enabled?: boolean
+          queue_mode_timeout_minutes?: number
           updated_at?: string
         }
         Relationships: [
@@ -2661,6 +2732,72 @@ export type Database = {
         }
         Relationships: []
       }
+      handoff_queue_events: {
+        Row: {
+          assigned_user_id: string | null
+          conversation_id: string
+          created_at: string
+          department_id: string
+          expires_at: string
+          id: string
+          out_of_hours_msg_sent: boolean
+          paused_at: string | null
+          position_in_queue: number | null
+          previous_assignee_id: string | null
+          resolved_at: string | null
+          resolved_reason: string | null
+          rotation_number: number
+          status: string
+        }
+        Insert: {
+          assigned_user_id?: string | null
+          conversation_id: string
+          created_at?: string
+          department_id: string
+          expires_at: string
+          id?: string
+          out_of_hours_msg_sent?: boolean
+          paused_at?: string | null
+          position_in_queue?: number | null
+          previous_assignee_id?: string | null
+          resolved_at?: string | null
+          resolved_reason?: string | null
+          rotation_number?: number
+          status?: string
+        }
+        Update: {
+          assigned_user_id?: string | null
+          conversation_id?: string
+          created_at?: string
+          department_id?: string
+          expires_at?: string
+          id?: string
+          out_of_hours_msg_sent?: boolean
+          paused_at?: string | null
+          position_in_queue?: number | null
+          previous_assignee_id?: string | null
+          resolved_at?: string | null
+          resolved_reason?: string | null
+          rotation_number?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "handoff_queue_events_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "handoff_queue_events_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inbox_users: {
         Row: {
           can_view_all: boolean
@@ -2709,6 +2846,7 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string
+          default_department_id: string | null
           id: string
           instance_id: string | null
           name: string
@@ -2718,6 +2856,7 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by: string
+          default_department_id?: string | null
           id?: string
           instance_id?: string | null
           name: string
@@ -2727,6 +2866,7 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string
+          default_department_id?: string | null
           id?: string
           instance_id?: string | null
           name?: string
@@ -2734,6 +2874,13 @@ export type Database = {
           webhook_url?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "inboxes_default_department_id_fkey"
+            columns: ["default_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "inboxes_instance_id_fkey"
             columns: ["instance_id"]
@@ -5435,6 +5582,10 @@ export type Database = {
         }[]
       }
       normalize_external_id: { Args: { ext_id: string }; Returns: string }
+      pick_next_assignee: {
+        Args: { _department_id: string; _skip_user_ids?: string[] }
+        Returns: string
+      }
       prune_ai_agent_logs: {
         Args: { p_days_threshold?: number }
         Returns: number

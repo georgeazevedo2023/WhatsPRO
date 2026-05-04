@@ -79,7 +79,8 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/handoff-2026-04-27]] | HANDOFF da sessão 2026-04-27 — Auditoria geral + M19-S10 v2 Service Categories shipped |
 | [[wiki/log-arquivo-2026-04-29-eletropiso]] | Sprint Eletropiso 23 categorias + 7 fixes ai-agent (v162→v169) + BusinessHoursEditor + audit vault (2026-04-29) |
 | [[wiki/log-arquivo-2026-04-30-d28-d29-avatares]] | D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + R85/R86/R87/R88 (2026-04-30) |
-| [[log.md]] | **Sessão atual 2026-05-02 → 2026-05-03** — Auditoria profunda Helpdesk (nota 7.4/10) + 14 melhorias UX + Top tabs viram ESCOPO + Header mobile-first + Equipe gerenciar deptos inline + redesign expanded view |
+| [[wiki/log-arquivo-2026-05-02-a-03-helpdesk]] | Auditoria Profunda Helpdesk (9 ondas + trigger DB) + Top tabs viram ESCOPO + Header mobile-first + Gerenciar deptos inline (2026-05-02 + 2026-05-03) |
+| [[log.md]] | **Sessão atual 2026-05-04** — Auditoria Admin (nota 6.5/10) + Sprint 1+2 admin + R90 hotfix user_roles UNIQUE + **D30 Fila Inteligente Sprint A shipped** (6 migrations + RPC `pick_next_assignee` atômica) |
 | [[wiki/melhorias-auditoria-2026-04-27]] | Auditoria 2026-04-27: 24 bugs + 210 melhorias (índice geral) |
 | [[wiki/auditoria-helpdesk-2026-05-02]] | Auditoria profunda Helpdesk + Banco (2026-05-02): nota 7.4/10, 6 sprints de plano de ação |
 | [[wiki/auditoria-admin-2026-05-04]] | Auditoria profunda Módulo Admin (2026-05-04): nota 6.5/10 (recalibrada), 7 sprints, 1 crítico real (C1 R88) + 20 médios. Sprint 0 confirmou RLS user_roles rigorosa (A2 falso positivo) |
@@ -139,7 +140,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] | 2.8-2.14 | Perfis + NPS + Knowledge Base + Debounce + Greeting + Memória + Contexto Canal + Painel 9 tabs |
 | [[wiki/casos-de-uso/excluded-products-detalhado]] | 7 | D28 — Lista de produtos NÃO vendidos: schema, matcher word-boundary, fallback automático, integração no edge function, validação prod, R88+R89 |
 | [[wiki/casos-de-uso/admin-detalhado]] | 9 | Painel super_admin: 9 páginas (inboxes, users, departments, secrets, docs, roadmap, backup, retention) + 3 edge fns admin-* + 3 camadas de defesa |
-| [[wiki/casos-de-uso/handoff-fila-detalhado]] | 11 | **D30 (especificada, não shippada)** Fila Inteligente de Handoff: 2 modos (ON/OFF), round-robin global, timeout 5min, pausa horário comercial, drag-drop ordem, toggle pause individual, override gestor |
+| [[wiki/casos-de-uso/handoff-fila-detalhado]] | 11 | **D30 (Sprint A shipped 2026-05-04)** Fila Inteligente de Handoff: schema DB + RPC atômico aterrissados em prod. Sprints B-H pendentes (B HIGH RISK em ai-agent). 2 modos (ON/OFF), round-robin global, timeout 5min, pausa horário comercial, drag-drop ordem, toggle pause individual, override gestor |
 | [[wiki/casos-de-uso/leads-detalhado]] | 12 (3 sub) | Perfil 25+ campos, badge origem, timeline, block IA, clear context, CSV, auto-criação, funil card, kanban — *particionado 2026-05-04* |
 | [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 (3 sub) | Boards, drag&drop, cards, campos customizáveis, entidades, acesso, IA `move_kanban`, ticket resolution, funis |
 | [[wiki/casos-de-uso/catalogo-detalhado]] | 10 (3 sub) | Tabela, formulário, URL scraping, CSV, batch scrape, imagens, busca fuzzy 4 camadas, categorias, bio link, IA |
@@ -189,4 +190,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Última atualização: 2026-05-04 (auditoria de vault) — Estado atual: PRD v7.20.3, M19 ativo (S6/S7/S9 abertos). Sessões recentes: **v7.19.0 Auditoria Profunda Helpdesk** (nota 7.4/10, 14 melhorias UX shipadas em 6 ondas, trigger DB centraliza last_message_at), **v7.20.0 Top tabs viram ESCOPO** (Minhas/Não atribuídas/Todas), **v7.20.1 Header mobile-first** (HIG compliant, drop título redundante, inbox como pill), **v7.20.2 Equipe gerenciar deptos inline**, **v7.20.3 redesign expanded view** (cards por caixa, fix link 404). Bundle prod `index-CFmkOcne.js`, ai-agent v173 deployado em prod. **Pendência operacional**: 1 commit não-pushado (`5679edd`).*
+*Última atualização: 2026-05-04 (D30 Fila Sprint A) — Estado atual: PRD v7.21.0, M19 ativo (S6/S7/S9 abertos). Última sessão: **D30 Fila Inteligente — Sprint A** (6 migrations DB + RPC `pick_next_assignee` atômica com SELECT FOR UPDATE — R91 mitigado, smoke test rotação OK em prod). Sprints B–H pendentes (B é HIGH RISK em ai-agent). Anteriores: **v7.20.x** Auditoria Admin (Sprint 1+2 + R90 hotfix), Helpdesk top tabs ESCOPO/mobile-first/equipe deptos inline. Bundle prod `index-CFmkOcne.js`, ai-agent v173.*

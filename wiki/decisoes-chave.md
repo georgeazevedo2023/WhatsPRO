@@ -182,22 +182,17 @@ CLAUDE.md 373→96 linhas. Conteúdo migrado: [[RULES.md]] (regras) | [[ARCHITEC
 const VALID_KEYS = buildValidTagKeys(aliasConfig)  // antes: new Set([...80 strings])
 ```
 
-**Por que não eliminar a base e ler tudo do banco:** keys de sistema (motivo, lead_score, qualif_stage, ia_cleared, vendedor_*, etc.) NÃO são dados do tenant — são taxonomia interna do AI Agent que deve estar protegida em código. Se o admin acidentalmente sobrescrever o JSONB e remover essas keys, o sistema continua funcional.
+**Por que híbrido (base fixa + dinâmico):** keys de sistema (motivo, lead_score, qualif_stage, ia_cleared, vendedor_*) são taxonomia interna protegida em código — sobrevive a admin sobrescrever JSONB. Keys dinâmicas já estão em `service_categories.stages.fields[].key` por necessidade do score — reutilizar é grátis. Listar tudo no banco como "tag schema" separado é complexidade desnecessária.
 
-**Por que não eliminar a parte dinâmica e listar TUDO no banco como "tag schema":** complexidade desnecessária. As keys dinâmicas já estão em `service_categories.stages.fields[].key` por necessidade do score progressivo — reutilizar é grátis.
-
-**Comportamento depois do fix:**
-- Adicionar categoria nova com fields novos → valida automaticamente. Zero alteração de código.
-- Remover categoria do JSONB → keys somem do Set automaticamente (não há "limpeza manual" pra esquecer).
-- Agente sem `service_categories` configurado → cai em `DEFAULT_SERVICE_CATEGORIES_V2` + base. Zero crash.
+**Comportamento depois do fix:** adicionar/remover categoria valida automaticamente; agente sem `service_categories` cai em `DEFAULT_SERVICE_CATEGORIES_V2` + base.
 
 **Cruza com R82** (aliasing de keys genéricas) — o aliasing acontece ANTES da validação contra VALID_KEYS, então `material:` → `material_porta` continua funcionando. Cruza com R84 — agora resolvido.
 
 **Validação:** 9 testes novos em `serviceCategories.test.ts` (99 total, 100%); audit do schema do Eletropiso confirmou que todas as 52 keys dinâmicas são geradas corretamente, incluindo `tipo_tinta` que estava bugado em prod.
 
-## D30 — Fila Inteligente de Handoff (2026-05-04, especificada — NÃO shippada)
+## D30 — Fila Inteligente de Handoff (Sprint A shipped 2026-05-04)
 
-2 modos por departamento (Q1): **ON** = round-robin global com cursor atômico (Lucas 1º, drag-drop), timeout 5min, loop infinito + sino gestor. **OFF** = 100% vai pro `default_assignee_id`, gestor-de-chão redistribui manual. Modelo C visibilidade: outros vêem badge "Em fila — Lucas (3:42)" mas só assignee responde, admin/gestor pode override. Horário comercial: pausa relógio + auto-envia `out_of_hours_message`; descongela com 5min completos. Toggle "Expediente Estendido" + calendário exceções. Pause individual no Helpdesk. Sub-decisões: **D-α** fallback dept = `inboxes.default_department_id` (NOVO; profile→funnel→inbox→falha). **D-β** re-handoff respeita histórico (volta pro último assignee se disponível). **D-γ** variável `{handoff_assignee_name}` no `prompt_sections.handoff_text`. Detalhes em [[wiki/casos-de-uso/handoff-fila-detalhado]].
+2 modos por departamento (Q1): **ON** = round-robin global com cursor atômico, timeout 5min, loop infinito + sino gestor. **OFF** = 100% vai pro `default_assignee_id`. Modelo C visibilidade: badge "Em fila — Lucas (3:42)" mas só assignee responde. Horário comercial: pausa relógio + auto-envia `out_of_hours_message`. Toggle "Expediente Estendido" + calendário exceções. Pause individual. **D-α** fallback dept profile→funnel→`inboxes.default_department_id`→falha. **D-β** re-handoff respeita histórico. **D-γ** variável `{handoff_assignee_name}` no `prompt_sections.handoff_text`. **Sprint A shipped 2026-05-04**: 6 migrations + RPC `pick_next_assignee` atômica (SELECT FOR UPDATE, R91 mitigado), backfill `queue_position` espaçado, smoke test rotação OK. Sprints B–H pendentes (B HIGH RISK em ai-agent). Correção: `conversations.assigned_user_id` real é `conversations.assigned_to`. Detalhes: [[wiki/casos-de-uso/handoff-fila-detalhado]].
 
 ## Links
 

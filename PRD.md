@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.20.3 | **Última atualização**: 2026-05-03 | **Status**: Produção + OpenAI gpt-4.1-mini + 39 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa)
+> **Versão**: 7.21.0 | **Última atualização**: 2026-05-04 | **Status**: Produção + OpenAI gpt-4.1-mini + 39 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A (DB)**
 
 ## Visão Geral
 
@@ -39,6 +39,40 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.21.0 (2026-05-04) — D30 Fila Inteligente de Handoff — Sprint A (DB)
+
+**Goal:** aterrissar o schema completo da Fila Inteligente sem tocar `ai-agent/index.ts` (HIGH RISK fica para Sprint B). Sprint A do plano de 8 sprints (~26.5h total).
+
+**6 migrations aplicadas em prod (`euljumeflwtljegknawy`):**
+
+- `20260504000002_handoff_queue_departments` — `queue_mode_enabled bool=false`, `queue_mode_timeout_minutes int=5 CHECK 1-60`, `default_assignee_id uuid → auth.users`, `last_assignee_position int=0` (cursor RR).
+- `20260504000003_handoff_queue_department_members` — `queue_position int` (drag-drop), `queue_paused bool=false`, `queue_paused_reason text`, `gestor_in_queue bool=false`. Index parcial `(department_id, queue_position) WHERE queue_paused=false`. Backfill de `queue_position` com `ROW_NUMBER() * 10` (espaçado para inserts via drag-drop).
+- `20260504000004_handoff_queue_inboxes_default_dept` — `inboxes.default_department_id uuid → departments` (D-α: fallback de dept para handoff).
+- `20260504000005_handoff_queue_business_hours` — `ai_agents.extended_hours_until timestamptz` + tabela `business_hours_exceptions(agent_id, exception_date, schedule jsonb, note, UNIQUE(agent_id,date))` com RLS.
+- `20260504000006_handoff_queue_events` — tabela `handoff_queue_events` (conversation_id, department_id, previous_assignee_id, assigned_user_id, position_in_queue, rotation_number, expires_at, paused_at, status [active/responded/timed_out/manual_override/cancelled], out_of_hours_msg_sent, resolved_reason, resolved_at). 3 índices (incluindo `(expires_at) WHERE status='active'` para o cron — R28 IMMUTABLE preservado). RLS: super_admin all + inbox users SELECT.
+- `20260504000007_handoff_queue_pick_next_assignee` — RPC `pick_next_assignee(_department_id uuid, _skip_user_ids uuid[])` `RETURNS uuid` `SECURITY DEFINER SET search_path = public, pg_temp`. **`SELECT … FOR UPDATE` no cursor (R91 mitigado)** — previne race condition em handoffs concorrentes. Pula `queue_paused`, gerentes sem `gestor_in_queue`, `skip_user_ids`. Q4 loop infinito. REVOKE EXECUTE de PUBLIC/anon/authenticated, GRANT só para `service_role`.
+
+**Smoke tests (em prod via MCP):**
+- ✅ 13/13 objetos de schema confirmados.
+- ✅ `pick_next_assignee('00…0')` → `NULL` (dept inexistente).
+- ✅ Rotação 8 chamadas no dept "Vendas" (6 membros, 1 gestor excluído por default `gestor_in_queue=false`): 5 atendentes distintos + loop infinito ao 1º.
+
+**Auditoria:**
+- `npx supabase gen types typescript` → `src/integrations/supabase/types.ts` regenerado (5803 linhas, 20 referências às novas keys).
+- `npx tsc --noEmit` = 0 erros.
+- 6 arquivos novos em `supabase/migrations/`.
+
+**Correção do plano original:**
+- Wiki dizia `conversations.assigned_user_id` — coluna real é `conversations.assigned_to`. Sprint B usa este nome.
+
+**R91 (nova):** Round-robin de fila precisa `SELECT … FOR UPDATE` no cursor para evitar 2 chamadas concorrentes pegarem o mesmo atendente. Pattern aplicado em `pick_next_assignee`.
+
+**Próximo (Sprint B):** edge fn `assign-handoff` + integrar 6 paths em `ai-agent/index.ts` (HIGH RISK, fallback try/catch) + dept resolution (profile → funnel → inbox → falha) + variável `{handoff_assignee_name}` em `prompt_sections.handoff_text`.
+
+**Detalhes:** `wiki/casos-de-uso/handoff-fila-detalhado.md`, `wiki/decisoes-chave.md` (D30), `wiki/erros-e-licoes.md` (R91).
+
+---
 
 ### v7.20.3 (2026-05-03) — Equipe: redesign do expanded view (cards por caixa) + fix link 404
 

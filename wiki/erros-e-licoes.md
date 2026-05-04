@@ -2,7 +2,7 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo, retention, cron, storage, db-constraint, controlled-input]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-04-30
+updated: 2026-05-04
 ---
 
 # Erros e Lições
@@ -105,6 +105,7 @@ updated: 2026-04-30
 | 88 | INSERT no Supabase JS retorna `{data, error}` em vez de throw — sem check explícito do `error`, falhas viram silent. Especialmente perigoso em CHECK constraints: adicionar event type novo no código sem atualizar `chk_*_event` na migration faz o INSERT falhar sem rastro. SEMPRE: (1) conferir CHECK constraints da tabela com `\d+ tabela`, (2) atualizar whitelist via migration, (3) usar helper `insertLogSafe(supabase, logger, payload)` em `_shared/agentHelpers.ts` — wrap try/catch + check do `{error}` com warn estruturado. Detectado em D28: log `excluded_product_match` não persistia. | DB |
 | 89 | UI Input com `value={array.join(', ')}` controlado + `onChange` que faz split+trim+filter quebra digitação livre — espaço final é removido a cada keystroke, impedindo digitar mais que 1 palavra. Solução: sub-componente com `useState` local pra texto raw + sincronização externa por `useEffect` em `itemId` (não em `initialValue` para evitar override do input do user). Aplicado em `ExcludedProductsConfig.KeywordsInput`. | React |
 | 90 | `supabase.from('user_roles').upsert({...}, { onConflict: 'user_id' })` retornava 400 em prod — tabela tinha PK em `id` (uuid próprio) **sem UNIQUE em `user_id`**. Sintoma: "Erro ao alterar papel" no UsersTab `confirmRoleChange`. PostgREST exige a constraint EXATA referenciada em `onConflict` (R36). Fix: migration `user_roles_unique_user_id` (1) deduplica por hierarquia (super_admin > gerente > user) — havia 1 user com 2 roles do trigger `handle_new_user`, (2) `ADD CONSTRAINT user_roles_user_id_key UNIQUE (user_id)`. Sem dedupe primeiro, ALTER TABLE falha. Sempre que upsert `onConflict: X` retornar 400, conferir UNIQUE em X com `pg_constraint`. | DB |
+| 91 | Round-robin de fila de atendentes precisa **`SELECT … FOR UPDATE` no cursor** (`departments.last_assignee_position`) dentro da mesma transação em que se atribui o próximo. Sem o lock, 2 chamadas concorrentes do `pick_next_assignee` (ex.: 2 handoffs simultâneos) leem o mesmo cursor, escolhem o mesmo membro e ambos avançam — quebra a justiça da rotação. Pattern aplicado em `pick_next_assignee` (D30 Sprint A, 2026-05-04). Quando todos os membros têm `queue_position = NULL`, o cursor satura no sentinela (2147483647) e a rotação para — backfill espaçado (`ROW_NUMBER() * 10`) na migration evita esse estado. | DB |
 
 ---
 
