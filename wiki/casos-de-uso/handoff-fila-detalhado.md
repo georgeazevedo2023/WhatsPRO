@@ -9,7 +9,7 @@ updated: 2026-05-04
 
 > Quando a IA decide transbordar (ex: lead pediu humano, qualificação completa, validator block), em vez de deixar a conversa "livre" para qualquer atendente pegar (estado atual: `conversations.assigned_to = NULL`), o sistema **atribui automaticamente** a um vendedor específico seguindo regras configuráveis. Inclui timeout com reatribuição, pausa em horário não-comercial e modo manual via gestor.
 >
-> **Status: Sprint A shipped 2026-05-04 (5 migrations + RPC `pick_next_assignee` + smoke test rotação OK). Sprints B-H pendentes.**
+> **Status: Sprint A + B shipped 2026-05-04 (DB + edge fn `assign-handoff` + 6 paths em ai-agent integrados com try/catch + D-α dept resolution + D-β re-handoff + D-γ `{handoff_assignee_name}`). Pendente: deploy edge fns. Sprints C-H pendentes.**
 
 ---
 
@@ -158,7 +158,7 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 | Sprint | Escopo | h |
 |:-:|---|:-:|
 | ✅ **A** | 5 migrations + RPC `pick_next_assignee` (atômico) — *shipped 2026-05-04* | 3.5 |
-| **B** | `assign-handoff` edge fn + integrar 6 paths em ai-agent (HIGH RISK) + dept resolution + try/catch | 5 |
+| ✅ **B** | `_shared/handoffQueue.ts` + `_shared/handoffDepartment.ts` + edge fn `assign-handoff` (wrapper HTTP fino) + integração nos 6 paths em ai-agent com try/catch + D-α dept resolution + D-β re-handoff + D-γ `{handoff_assignee_name}` — *shipped 2026-05-04, deploy pendente* | 5 |
 | **C** | `requeue-conversations` cron + lógica horário + atendente órfão + Realtime broadcast | 5 |
 | **D** | DepartmentsTab QueueConfig + AdminInboxes default_dept + audit logs (4 actions novas) | 3 |
 | **E** | Modo Estendido (toggle) + ALLOWED_FIELDS update + system_settings defaults | 2.5 |
@@ -171,10 +171,12 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 
 ## 10. Riscos e Pendências (durante implementação)
 
-- **HIGH RISK**: Sprint B mexe em `ai-agent/index.ts` em 6 paths. Mitigação: fallback try/catch em cada path, smoke E2E manual antes do deploy
-- **R91 mitigado** (Sprint A): RPC `pick_next_assignee` usa `SELECT … FOR UPDATE` no cursor `departments.last_assignee_position` — evita 2 conversas pegarem o mesmo atendente em chamadas concorrentes. Smoke test 2026-05-04: 5 atendentes ativos rotaram corretamente (gestor com `gestor_in_queue=false` excluído como esperado), loop infinito ao final OK.
-- **Sprint A nota:** wiki original dizia `assigned_user_id` em `conversations` — coluna real é `assigned_to` (uuid → auth.users). Sprint B usa este nome.
+- **HIGH RISK mitigado** (Sprint B): integração nos 6 paths usa closure `runQueueAssignment(handoffMsgTemplate)` com try/catch interno — qualquer falha (RPC, INSERT, lookup de nome) cai num fallback que retorna `assigned_user_id=null` e a mensagem original (sem substituição). Comportamento atual preservado: `status_ia=SHADOW + assigned_to=NULL` igual ao pré-D30.
+- **R91 mitigado** (Sprint A): RPC `pick_next_assignee` usa `SELECT … FOR UPDATE` no cursor `departments.last_assignee_position`. Smoke test 5 atendentes rotaram + loop infinito OK.
+- **Sprint A nota:** wiki original dizia `assigned_user_id` em `conversations` — coluna real é `assigned_to` (uuid → auth.users). Sprint B usa `conversations.assigned_to`.
 - **Backfill:** A migration A.2 backfilla `queue_position` de membros existentes (espaçado por 10) para que o round-robin funcione antes do drag-drop UI da Sprint D.
+- **D-γ no caminho 5 (implicit text-handoff):** o LLM gera texto livre — não há template para substituir `{handoff_assignee_name}`. Helper roda mesmo assim (cria `handoff_queue_event` + setta `assigned_to`) mas sem substituição.
+- **Deploy pendente:** edge functions `ai-agent` e `assign-handoff` precisam ser deployadas com `supabase functions deploy`. Smoke manual em prod (testar 1 conversa em cada path) antes de declarar shipped.
 - **Dependência de Realtime**: badge "em fila" precisa Realtime cobrir `conversations.assigned_user_id` (verificar existing canal helpdesk:)
 - **Retention**: adicionar `handoff_queue_events` em `db_retention_policies` (D25) — 90 dias default
 - **Backwards compat**: tenants sem dept configurado → fila não dispara (default OFF). Não pode quebrar handoff existente

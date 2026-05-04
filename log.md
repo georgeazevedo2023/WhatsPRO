@@ -7,6 +7,46 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-04 (Sprint B — Fila Inteligente de Handoff D30)
+
+### Goal
+Aterrissar o backend da Fila (HIGH RISK em `ai-agent/index.ts`, 6 paths) com fallback try/catch em cada um — se algo falhar, comportamento volta a ser igual ao pré-D30 (status_ia=SHADOW + assigned_to=NULL).
+
+### Arquivos novos
+- `supabase/functions/_shared/handoffDepartment.ts` — cascata D-α (profile→funnel→inbox→null).
+- `supabase/functions/_shared/handoffQueue.ts` — `assignHandoff` orquestra D-β (reusar último assignee elegível) → modo OFF (default_assignee) ou ON (RPC) → cria `handoff_queue_events` → UPDATE `conversations.assigned_to` → lookup nome (`auth.users.raw_user_meta_data->>full_name`, primeiro nome). `applyAssigneeNameTemplate` substitui `{handoff_assignee_name}` (D-γ).
+- `supabase/functions/assign-handoff/index.ts` — edge fn wrapper HTTP fino (verify_jwt=false + `verifyCronOrService`). Para cron Sprint C + helpdesk Sprint F. ai-agent importa direto (sem latência HTTP).
+- Update `supabase/config.toml` — entry `[functions.assign-handoff] verify_jwt=false`.
+
+### Modificações em `ai-agent/index.ts` (HIGH RISK)
+- Closure `runQueueAssignment(handoffMessageTemplate)` resolve dept via `resolveHandoffDepartment` + chama `assignHandoff` + aplica D-γ. Try/catch interno → fallback retorna `{ assigned_user_id: null, finalMessage: template sem substituição }`.
+- 6 paths integrados (cada um chama runQueueAssignment ANTES de `sendTextMsg(handoffMsg)`):
+  1. handoff_trigger imediato (texto)
+  2. Auto-handoff `lead_msg_count >= MAX_LEAD_MESSAGES`
+  3. Tool `handoff_to_human`
+  4. Validator BLOCK
+  5. Implicit text-handoff (D-γ não aplica — texto livre do LLM, mas fila ainda cria evento + setta assigned_to)
+  6. Deferred handoff trigger (após LLM)
+
+### Auditoria
+- tsc = 0 erros.
+- vitest = 662 passam, 5 falhas pré-existentes em `FormBuilder.test.tsx` (sem regressão).
+- deno check do novo código OK. ai-agent acumula 73 erros TS18047 (possibly null) PRÉ-EXISTENTES — projeto não usa deno como gate.
+
+### SYNC RULE auditada
+1. Banco ✅ (Sprint A) | 2. types.ts N/A | 3. Admin UI Sprint D | 4. ALLOWED_FIELDS N/A | 5. Backend ✅ | 6. Prompt N/A (`{handoff_assignee_name}` é em handoff_message, não prompt_sections) | 7. system_settings N/A | 8. Docs ✅
+
+### Pendências
+- **Deploy:** `npx supabase functions deploy ai-agent` + `npx supabase functions deploy assign-handoff`. Não automatizado — autorização explícita necessária.
+- **Smoke E2E em prod:** 1 conversa por path (validar atribuição visível no helpdesk, badge "Em fila", nome do atendente na msg de handoff). Antes de declarar "shipped".
+- **Sprint C:** cron `requeue-conversations` (timeout reattribution + pausa horário comercial + sino gestor por volta).
+- **Sprint D:** admin UI (DepartmentsTab QueueConfig + AdminInboxes default_dept).
+
+### Frase para retomar
+"implementar fila inteligente Sprint C" — cron de requeue + lógica horário comercial.
+
+---
+
 ## 2026-05-04 (Sprint A — Fila Inteligente de Handoff D30)
 
 ### Goal

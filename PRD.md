@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.21.0 | **Última atualização**: 2026-05-04 | **Status**: Produção + OpenAI gpt-4.1-mini + 39 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A (DB)**
+> **Versão**: 7.22.0 | **Última atualização**: 2026-05-04 | **Status**: Produção + OpenAI gpt-4.1-mini + 40 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B (DB + Backend)**
 
 ## Visão Geral
 
@@ -39,6 +39,51 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.22.0 (2026-05-04) — D30 Fila Inteligente de Handoff — Sprint B (Backend)
+
+**Goal:** quando IA decide transbordar, atribuir conversa automaticamente via fila em vez de deixar `assigned_to=NULL`. HIGH RISK mitigado por fallback try/catch em cada path.
+
+**Arquivos novos:**
+- `supabase/functions/_shared/handoffDepartment.ts` — `resolveHandoffDepartment(...)` cascata D-α (profile.handoff_department_id → funnel.handoff_department_id → inbox.default_department_id → null).
+- `supabase/functions/_shared/handoffQueue.ts` — `assignHandoff(opts)` orquestra D-β (reusar último assignee se elegível em `department_members.queue_paused=false`) → modo OFF (`default_assignee_id`) ou ON (RPC `pick_next_assignee`) → cria `handoff_queue_events` com `expires_at = now() + timeout` → UPDATE `conversations.assigned_to` → lookup nome via `auth.users.raw_user_meta_data->>full_name` (primeiro nome). Helper `applyAssigneeNameTemplate(template, name)` substitui `{handoff_assignee_name}` (D-γ).
+- `supabase/functions/assign-handoff/index.ts` — edge fn wrapper HTTP fino (verify_jwt=false + `verifyCronOrService`). Será chamada pelo cron `requeue-conversations` (Sprint C) e helpdesk gestor manual (Sprint F). `ai-agent` importa o helper direto pra evitar latência extra.
+
+**Modificações em `ai-agent/index.ts` (HIGH RISK):**
+- Imports + load de `inbox.default_department_id` em paralelo com profile/funnel.
+- Closure `runQueueAssignment(handoffMessageTemplate)` resolve dept + chama `assignHandoff` + aplica D-γ. Try/catch interno garante fallback (zero regressão).
+- Integração nos 6 paths de handoff:
+  1. `handoff_trigger` (texto match imediato)
+  2. Auto-handoff por `lead_msg_count >= MAX_LEAD_MESSAGES`
+  3. Tool `handoff_to_human`
+  4. Validator BLOCK
+  5. Implicit text-handoff (LLM gerou texto livre — D-γ não aplica, mas fila ainda atribui)
+  6. Deferred handoff trigger (após resposta do LLM)
+
+**SYNC RULE auditada:**
+- Item 1 (banco): Sprint A ✅
+- Item 2 (types.ts): N/A (Sprint B não muda schema)
+- Item 3 (admin UI): Sprint D
+- Item 4 (ALLOWED_FIELDS): N/A
+- Item 5 (backend): ✅ Sprint B
+- Item 6 (prompt): N/A — `{handoff_assignee_name}` é substituído em mensagens de handoff (`agent.handoff_message`/profile/funnel), não em `prompt_sections`.
+- Item 7 (system_settings defaults): N/A
+- Item 8 (docs): ✅ aqui + decisoes-chave + handoff-fila-detalhado
+
+**Auditoria:**
+- `npx tsc --noEmit` = 0 erros.
+- `npx vitest run` = 662 passam, 5 falhas pré-existentes em `FormBuilder.test.tsx` (não relacionadas, sem regressão).
+- `deno check` no novo código (`handoffQueue.ts`, `handoffDepartment.ts`, `assign-handoff/index.ts`) = OK. ai-agent tem 73 erros TS18047 (possibly null) pré-existentes — pattern aceito pelo projeto, tsc passa.
+
+**Pendências Sprint C+:**
+- Deploy `ai-agent` e `assign-handoff` em prod via `supabase functions deploy`.
+- Smoke E2E manual: 1 conversa por path (validar atribuição, mensagem com nome, badge no helpdesk).
+- Sprint C: cron `requeue-conversations` (timeout reattribution + horário comercial).
+- Sprint D: admin UI (DepartmentsTab QueueConfig + AdminInboxes default_dept).
+
+**Detalhes:** `wiki/casos-de-uso/handoff-fila-detalhado.md`, `wiki/decisoes-chave.md` (D30).
+
+---
 
 ### v7.21.0 (2026-05-04) — D30 Fila Inteligente de Handoff — Sprint A (DB)
 

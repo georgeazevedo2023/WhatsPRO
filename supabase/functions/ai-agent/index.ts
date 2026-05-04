@@ -24,6 +24,8 @@ import {
   buildValidTagKeys,
 } from '../_shared/serviceCategories.ts'
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
+import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
+import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -375,6 +377,50 @@ Deno.serve(async (req) => {
       if (profileData) log.info('Profile loaded', { profileId: profileData.id, hasFunnel: !!funnelData })
     } catch { /* non-critical */ }
 
+    // D30 (D-α): carrega inbox.default_department_id para fallback de handoff
+    let inboxDefaultDeptId: string | null = null
+    try {
+      const { data: ibx } = await supabase
+        .from('inboxes')
+        .select('default_department_id')
+        .eq('id', conversation.inbox_id)
+        .maybeSingle()
+      inboxDefaultDeptId = ibx?.default_department_id ?? null
+    } catch { /* non-critical */ }
+
+    // D30: closure que executa atribuição via fila + substitui {handoff_assignee_name}.
+    // Wrapper try/catch: se falhar, retorna fallback com a mensagem original (zero regressão).
+    const runQueueAssignment = async (
+      handoffMessageTemplate: string,
+    ): Promise<{ result: AssignHandoffResult; finalMessage: string }> => {
+      const fallback: AssignHandoffResult = {
+        assigned_user_id: null, assignee_name: null, queue_event_id: null,
+        timeout_minutes: 5, reason: 'error',
+      }
+      try {
+        const { departmentId, source } = resolveHandoffDepartment({
+          profile: profileData ? { handoff_department_id: profileData.handoff_department_id } : null,
+          funnel: funnelData ? { handoff_department_id: funnelData.handoff_department_id } : null,
+          inbox: { default_department_id: inboxDefaultDeptId },
+        })
+        const result = await assignHandoff({
+          supabase,
+          conversation_id,
+          department_id: departmentId,
+          previous_assignee_id: conversation.assigned_to ?? null,  // D-β
+          logger: log,
+        })
+        log.info('handoff queue assignment', {
+          dept_source: source, dept_id: departmentId,
+          assigned_to: result.assigned_user_id, reason: result.reason,
+        })
+        return { result, finalMessage: applyAssigneeNameTemplate(handoffMessageTemplate, result.assignee_name) }
+      } catch (qErr) {
+        log.warn('runQueueAssignment failed — falling back without assignee', { error: (qErr as Error).message })
+        return { result: fallback, finalMessage: applyAssigneeNameTemplate(handoffMessageTemplate, null) }
+      }
+    }
+
     // 5.5 Check handoff_triggers — force handoff if lead text matches any trigger
     // Only trigger after agent has replied at least once (skip on first interaction)
     const triggers: string[] = agent.handoff_triggers || []
@@ -467,9 +513,11 @@ Deno.serve(async (req) => {
             log.info('Empathy already sent recently — skipping duplicate')
           }
 
-          await sendTextMsg(handoffMsg)
+          // D30: atribui via fila ANTES de enviar (substitui {handoff_assignee_name})
+          const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
+          await sendTextMsg(finalMessage)
           await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+            conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
           })
 
           await supabase.from('conversations').update({
@@ -481,11 +529,11 @@ Deno.serve(async (req) => {
           await supabase.from('ai_agent_logs').insert({
             agent_id, conversation_id, event: 'handoff_trigger',
             latency_ms: Date.now() - startTime,
-            metadata: { trigger: matchedTrigger, incoming_text: incomingText.substring(0, 300) },
+            metadata: { trigger: matchedTrigger, incoming_text: incomingText.substring(0, 300), queue: queueRes },
           })
-          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
 
-          return new Response(JSON.stringify({ ok: true, handoff: true, trigger: matchedTrigger }), {
+          return new Response(JSON.stringify({ ok: true, handoff: true, trigger: matchedTrigger, queue: queueRes }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         }
@@ -579,9 +627,12 @@ Deno.serve(async (req) => {
       // #M17 F3: Profile > Funnel > Agent handoff message
       if (profileData?.handoff_message) handoffMsg = profileData.handoff_message
       else if (funnelData?.handoff_message) handoffMsg = funnelData.handoff_message
-      await sendTextMsg(handoffMsg)
+
+      // D30: atribui via fila ANTES de enviar
+      const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
+      await sendTextMsg(finalMessage)
       await supabase.from('conversation_messages').insert({
-        conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+        conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
       })
       // All handoffs → SHADOW (AI continues extracting data silently)
       // R86: reset lead_msg_count to 0 so returning lead doesn't immediately re-trigger auto-handoff
@@ -598,7 +649,7 @@ Deno.serve(async (req) => {
       }
       await supabase.from('conversations').update(handoffUpdate).eq('id', conversation_id)
       broadcastEvent({ conversation_id, status_ia: STATUS_IA.SHADOW })
-      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'message_limit' }), {
+      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'message_limit', queue: queueRes }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -2431,10 +2482,12 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: empathyMsg, media_type: 'text' })
           }
 
+          // D30: atribui via fila ANTES de enviar (substitui {handoff_assignee_name})
+          const { result: queueRes, finalMessage: handoffMsgFinal } = await runQueueAssignment(handoffMsg)
           // Send handoff message directly (don't rely on LLM generating it)
-          await sendTextMsg(handoffMsg)
+          await sendTextMsg(handoffMsgFinal)
           await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+            conversation_id, direction: 'outgoing', content: handoffMsgFinal, media_type: 'text',
           })
 
           // Set IA to SHADOW + tag
@@ -2464,9 +2517,9 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           // Log + broadcast
           await supabase.from('ai_agent_logs').insert({
             agent_id, conversation_id, event: 'handoff',
-            metadata: { reason: args.reason, qualification_chain: qualChain, cooldown_minutes: cooldown, new_status: newStatus },
+            metadata: { reason: args.reason, qualification_chain: qualChain, cooldown_minutes: cooldown, new_status: newStatus, queue: queueRes },
           })
-          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsgFinal, media_type: 'text' })
 
           // Persist qualification chain to lead_profiles.notes for seller reference
           if (qualChain && qualChain.includes('>')) {
@@ -2752,19 +2805,22 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
         if (validation.verdict === 'BLOCK') {
           // Critical violation — send handoff instead
           const handoffMsg = agent.handoff_message || 'Só um instante, vou te encaminhar para nosso consultor de vendas.'
-          await sendTextMsg(handoffMsg)
+          // D30: atribui via fila ANTES de enviar
+          const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
+          await sendTextMsg(finalMessage)
           await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+            conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
           })
           await supabase.from('conversations').update({
             status_ia: STATUS_IA.SHADOW,
             tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
             lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
           }).eq('id', conversation_id)
-          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
           return new Response(JSON.stringify({
-            ok: true, response: handoffMsg, handoff: true, reason: 'validator_block',
+            ok: true, response: finalMessage, handoff: true, reason: 'validator_block',
             validator: { score: validation.score, violations: validation.violations },
+            queue: queueRes,
             tokens: { input: inputTokens, output: outputTokens },
             latency_ms: Date.now() - startTime,
           }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -2825,6 +2881,9 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
     // If implicit handoff detected, switch to shadow BEFORE sending (so helpdesk sees correct status)
     if (textLooksLikeHandoff) {
       log.info('Implicit handoff detected — switching to shadow before sending text')
+      // D30: atribui via fila. LLM gerou o texto livre — não há template para D-γ
+      // (mas helper roda mesmo assim para criar handoff_queue_event + assigned_to).
+      const { result: queueRes } = await runQueueAssignment('')
       await supabase.from('conversations').update({
         status_ia: STATUS_IA.SHADOW,
         tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
@@ -2832,7 +2891,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       }).eq('id', conversation_id)
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'implicit_handoff',
-        metadata: { response_text: responseText.substring(0, 300) },
+        metadata: { response_text: responseText.substring(0, 300), queue: queueRes },
       })
     }
 
@@ -2991,9 +3050,11 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
     if (pendingHandoffTrigger && !hadExplicitHandoff && !textLooksLikeHandoff) {
       log.info('Executing deferred handoff trigger after LLM response', { trigger: pendingHandoffTrigger })
       const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
-      await sendTextMsg(handoffMsg)
+      // D30: atribui via fila ANTES de enviar
+      const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
+      await sendTextMsg(finalMessage)
       await supabase.from('conversation_messages').insert({
-        conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+        conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
       })
       await supabase.from('conversations').update({
         status_ia: STATUS_IA.SHADOW,
@@ -3003,9 +3064,9 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'handoff_trigger',
         latency_ms: Date.now() - startTime,
-        metadata: { trigger: pendingHandoffTrigger, deferred: true, incoming_text: incomingText.substring(0, 300) },
+        metadata: { trigger: pendingHandoffTrigger, deferred: true, incoming_text: incomingText.substring(0, 300), queue: queueRes },
       })
-      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
     }
 
     log.info('Done', { latency_ms: Date.now() - startTime, inputTokens, outputTokens, toolCount: toolCallsLog.length })
