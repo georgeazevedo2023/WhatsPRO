@@ -139,6 +139,14 @@ Gating defense-in-depth (`AdminRoute` + guards + RLS), CORS dinâmico + prefligh
 - [x] 18 smoke tests novos (`AdminPagesGate.test.tsx`)
 - [x] M11 parcial: DELETE explícito de inbox_users + department_members
 - Auditoria: tsc 0 / deno 0 / vitest 662 (+18 novos; 5 pré-existentes FormBuilder)
+- **Deployado em prod**: admin-create-user, admin-update-user, admin-delete-user
+
+### Sprint 2 ✅ — concluído (commit `3d3583a`, 2026-05-04)
+- [x] ex-C4 mover gate AdminRetention (useEffect com guard + early return após hooks)
+- [x] M9 `verifySuperAdmin` helper substituiu auth inline em 3 edge fns (~60 linhas a menos)
+- [x] M17 audit log em `confirmRoleChange` (promoções de role agora deixam rastro em `admin_audit_log`)
+- Auditoria: tsc 0 / deno 0 / vitest 18/18 OK
+- **Deployado em prod**: 3 edge fns redeployadas
 
 ### Sprint 2 (1.5 dias) — Higiene de segurança
 - ex-C3 (sanear catch), ex-C4 (mover gate AdminRetention)
