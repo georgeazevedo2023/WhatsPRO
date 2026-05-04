@@ -40,7 +40,19 @@ Relatório retificado em `wiki/auditoria-admin-2026-05-04.md` (198 linhas): 1 cr
 ### Hotfix R90 — bug ativo "Erro ao alterar papel"
 User reportou ao tentar trocar Lucas de Gerente → Atendente: toast "Erro ao alterar papel" + Network 400 em `user_roles?on_conflict=user_id`. Auditoria SQL em prod expôs: tabela `user_roles` tem PK em `id` (uuid próprio) **sem UNIQUE em `user_id`** — `upsert({...}, { onConflict: 'user_id' })` no `confirmRoleChange` falha pois PostgREST não acha a constraint (R36 ativo). Bonus: 1 user (george) tinha 2 roles (super_admin + user — segundo da trigger `handle_new_user`).
 
-Migration `20260504000001_user_roles_unique_user_id`: (1) dedupe por hierarquia super_admin > gerente > user, (2) `ADD CONSTRAINT user_roles_user_id_key UNIQUE (user_id)`. Aplicada em prod via `apply_migration` MCP. R90 documentada em `erros-e-licoes.md`. Sem alteração de código frontend — `confirmRoleChange` original passou a funcionar.
+Migration `20260504000001_user_roles_unique_user_id`: (1) dedupe por hierarquia super_admin > gerente > user, (2) `ADD CONSTRAINT user_roles_user_id_key UNIQUE (user_id)`. Aplicada em prod via `apply_migration` MCP. R90 documentada em `erros-e-licoes.md`. Sem alteração de código frontend — `confirmRoleChange` original passou a funcionar. **User validou em prod ✅.**
+
+### Sessão de design: Fila Inteligente de Handoff (D30 — especificada, não shippada)
+
+User pediu feature para distribuir handoffs IA→humano automaticamente. Sessão de design completa em formato 1-pergunta-por-vez (regra `feedback_discussion_format`). 8 decisões fechadas + 3 sub-decisões + auto-auditoria do plano (3 gaps críticos descobertos: dept resolution, RR race condition, SYNC RULE incompleta).
+
+**Resumo:** 2 modos por departamento (Fila ON = round-robin / OFF = 100% Lucas distribui manual). Timeout 5min com pausa em horário não-comercial (auto-envia `out_of_hours_message`). Modelo C de visibilidade (badge "Em fila"). Loop infinito com sino gestor. Drag-drop manual da ordem. Pause individual. Variável `{handoff_assignee_name}` no prompt. Toggle "Expediente Estendido" + calendário exceções.
+
+**Schema:** 5 migrations (departments, department_members, inboxes.default_dept, ai_agents.extended_hours_until + business_hours_exceptions, handoff_queue_events) + RPC atômico `pick_next_assignee` com SELECT FOR UPDATE.
+
+**Plano: 8 sprints (~26.5h, ~3-4 dias).** Wiki dedicada: [[wiki/casos-de-uso/handoff-fila-detalhado]] (193 linhas, completa). D30 em [[wiki/decisoes-chave]].
+
+**Frase para retomar:** "**implementar fila inteligente Sprint A**" — abre o plano e começa pelas migrations.
 
 ---
 

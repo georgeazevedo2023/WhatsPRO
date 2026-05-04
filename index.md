@@ -139,6 +139,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] | 2.8-2.14 | Perfis + NPS + Knowledge Base + Debounce + Greeting + Memória + Contexto Canal + Painel 9 tabs |
 | [[wiki/casos-de-uso/excluded-products-detalhado]] | 7 | D28 — Lista de produtos NÃO vendidos: schema, matcher word-boundary, fallback automático, integração no edge function, validação prod, R88+R89 |
 | [[wiki/casos-de-uso/admin-detalhado]] | 9 | Painel super_admin: 9 páginas (inboxes, users, departments, secrets, docs, roadmap, backup, retention) + 3 edge fns admin-* + 3 camadas de defesa |
+| [[wiki/casos-de-uso/handoff-fila-detalhado]] | 11 | **D30 (especificada, não shippada)** Fila Inteligente de Handoff: 2 modos (ON/OFF), round-robin global, timeout 5min, pausa horário comercial, drag-drop ordem, toggle pause individual, override gestor |
 | [[wiki/casos-de-uso/leads-detalhado]] | 12 (3 sub) | Perfil 25+ campos, badge origem, timeline, block IA, clear context, CSV, auto-criação, funil card, kanban — *particionado 2026-05-04* |
 | [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 (3 sub) | Boards, drag&drop, cards, campos customizáveis, entidades, acesso, IA `move_kanban`, ticket resolution, funis |
 | [[wiki/casos-de-uso/catalogo-detalhado]] | 10 (3 sub) | Tabela, formulário, URL scraping, CSV, batch scrape, imagens, busca fuzzy 4 camadas, categorias, bio link, IA |

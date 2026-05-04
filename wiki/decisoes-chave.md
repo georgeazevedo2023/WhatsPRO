@@ -195,6 +195,10 @@ const VALID_KEYS = buildValidTagKeys(aliasConfig)  // antes: new Set([...80 stri
 
 **Validação:** 9 testes novos em `serviceCategories.test.ts` (99 total, 100%); audit do schema do Eletropiso confirmou que todas as 52 keys dinâmicas são geradas corretamente, incluindo `tipo_tinta` que estava bugado em prod.
 
+## D30 — Fila Inteligente de Handoff (2026-05-04, especificada — NÃO shippada)
+
+2 modos por departamento (Q1): **ON** = round-robin global com cursor atômico (Lucas 1º, drag-drop), timeout 5min, loop infinito + sino gestor. **OFF** = 100% vai pro `default_assignee_id`, gestor-de-chão redistribui manual. Modelo C visibilidade: outros vêem badge "Em fila — Lucas (3:42)" mas só assignee responde, admin/gestor pode override. Horário comercial: pausa relógio + auto-envia `out_of_hours_message`; descongela com 5min completos. Toggle "Expediente Estendido" + calendário exceções. Pause individual no Helpdesk. Sub-decisões: **D-α** fallback dept = `inboxes.default_department_id` (NOVO; profile→funnel→inbox→falha). **D-β** re-handoff respeita histórico (volta pro último assignee se disponível). **D-γ** variável `{handoff_assignee_name}` no `prompt_sections.handoff_text`. Detalhes em [[wiki/casos-de-uso/handoff-fila-detalhado]].
+
 ## Links
 
 [[wiki/erros-e-licoes]] | [[wiki/ai-agent]] | [[wiki/arquitetura]] | [[wiki/arquitetura-docs]] | [[wiki/fluxos-banco-dados]] | [[wiki/fluxos-wireframes-admin]] | [[wiki/decisoes-arquivo-d21-d26]] | [[wiki/decisoes-arquivo-fluxos-v3]] | [[wiki/decisoes-arquivo-m19-s3-s5]]
