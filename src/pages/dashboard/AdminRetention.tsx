@@ -42,6 +42,7 @@ interface CleanupLog {
 
 const AdminRetention = () => {
   const { isSuperAdmin } = useAuth();
+  // Hooks must run unconditionally (Rules of Hooks). Early return goes after.
   const [policies, setPolicies] = useState<RetentionPolicy[]>([]);
   const [logs, setLogs] = useState<CleanupLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,8 +62,13 @@ const AdminRetention = () => {
   }, []);
 
   useEffect(() => {
+    // Don't fetch retention data for non-admin users — RLS would block anyway,
+    // but skipping the round-trip is better UX (audit C4).
+    if (!isSuperAdmin) return;
     fetchAll();
-  }, [fetchAll]);
+  }, [fetchAll, isSuperAdmin]);
+
+  if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
 
   const togglePolicy = async (id: number, field: 'enabled' | 'dry_run', value: boolean) => {
     const policy = policies.find(p => p.id === id);
@@ -128,8 +134,6 @@ const AdminRetention = () => {
       fetchAll();
     }
   };
-
-  if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl">

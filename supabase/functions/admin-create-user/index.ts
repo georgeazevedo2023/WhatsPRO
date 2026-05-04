@@ -1,8 +1,8 @@
 import { getDynamicCorsHeaders } from '../_shared/cors.ts'
-import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
-import { unauthorizedResponse } from '../_shared/auth.ts'
+import { verifySuperAdmin } from '../_shared/auth.ts'
 
 const log = createLogger('admin-create-user')
 
@@ -15,33 +15,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Validate auth
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return unauthorizedResponse(corsHeaders)
-    }
-
-    // Create user-scoped client to verify super_admin
-    const userClient = createUserClient(req)
-
-    const token = authHeader.replace('Bearer ', '')
-    const { data: userData, error: userError } = await userClient.auth.getUser(token)
-
-    if (userError || !userData?.user) {
-      return unauthorizedResponse(corsHeaders)
-    }
-
-    // Check if user is super admin
-    const { data: roleData, error: roleError } = await userClient
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userData.user.id)
-      .eq('role', 'super_admin')
-      .maybeSingle()
-
-    if (roleError || !roleData) {
-      return errorResponse(corsHeaders, 'Forbidden: Super admin required', 403)
-    }
+    // Verify caller is super_admin (M9 — DRY using shared helper).
+    const auth = await verifySuperAdmin(req)
+    if (!auth) return errorResponse(corsHeaders, 'Forbidden: Super admin required', 403)
+    const callerId = auth.userId
 
     // Parse request body
     const body = await req.json()
@@ -102,7 +79,7 @@ Deno.serve(async (req) => {
     if (newUser.user) {
       try {
         await adminClient.rpc('log_admin_action', {
-          p_user_id: userData.user.id,
+          p_user_id: callerId,
           p_action: 'create_user',
           p_target_table: 'auth.users',
           p_target_id: newUser.user.id,
@@ -111,7 +88,7 @@ Deno.serve(async (req) => {
       } catch { /* audit log is non-blocking */ }
     }
 
-    log.info('User created', { email, role: userRole, created_by: userData.user.id })
+    log.info('User created', { email, role: userRole, created_by: callerId })
 
     return successResponse(corsHeaders, {
       success: true,

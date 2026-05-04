@@ -363,11 +363,28 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
   const confirmRoleChange = async () => {
     if (!roleChangeTarget) return;
     const { user, newRole } = roleChangeTarget;
+    const oldRole = user.app_role;
     try {
       const { error } = await supabase
         .from('user_roles')
         .upsert({ user_id: user.id, role: newRole }, { onConflict: 'user_id' });
       if (error) throw error;
+
+      // M17 — Audit log for role change (was missing — promotions had no trail).
+      // Non-blocking: audit failure must not block the success toast.
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user?.id) {
+          await supabase.rpc('log_admin_action', {
+            p_user_id: authData.user.id,
+            p_action: 'change_role',
+            p_target_table: 'user_roles',
+            p_target_id: user.id,
+            p_details: { email: user.email, old_role: oldRole, new_role: newRole },
+          });
+        }
+      } catch { /* audit log is non-blocking */ }
+
       toast.success(`Papel de ${user.full_name || user.email} alterado para ${newRole === 'super_admin' ? 'Super Admin' : newRole === 'gerente' ? 'Gerente' : 'Atendente'}`);
       fetchUsers();
     } catch (err) {

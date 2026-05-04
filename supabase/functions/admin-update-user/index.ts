@@ -1,8 +1,8 @@
 import { getDynamicCorsHeaders } from '../_shared/cors.ts'
-import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
+import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
-import { unauthorizedResponse } from '../_shared/auth.ts'
+import { verifySuperAdmin } from '../_shared/auth.ts'
 
 const log = createLogger('admin-update-user')
 
@@ -14,30 +14,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return unauthorizedResponse(corsHeaders)
-    }
-
-    const userClient = createUserClient(req)
-
-    const token = authHeader.replace('Bearer ', '')
-    const { data: userData, error: userError } = await userClient.auth.getUser(token)
-
-    if (userError || !userData?.user) {
-      return unauthorizedResponse(corsHeaders)
-    }
-
-    const { data: roleData, error: roleError } = await userClient
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userData.user.id)
-      .eq('role', 'super_admin')
-      .maybeSingle()
-
-    if (roleError || !roleData) {
-      return errorResponse(corsHeaders, 'Forbidden: Super admin required', 403)
-    }
+    // Verify caller is super_admin (M9 — DRY using shared helper).
+    const auth = await verifySuperAdmin(req)
+    if (!auth) return errorResponse(corsHeaders, 'Forbidden: Super admin required', 403)
+    const callerId = auth.userId
 
     const body = await req.json()
     const { user_id, email, password, full_name } = body
@@ -85,7 +65,7 @@ Deno.serve(async (req) => {
     // Audit log (non-blocking)
     try {
       await adminClient.rpc('log_admin_action', {
-        p_user_id: userData.user.id,
+        p_user_id: callerId,
         p_action: 'update_user',
         p_target_table: 'auth.users',
         p_target_id: user_id,
@@ -93,7 +73,7 @@ Deno.serve(async (req) => {
       })
     } catch { /* audit log is non-blocking */ }
 
-    log.info('User updated', { user_id, email, updated_by: userData.user.id })
+    log.info('User updated', { user_id, email, updated_by: callerId })
 
     return successResponse(corsHeaders, { success: true })
 
