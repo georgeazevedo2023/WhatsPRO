@@ -20,7 +20,13 @@ type: log
 
 Relatório retificado em `wiki/auditoria-admin-2026-05-04.md` (198 linhas): 1 crítico real (R88 nas edge fns), 20 médios (incluindo M17 audit log faltante em `confirmRoleChange`, M18 mobile não auditado, M19 sem rate limit, M20 i18n), nota recalibrada **6.5/10**, plano de 7 sprints (~10 dias).
 
-**Pendências**: Sprint 1 (R88 fix + smoke tests), C0 fix (search_path) integrado ao plano de banco do Helpdesk.
+### Sprint 1 — Crítico real + Smoke tests (commit `24e1c29`)
+- **C1 R88** corrigido em 3 edge fns: `admin-create-user` (DELETE+INSERT user_roles com `{error}` check + ROLLBACK do auth.user em falha de role insert), `admin-delete-user` (5 cascade steps com warns estruturados — incluindo `inbox_users`+`department_members` antes do `auth.deleteUser`).
+- **ex-C3 sanear catch** nas 3 edge fns: catch 500 retorna "Internal server error" genérico e loga detalhe via `log.error` (não vaza para o cliente).
+- **L10 TeamTab.tsx** deletado (dead file 2 linhas, 0 refs).
+- **AdminPagesGate.test.tsx**: 18 smoke tests novos (cobertura zero → 9 páginas × 2 cenários: redirect/render). Confirmou C4 via warning `act()` — AdminRetention dispara setState antes do redirect.
+- **Auditoria**: tsc 0 erros, deno check 0 erros, vitest 662/670 passam (+18 novos; 5 falhas FormBuilder pré-existentes).
+- **Pendências Sprint 2**: ex-C3+C4 (mover gate AdminRetention), M9 (`verifySuperAdmin` helper), M17 (audit log `confirmRoleChange`), M19 (rate limit), M11 parcial (inbox_users já incluído).
 
 ---
 

@@ -132,10 +132,13 @@ Gating defense-in-depth (`AdminRoute` + guards + RLS), CORS dinâmico + prefligh
 - [x] Auditar RLS de user_roles → A2 falso positivo
 - [x] Criar `admin-detalhado.md`
 
-### Sprint 1 (2 dias) — Crítico real + smoke tests
-- C1 (R88) com `if (error)` + rollback do auth.user em 3 edge fns
-- Smoke tests de gate para 9 páginas Admin* (paralelo ao fix — sem isto, regressão silenciosa)
-- L10 (deletar TeamTab) trivial junto
+### Sprint 1 ✅ — concluído (commit `24e1c29`, 2026-05-04)
+- [x] C1 (R88) em 3 edge fns + rollback auth.user
+- [x] ex-C3 sanear catch nas 3 edge fns
+- [x] L10 deletar TeamTab (0 refs confirmadas)
+- [x] 18 smoke tests novos (`AdminPagesGate.test.tsx`)
+- [x] M11 parcial: DELETE explícito de inbox_users + department_members
+- Auditoria: tsc 0 / deno 0 / vitest 662 (+18 novos; 5 pré-existentes FormBuilder)
 
 ### Sprint 2 (1.5 dias) — Higiene de segurança
 - ex-C3 (sanear catch), ex-C4 (mover gate AdminRetention)
