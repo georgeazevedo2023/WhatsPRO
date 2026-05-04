@@ -46,7 +46,10 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/modulos]] | Todos os modulos (M1-M17) com status |
 | [[wiki/banco-de-dados]] | Tabelas Supabase, RLS, materialized views |
 | [[wiki/integracao-funis]] | Campanhas + Bio + Forms + AI Agent (M15) |
-| [[wiki/uazapi-polls-interativos]] | UAZAPI Mensagens Interativas |
+| [[wiki/uazapi-polls-interativos]] | UAZAPI Mensagens Interativas (índice — particionado 2026-05-04) |
+| [[wiki/uazapi-polls-poll]] | Endpoint `/send/menu` (poll), webhook poll_update, plano de implementação |
+| [[wiki/uazapi-polls-list-quickreply]] | Endpoints `/send/list` e `/send/quickreply` + tabela comparativa |
+| [[wiki/uazapi-polls-casos-uso]] | 5 casos de uso reais (AI Agent, Broadcast, Forms, NPS, Campanha) + troubleshooting |
 | [[wiki/historico-planos/plano-enquetes-polls]] | Plano M17 (histórico): Motor + Funis Agenticos + Enquetes |
 
 ## Wiki — Operacional (sempre consultar)
@@ -151,7 +154,9 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/formularios-construtor]] | 3 | Construtor, 16 Tipos de Campo, 12 Templates Prontos |
 | ↳ [[wiki/casos-de-uso/formularios-execucao]] | 4 | FORM:slug trigger, form-bot session, validações, form-public landing |
 | ↳ [[wiki/casos-de-uso/formularios-integracao]] | 6 | Webhook externo, Auto-criação lead, Contexto AI, "Usado em", Submissões+CSV, Automação |
-| [[wiki/casos-de-uso/bio-link-detalhado]] | 10 | Pagina publica Linktree-style, 5 tipos botao, 3 templates, captacao leads, analytics, contexto IA, agendamento botoes, catalogo, funis |
+| [[wiki/casos-de-uso/bio-link-detalhado]] | 10 (índice) | Particionado 2026-05-04 em 2 sub-wikis abaixo |
+| ↳ [[wiki/casos-de-uso/bio-link-configuracao]] | 4 | Criação/Edição, 5 Tipos de Botão, Página Pública, Gestão e Status |
+| ↳ [[wiki/casos-de-uso/bio-link-operacao]] | 6 | Captação de Leads, Analytics, Contexto IA, Funis, Formulários, Catálogo |
 | [[wiki/casos-de-uso/funis-detalhado]] | 13 (índice) | Particionado 2026-05-04 em 3 sub-wikis abaixo |
 | ↳ [[wiki/casos-de-uso/funis-wizard-tipos]] | 4 | Wizard de Criação, 7 Tipos, Importar Recursos, Sidebar Unificada |
 | ↳ [[wiki/casos-de-uso/funis-operacao-visualizacao]] | 5 | Lista+KPIs, Detalhe+5 Tabs, Tag funil:SLUG, LeadFunnelCard, OriginBadge |
@@ -164,7 +169,9 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/enquetes-nps-criacao-canais]] | 3 | Criação (PollEditor), 4 Canais de Envio, Endpoint UAZAPI |
 | ↳ [[wiki/casos-de-uso/enquetes-nps-respostas-tags]] | 3 | Rastreamento de Respostas, Auto-Tags por Opção (D2), Exibição no Helpdesk |
 | ↳ [[wiki/casos-de-uso/enquetes-nps-metricas-admin]] | 4 | NPS Automático, Notificação Nota Ruim, Dashboard, Configuração Admin |
-| [[wiki/casos-de-uso/fluxos-detalhado]] | 18 | Fluxos v3.0 M18: orquestrador, 12 sprints, 8 subagentes, validator, shadow, metricas, templates, migração por instância, E2E |
+| [[wiki/casos-de-uso/fluxos-detalhado]] | 18 (índice) | Particionado 2026-05-04 em 2 sub-wikis abaixo |
+| ↳ [[wiki/casos-de-uso/fluxos-orquestrador-subagentes]] | 12 | Criação (form/guiada/templates), Gatilhos, Intent Detector, 7 Subagentes |
+| ↳ [[wiki/casos-de-uso/fluxos-templates-metricas-migracao]] | 6 | Validator, Shadow Mode, Métricas, Migração Gradual, E2E, Memory Service |
 | [[wiki/casos-de-uso/agendamentos-detalhado]] | 6 | Unico/recorrente (diario/semanal/mensal), delay anti-ban, tipos agendaveis, gestao status, edge function processamento |
 | [[wiki/casos-de-uso/dashboard-detalhado]] | 8 | KPIs principais, graficos, performance atendentes, tempo resposta IA/humano, Intelligence (analise IA), filtros, shift reports |
 | [[wiki/casos-de-uso/agent-qa-detalhado]] | 8 | Batches, 30+ cenarios, score composto (4 fatores), aprovacao humana, regressao, ciclo automatizado, playground, historico |
