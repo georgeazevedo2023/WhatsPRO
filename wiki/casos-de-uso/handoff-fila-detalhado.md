@@ -9,7 +9,7 @@ updated: 2026-05-04
 
 > Quando a IA decide transbordar (ex: lead pediu humano, qualificação completa, validator block), em vez de deixar a conversa "livre" para qualquer atendente pegar (estado atual: `conversations.assigned_to = NULL`), o sistema **atribui automaticamente** a um vendedor específico seguindo regras configuráveis. Inclui timeout com reatribuição, pausa em horário não-comercial e modo manual via gestor.
 >
-> **Status: Sprint A + B shipped 2026-05-04 (DB + edge fn `assign-handoff` + 6 paths em ai-agent integrados com try/catch + D-α dept resolution + D-β re-handoff + D-γ `{handoff_assignee_name}`). Pendente: deploy edge fns. Sprints C-H pendentes.**
+> **Status: Sprint A + B shipped 2026-05-04 e DEPLOYADAS em prod (ai-agent v174 + assign-handoff v1). DB + edge fns + 6 paths em ai-agent integrados com try/catch + D-α/β/γ. Smoke ao vivo: `pick_next_assignee` retorna user válido, cursor avança, gate de auth funcionando. Aguarda 1 handoff real (lead via WhatsApp) para validar end-to-end no helpdesk. Sprints C-H pendentes.**
 
 ---
 
@@ -158,7 +158,7 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 | Sprint | Escopo | h |
 |:-:|---|:-:|
 | ✅ **A** | 5 migrations + RPC `pick_next_assignee` (atômico) — *shipped 2026-05-04* | 3.5 |
-| ✅ **B** | `_shared/handoffQueue.ts` + `_shared/handoffDepartment.ts` + edge fn `assign-handoff` (wrapper HTTP fino) + integração nos 6 paths em ai-agent com try/catch + D-α dept resolution + D-β re-handoff + D-γ `{handoff_assignee_name}` — *shipped 2026-05-04, deploy pendente* | 5 |
+| ✅ **B** | `_shared/handoffQueue.ts` + `_shared/handoffDepartment.ts` + edge fn `assign-handoff` (wrapper HTTP fino) + integração nos 6 paths em ai-agent com try/catch + D-α dept resolution + D-β re-handoff + D-γ `{handoff_assignee_name}` — *shipped 2026-05-04, deployadas em prod (ai-agent v174, assign-handoff v1)* | 5 |
 | **C** | `requeue-conversations` cron + lógica horário + atendente órfão + Realtime broadcast | 5 |
 | **D** | DepartmentsTab QueueConfig + AdminInboxes default_dept + audit logs (4 actions novas) | 3 |
 | **E** | Modo Estendido (toggle) + ALLOWED_FIELDS update + system_settings defaults | 2.5 |

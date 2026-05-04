@@ -42,6 +42,18 @@ Aterrissar o backend da Fila (HIGH RISK em `ai-agent/index.ts`, 6 paths) com fal
 - **Sprint C:** cron `requeue-conversations` (timeout reattribution + pausa horário comercial + sino gestor por volta).
 - **Sprint D:** admin UI (DepartmentsTab QueueConfig + AdminInboxes default_dept).
 
+### Deploy ao vivo (autorizado pelo user)
+- `npx supabase functions deploy ai-agent` → v173 → **v174** ✅
+- `npx supabase functions deploy assign-handoff` → **v1** ✅ (novo)
+
+### Smoke ao vivo (em prod)
+- `OPTIONS /assign-handoff` → 200 (CORS preflight OK)
+- `POST /assign-handoff` sem auth → 401 (gate funcionando)
+- `POST /assign-handoff` com anon key legacy → 401 (anon key local não bate com `SUPABASE_ANON_KEY` do env das fns; **não-bloqueante** — gate de auth está funcionando, e cron + helpdesk usarão service_role na Sprint C/F).
+- `pick_next_assignee` ao vivo no banco: retornou `user_id` válido + cursor avançou para 40 (4ª posição). Resetado para 0 após smoke.
+- `handoff_queue_events` vazia (nenhum handoff real disparou ainda; aguarda lead enviar mensagem via WhatsApp).
+- 0 erros nos logs do ai-agent v174 desde deploy.
+
 ### Frase para retomar
 "implementar fila inteligente Sprint C" — cron de requeue + lógica horário comercial.
 
