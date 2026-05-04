@@ -55,7 +55,8 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 |--------|--------|
 | [[wiki/roadmap]] | Milestones, fases, status, proximos passos |
 | [[wiki/erros-e-licoes]] | Bugs e regras preventivas (consultar SEMPRE) |
-| [[wiki/decisoes-chave]] | Decisoes D1-D15, padroes, seguranca |
+| [[wiki/decisoes-chave]] | Decisões ativas (D27, D28, D29) + regras integridade/SYNC/CORS/HIGH RISK |
+| [[wiki/decisoes-arquivo-d21-d26]] | Arquivado: D21 Helpdesk Permissões, D22-D25 DB Monitoring, D26 v2 Service Categories, Auditoria Helpdesk 2026-04-14 |
 | [[wiki/deploy-checklist]] | Checklist obrigatorio de deploy |
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |
 | [[wiki/protocolo-subagentes]] | Como dividir tarefas em ondas paralelas — 4 passos + regras de conflito |
