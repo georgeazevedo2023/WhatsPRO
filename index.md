@@ -1,6 +1,6 @@
 ---
 title: WhatsPRO — Master Index
-updated: 2026-04-30
+updated: 2026-05-04
 type: index
 ---
 
@@ -67,7 +67,8 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/log-arquivo-2026-04-27-a-28-m19-s10]] | M19-S10 v1+v2+v3 (Service Categories Stages+Score) + Deploy 16 commits represados (2026-04-27 a 04-28) |
 | [[wiki/handoff-2026-04-27]] | HANDOFF da sessão 2026-04-27 — Auditoria geral + M19-S10 v2 Service Categories shipped |
 | [[wiki/log-arquivo-2026-04-29-eletropiso]] | Sprint Eletropiso 23 categorias + 7 fixes ai-agent (v162→v169) + BusinessHoursEditor + audit vault (2026-04-29) |
-| [[log.md]] | **Sessão atual 2026-04-30** — D28 Excluded Products + R85/R86/R87/R88 fix handoffs duplicados + UI bug fixes + validação prod |
+| [[wiki/log-arquivo-2026-04-30-d28-d29-avatares]] | D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + R85/R86/R87/R88 (2026-04-30) |
+| [[log.md]] | **Sessão atual 2026-05-02 → 2026-05-03** — Auditoria profunda Helpdesk (nota 7.4/10) + 14 melhorias UX + Top tabs viram ESCOPO + Header mobile-first + Equipe gerenciar deptos inline + redesign expanded view |
 | [[wiki/melhorias-auditoria-2026-04-27]] | Auditoria 2026-04-27: 24 bugs + 210 melhorias (índice geral) |
 | [[wiki/auditoria-helpdesk-2026-05-02]] | Auditoria profunda Helpdesk + Banco (2026-05-02): nota 7.4/10, 6 sprints de plano de ação |
 | [[wiki/melhorias-helpdesk-2026-05-02]] | 20 Melhorias do Helpdesk: duplicações, inconsistências, UI (5 quick wins shipados 2026-05-02) |
@@ -174,4 +175,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Última atualização: 2026-04-30 — D28 Excluded Products shipped (UI editável de produtos não vendidos + matcher word-boundary + fallback automático), R85+R86 fix handoffs duplicados Josafa, R87+R88+R89 promovidas (CHECK constraint silent fail + UI controlled input bug). **D29 VALID_KEYS dinâmico (R84 resolvido)** — `buildValidTagKeys()` em `_shared/serviceCategories.ts` combina base de sistema com `stages.fields[].key` da config; bug ativo do `tipo_tinta` no Eletropiso resolvido. Edge function ai-agent v170→v172→v173 (v173 D29 deploy via CLI confirmado). Bundle prod `index-CFmkOcne.js`. 56 testes (47 D28 + 9 D29), 100% pass. Validação real em prod com lead George. log.md rotacionado novamente (entrada 2026-04-29 → archive). Próximo: deploy v173 + cadastrar mais excluded products + considerar wiki/casos-de-uso/excluded-products-detalhado.*
+*Última atualização: 2026-05-04 (auditoria de vault) — Estado atual: PRD v7.20.3, M19 ativo (S6/S7/S9 abertos). Sessões recentes: **v7.19.0 Auditoria Profunda Helpdesk** (nota 7.4/10, 14 melhorias UX shipadas em 6 ondas, trigger DB centraliza last_message_at), **v7.20.0 Top tabs viram ESCOPO** (Minhas/Não atribuídas/Todas), **v7.20.1 Header mobile-first** (HIG compliant, drop título redundante, inbox como pill), **v7.20.2 Equipe gerenciar deptos inline**, **v7.20.3 redesign expanded view** (cards por caixa, fix link 404). Bundle prod `index-CFmkOcne.js`, ai-agent v173 deployado em prod. **Pendência operacional**: 1 commit não-pushado (`5679edd`).*

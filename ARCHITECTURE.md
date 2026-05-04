@@ -27,7 +27,7 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 | `gerente` | Gerencia equipe dentro dos inboxes atribuidos, CRM, leads |
 | `user` | Atende conversas nos inboxes atribuidos |
 
-## Edge Functions (38 total)
+## Edge Functions (39 total)
 
 Located in `supabase/functions/`. Deno runtime.
 
@@ -77,7 +77,7 @@ npx supabase functions deploy <name>  # Deploy edge function
 
 Ver wiki/modulos.md para detalhes. Resumo: M1 WhatsApp, M2 Helpdesk, M3 Broadcast, M4/M11 Leads, M5 CRM Kanban, M6 Catalogo, M7 Campanhas UTM, M8 Dashboard, M9 Agendamentos, M10 AI Agent, M12 WhatsApp Forms, M13 Campanhas+Forms, M14 Bio Link, M15 Integracao Funis, M16 Funis, M17 Plataforma Inteligente (Motor+Agentico+Perfis+Enquetes+NPS), M18 Fluxos v3.0, M19 Plataforma de Metricas & IA Conversacional + DB Monitoring.
 
-## Documentacao Detalhada (21 Wikis em wiki/casos-de-uso/)
+## Documentacao Detalhada (31 Wikis em wiki/casos-de-uso/)
 
 Guias detalhados com padrao dual (didatico + tecnico) em `wiki/casos-de-uso/`:
 - `helpdesk-detalhado.md` — 25 sub-func (etiquetas, tags, notas, toggle IA, status, bulk, templates, midia)

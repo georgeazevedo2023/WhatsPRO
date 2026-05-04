@@ -1,6 +1,6 @@
 # WhatsPRO — Quick Brief for External Agents
 
-> Concise English overview for AI agents (Claude Code, Cursor, Copilot Workspace) onboarding to the codebase. Updated 2026-04-27.
+> Concise English overview for AI agents (Claude Code, Cursor, Copilot Workspace) onboarding to the codebase. Updated 2026-05-04.
 
 ## Overview
 
@@ -43,7 +43,7 @@ React Frontend → Supabase Client (DB, Auth, Realtime, Storage)
 
 **Capture & Funnels:** M7 UTM Campaigns, M14 Bio Link, M15 Funnel Integration, M16 Funnels (Fusão Total — orchestrates campaigns + bio + forms + kanban)
 
-**Analytics & Operations:** M8 Dashboard / Intelligence, M9 Scheduled Messages / Templates, M19 Manager Dashboard + Conversational AI Assistant + DB Monitoring & Auto-Cleanup
+**Analytics & Operations:** M8 Dashboard / Intelligence, M9 Scheduled Messages / Templates, M19 Manager Dashboard + Conversational AI Assistant + DB Monitoring & Auto-Cleanup + Service Categories Stages+Score (S10 v2/v3) + Excluded Products (D28) + dynamic VALID_KEYS (D29) + Avatares em Storage (resolves WhatsApp CDN 403)
 
 ## AI Agent (M10) — 9 tools
 
@@ -65,7 +65,7 @@ React Frontend → Supabase Client (DB, Auth, Realtime, Storage)
 
 **Shadow mode:** after handoff, `status_ia='shadow'` — extracts data without responding to lead. NEVER overwrites `full_name`.
 
-## Edge Functions (38 total)
+## Edge Functions (39 total)
 
 Located in `supabase/functions/`. Deno runtime.
 
@@ -119,7 +119,7 @@ Located in `supabase/functions/`. Deno runtime.
 - **`RULES.md`** — Detailed rules (integrity, delivery, SYNC RULE, CORS)
 - **`ARCHITECTURE.md`** — Tech reference
 - **`PATTERNS.md`** — Implementation patterns by area
-- **`wiki/`** — 21 detailed case-of-use docs + visão produto + arquitetura + module wikis
+- **`wiki/`** — 31 detailed case-of-use docs + visão produto + arquitetura + module wikis
 
 ## Development
 
