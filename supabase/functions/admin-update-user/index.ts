@@ -98,8 +98,8 @@ Deno.serve(async (req) => {
     return successResponse(corsHeaders, { success: true })
 
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error'
-    log.error('Error', { error: errorMessage })
-    return errorResponse(corsHeaders, errorMessage, 500)
+    const errorMessage = error instanceof Error ? error.message : 'unknown'
+    log.error('Unhandled error', { error: errorMessage })
+    return errorResponse(corsHeaders, 'Internal server error', 500)
   }
 })

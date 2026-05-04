@@ -66,12 +66,36 @@ Deno.serve(async (req) => {
       return errorResponse(corsHeaders, createError.message, 400)
     }
 
-    // Insert the assigned role (replaces the default 'user' inserted by the trigger)
+    // Insert the assigned role (replaces the default 'user' inserted by the trigger).
+    // R88: Supabase JS does NOT throw on RLS/CHECK violations — must check {error} explicitly.
     if (newUser.user) {
-      // Remove default role inserted by handle_new_user trigger
-      await adminClient.from('user_roles').delete().eq('user_id', newUser.user.id)
-      // Insert the correct role
-      await adminClient.from('user_roles').insert({ user_id: newUser.user.id, role: userRole })
+      const { error: delRoleError } = await adminClient
+        .from('user_roles')
+        .delete()
+        .eq('user_id', newUser.user.id)
+
+      if (delRoleError) {
+        // Default role removal failed; log but don't rollback (trigger may not have inserted yet).
+        log.warn('Failed to remove default role', { user_id: newUser.user.id, error: delRoleError.message })
+      }
+
+      const { error: insRoleError } = await adminClient
+        .from('user_roles')
+        .insert({ user_id: newUser.user.id, role: userRole })
+
+      if (insRoleError) {
+        // Role assignment failed — auth user exists but has no role. Rollback to avoid orphan.
+        log.error('Role insert failed — rolling back auth user', {
+          user_id: newUser.user.id,
+          email,
+          requested_role: userRole,
+          error: insRoleError.message,
+        })
+        await adminClient.auth.admin.deleteUser(newUser.user.id).catch((rollbackErr) => {
+          log.error('Rollback failed — orphan auth user', { user_id: newUser.user.id, error: String(rollbackErr) })
+        })
+        return errorResponse(corsHeaders, 'Failed to assign role', 500)
+      }
     }
 
     // Audit log: record admin action (non-blocking)
@@ -98,8 +122,9 @@ Deno.serve(async (req) => {
     })
 
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error'
-    log.error('Error', { error: errorMessage })
-    return errorResponse(corsHeaders, errorMessage, 500)
+    // Don't leak internal error messages to the client (defense in depth).
+    const errorMessage = error instanceof Error ? error.message : 'unknown'
+    log.error('Unhandled error', { error: errorMessage })
+    return errorResponse(corsHeaders, 'Internal server error', 500)
   }
 })

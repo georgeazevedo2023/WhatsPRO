@@ -59,25 +59,27 @@ Deno.serve(async (req) => {
     // Create admin client with service role
     const adminClient = createServiceClient()
 
-    // Delete user instance access first
-    await adminClient
-      .from('user_instance_access')
-      .delete()
-      .eq('user_id', user_id)
+    // Cascade delete from public tables before auth.users.
+    // R88: Supabase JS does NOT throw on RLS/CHECK errors — must check {error} explicitly.
+    // Each step logs a structured warning on failure but continues — auth.deleteUser is the
+    // final source of truth; partial cascade leaves orphan rows that can be reconciled later.
+    const cascade = [
+      { table: 'user_instance_access', col: 'user_id' as const },
+      { table: 'inbox_users',          col: 'user_id' as const },
+      { table: 'department_members',   col: 'user_id' as const },
+      { table: 'user_roles',           col: 'user_id' as const },
+      { table: 'user_profiles',        col: 'id' as const },
+    ]
 
-    // Delete user roles
-    await adminClient
-      .from('user_roles')
-      .delete()
-      .eq('user_id', user_id)
+    for (const { table, col } of cascade) {
+      // deno-lint-ignore no-explicit-any
+      const { error: stepError } = await (adminClient as any).from(table).delete().eq(col, user_id)
+      if (stepError) {
+        log.warn('Cascade delete failed', { table, user_id, error: stepError.message })
+      }
+    }
 
-    // Delete user profile
-    await adminClient
-      .from('user_profiles')
-      .delete()
-      .eq('id', user_id)
-
-    // Delete auth user
+    // Delete auth user (this is the source of truth — if it succeeds, the user is gone)
     const { error: deleteError } = await adminClient.auth.admin.deleteUser(user_id)
 
     if (deleteError) {
@@ -100,8 +102,8 @@ Deno.serve(async (req) => {
     return successResponse(corsHeaders, { success: true })
 
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error'
-    log.error('Error', { error: errorMessage })
-    return errorResponse(corsHeaders, errorMessage, 500)
+    const errorMessage = error instanceof Error ? error.message : 'unknown'
+    log.error('Unhandled error', { error: errorMessage })
+    return errorResponse(corsHeaders, 'Internal server error', 500)
   }
 })
