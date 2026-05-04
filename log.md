@@ -7,6 +7,23 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-04 (Auditoria de vault + Módulo Admin)
+
+### Auditoria de vault (manhã)
+8 commits empurrados: rotação log.md (354→201), particionamento de 15 wikis (decisoes-chave + 14 casos-de-uso), criação de 40+ sub-wikis. Vault ≤ 200 linhas em todos os arquivos críticos. PRD header sincronizado. AGENTS.md atualizado. 1 commit pendente pushado. Detalhe: vide commits 9401304 → a8c7d6a.
+
+### Auditoria Módulo Admin (tarde)
+3 agentes paralelos auditaram páginas/componentes/edge fns. Nota original 7.0/10. Auto-auditoria revelou severidades infladas — 6 "críticos" → 1 real. **Sprint 0 executado**:
+- **0a** SQL na prod confirmou RLS rigorosa em `user_roles` — A2 (`confirmRoleChange` upsert direto) é **falso positivo**.
+- **0b** Achado novo (cross-cutting): `is_super_admin` SECURITY DEFINER **sem `SET search_path`** — gatekeeper do admin todo. Mesma dívida das 5 funções já mapeadas em auditoria-helpdesk-2026-05-02. **C0 prioridade A1**.
+- **0c** Wiki `casos-de-uso/admin-detalhado.md` criada (125 linhas) — fecha gap REGRA ZERO.
+
+Relatório retificado em `wiki/auditoria-admin-2026-05-04.md` (198 linhas): 1 crítico real (R88 nas edge fns), 20 médios (incluindo M17 audit log faltante em `confirmRoleChange`, M18 mobile não auditado, M19 sem rate limit, M20 i18n), nota recalibrada **6.5/10**, plano de 7 sprints (~10 dias).
+
+**Pendências**: Sprint 1 (R88 fix + smoke tests), C0 fix (search_path) integrado ao plano de banco do Helpdesk.
+
+---
+
 ## 2026-05-03 (Helpdesk — Top tabs viram ESCOPO)
 
 ### Goal & contexto

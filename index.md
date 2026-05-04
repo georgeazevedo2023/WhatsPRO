@@ -82,6 +82,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[log.md]] | **Sessão atual 2026-05-02 → 2026-05-03** — Auditoria profunda Helpdesk (nota 7.4/10) + 14 melhorias UX + Top tabs viram ESCOPO + Header mobile-first + Equipe gerenciar deptos inline + redesign expanded view |
 | [[wiki/melhorias-auditoria-2026-04-27]] | Auditoria 2026-04-27: 24 bugs + 210 melhorias (índice geral) |
 | [[wiki/auditoria-helpdesk-2026-05-02]] | Auditoria profunda Helpdesk + Banco (2026-05-02): nota 7.4/10, 6 sprints de plano de ação |
+| [[wiki/auditoria-admin-2026-05-04]] | Auditoria profunda Módulo Admin (2026-05-04): nota 6.5/10 (recalibrada), 7 sprints, 1 crítico real (C1 R88) + 20 médios. Sprint 0 confirmou RLS user_roles rigorosa (A2 falso positivo) |
 | [[wiki/melhorias-helpdesk-2026-05-02]] | 20 Melhorias do Helpdesk: duplicações, inconsistências, UI (5 quick wins shipados 2026-05-02) |
 | [[wiki/melhorias-modulos-comunicacao]] | Melhorias: Helpdesk, Broadcast, Forms (30 itens) |
 | [[wiki/melhorias-modulos-inteligencia]] | Melhorias: AI Agent, Profiles, Motor, Enquetes/NPS, Fluxos (50 itens) |
@@ -137,6 +138,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | ↳ [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] | 2.5-2.7 | Validator Agent (supervisor) + TTS (voz) + Prompt Studio (9 seções editáveis) |
 | ↳ [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] | 2.8-2.14 | Perfis + NPS + Knowledge Base + Debounce + Greeting + Memória + Contexto Canal + Painel 9 tabs |
 | [[wiki/casos-de-uso/excluded-products-detalhado]] | 7 | D28 — Lista de produtos NÃO vendidos: schema, matcher word-boundary, fallback automático, integração no edge function, validação prod, R88+R89 |
+| [[wiki/casos-de-uso/admin-detalhado]] | 9 | Painel super_admin: 9 páginas (inboxes, users, departments, secrets, docs, roadmap, backup, retention) + 3 edge fns admin-* + 3 camadas de defesa |
 | [[wiki/casos-de-uso/leads-detalhado]] | 12 (3 sub) | Perfil 25+ campos, badge origem, timeline, block IA, clear context, CSV, auto-criação, funil card, kanban — *particionado 2026-05-04* |
 | [[wiki/casos-de-uso/crm-kanban-detalhado]] | 11 (3 sub) | Boards, drag&drop, cards, campos customizáveis, entidades, acesso, IA `move_kanban`, ticket resolution, funis |
 | [[wiki/casos-de-uso/catalogo-detalhado]] | 10 (3 sub) | Tabela, formulário, URL scraping, CSV, batch scrape, imagens, busca fuzzy 4 camadas, categorias, bio link, IA |
