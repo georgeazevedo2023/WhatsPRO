@@ -100,3 +100,7 @@ verify_jwt = false
 # Called by cron (requeue-conversations) and helpdesk gestor manual reassign — manual auth inside
 [functions.assign-handoff]
 verify_jwt = false
+
+# Cron job (1min) — D30 Fila Inteligente
+[functions.requeue-conversations]
+verify_jwt = false

@@ -159,7 +159,7 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 |:-:|---|:-:|
 | ✅ **A** | 5 migrations + RPC `pick_next_assignee` (atômico) — *shipped 2026-05-04* | 3.5 |
 | ✅ **B** | `_shared/handoffQueue.ts` + `_shared/handoffDepartment.ts` + edge fn `assign-handoff` (wrapper HTTP fino) + integração nos 6 paths em ai-agent com try/catch + D-α dept resolution + D-β re-handoff + D-γ `{handoff_assignee_name}` — *shipped 2026-05-04, deployadas em prod (ai-agent v174, assign-handoff v1)* | 5 |
-| **C** | `requeue-conversations` cron + lógica horário + atendente órfão + Realtime broadcast | 5 |
+| ✅ **C** | `_shared/businessHours.ts` (helper isOutsideBusinessHours) + edge fn `requeue-conversations` (cron 1min, 5 cases A-E + reativação de pausados) + migration `pg_cron` schedule + Realtime broadcast `queue-update` — *code-complete 2026-05-04, deploy + cron-apply pendentes de autorização* | 5 |
 | **D** | DepartmentsTab QueueConfig + AdminInboxes default_dept + audit logs (4 actions novas) | 3 |
 | **E** | Modo Estendido (toggle) + ALLOWED_FIELDS update + system_settings defaults | 2.5 |
 | **F** | Helpdesk: pause toggle + badge fila + Reatribuir gestor + Realtime updates | 3 |

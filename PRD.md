@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.22.0 | **Última atualização**: 2026-05-04 | **Status**: Produção + OpenAI gpt-4.1-mini + 40 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B (DB + Backend)**
+> **Versão**: 7.23.0 | **Última atualização**: 2026-05-04 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B (DB + Backend)**
 
 ## Visão Geral
 
@@ -39,6 +39,40 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.23.0 (2026-05-04) — D30 Fila Inteligente — Sprint C (Cron + Horário Comercial)
+
+**Goal:** processar timeouts da fila a cada minuto, pausar em horário não-comercial (auto-envia `out_of_hours_message` 1x), detectar atendente órfão, reativar quando expediente volta com 5min completos (Q5), notificar gestor em loop completo.
+
+**Arquivos novos:**
+- `supabase/functions/_shared/businessHours.ts` — `isOutsideBusinessHours(business_hours, extended_hours_until)` extraído do ai-agent (que continua com versão inline; refatoração DRY fica para Sprint H). Suporta formato weekly + legacy + Modo Estendido.
+- `supabase/functions/requeue-conversations/index.ts` — cron 1min. **Parte 1**: para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND paused_at IS NULL`, decide entre 5 destinos:
+  - **(A)** atendente saiu do dept (`department_members` deletada) → `status=timed_out` + `pick_next_assignee` (skip do antigo) + UPDATE `conversations.assigned_to`.
+  - **(B)** horário comercial fechou → `paused_at = now()` + envia `out_of_hours_message` UMA VEZ via UAZAPI (flag `out_of_hours_msg_sent`).
+  - **(C)** atendente respondeu (1+ outgoing após `event.created_at + 5s` de grace) → `status='responded'`.
+  - **(D)** timeout default → `status=timed_out` + reatribuição como (A).
+  - **(E)** se nova `rotation_number > membros elegíveis` → notifica gestores (super_admin + gerente) via `notifications` table.
+  - Sem atendente elegível → notifica gestores também.
+- **Parte 2** (mesma fn): para cada evento `paused_at IS NOT NULL`, se horário **reabriu** → `paused_at=null` + `expires_at=now()+timeout_min` (5min completos, regra Q5 — não saldo restante).
+- `supabase/functions/assign-handoff/index.ts` reusado pra atribuir o novo evento (helper `assignHandoff`).
+- `Realtime broadcast` `queue-update` em 4 eventos: `paused`, `responded`, `reattributed`, `resumed`, `no_eligible` — pra Helpdesk atualizar badge "Em fila — Lucas (3:42)" sem refresh.
+- Migration `20260504000008_handoff_queue_cron.sql` — `cron.schedule('handoff-queue-requeue', '* * * * *', ...)` chamando edge fn com Bearer ANON_KEY do vault. Idempotente (`unschedule` antes).
+
+**Auditoria:**
+- `npx tsc --noEmit` = 0 erros.
+- `deno check` em `businessHours.ts` + `requeue-conversations/index.ts` = OK.
+- `npx vitest run` = 662 passam, 5 falhas pré-existentes em FormBuilder (sem regressão).
+
+**SYNC RULE auditada:** banco N/A (sem schema novo) | types.ts N/A | admin UI Sprint D | ALLOWED_FIELDS N/A | backend ✅ | prompt N/A | system_settings N/A | docs ✅.
+
+**Pendências:**
+- Deploy `requeue-conversations` em prod (`supabase functions deploy`) — não automatizado, requer autorização explícita.
+- Aplicar migration `20260504000008_handoff_queue_cron.sql` em prod — cron começa a rodar a cada 1min (idempotente).
+- Smoke ao vivo: criar handoff_queue_event manualmente com `expires_at < now()`, verificar reatribuição via cron.
+
+**Detalhes:** `wiki/casos-de-uso/handoff-fila-detalhado.md`, `wiki/decisoes-chave.md` (D30).
+
+---
 
 ### v7.22.0 (2026-05-04) — D30 Fila Inteligente de Handoff — Sprint B (Backend)
 
