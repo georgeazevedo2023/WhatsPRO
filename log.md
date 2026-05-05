@@ -7,32 +7,46 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
-## 2026-05-05 — PAUSA DE SESSÃO (handoff antes de limpar contexto)
+## 2026-05-05 (Sprint G — Fila Inteligente D30, Tests + Retention Policy)
 
-### Estado D30 ao pausar
+### Goal
+Destravar cobertura dos artefatos novos antes de Sprint E mexer em estado: 53 testes Vitest novos (helpers backend + hook frontend) + entrada de retention policy `handoff_queue_events` (90 dias, OFF/dry_run por defesa).
+
+### Arquivos novos
+- `supabase/functions/_shared/__tests__/handoffDepartment.test.ts` — 6 testes (cascade D-α, edge cases null/undefined/string vazia).
+- `supabase/functions/_shared/__tests__/businessHours.test.ts` — 17 testes (extended override, weekly open=true/false, faixa normal vs invertida atravessa-meia-noite, legacy, 24/7). TZ-safe via `vi.useFakeTimers + setSystemTime` em UTC; SP wall-clock derivado pelo Intl.
+- `supabase/functions/_shared/__tests__/handoffQueue.test.ts` — 20 testes (`assignHandoff` Modo OFF/ON/D-β + falha + `applyAssigneeNameTemplate`).
+- `src/hooks/__tests__/useActiveQueueEvents.test.ts` — 10 testes (fetch + secondsRemaining paused/zero/positivo + realtime subscribe + formatCountdown).
+- `supabase/migrations/20260505000001_handoff_queue_retention_policy.sql` — seed policy id=8 (90d, enabled=false, dry_run=true, backup=false).
+
+### Smoke em prod
+- ✅ `apply_migration` da policy: id=8 inserida
+- ✅ `is_table_protected('handoff_queue_events')` = `false` (não-core)
+- ✅ 3 índices + pkey na tabela (`active_expires`, `assigned_active`, `conversation`)
+- ✅ `apply_retention_policy(8)` dry-run: `candidate_count=0, deleted_count=0`, sem erro (0 events ainda — nenhum handoff real disparou desde A/B/C/F)
+- ✅ Log persistido em `db_cleanup_log`
+
+### Auditoria
+- `npx tsc --noEmit` = 0 erros
+- `npx vitest run` = **715 passam (+53 novos)**, 5 falhas pré-existentes em FormBuilder idênticas ao Sprint F (sem regressão)
+
+### Estado D30 atualizado
 | Sprint | Status |
 |---|---|
 | A — DB schema + RPC `pick_next_assignee` | ✅ em prod |
-| B — backend ai-agent (6 paths) + edge fn `assign-handoff` | ✅ em prod (ai-agent v174 + assign-handoff v1) |
-| C — cron `requeue-conversations` | ✅ em prod (jobid 12, ticking 200 OK) + hotfix R92 vault |
-| D — admin UI (`QueueConfig` + select default_dept) | ✅ em prod (push) |
-| F — helpdesk UI (badge + pause toggle + cancel queue) | ✅ em prod (push `b04fc5c`) |
+| B — backend ai-agent (6 paths) + edge fn `assign-handoff` | ✅ em prod (v174 + v1) |
+| C — cron `requeue-conversations` | ✅ em prod (jobid 12) |
+| D — admin UI (`QueueConfig` + select default_dept) | ✅ em prod |
+| F — helpdesk UI (badge + pause toggle + cancel queue) | ✅ em prod |
+| **G — tests + retention policy** | ✅ shipped 2026-05-05 |
 | E — modo estendido (`extended_hours_until` UI) | ⏸ pendente (~2.5h) |
-| G — tests Vitest + retention policy entry + smoke E2E | ⏸ pendente (~2.5h) |
 | H — wikis finais + cross-refs | ⏸ pendente (~2h) |
 
-### Working tree
-Limpo. `origin/master` em sync (commits `5679edd`, `f1ef438`, `f92ef71`, `83aa119`, `c5f73bf`, `692d65b`, `46b164e`, `b04fc5c` todos pushados).
+### SYNC RULE
+banco ✅ (1 INSERT seed) | types.ts N/A | admin UI N/A (AdminRetention já lista todas via select * em db_retention_policies) | ALLOWED_FIELDS N/A | backend N/A | prompt N/A | system_settings N/A | docs ✅
 
 ### Frase para retomar
-- **"implementar fila inteligente Sprint E"** — admin pode estender horário comercial pontualmente (`ai_agents.extended_hours_until`). ~2.5h. UI no AIAgentTab + ALLOWED_FIELDS update + system_settings defaults.
-- **"implementar fila inteligente Sprint G"** — Vitest dos novos hooks (`useActiveQueueEvents`, `handoffQueue`, `businessHours`) + entrada em `db_retention_policies` para `handoff_queue_events` (90 dias) + smoke E2E manual de handoff real. ~2.5h.
-- **"implementar fila inteligente Sprint H"** — wikis finais + cross-refs decisoes/erros/handoff-fila + cleanup R36/R91/R92/D30. ~2h.
-
-Recomendação ao retomar: **G antes de E** — destrava cobertura de teste antes de novas features (Sprint E adiciona estado).
-
-### Memory atualizada
-- `~/.claude/projects/.../memory/project_d30_fila_sprint_a.md` (apesar do nome legacy, contém estado de A+B+C+D+F).
+"implementar fila inteligente Sprint E" — Modo Estendido (`ai_agents.extended_hours_until` UI no AIAgentTab + ALLOWED_FIELDS update + system_settings defaults). ~2.5h. OU "Sprint H" — wikis finais + cross-refs decisoes/erros/handoff-fila + cleanup. ~2h.
 
 ---
 

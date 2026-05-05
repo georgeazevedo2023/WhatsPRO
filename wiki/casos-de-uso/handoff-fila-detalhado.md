@@ -2,14 +2,14 @@
 title: Handoff com Fila Inteligente — Documentação Detalhada
 tags: [handoff, fila, queue, departments, timeout, business-hours, round-robin, m20]
 sources: [supabase/functions/ai-agent/index.ts, src/components/admin/, src/pages/dashboard/Admin*]
-updated: 2026-05-04
+updated: 2026-05-05
 ---
 
 # Handoff com Fila Inteligente — Distribuição Automática de Atendimentos
 
 > Quando a IA decide transbordar (ex: lead pediu humano, qualificação completa, validator block), em vez de deixar a conversa "livre" para qualquer atendente pegar (estado atual: `conversations.assigned_to = NULL`), o sistema **atribui automaticamente** a um vendedor específico seguindo regras configuráveis. Inclui timeout com reatribuição, pausa em horário não-comercial e modo manual via gestor.
 >
-> **Status: Sprint A + B shipped 2026-05-04 e DEPLOYADAS em prod (ai-agent v174 + assign-handoff v1). DB + edge fns + 6 paths em ai-agent integrados com try/catch + D-α/β/γ. Smoke ao vivo: `pick_next_assignee` retorna user válido, cursor avança, gate de auth funcionando. Aguarda 1 handoff real (lead via WhatsApp) para validar end-to-end no helpdesk. Sprints C-H pendentes.**
+> **Status: Sprints A+B+C+D+F+G shipped (2026-05-04 a 05-05). DB + 2 edge fns deployadas (ai-agent v174 + assign-handoff v1 + cron requeue-conversations) + admin UI + helpdesk UI + 53 testes Vitest + retention policy seed. Aguarda 1 handoff real para validar E2E no helpdesk. Sprints E (modo estendido) e H (wikis finais) pendentes.**
 
 ---
 
@@ -162,9 +162,8 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 | ✅ **C** | `_shared/businessHours.ts` (helper isOutsideBusinessHours) + edge fn `requeue-conversations` (cron 1min, 5 cases A-E + reativação de pausados) + migration `pg_cron` schedule + Realtime broadcast `queue-update` — *shipped + deployed 2026-05-04 (v1, cron jobid=12 ativo, smoke 200 OK em prod). Hotfix R92: vault.SUPABASE_ANON_KEY atualizada de JWT legacy para `sb_publishable_*` (afetava todos os crons silenciosamente).* | 5 |
 | ✅ **D** | `QueueConfig.tsx` (dialog: toggle Modo, slider timeout, select default_assignee, drag-drop ordem, toggle gestor_in_queue) + botão "Fila" em DepartmentsTab + select default_dept inline em InboxesTab (D-α). Audit logs `update_dept_queue_config` + `set_inbox_default_dept` via RPC `log_admin_action`. — *shipped 2026-05-04* | 3 |
 | ✅ **F** | Hook `useActiveQueueEvents` (tick 1s + Realtime `queue-update`) + `QueuePauseToggle` no header (Disponível/Pausado global) + badge `"Em fila — Lucas (3:42)"` em `ConversationItem` (filtra próprio assignee) + cancelar queue_event ativo em `assignAgent` (manual_override). — *shipped 2026-05-05, smoke ao vivo OK (badge + countdown + toggle persistência)* | 3 |
+| ✅ **G** | 53 testes Vitest novos (handoffDepartment 6 + businessHours 17 + handoffQueue 20 + useActiveQueueEvents 10) + retention policy seed `handoff_queue_events` (90d, OFF/dry_run, id=8 em prod). Smoke: dry-run em prod sem erro, 0 candidates (sem handoffs reais ainda). 715 testes passam, 0 regressão. — *shipped 2026-05-05* | 2.5 |
 | **E** | Modo Estendido (toggle) + ALLOWED_FIELDS update + system_settings defaults | 2.5 |
-| **F** | Helpdesk: pause toggle + badge fila + Reatribuir gestor + Realtime updates | 3 |
-| **G** | Tests Vitest + smoke E2E + retention policy entry | 2.5 |
 | **H** | Wikis (esta + decisões D30 + erros R91 RR concorrência) + atualizar admin-detalhado | 2 |
 | **TOTAL** | | **26.5h** |
 
@@ -179,7 +178,7 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 - **D-γ no caminho 5 (implicit text-handoff):** o LLM gera texto livre — não há template para substituir `{handoff_assignee_name}`. Helper roda mesmo assim (cria `handoff_queue_event` + setta `assigned_to`) mas sem substituição.
 - **Deploy pendente:** edge functions `ai-agent` e `assign-handoff` precisam ser deployadas com `supabase functions deploy`. Smoke manual em prod (testar 1 conversa em cada path) antes de declarar shipped.
 - **Dependência de Realtime**: badge "em fila" precisa Realtime cobrir `conversations.assigned_user_id` (verificar existing canal helpdesk:)
-- **Retention**: adicionar `handoff_queue_events` em `db_retention_policies` (D25) — 90 dias default
+- **Retention**: ✅ Sprint G — policy seed id=8 (`handoff_queue_events`, 90d, OFF/dry_run) inserida em `db_retention_policies`. Tabela passa em `is_table_protected=false`, dry-run smoke OK.
 - **Backwards compat**: tenants sem dept configurado → fila não dispara (default OFF). Não pode quebrar handoff existente
 
 ---

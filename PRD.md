@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.25.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B (DB + Backend)**
+> **Versão**: 7.26.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B+C+D+F+G (DB + Backend + Cron + Admin UI + Helpdesk UI + Tests/Retention)**
 
 ## Visão Geral
 
@@ -39,6 +39,47 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.26.0 (2026-05-05) — D30 Fila Inteligente — Sprint G (Tests + Retention Policy)
+
+**Goal:** destravar cobertura de testes dos novos artefatos da fila (helpers backend + hook frontend) antes de adicionar mais estado nos Sprints E/H. Plus: registrar entrada de retention policy para `handoff_queue_events` (90 dias, off por default) — para o trail de auditoria não acumular indefinidamente.
+
+**Arquivos novos (testes):**
+- `supabase/functions/_shared/__tests__/handoffDepartment.test.ts` — 6 testes da cascade D-α (profile > funnel > inbox > none, edge cases com `null`/`undefined`/string vazia).
+- `supabase/functions/_shared/__tests__/businessHours.test.ts` — 17 testes de `isOutsideBusinessHours`: extended_hours_until override (futuro/passado/inválido), formato weekly (open=true/false, faixa normal, faixa invertida atravessa-meia-noite), formato legacy, sem config (24/7), TZ America/Sao_Paulo via `vi.useFakeTimers + setSystemTime` em UTC.
+- `supabase/functions/_shared/__tests__/handoffQueue.test.ts` — 20 testes de `assignHandoff`:
+  - Guards iniciais (sem dept, dept inexistente)
+  - Modo OFF (default_assignee presente / ausente / em skip_user_ids)
+  - Modo ON (RPC retorna user / null / erro / passa skip_user_ids)
+  - D-β re-handoff (previous elegível / pausado / fora do dept / em skip)
+  - Falha de exception → reason='error' (caller faz fallback)
+  - `applyAssigneeNameTemplate` (D-γ): substitui placeholder, fallback "consultor" para null/vazio/whitespace, multi-ocorrências, template vazio.
+- `src/hooks/__tests__/useActiveQueueEvents.test.ts` — 10 testes do hook + helper `formatCountdown`:
+  - Mapa vazio / popula com nome / fallback prefixo user_id quando full_name vazio
+  - `secondsRemaining`: null para conv inexistente / paused (relógio congela) / inteiro positivo aproximando para baixo / zero quando expirado (max 0, ...)
+  - Realtime: subscribe canal `helpdesk-realtime` evento `queue-update`
+  - `refetch` público funciona (manual trigger)
+  - `formatCountdown`: 0→"0:00", 3→"0:03", 60→"1:00", 245→"4:05", 599→"9:59"
+
+**Arquivos novos (retention):**
+- `supabase/migrations/20260505000001_handoff_queue_retention_policy.sql` — INSERT em `db_retention_policies`: table_name=`handoff_queue_events`, days_to_keep=90, enabled=false, dry_run=true, backup_before_delete=false. Mantém padrão M19 S8 (R74) — admin habilita conscientemente via UI.
+
+**Smoke em prod:**
+- ✅ `apply_migration` (id=8) na policy
+- ✅ `is_table_protected('handoff_queue_events')` = `false` (não-core, retention permitida)
+- ✅ 3 índices na tabela (`active_expires`, `assigned_active`, `conversation`) + pkey
+- ✅ `apply_retention_policy(8)` em dry_run: `candidate_count=0`, `deleted_count=0`, sem erro (esperado — 0 events ainda já que nenhum handoff real ocorreu desde Sprints A/B/C/F)
+- ✅ Log persistido em `db_cleanup_log` para auditoria
+
+**Auditoria:**
+- `npx tsc --noEmit` = 0 erros
+- `npx vitest run` = 715 passam (+53 novos), 5 falhas pré-existentes em FormBuilder (idênticas ao Sprint F — sem regressão)
+
+**SYNC RULE auditada:** banco ✅ (1 INSERT seed) | types.ts N/A | admin UI N/A (Retention page já lista todas as policies do `db_retention_policies` automaticamente) | ALLOWED_FIELDS N/A | backend N/A | prompt N/A | system_settings N/A | docs ✅.
+
+**Detalhes:** `wiki/casos-de-uso/handoff-fila-detalhado.md`. Sprints E (modo estendido `extended_hours_until` UI) e H (wikis finais + cross-refs) pendentes.
+
+---
 
 ### v7.25.0 (2026-05-05) — D30 Fila Inteligente — Sprint F (Helpdesk UI)
 
