@@ -7,6 +7,29 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (R93 — QueuePauseToggle: UPDATE direto bloqueado pela RLS silente)
+
+### Bug detectado durante Teste 5 do D30 (testes ao vivo)
+Lucas (atendente) clicou "Disponível" no helpdesk, UI virou "Pausado" + toast "Você está pausado". Mas SQL ao vivo mostrou `queue_paused = false` no banco. Bug silencioso — RLS de `department_members` permite só `is_super_admin()` para UPDATE; PostgREST retornou 200 + 0 rows ao invés de erro.
+
+### Diagnóstico
+- `pg_policy` em `department_members`: 2 policies (SELECT pra inbox users, ALL pra super_admin). Atendente caiu em "0 rows updated, sem erro".
+- `QueuePauseToggle.handleToggle` fazia `.update().eq('user_id', user.id)` direto, sem `.select()` pra checar count.
+
+### Fix em 3 frentes
+1. **Migration `rpc_set_my_queue_paused_d30_r93`** — função SECURITY DEFINER com escopo limitado (só `queue_paused` + `queue_paused_reason`). GRANT pra `authenticated`. Atualiza TODOS os deptos do `auth.uid()` (mantém comportamento global do toggle).
+2. **`QueuePauseToggle.tsx`** — substitui UPDATE direto por `supabase.rpc('set_my_queue_paused', ...)` + valida `result.rows_affected > 0` antes de toast verde. Handler do catch lê `.message` de objetos não-Error (PostgrestError tem `.message`).
+3. **`__tests__/QueuePauseToggle.test.tsx` (NOVO, 8 testes)**: render (sem dept / available / paused), toggle (avail→paused / paused→avail), R93 regression (rows_affected=0 → toast erro), erro RPC (`{error:{message}}`), erro payload (`{data:{error:'unauthenticated'}}`).
+
+### Auditoria
+- `npx tsc --noEmit` = 0 erros
+- `npx vitest run src/components/helpdesk/__tests__/QueuePauseToggle.test.tsx` = 8/8
+
+### Documentação
+- R93 adicionada à tabela de regras preventivas em `wiki/erros-e-licoes.md`
+
+---
+
 ## 2026-05-05 (Plano "Free Forever" — 4 camadas shipped)
 
 ### Goal

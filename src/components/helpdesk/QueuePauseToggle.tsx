@@ -50,21 +50,31 @@ const QueuePauseToggle = () => {
     const nextPaused = state === 'available';
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('department_members')
-        .update({
-          queue_paused: nextPaused,
-          queue_paused_reason: nextPaused ? 'Pausado pelo atendente no helpdesk' : null,
-        })
-        .eq('user_id', user.id);
+      // R93: UPDATE direto era bloqueado pela RLS de department_members
+      // (só super_admin pode UPDATE). Usamos RPC SECURITY DEFINER com escopo
+      // limitado a queue_paused + queue_paused_reason.
+      const { data, error } = await supabase.rpc('set_my_queue_paused', {
+        _paused: nextPaused,
+        _reason: nextPaused ? 'Pausado pelo atendente no helpdesk' : null,
+      });
       if (error) throw error;
+      const result = data as { rows_affected?: number; error?: string } | null;
+      if (result?.error) throw new Error(result.error);
+      if (!result?.rows_affected || result.rows_affected === 0) {
+        throw new Error('Nenhum departamento atualizado — você ainda pertence a algum?');
+      }
       setState(nextPaused ? 'paused' : 'available');
       toast.success(nextPaused
         ? 'Você está pausado — a fila vai te pular'
         : 'Você está disponível para receber novos atendimentos',
       );
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao atualizar status');
+      const msg = e instanceof Error
+        ? e.message
+        : (typeof e === 'object' && e && 'message' in e
+            ? String((e as { message: unknown }).message)
+            : 'Erro ao atualizar status');
+      toast.error(msg);
     } finally {
       setSaving(false);
     }

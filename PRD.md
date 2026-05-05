@@ -40,6 +40,20 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.29.1 (2026-05-05) — Hotfix R93: QueuePauseToggle bloqueado por RLS
+
+**Bug detectado durante Teste 5 manual do D30:** Lucas (atendente) clicou "Disponível" no helpdesk, UI virou "Pausado" + toast verde, mas SQL mostrou `queue_paused = false` no banco — UPDATE direto via PostgREST estava sendo bloqueado pela RLS (que permite só super_admin) **sem retornar 4xx**, apenas `data: []`.
+
+**Fix:**
+- Migration `rpc_set_my_queue_paused_d30_r93` — RPC SECURITY DEFINER com escopo limitado (`queue_paused` + `queue_paused_reason`)
+- `QueuePauseToggle.tsx` chama a RPC + valida `rows_affected > 0` antes de toast verde
+- Handler do catch lê `.message` de objetos não-Error (PostgrestError-style)
+- 8 testes Vitest novos em `__tests__/QueuePauseToggle.test.tsx` cobrem render, toggle, R93 regression, erro RPC
+
+**Auditoria:** tsc 0, vitest 8/8 do componente, +regra R93 em `wiki/erros-e-licoes.md`.
+
+---
+
 ### v7.29.0 (2026-05-05) — Plano "Free Forever" — 4 camadas operacionais
 
 **Goal:** garantir que WhatsPRO nunca passe de 70% em qualquer dimensão do plano grátis Supabase. Disparado por alerta de Disk IO Budget no email Supabase.
