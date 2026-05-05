@@ -16,7 +16,7 @@
  *
  * Side-effects (em ordem):
  *   1. INSERT em `handoff_queue_events` com `expires_at = now() + timeout`
- *   2. UPDATE `conversations.assigned_to` (se atendente foi escolhido)
+ *   2. UPDATE `conversations.assigned_to` + `department_id` (se atendente foi escolhido)
  *
  * NÃO mexe em `status_ia`, `tags`, `lead_msg_count` — caller cuida disso
  * dentro do mesmo UPDATE (evita 2 UPDATEs sequenciais).
@@ -201,9 +201,12 @@ export async function assignHandoff(
       log.warn('handoffQueue: failed to insert queue event', { error: insertErr.message })
     }
 
+    // R95: setar department_id junto pra que o painel direito do helpdesk
+    // mostre o departamento correto (sem isso, fica "Departamento: Nenhum"
+    // mesmo com membros do dept atribuídos via fila).
     const { error: updateErr } = await supabase
       .from('conversations')
-      .update({ assigned_to: pickedUserId })
+      .update({ assigned_to: pickedUserId, department_id })
       .eq('id', conversation_id)
 
     if (updateErr) {

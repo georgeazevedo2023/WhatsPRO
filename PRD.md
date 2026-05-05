@@ -40,6 +40,19 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.29.3 (2026-05-05) — Hotfix R95: handoffQueue não populava department_id
+
+**Bug detectado durante Teste 7 do D30 (testes ao vivo):** super_admin abria conversa atribuída via fila, painel direito mostrava "Departamento: Nenhum" apesar de todos os atendentes estarem no dept Vendas. Causa: `_shared/handoffQueue.ts` atualizava `conversations.assigned_to` mas não `department_id`.
+
+**Fix:**
+- 1 linha em `handoffQueue.ts`: incluir `department_id` no UPDATE da `conversations`
+- Re-deploy de 3 edge fns que usam o helper: `requeue-conversations`, `assign-handoff`, `ai-agent`
+- Backfill SQL: conversas legadas com `COALESCE(queue_event.dept_id, inbox.default_department_id)` (Josafa de NULL → Vendas)
+
+**Auditoria:** vitest 20/20 do handoffQueue.test.ts (mock não checava esse campo, sem regressão); smoke em prod confirmou Josafa com dept_name='Vendas'; R95 documentada.
+
+---
+
 ### v7.29.2 (2026-05-05) — Hotfix R94: Helpdesk stale ao trocar assignee em background
 
 **Bug detectado durante Teste 7 do D30 (testes ao vivo):** cron `requeue-conversations` (n8n) processou timeout via round-robin, atualizou `conversations.assigned_to` no banco corretamente, mas o helpdesk continuou mostrando o assignee anterior no header e no painel direito "Agente Responsável" — apenas a badge da lista esquerda atualizou (via `useActiveQueueEvents`).

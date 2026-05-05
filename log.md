@@ -7,6 +7,29 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (R95 — handoffQueue não popula conversations.department_id)
+
+### Bug detectado durante Teste 7 do D30 (testes ao vivo)
+Super_admin abriu conversa Josafa (atribuída via fila), painel direito mostrou "Departamento: Nenhum" apesar de Lucas/Alberto/Jussara/etc estarem todos no dept Vendas. Validei DB: `conversations.department_id = NULL`.
+
+### Causa
+`_shared/handoffQueue.ts` linha 207: `UPDATE conversations SET assigned_to=...` — não incluía `department_id`. Cron e edge fns que reatribuem conversa via fila deixavam o campo NULL.
+
+### Fix
+- 1 linha em `handoffQueue.ts`: incluir `department_id` no UPDATE
+- Re-deploy de 3 edge fns: `requeue-conversations`, `assign-handoff`, `ai-agent` (todas usam o helper)
+- Backfill SQL: 13 conversas afetadas updated com COALESCE(queue_event.dept_id, inbox.default_department_id)
+
+### Auditoria
+- vitest 20/20 do handoffQueue.test.ts continuam passando (mock não checava esse campo)
+- Smoke prod: Josafa agora tem `department_id = Vendas` ✓
+- 3 edge fns deployadas via supabase CLI
+
+### Documentação
+- R95 em `wiki/erros-e-licoes.md`
+
+---
+
 ## 2026-05-05 (R94 — Header/painel direito stale ao trocar assignee em background)
 
 ### Bug detectado durante Teste 7 do D30 (testes ao vivo)
