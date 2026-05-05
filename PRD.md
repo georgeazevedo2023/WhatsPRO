@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.26.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B+C+D+F+G (DB + Backend + Cron + Admin UI + Helpdesk UI + Tests/Retention)**
+> **Versão**: 7.27.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B+C+D+E+F+G (DB + Backend + Cron + Admin UI + Modo Estendido + Helpdesk UI + Tests/Retention)**
 
 ## Visão Geral
 
@@ -39,6 +39,42 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.27.0 (2026-05-05) — D30 Fila Inteligente — Sprint E (Modo Estendido)
+
+**Goal:** entregar override pontual do horário comercial — admin estende o expediente em datas especiais (Black Friday, lançamento, live) sem editar o horário comercial geral nem o cron.
+
+**Como funciona:** quando `ai_agents.extended_hours_until` está no futuro, o helper `_shared/businessHours.ts` retorna `false` em `isOutsideBusinessHours()` independente do `business_hours`. O cron `requeue-conversations` (Sprint C) e o ai-agent (todos os paths) já consomem esse helper — feature ativa-se sozinha.
+
+**Arquivos novos:**
+- `src/components/admin/ai-agent/ExtendedHoursConfig.tsx` (~210 linhas) — Card com:
+  - Status display: "Ativo até DD/MM às HH:mm" com badge âmbar OU "Não ativado".
+  - 4 quick actions (cobrem 95% dos casos): **+1 hora**, **+2 horas**, **Resto do dia** (até 23:59 de hoje), **Até amanhã 23:59**.
+  - Custom datetime input (`<input type="datetime-local">`) + botão Aplicar (disabled quando vazio ou no passado).
+  - Botão "Cancelar agora" só renderizado quando ativo, dispara `onChange({ extended_hours_until: null })`.
+  - Lê e formata em local time (browser do admin).
+
+**Arquivos modificados:**
+- `src/components/admin/AIAgentTab.tsx` — `extended_hours_until` adicionado em `ALLOWED_FIELDS`.
+- `src/components/admin/ai-agent/RulesConfig.tsx` — `<ExtendedHoursConfig>` renderizado logo abaixo do `<BusinessHoursEditor>` (mesma seção visual da tab Segurança).
+
+**Testes:**
+- `src/components/admin/ai-agent/__tests__/ExtendedHoursConfig.test.tsx` — **13 testes**:
+  - Status: null → "Não ativado", passado → "Não ativado", futuro → "Ativo + horário formatado", botão Cancelar só quando ativo.
+  - Quick actions: +1h, +2h, "Resto do dia" (23:59 hoje), "Até amanhã" (23:59 dia seguinte).
+  - Cancelar dispara `{ extended_hours_until: null }`.
+  - Custom: Aplicar disabled vazio, disabled passado, futuro chama onChange com ISO, input pré-populado com value atual.
+- `vi.useFakeTimers + setSystemTime('2026-05-05T14:00:00')` para determinismo.
+
+**Auditoria:**
+- `npx tsc --noEmit` = 0 erros
+- `npx vitest run` = **728 passam (+13 vs Sprint G=715)**, 5 pré-existentes em FormBuilder (sem regressão)
+
+**SYNC RULE auditada:** banco N/A (schema Sprint A) | types.ts N/A | admin UI ✅ (RulesConfig) | ALLOWED_FIELDS ✅ | backend N/A (helper Sprint C já consome) | prompt N/A | system_settings N/A (per-agent, não-global) | docs ✅.
+
+**Detalhes:** `wiki/casos-de-uso/handoff-fila-detalhado.md`. Sprint H (wikis finais) é o único pendente.
+
+---
 
 ### v7.26.0 (2026-05-05) — D30 Fila Inteligente — Sprint G (Tests + Retention Policy)
 

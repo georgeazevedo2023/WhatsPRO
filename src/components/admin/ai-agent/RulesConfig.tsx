@@ -5,6 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ShieldAlert, Clock, Frown, MessageSquare, SearchX } from 'lucide-react';
 import { BusinessHoursEditor } from './BusinessHoursEditor';
+import { ExtendedHoursConfig } from './ExtendedHoursConfig';
 
 interface RulesConfigProps {
   config: Record<string, any>;
@@ -186,6 +187,11 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
         onChange={(newValue) => onChange({ business_hours: newValue })}
         outOfHoursMessage={config.out_of_hours_message || ''}
         onOutOfHoursMessageChange={(text) => onChange({ out_of_hours_message: text })}
+      />
+
+      <ExtendedHoursConfig
+        value={config.extended_hours_until}
+        onChange={onChange}
       />
     </div>
   );

@@ -7,6 +7,41 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (Sprint E — Fila Inteligente D30, Modo Estendido)
+
+### Goal
+Override pontual do horário comercial via UI — admin estende expediente sem editar `business_hours` nem cron. Schema `ai_agents.extended_hours_until` já existia (Sprint A); helper `_shared/businessHours.ts` já consumia (Sprint C, testado em Sprint G); faltava só a porta de entrada.
+
+### Arquivos
+- **NOVO**: `src/components/admin/ai-agent/ExtendedHoursConfig.tsx` (~210 linhas) — Card com status (Ativo até DD/MM às HH:mm OU Não ativado), 4 quick actions (+1h, +2h, Resto do dia, Até amanhã 23:59), custom datetime input com Aplicar (disabled em vazio/passado), botão Cancelar agora (visível só quando ativo).
+- **NOVO**: `src/components/admin/ai-agent/__tests__/ExtendedHoursConfig.test.tsx` (13 testes verdes — status, quick actions, cancel, custom).
+- **MODIFICADO**: `src/components/admin/AIAgentTab.tsx` — `extended_hours_until` em `ALLOWED_FIELDS`.
+- **MODIFICADO**: `src/components/admin/ai-agent/RulesConfig.tsx` — renderiza `<ExtendedHoursConfig>` abaixo de `<BusinessHoursEditor>`.
+
+### SYNC RULE
+banco N/A (schema A) | types.ts N/A | admin UI ✅ | ALLOWED_FIELDS ✅ | backend N/A (helper C já consome) | prompt N/A | system_settings N/A (per-agent) | docs ✅
+
+### Auditoria
+- `npx tsc --noEmit` = 0 erros
+- `npx vitest run` = **728 passam (+13 vs Sprint G=715)**, 5 pré-existentes em FormBuilder
+
+### Estado D30
+| Sprint | Status |
+|---|---|
+| A — DB schema + RPC | ✅ em prod |
+| B — backend ai-agent + edge fn | ✅ em prod |
+| C — cron + horário | ✅ em prod (jobid 12) |
+| D — admin UI QueueConfig | ✅ em prod |
+| **E — Modo Estendido** | ✅ shipped 2026-05-05 |
+| F — helpdesk UI | ✅ em prod |
+| G — tests + retention | ✅ em prod |
+| H — wikis finais | ⏸ pendente (~2h) |
+
+### Frase para retomar
+"implementar fila inteligente Sprint H" — wikis finais + cross-refs (admin-detalhado ganha QueueConfig + ExtendedHoursConfig, R91/R92 viram entries formais em erros-e-licoes), arquivamento dos logs A-G em wiki separada (~2h).
+
+---
+
 ## 2026-05-05 (Sprint G — Fila Inteligente D30, Tests + Retention Policy)
 
 ### Goal

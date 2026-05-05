@@ -9,7 +9,7 @@ updated: 2026-05-05
 
 > Quando a IA decide transbordar (ex: lead pediu humano, qualificação completa, validator block), em vez de deixar a conversa "livre" para qualquer atendente pegar (estado atual: `conversations.assigned_to = NULL`), o sistema **atribui automaticamente** a um vendedor específico seguindo regras configuráveis. Inclui timeout com reatribuição, pausa em horário não-comercial e modo manual via gestor.
 >
-> **Status: Sprints A+B+C+D+F+G shipped (2026-05-04 a 05-05). DB + 2 edge fns deployadas (ai-agent v174 + assign-handoff v1 + cron requeue-conversations) + admin UI + helpdesk UI + 53 testes Vitest + retention policy seed. Aguarda 1 handoff real para validar E2E no helpdesk. Sprints E (modo estendido) e H (wikis finais) pendentes.**
+> **Status: Sprints A+B+C+D+E+F+G shipped (2026-05-04 a 05-05). DB + 2 edge fns deployadas (ai-agent v174 + assign-handoff v1 + cron requeue-conversations) + admin UI (QueueConfig + ExtendedHoursConfig) + helpdesk UI + 66 testes Vitest novos + retention policy seed. Aguarda 1 handoff real para validar E2E no helpdesk. Sprint H (wikis finais) é o único pendente.**
 
 ---
 
@@ -143,9 +143,12 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 
 ### 8.2 `AdminInboxes` → adicionar Select **"Departamento padrão"** (`default_department_id` da inbox — D-α)
 
-### 8.3 `AIAgentTab` → tab Setup → seção **"Expediente Estendido"**
-- Botão **"Estender expediente até..."** (timestamptz picker) → seta `extended_hours_until`
-- Calendário de exceções (UI v2 — schema pronto)
+### 8.3 `AIAgentTab` → tab Segurança → componente `ExtendedHoursConfig` (Sprint E)
+- Status: "Ativo até DD/MM às HH:mm" (badge âmbar) OU "Não ativado"
+- 4 quick actions: **+1 hora**, **+2 horas**, **Resto do dia** (23:59 hoje), **Até amanhã 23:59**
+- Custom datetime input + botão Aplicar (disabled em vazio/passado)
+- Botão "Cancelar agora" (só quando ativo) → `extended_hours_until = null`
+- Calendário de exceções `business_hours_exceptions` (schema pronto, UI v2 backlog)
 
 ### 8.4 `Helpdesk` (não-admin) → header pessoal
 - Toggle **Disponível / Pausado** (`inbox_users` ou `department_members.queue_paused`)
@@ -163,7 +166,7 @@ Para cada `handoff_queue_events` com `status='active' AND expires_at < now() AND
 | ✅ **D** | `QueueConfig.tsx` (dialog: toggle Modo, slider timeout, select default_assignee, drag-drop ordem, toggle gestor_in_queue) + botão "Fila" em DepartmentsTab + select default_dept inline em InboxesTab (D-α). Audit logs `update_dept_queue_config` + `set_inbox_default_dept` via RPC `log_admin_action`. — *shipped 2026-05-04* | 3 |
 | ✅ **F** | Hook `useActiveQueueEvents` (tick 1s + Realtime `queue-update`) + `QueuePauseToggle` no header (Disponível/Pausado global) + badge `"Em fila — Lucas (3:42)"` em `ConversationItem` (filtra próprio assignee) + cancelar queue_event ativo em `assignAgent` (manual_override). — *shipped 2026-05-05, smoke ao vivo OK (badge + countdown + toggle persistência)* | 3 |
 | ✅ **G** | 53 testes Vitest novos (handoffDepartment 6 + businessHours 17 + handoffQueue 20 + useActiveQueueEvents 10) + retention policy seed `handoff_queue_events` (90d, OFF/dry_run, id=8 em prod). Smoke: dry-run em prod sem erro, 0 candidates (sem handoffs reais ainda). 715 testes passam, 0 regressão. — *shipped 2026-05-05* | 2.5 |
-| **E** | Modo Estendido (toggle) + ALLOWED_FIELDS update + system_settings defaults | 2.5 |
+| ✅ **E** | `ExtendedHoursConfig.tsx` (~210 linhas) — status (Ativo até / Não ativado), 4 quick actions (+1h, +2h, Resto do dia, Até amanhã 23:59), custom datetime, botão Cancelar agora. Renderizado abaixo do BusinessHoursEditor em `RulesConfig.tsx`. `extended_hours_until` em ALLOWED_FIELDS. 13 testes Vitest novos. tsc 0, vitest 728 passam (+13). — *shipped 2026-05-05* | 2.5 |
 | **H** | Wikis (esta + decisões D30 + erros R91 RR concorrência) + atualizar admin-detalhado | 2 |
 | **TOTAL** | | **26.5h** |
 

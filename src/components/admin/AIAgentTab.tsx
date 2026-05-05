@@ -84,6 +84,8 @@ const ALLOWED_FIELDS = [
   'service_categories',
   // M19-S11 (D28): Excluded Products — produtos que a tenant NÃO vende
   'excluded_products',
+  // D30 Sprint E: Modo Estendido — admin estende expediente comercial pontualmente
+  'extended_hours_until',
 ];
 
 export default function AIAgentTab() {
