@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.23.0 | **Última atualização**: 2026-05-04 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B (DB + Backend)**
+> **Versão**: 7.24.0 | **Última atualização**: 2026-05-04 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B (DB + Backend)**
 
 ## Visão Geral
 
@@ -39,6 +39,40 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.24.0 (2026-05-04) — D30 Fila Inteligente — Sprint D (Admin UI)
+
+**Goal:** destravar a fila pro super_admin configurar via UI — sem isso, Sprints A+B+C ficam de esqueleto invisível.
+
+**Arquivos novos:**
+- `src/components/admin/queue/QueueConfig.tsx` (~330 linhas) — dialog modal aberto pelo botão "Fila" em cada card de departamento (DepartmentsTab). Estados:
+  - **Toggle Modo Fila** (`departments.queue_mode_enabled`): ON = round-robin global; OFF = 100% para `default_assignee_id`.
+  - **Slider Timeout** (1-15min, default 5) — só aparece em Modo ON. Persiste em `queue_mode_timeout_minutes`.
+  - **Select Atendente Padrão** — só aparece em Modo OFF. Persiste em `default_assignee_id` (uuid → auth.users).
+  - **Drag-drop dos membros** via `@dnd-kit/sortable`. Salva `queue_position = (idx + 1) * 10` (espaçado para inserts futuros). Reseta `last_assignee_position = 0` após reordenar (cursor RR começa do topo).
+  - **Toggle Pausar/Despausar** por membro (`queue_paused` + `queue_paused_reason` ainda não exposto na UI — botão simples para Sprint F refinar).
+  - **Toggle "Incluir gestor"** por membro (`gestor_in_queue`) — só renderizado para usuários com role `gerente` (verifica via `user_roles` join). Default false (gestor fora por default — Q6).
+- Botão de menu **Configurar Fila** (ícone `ListOrdered`) em cada card de DepartmentsTab.
+
+**Arquivos modificados:**
+- `src/components/admin/InboxesTab.tsx` — nova seção "Departamento padrão (handoff)" em cada card de inbox. Select inline auto-save → `inboxes.default_department_id` (D-α: fallback de departamento). Filtra deptos pela inbox. Loader2 enquanto salva. Help text explicando o uso na cascata profile→funnel→inbox.
+
+**Audit logs (D.3 — RPC `log_admin_action` existente, não-bloqueante):**
+- `update_dept_queue_config` em QueueConfig.handleSave — captura toggle Modo, timeout, default_assignee, count e ordem dos membros.
+- `set_inbox_default_dept` em InboxesTab.handleSaveDefaultDept — captura novo dept_id (ou null).
+- `change_role` (existente em UsersTab) e `update_dept_queue_config` cobrem 99% das mudanças de fila. `reorder_queue_members` agregado dentro de `update_dept_queue_config`.
+
+**Auditoria:**
+- `npx tsc --noEmit` = 0 erros.
+- `npx vitest run` = 662 passam, 5 falhas pré-existentes em FormBuilder (sem regressão).
+
+**SYNC RULE auditada:** banco N/A | types.ts N/A (já gerado em Sprint A) | admin UI ✅ | ALLOWED_FIELDS N/A | backend N/A | prompt N/A | system_settings N/A | docs ✅.
+
+**Pendente:** push do commit. Bundle frontend redeploya via webhook Portainer no push.
+
+**Detalhes:** `wiki/casos-de-uso/handoff-fila-detalhado.md`.
+
+---
 
 ### v7.23.0 (2026-05-04) — D30 Fila Inteligente — Sprint C (Cron + Horário Comercial)
 

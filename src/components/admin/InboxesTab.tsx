@@ -38,6 +38,14 @@ export interface InboxWithDetails {
   member_count: number;
   webhook_url: string | null;
   webhook_outgoing_url: string | null;
+  /** D30 D-α: fallback de departamento para handoff. */
+  default_department_id: string | null;
+}
+
+interface DeptOption {
+  id: string;
+  name: string;
+  inbox_id: string;
 }
 
 interface Props {
@@ -85,6 +93,10 @@ const InboxesTab: React.FC<Props> = ({ onTeamChanged, openCreate, onOpenCreateCh
   const [editOutgoingValue, setEditOutgoingValue] = useState('');
   const [isSavingOutgoing, setIsSavingOutgoing] = useState(false);
 
+  // D30 D-α: departamentos da inbox para o select de "Departamento padrão"
+  const [allDepartments, setAllDepartments] = useState<DeptOption[]>([]);
+  const [savingDefaultDeptId, setSavingDefaultDeptId] = useState<string | null>(null);
+
   // ── Fetchers ───────────────────────────────────────────────────────────────
 
   const fetchInboxes = useCallback(async () => {
@@ -114,6 +126,7 @@ const InboxesTab: React.FC<Props> = ({ onTeamChanged, openCreate, onOpenCreateCh
         member_count: memberCounts.get(inbox.id) || 0,
         webhook_url: inbox.webhook_url ?? null,
         webhook_outgoing_url: inbox.webhook_outgoing_url ?? null,
+        default_department_id: inbox.default_department_id ?? null,
       })));
     } catch {
       toast.error('Erro ao carregar caixas');
@@ -127,7 +140,13 @@ const InboxesTab: React.FC<Props> = ({ onTeamChanged, openCreate, onOpenCreateCh
     if (data) setInstances(data);
   }, []);
 
-  useEffect(() => { fetchInboxes(); fetchInstances(); }, [fetchInboxes, fetchInstances]);
+  // D30 D-α: carrega todos os departamentos para popular o select de "Departamento padrão" por inbox
+  const fetchDepartments = useCallback(async () => {
+    const { data } = await supabase.from('departments').select('id, name, inbox_id').order('name');
+    setAllDepartments((data || []).map(d => ({ id: d.id, name: d.name, inbox_id: d.inbox_id })));
+  }, []);
+
+  useEffect(() => { fetchInboxes(); fetchInstances(); fetchDepartments(); }, [fetchInboxes, fetchInstances, fetchDepartments]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -179,6 +198,37 @@ const InboxesTab: React.FC<Props> = ({ onTeamChanged, openCreate, onOpenCreateCh
       toast.error(e instanceof Error ? e.message : 'Erro ao atualizar webhook');
     } finally {
       setIsSavingWebhook(false);
+    }
+  };
+
+  // D30 D-α: handler do select "Departamento padrão (handoff)"
+  const handleSaveDefaultDept = async (inboxId: string, deptId: string | null) => {
+    setSavingDefaultDeptId(inboxId);
+    try {
+      const { error } = await supabase
+        .from('inboxes')
+        .update({ default_department_id: deptId })
+        .eq('id', inboxId);
+      if (error) throw error;
+      // Audit log (não-bloqueante)
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user?.id) {
+          await supabase.rpc('log_admin_action', {
+            p_user_id: authData.user.id,
+            p_action: 'set_inbox_default_dept',
+            p_target_table: 'inboxes',
+            p_target_id: inboxId,
+            p_details: { default_department_id: deptId },
+          });
+        }
+      } catch { /* audit log non-blocking */ }
+      toast.success('Departamento padrão atualizado!');
+      fetchInboxes();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao atualizar departamento padrão');
+    } finally {
+      setSavingDefaultDeptId(null);
     }
   };
 
@@ -282,6 +332,36 @@ const InboxesTab: React.FC<Props> = ({ onTeamChanged, openCreate, onOpenCreateCh
                         <CopyableId label="Caixa de Entrada" id={inbox.id} icon={Inbox} />
                         <CopyableId label="Instância" id={inbox.instance_id} icon={MonitorSmartphone} />
                       </div>
+                    </div>
+
+                    {/* D30 D-α: Departamento padrão (fallback de handoff) */}
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold">Departamento padrão (handoff)</p>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={inbox.default_department_id ?? '__none__'}
+                          onValueChange={v => handleSaveDefaultDept(inbox.id, v === '__none__' ? null : v)}
+                          disabled={savingDefaultDeptId === inbox.id}
+                        >
+                          <SelectTrigger className="h-9 text-sm flex-1">
+                            <SelectValue placeholder="Selecione um departamento" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">— Nenhum (handoff sem fila se profile/funil não definirem)</SelectItem>
+                            {allDepartments
+                              .filter(d => d.inbox_id === inbox.id)
+                              .map(d => (
+                                <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        {savingDefaultDeptId === inbox.id && (
+                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Usado quando o handoff não tem perfil ou funil definindo um departamento. Permite a fila inteligente atribuir um atendente automaticamente.
+                      </p>
                     </div>
 
                     {/* Endpoint do Sistema */}

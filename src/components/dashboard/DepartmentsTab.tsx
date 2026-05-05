@@ -21,9 +21,10 @@ import {
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Search, Plus, Trash2, Pencil, Copy, Star, Users, Inbox, Loader2, Building2, Server, Hash, UserCircle, Check } from 'lucide-react';
+import { Search, Plus, Trash2, Pencil, Copy, Star, Users, Inbox, Loader2, Building2, Server, Hash, UserCircle, Check, ListOrdered } from 'lucide-react';
 import { toast } from 'sonner';
 import { Textarea } from '@/components/ui/textarea';
+import QueueConfig from '@/components/admin/queue/QueueConfig';
 
 interface Department {
   id: string;
@@ -70,6 +71,7 @@ const DepartmentsTab = () => {
 
   const [deptToDelete, setDeptToDelete] = useState<Department | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [queueConfigDept, setQueueConfigDept] = useState<Department | null>(null);
 
   const fetchDepartments = useCallback(async () => {
     setLoading(true);
@@ -350,6 +352,16 @@ const DepartmentsTab = () => {
                   <TooltipProvider delayDuration={300}>
                     <Tooltip>
                       <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setQueueConfigDept(dept)}>
+                          <ListOrdered className="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Configurar fila</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => openEdit(dept)}>
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -541,6 +553,15 @@ const DepartmentsTab = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* D30: Queue config dialog */}
+      <QueueConfig
+        open={!!queueConfigDept}
+        onOpenChange={open => !open && setQueueConfigDept(null)}
+        departmentId={queueConfigDept?.id ?? null}
+        departmentName={queueConfigDept?.name ?? ''}
+        onSaved={fetchDepartments}
+      />
     </div>
   );
 };

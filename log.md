@@ -7,6 +7,32 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-04 (Sprint D — Fila Inteligente de Handoff D30, Admin UI)
+
+### Goal
+Destravar a fila pro super_admin configurar via UI — sem isso, A+B+C funcionam mas ninguém liga Modo ON nem reordena.
+
+### Arquivos
+- **NOVO**: `src/components/admin/queue/QueueConfig.tsx` (~330 linhas) — dialog modal com Switch Modo Fila, Slider timeout (1-15min), Select default_assignee (Modo OFF), drag-drop membros com `@dnd-kit/sortable`, toggle queue_paused, toggle gestor_in_queue (só para role gerente). Salva em transação lógica + RPC `log_admin_action` `update_dept_queue_config`. Reset cursor RR ao salvar.
+- **MODIFICADO**: `src/components/dashboard/DepartmentsTab.tsx` — botão "Fila" (ícone ListOrdered) em cada card; renderiza QueueConfig dialog.
+- **MODIFICADO**: `src/components/admin/InboxesTab.tsx` — select inline "Departamento padrão (handoff)" auto-save → `inboxes.default_department_id` (D-α); audit log `set_inbox_default_dept`.
+
+### SYNC RULE auditada
+Banco N/A | types.ts N/A | admin UI ✅ | ALLOWED_FIELDS N/A | backend N/A | prompt N/A | system_settings N/A | docs ✅
+
+### Auditoria
+- tsc 0 erros.
+- vitest 662 passam, 5 falhas pré-existentes em FormBuilder (sem regressão).
+
+### Pendente
+- Push (frontend redeploya via webhook Portainer).
+- Validação visual em prod após push.
+
+### Frase para retomar
+"implementar fila inteligente Sprint E" — Modo Estendido (extended_hours_until UI), ALLOWED_FIELDS, system_settings defaults. ~2.5h. OU pausar e validar visual primeiro.
+
+---
+
 ## 2026-05-04 (Sprint C — Fila Inteligente de Handoff D30)
 
 ### Goal
