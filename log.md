@@ -7,6 +7,35 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 — PAUSA DE SESSÃO (handoff antes de limpar contexto)
+
+### Estado D30 ao pausar
+| Sprint | Status |
+|---|---|
+| A — DB schema + RPC `pick_next_assignee` | ✅ em prod |
+| B — backend ai-agent (6 paths) + edge fn `assign-handoff` | ✅ em prod (ai-agent v174 + assign-handoff v1) |
+| C — cron `requeue-conversations` | ✅ em prod (jobid 12, ticking 200 OK) + hotfix R92 vault |
+| D — admin UI (`QueueConfig` + select default_dept) | ✅ em prod (push) |
+| F — helpdesk UI (badge + pause toggle + cancel queue) | ✅ em prod (push `b04fc5c`) |
+| E — modo estendido (`extended_hours_until` UI) | ⏸ pendente (~2.5h) |
+| G — tests Vitest + retention policy entry + smoke E2E | ⏸ pendente (~2.5h) |
+| H — wikis finais + cross-refs | ⏸ pendente (~2h) |
+
+### Working tree
+Limpo. `origin/master` em sync (commits `5679edd`, `f1ef438`, `f92ef71`, `83aa119`, `c5f73bf`, `692d65b`, `46b164e`, `b04fc5c` todos pushados).
+
+### Frase para retomar
+- **"implementar fila inteligente Sprint E"** — admin pode estender horário comercial pontualmente (`ai_agents.extended_hours_until`). ~2.5h. UI no AIAgentTab + ALLOWED_FIELDS update + system_settings defaults.
+- **"implementar fila inteligente Sprint G"** — Vitest dos novos hooks (`useActiveQueueEvents`, `handoffQueue`, `businessHours`) + entrada em `db_retention_policies` para `handoff_queue_events` (90 dias) + smoke E2E manual de handoff real. ~2.5h.
+- **"implementar fila inteligente Sprint H"** — wikis finais + cross-refs decisoes/erros/handoff-fila + cleanup R36/R91/R92/D30. ~2h.
+
+Recomendação ao retomar: **G antes de E** — destrava cobertura de teste antes de novas features (Sprint E adiciona estado).
+
+### Memory atualizada
+- `~/.claude/projects/.../memory/project_d30_fila_sprint_a.md` (apesar do nome legacy, contém estado de A+B+C+D+F).
+
+---
+
 ## 2026-05-05 (Sprint F — Fila Inteligente D30, Helpdesk UI)
 
 ### Goal
