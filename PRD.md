@@ -65,10 +65,12 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 **SYNC RULE auditada:** banco N/A (sem schema novo) | types.ts N/A | admin UI Sprint D | ALLOWED_FIELDS N/A | backend ✅ | prompt N/A | system_settings N/A | docs ✅.
 
-**Pendências:**
-- Deploy `requeue-conversations` em prod (`supabase functions deploy`) — não automatizado, requer autorização explícita.
-- Aplicar migration `20260504000008_handoff_queue_cron.sql` em prod — cron começa a rodar a cada 1min (idempotente).
-- Smoke ao vivo: criar handoff_queue_event manualmente com `expires_at < now()`, verificar reatribuição via cron.
+**Deploy + smoke (2026-05-04):**
+- `requeue-conversations` v1 deployada em prod (autorizada pelo user).
+- `cron.schedule('handoff-queue-requeue', '* * * * *')` aplicado (jobid 12, ativo).
+- 1º tick 401 → diagnóstico: vault.SUPABASE_ANON_KEY com JWT legacy enquanto edge fns rodam com `sb_publishable_*`. Hotfix: `vault.update_secret(SUPABASE_ANON_KEY, '<publishable>')`. Tick 21:24:00 BRT confirmou 200 OK com queue vazia.
+- **R92 nova:** todos os crons que usam `Bearer (vault SUPABASE_ANON_KEY)` estavam silenciosamente 401ando — `cron.job_run_details` mostra "succeeded" porque o SQL retorna 1 row mesmo com HTTP 401. Detectar via `net._http_response.status_code`.
+- **Side effect positivo:** crons que estavam quebrados (`process-jobs`, `process-flow-followups`, `aggregate-metrics-*`, `e2e-scheduled`) voltaram a rodar.
 
 **Detalhes:** `wiki/casos-de-uso/handoff-fila-detalhado.md`, `wiki/decisoes-chave.md` (D30).
 

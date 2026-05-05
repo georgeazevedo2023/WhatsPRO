@@ -26,13 +26,19 @@ Banco N/A (sem schema novo) | types.ts N/A | admin Sprint D | ALLOWED_FIELDS N/A
 - deno check OK em `businessHours.ts` + `requeue-conversations`.
 - vitest 662 passam, 5 falhas pré-existentes em FormBuilder (sem regressão).
 
-### Pendências (deploy autorizado pelo user mais cedo só foi pra Sprint B; C aguarda novo OK)
-- `npx supabase functions deploy requeue-conversations`
-- `mcp__supabase__apply_migration` (handoff_queue_cron)
-- Smoke ao vivo: criar evento manualmente com expires_at no passado, ver cron processar.
+### Deploy ao vivo + cron-apply (autorizado pelo user)
+- `npx supabase functions deploy requeue-conversations` → **v1** ativa.
+- `apply_migration handoff_queue_cron` → `cron.schedule('handoff-queue-requeue', '* * * * *')` registrado (jobid=12, active=true).
+
+### Smoke ao vivo (em prod) + bug pre-existing R92 descoberto
+- 1º tick às 21:21:00 BRT → **401** (Bearer ANON_KEY do vault não bate com env das edge fns).
+- **Diagnóstico:** Supabase rotacionou `SUPABASE_ANON_KEY` no env das edge fns para `sb_publishable_*` mas vault continuava com JWT legacy. Bug afetava SILENCIOSAMENTE TODOS os crons (`process-jobs`, `process-flow-followups`, `aggregate-metrics-*`, `e2e-scheduled`) — `cron.job_run_details` mostrava "succeeded" porque o SQL retorna 1 row, mas `net._http_response.status_code` revelava 401.
+- **Hotfix:** `vault.update_secret(..., 'sb_publishable_...')`. Cache do pg_net levou 1-2 ticks pra propagar.
+- **Tick 21:24:00 BRT → 200 OK** com queue vazia (`expired_processed: 0`, todos os counters 0). Cron 100% funcional.
+- **R92 documentada** em `wiki/erros-e-licoes.md` — afeta múltiplos crons históricamente.
 
 ### Frase para retomar
-"deploy + smoke do Sprint C" (autoriza prod) ou "implementar fila inteligente Sprint D" (admin UI sem deploy de C ainda — D não depende de C estar rodando).
+"implementar fila inteligente Sprint D" — admin UI (DepartmentsTab QueueConfig + drag-drop ordem + AdminInboxes default_dept).
 
 ---
 
