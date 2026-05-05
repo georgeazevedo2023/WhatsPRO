@@ -7,6 +7,41 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (Plano "Free Forever" — 4 camadas shipped)
+
+### Goal
+Garantir que o projeto WhatsPRO **nunca passe de 70%** de qualquer dimensão do plano grátis Supabase (db_size, storage, mau, edge invocations, realtime, bandwidth, disk IO).
+
+### Camadas
+| Camada | O quê | Status |
+|---|---|---|
+| **1** Alívio imediato | Cron `handoff-queue-requeue` (1min) → n8n na VPS WSMARTvps + VACUUM FULL `net._http_response` (−2.7 MB) | ✅ |
+| **2** Retention automática | Policy 8 (`handoff_queue_events` 90d) habilitada. Policies 1-6 já estavam ON em sessões anteriores | ✅ |
+| **3** Monitoring proativo | Migration `platform_usage_history` + `snapshot_platform_usage()` + cron jobid 13 (06:11 UTC diário, SQL puro sem HTTP). Notifica super_admins em `notifications` quando ≥60% (orange/red/critical, dedupe 20h) | ✅ |
+| **4** Playbook | `wiki/free-forever-playbook.md` (169 linhas) com escalation por nível 50/60/70/85% e ações por dimensão | ✅ |
+
+### Validações
+- ✅ Smoke `snapshot_platform_usage()`: snapshot id=2 com db 5.34%, storage 0.43%, mau 0% → green
+- ✅ Smoke `apply_retention_policy(8)` (handoff_queue_events): retornou OK, 0 candidates, log persistiu
+- ✅ Smoke notification ORANGE: INSERT em notifications funcionou, RLS para super_admins OK (cleanup feito)
+- ✅ db total: 29 MB → 26.6 MB (5.32% de 500 MB) — folga de 94%
+
+### Crons agora
+| jobid | nome | schedule | onde |
+|:-:|---|---|---|
+| 12 (DELETED) | handoff-queue-requeue | — | migrado pro n8n VPS |
+| 13 (NOVO) | platform-usage-snapshot | 11 6 * * * | pg_cron (SQL puro) |
+
+### SYNC RULE
+banco ✅ (2 migrations) | types.ts N/A | admin UI N/A (próximo passo opcional: card no Admin) | ALLOWED_FIELDS N/A | backend N/A | prompt N/A | system_settings N/A | docs ✅
+
+### Edge function logs (sanity)
+- `requeue-conversations` chamado pelo n8n cada ~60s, 200 OK, todos green
+- `event-processor` 404 a cada 10s — bug pré-existente não relacionado, anotado
+- `process-jobs` 401 a cada 1min — outra vítima do R92, fix futuro
+
+---
+
 ## 2026-05-05 (Sprint H — Fila Inteligente D30, Wikis Finais — D30 100% completo)
 
 ### Goal

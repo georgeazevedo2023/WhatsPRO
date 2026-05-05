@@ -68,6 +68,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/decisoes-chave]] | Decisões ativas (D27, D28, D29) + regras integridade/SYNC/CORS/HIGH RISK |
 | [[wiki/decisoes-arquivo-d21-d26]] | Arquivado: D21 Helpdesk Permissões, D22-D25 DB Monitoring, D26 v2 Service Categories, Auditoria Helpdesk 2026-04-14 |
 | [[wiki/deploy-checklist]] | Checklist obrigatorio de deploy |
+| [[wiki/free-forever-playbook]] | Plano operacional pra ficar no plano grátis Supabase: 4 camadas + escalation por nível (60/70/85%) — 2026-05-05 |
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |
 | [[wiki/protocolo-subagentes]] | Como dividir tarefas em ondas paralelas — 4 passos + regras de conflito |
 | [[wiki/log-arquivo-2026-04-04-a-09]] | Log historico arquivado |
@@ -83,7 +84,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/log-arquivo-2026-05-04-admin]] | Auditoria de vault (15 wikis particionadas) + Auditoria Módulo Admin Sprint 0+1+2 + R90 hotfix user_roles UNIQUE (2026-05-04 manhã) |
 | [[wiki/log-arquivo-2026-05-04-d30-abc]] | D30 Fila Inteligente Sprints A (DB) + B (backend HIGH RISK) + C (cron + R92 hotfix vault) — 2026-05-04 |
 | [[wiki/log-arquivo-2026-05-05-d30-defg-e]] | D30 Fila Inteligente Sprints D (Admin UI) + F (Helpdesk UI) + G (Tests + Retention) + E (Modo Estendido) — 2026-05-04/05 |
-| [[log.md]] | **Sessão 2026-05-05** — D30 Fila Inteligente Sprint H (wikis finais: admin-detalhado seção D30 + R91/R92 históricos em erros-e-licoes + arquivamento logs D-F-G-E). **D30 100% completo (8/8 sprints).** 728 testes passam, tsc 0. |
+| [[log.md]] | **Sessão 2026-05-05** — D30 Fila Inteligente 100% (8 sprints) + Plano Free Forever (4 camadas): cron D30 → n8n na VPS, VACUUM `net._http_response`, retention policy 8 ON, snapshot_platform_usage + cron diário, [[wiki/free-forever-playbook]]. 728 testes passam, tsc 0. |
 | [[wiki/melhorias-auditoria-2026-04-27]] | Auditoria 2026-04-27: 24 bugs + 210 melhorias (índice geral) |
 | [[wiki/auditoria-helpdesk-2026-05-02]] | Auditoria profunda Helpdesk + Banco (2026-05-02): nota 7.4/10, 6 sprints de plano de ação |
 | [[wiki/auditoria-admin-2026-05-04]] | Auditoria profunda Módulo Admin (2026-05-04): nota 6.5/10 (recalibrada), 7 sprints, 1 crítico real (C1 R88) + 20 médios. Sprint 0 confirmou RLS user_roles rigorosa (A2 falso positivo) |

@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.28.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)**
+> **Versão**: 7.29.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)**
 
 ## Visão Geral
 
@@ -39,6 +39,53 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.29.0 (2026-05-05) — Plano "Free Forever" — 4 camadas operacionais
+
+**Goal:** garantir que WhatsPRO nunca passe de 70% em qualquer dimensão do plano grátis Supabase. Disparado por alerta de Disk IO Budget no email Supabase.
+
+**Camada 1 — Alívio imediato (em prod):**
+- Cron `handoff-queue-requeue` (1 min, jobid 12) **desschedulado** via `cron.unschedule`. Trigger agora vem do n8n na VPS Hetzner WSMARTvps (`https://flux.wsmart.com.br/workflow/8QULMsbBRemVeFz7xQqI5`) — mesma frequência (1 min), zero IO interno no Supabase. Workflow JSON enviado pro user, importado e publicado. Smoke ao vivo: 12+ chamadas POST 200 OK em sequência nos logs.
+- VACUUM FULL `net._http_response` — recuperou 2.7 MB de bloat (3.336 KB → 632 KB, 0 rows). DB total caiu de 29 MB → 26.6 MB (5.32% de 500MB).
+- Drop de 5 indexes trgm não usados: **pulado conscientemente** — risco de degradar busca fuzzy quando dados crescerem não compensa 700KB num pool de 471MB de folga.
+
+**Camada 2 — Retention automática (em prod):**
+- Migration `enable_handoff_queue_events_retention` (id=8) — policy `handoff_queue_events` 90d ativa. Policies 1-6 já estavam ON em sessões anteriores.
+- 7 retention policies ativas via cron weekly (jobid 9 sem backup, jobid 10 com backup JSONL para `conversation_messages`).
+
+**Camada 3 — Monitoring proativo aos 60% (em prod):**
+- Migration `platform_usage_history_free_forever_monitoring`:
+  - Tabela `platform_usage_history` (snapshot diário com db_pct, storage_pct, mau_pct, alert_level, RLS para super_admin)
+  - Função `snapshot_platform_usage()` — coleta DB size + storage size + MAU + active_crons, calcula % vs limite Free, persiste row, e cria notification para super_admins em `notifications` (type=`platform_usage_alert`) quando alert_level ≥ orange (60%). Dedupe por level em janela de 20h.
+  - Níveis: green <50%, yellow 50-60%, orange 60-70%, red 70-85%, critical ≥85%
+- Migration `platform_usage_snapshot_cron_daily` — pg_cron jobid=13, schedule `11 6 * * *` (06:11 UTC diário, 4 min depois do db-size-monitor). **Execução SQL pura — não usa pg_net/HTTP**, então não pesa no IO budget. Idempotente (DROP-then-CREATE).
+- Validação: smoke da função retornou snapshot id=2 com db 5.34%, storage 0.43%, mau 0%, alert green. Smoke do INSERT em notifications (com data fake orange) confirmou RLS + integração com NotificationBell. Cleanup feito.
+
+**Camada 4 — Playbook documental:**
+- `wiki/free-forever-playbook.md` (169 linhas) — limites + tetos + 4 camadas + escalation por nível (50/60/70/85%) + ações por dimensão (db_size/storage/mau/edge/bandwidth/realtime) + cadência operacional (diária/semanal/mensal/trimestral) + query mensal de revisão + opções de escalation (Pro plan / self-host parcial).
+- Cross-refs: index.md, decisoes-chave (D24/D25/D30, R74/R77/R92), erros-e-licoes (R74, R92), admin-detalhado.
+
+**Auditoria:**
+- `npx tsc --noEmit` = 0 erros (não houve mudança de código TS)
+- `npx vitest run` = 728 passam (sem deltas)
+- DB: 29 MB → 26.6 MB (-2.4 MB, -8.3%)
+- Crons ativos: 12 → 11 (handoff-queue-requeue removido) → 12 novamente (platform-usage-snapshot adicionado)
+- Notifications de teste limpos
+- Sanity: `pick_next_assignee` RPC continua funcionando (D30 intacto)
+
+**SYNC RULE auditada:** banco ✅ (3 migrations) | types.ts N/A | admin UI N/A | ALLOWED_FIELDS N/A | backend N/A | prompt N/A | system_settings N/A | docs ✅.
+
+**Limites e folga atual após Camadas 1-4:**
+| Recurso | Limite | Atual | Folga |
+|---|---:|---:|:-:|
+| DB size | 500 MB | 26.6 MB | 94.7% 🟢 |
+| Storage | 1 GB | 4.5 MB | 99.5% 🟢 |
+| MAU | 50.000 | 2 | 99.99% 🟢 |
+| Edge invocations | 500K/mês | ~7K (cron D30 só) + outros | ~98% 🟢 |
+
+**Em 24-48h** o alerta de Disk IO no email Supabase deve sumir.
+
+---
 
 ### v7.28.0 (2026-05-05) — D30 Fila Inteligente — Sprint H (Wikis Finais — 100% completa)
 
