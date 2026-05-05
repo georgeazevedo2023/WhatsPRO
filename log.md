@@ -7,6 +7,55 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 — PAUSA DE SESSÃO (handoff antes de limpar contexto)
+
+### O que essa sessão entregou
+1. **D30 Sprints E + G + H** (3 sprints, 78 testes Vitest novos, 1 retention policy seed) — D30 100% completo (8/8 sprints)
+2. **Plano "Free Forever" 4 camadas** — cron→n8n + retention policies + monitoring 60% + playbook
+3. **3 bugs reais corrigidos via testes manuais ao vivo**:
+   - **R93** — UPDATE direto bloqueado por RLS silente (QueuePauseToggle): RPC SECURITY DEFINER + 8 testes
+   - **R94** — Header/painel direito stale ao mudar assignee em background: useEffect observa queueEvents
+   - **R95** — handoffQueue não populava `conversations.department_id`: +1 linha + redeploy 3 edge fns + backfill SQL
+4. **Wiki Playwright specs** (8 cenários reproduzíveis em `wiki/testes-d30-sprint-f-playwright.md`)
+
+### Validações ao vivo (Sprint F)
+- ✅ Configurar QueueConfig (Modo ON, ordem Lucas→...→Josafá, timeout 5min)
+- ✅ Inbox Eletropiso → default_dept Vendas
+- ✅ pick_next_assignee 8x via SQL (round-robin perfeito + pula gestor)
+- ✅ Toggle Disponível/Pausado persiste no DB (após R93 fix)
+- ✅ Round-robin pula pausado, reincorpora ao despausar
+- ✅ Badge "Em fila — \<Nome\> (3:42)" + countdown ao vivo (decrementa 1s)
+- ✅ Cron n8n processa timeouts → round-robin avança automaticamente
+- ✅ Header e painel direito sincronizam (após R94 fix)
+- ✅ Painel direito mostra "Departamento: Vendas" (após R95 fix)
+- ⏸ Cenário 8 (override manual via select Agente Responsável): aguarda usuária finalizar
+
+### Estado prod ao pausar
+- DB: 26.6 MB / 500 MB (5.32%) 🟢
+- 12 crons ativos (jobid 13 platform-usage-snapshot novo, jobid 12 handoff-queue-requeue removido)
+- n8n VPS rodando workflow `requeue-conversations` 1x/min
+- Edge fns prod: ai-agent v175, assign-handoff v2, requeue-conversations v2 (após R95 redeploy)
+- 7 retention policies ativas
+- Working tree limpo após commit `3e54930`
+
+### Frase pra retomar
+- **"continuar testes D30 Sprint F"** — retoma do cenário 8 (override manual), depois cenários remanescentes (horário comercial, expediente estendido)
+- **"continuar bugs do helpdesk"** — atacar `event-processor` 404 e `process-jobs` 401 (descobertos durante audit)
+- **"finalizar Plano Free Forever"** — Camada 5/6 do playbook (não-shipadas, opcionais)
+
+### Memory atualizada
+- `~/.claude/projects/.../memory/project_d30_fila_sprint_a.md` (continua)
+- `~/.claude/projects/.../memory/project_free_forever.md` (nova)
+- Plus: criada referência aos 3 fixes R93/R94/R95 no MEMORY.md
+
+### Auditoria final
+- `npx tsc --noEmit` = 0 erros
+- `npx vitest run` = 736 passam (+8 do QueuePauseToggle), 5 pré-existentes em FormBuilder (sem regressão nesta sessão)
+- Smoke Playwright: prod /login boota OK, 0 errors críticos no console
+- Cleanup: 0 queue_events ativos, conversa Josafa de teste desatribuída
+
+---
+
 ## 2026-05-05 (R95 — handoffQueue não popula conversations.department_id)
 
 ### Bug detectado durante Teste 7 do D30 (testes ao vivo)
