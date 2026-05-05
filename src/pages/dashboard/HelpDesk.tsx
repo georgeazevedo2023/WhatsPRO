@@ -4,6 +4,7 @@ import { useDepartments } from '@/hooks/useDepartments';
 import { useHelpdeskInboxes } from '@/hooks/useHelpdeskInboxes';
 import { useHelpdeskConversations } from '@/hooks/useHelpdeskConversations';
 import { useHelpdeskFilters } from '@/hooks/useHelpdeskFilters';
+import { useActiveQueueEvents } from '@/hooks/useActiveQueueEvents';
 import { Inbox as InboxIcon, Circle, Clock, CheckCircle2, LayoutList, Lock, User, UserMinus, Users } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -11,6 +12,7 @@ import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ConversationList } from '@/components/helpdesk/ConversationList';
+import QueuePauseToggle from '@/components/helpdesk/QueuePauseToggle';
 import { ChatPanel } from '@/components/helpdesk/ChatPanel';
 import { ContactInfoPanel } from '@/components/helpdesk/ContactInfoPanel';
 import { ManageLabelsDialog } from '@/components/helpdesk/ManageLabelsDialog';
@@ -340,11 +342,11 @@ const HelpDesk = () => {
     <div className="shrink-0">
       {/* Row 1 — inbox como pill prominente, tappable */}
       {inboxes.length > 0 && (
-        <div className="px-3 pt-2 pb-1.5">
+        <div className="px-3 pt-2 pb-1.5 flex items-center gap-2">
           <Select value={inboxSelectValue} onValueChange={handleInboxChange}>
             <SelectTrigger
               aria-label="Selecionar caixa de entrada"
-              className="h-10 sm:h-9 px-3 gap-2 rounded-lg bg-secondary/60 hover:bg-secondary/80 border-border/40 text-sm font-medium text-foreground transition-colors w-auto max-w-full"
+              className="h-10 sm:h-9 px-3 gap-2 rounded-lg bg-secondary/60 hover:bg-secondary/80 border-border/40 text-sm font-medium text-foreground transition-colors w-auto max-w-full flex-1"
             >
               <InboxIcon className="w-4 h-4 shrink-0 text-primary" />
               <SelectValue placeholder="Selecionar inbox" />
@@ -365,6 +367,8 @@ const HelpDesk = () => {
               })}
             </SelectContent>
           </Select>
+          {/* D30 Sprint F: pause toggle pessoal — só aparece se user é membro de algum dept */}
+          <QueuePauseToggle />
         </div>
       )}
 
@@ -412,6 +416,22 @@ const HelpDesk = () => {
 
   const selectedId = selectedConversation?.id || null;
 
+  // D30 Sprint F: badge "Em fila — Lucas (3:42)" + countdown ao vivo + Realtime updates
+  const { events: queueEvents, secondsRemaining: queueSecondsRemaining } = useActiveQueueEvents();
+  const queueBadgesMap = useMemo(() => {
+    const map = new Map<string, { assignee_name: string | null; seconds_remaining: number | null; paused: boolean }>();
+    for (const ev of queueEvents.values()) {
+      // Não mostra badge para o próprio assignee — ele não precisa saber que está "em fila" pra si mesmo
+      if (ev.assigned_user_id && ev.assigned_user_id === user?.id) continue;
+      map.set(ev.conversation_id, {
+        assignee_name: ev.assignee_name,
+        seconds_remaining: queueSecondsRemaining(ev.conversation_id),
+        paused: !!ev.paused_at,
+      });
+    }
+    return map;
+  }, [queueEvents, queueSecondsRemaining, user?.id]);
+
   const listProps = useMemo(() => ({
     conversations: sortedConversations,
     selectedId,
@@ -451,13 +471,14 @@ const HelpDesk = () => {
     statusFilter,
     onStatusFilterChange: (v: string) => { setStatusFilter(v); clearSelection(); },
     statusOptions,
+    queueBadgesMap,
   }), [sortedConversations, selectedId, searchQuery, loading, inboxLabels,
     conversationLabelsMap, labelFilter, selectedInboxId, agentNamesMap,
     conversationNotesSet, draftSet, assignmentFilter, priorityFilter, inboxDepartments,
     departmentFilter, hasMoreConversations, loadingMore, sortBy, messageSearchCount,
     selectedIds, toggleSelect, toggleSelectAll, clearSelection, handleBulkAction,
     handleSelectConversation, handleLabelsChanged, loadMoreConversations, fetchConversationLabels,
-    isSuperAdmin, userPermissions, defaultAssignmentFilter, statusFilter]);
+    isSuperAdmin, userPermissions, defaultAssignmentFilter, statusFilter, queueBadgesMap]);
 
   const labelsDialog = selectedInboxId && (
     <ManageLabelsDialog

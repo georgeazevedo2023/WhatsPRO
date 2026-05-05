@@ -5,7 +5,13 @@ import { smartDateBR } from '@/lib/dateUtils';
 import { ConversationLabels } from './ConversationLabels';
 import type { Label, Conversation } from '@/types';
 import { PRIORITY_COLOR_MAP } from '@/lib/constants';
-import { UserCheck, StickyNote, Building2, Clock } from 'lucide-react';
+import { UserCheck, StickyNote, Building2, Clock, Hourglass, Pause } from 'lucide-react';
+
+interface QueueBadge {
+  assignee_name: string | null;
+  seconds_remaining: number | null;
+  paused: boolean;
+}
 
 interface ConversationItemProps {
   conversation: Conversation;
@@ -15,9 +21,12 @@ interface ConversationItemProps {
   agentName?: string | null;
   hasNotes?: boolean;
   hasDraft?: boolean;
+  queueBadge?: QueueBadge | null;
 }
 
-export const ConversationItem = memo(function ConversationItem({ conversation, isSelected, onClick, labels = [], agentName, hasNotes, hasDraft = false }: ConversationItemProps) {
+const fmtCountdown = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+
+export const ConversationItem = memo(function ConversationItem({ conversation, isSelected, onClick, labels = [], agentName, hasNotes, hasDraft = false, queueBadge = null }: ConversationItemProps) {
   const contact = conversation.contact;
   const name = contact?.name || contact?.phone || 'Desconhecido';
   const initials = name.charAt(0).toUpperCase();
@@ -105,8 +114,18 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
           )}
         </div>
 
-        {(labels.length > 0 || agentName || hasNotes || hasDraft || conversation.department_name) && (
+        {(labels.length > 0 || agentName || hasNotes || hasDraft || conversation.department_name || queueBadge) && (
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            {/* D30: badge "Em fila" tem prioridade visual sobre agentName */}
+            {queueBadge && queueBadge.assignee_name && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/40 rounded px-1 py-0.5 tabular-nums">
+                {queueBadge.paused ? <Pause className="w-2.5 h-2.5" /> : <Hourglass className="w-2.5 h-2.5" />}
+                Em fila — {queueBadge.assignee_name}
+                {queueBadge.paused
+                  ? ' (pausado)'
+                  : queueBadge.seconds_remaining !== null && ` (${fmtCountdown(queueBadge.seconds_remaining)})`}
+              </span>
+            )}
             {conversation.department_name && (
               <span className="inline-flex items-center gap-0.5 text-[10px] text-primary bg-primary/10 rounded px-1 py-0.5">
                 <Building2 className="w-2.5 h-2.5" />

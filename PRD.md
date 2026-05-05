@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.24.0 | **Última atualização**: 2026-05-04 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B (DB + Backend)**
+> **Versão**: 7.25.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B (DB + Backend)**
 
 ## Visão Geral
 
@@ -39,6 +39,37 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.25.0 (2026-05-05) — D30 Fila Inteligente — Sprint F (Helpdesk UI)
+
+**Goal:** entregar a fila pro atendente — badge "Em fila — Lucas (3:42)" com countdown ao vivo + pause toggle pessoal + cancelamento de queue_event em reatribuição manual.
+
+**Arquivos novos:**
+- `src/hooks/useActiveQueueEvents.ts` — hook que mantém em memória todos os `handoff_queue_events` com `status='active'`. Tick interno de 1s para countdown. Subscribe ao broadcast `queue-update` (Sprint C cron + assignAgent override). Lookup de nome via `user_profiles.full_name` (primeiro nome para badge compacta). Retorna `secondsRemaining(conversationId)` que retorna `null` quando paused (relógio congela em horário não-comercial).
+- `src/components/helpdesk/QueuePauseToggle.tsx` — toggle no header pessoal "Disponível ↔ Pausado". Persiste em `department_members.queue_paused` para TODOS os deptos do user (single global toggle). Não renderiza se user não pertence a nenhum dept.
+
+**Arquivos modificados:**
+- `src/components/helpdesk/ConversationItem.tsx` — novo prop `queueBadge` renderiza pill âmbar `"Em fila — Lucas (3:42)"` com `Hourglass` (ou `Pause` quando paused) acima do agentName badge. Cor amarela/âmbar + fundo translúcido para destaque.
+- `src/components/helpdesk/ConversationList.tsx` — encadeia `queueBadgesMap` via `rowProps` (memoized) → ConversationRow → ConversationItem.
+- `src/pages/dashboard/HelpDesk.tsx` — usa `useActiveQueueEvents`, monta `queueBadgesMap` filtrando o próprio user (não mostra badge para o próprio assignee), inclui `QueuePauseToggle` no header da row do inbox select.
+- `src/lib/helpdeskBroadcast.ts` — `assignAgent` agora marca `handoff_queue_events` ativos da conversa como `status='manual_override'` + broadcast `queue-update`. Não-bloqueante (fila é decoração, falha silente).
+
+**Smoke ao vivo (Playwright + SQL):**
+- ✅ QueuePauseToggle renderiza para user em dept: aria-label "Pausar e sair da fila", texto "Disponível"
+- ✅ Click no toggle: UI muda para "Pausado", DB atualiza `queue_paused=true` + `queue_paused_reason="Pausado pelo atendente no helpdesk"`
+- ✅ Badge "Em fila — Lucas (3:44)" aparece para conversa com `handoff_queue_events` ativo
+- ✅ Countdown decrementa em tempo real (3:44 → 3:32 em ~5s, tick 1s)
+- ✅ Console limpo (0 erros)
+
+**Auditoria:**
+- `npx tsc --noEmit` = 0 erros
+- `npx vitest run` = 662 passam, 5 falhas pré-existentes em FormBuilder (sem regressão)
+
+**SYNC RULE auditada:** banco N/A | types.ts N/A | admin UI N/A (Sprint D) | ALLOWED_FIELDS N/A | helpdesk UI ✅ | prompt N/A | system_settings N/A | docs ✅.
+
+**Detalhes:** `wiki/casos-de-uso/handoff-fila-detalhado.md`. Sprints E (modo estendido), G (tests), H (docs) pendentes.
+
+---
 
 ### v7.24.0 (2026-05-04) — D30 Fila Inteligente — Sprint D (Admin UI)
 

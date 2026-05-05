@@ -1,0 +1,141 @@
+/**
+ * D30 Sprint F — Hook que mantém em memória todos os `handoff_queue_events`
+ * com `status='active'` para alimentar a badge "Em fila — Lucas (3:42)" no
+ * helpdesk.
+ *
+ * Refetch ao receber broadcast `queue-update` (do cron Sprint C ou de
+ * `assignHandoff`). Tick interno de 1s para o countdown.
+ *
+ * Quando `paused_at` está setado (horário fechado), o countdown some — exibe
+ * apenas o nome do atendente + ícone de pausa.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+
+export interface QueueEventInfo {
+  event_id: string;
+  conversation_id: string;
+  assigned_user_id: string | null;
+  /** Primeiro nome (ou prefixo do user_id) para badge compacta. */
+  assignee_name: string | null;
+  expires_at: string;
+  paused_at: string | null;
+  status: string;
+  rotation_number: number;
+}
+
+interface QueueEventRow {
+  id: string;
+  conversation_id: string;
+  assigned_user_id: string | null;
+  expires_at: string;
+  paused_at: string | null;
+  status: string;
+  rotation_number: number;
+}
+
+const firstName = (full: string | null | undefined, fallback: string) => {
+  const trimmed = (full || '').trim();
+  if (!trimmed) return fallback;
+  return trimmed.split(/\s+/)[0];
+};
+
+export function useActiveQueueEvents() {
+  const [events, setEvents] = useState<Map<string, QueueEventInfo>>(() => new Map());
+  const [now, setNow] = useState(() => Date.now());
+  const isMountedRef = useRef(true);
+
+  // Tick para countdown (1s)
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (isMountedRef.current) setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const { data: rows } = await supabase
+        .from('handoff_queue_events')
+        .select('id, conversation_id, assigned_user_id, expires_at, paused_at, status, rotation_number')
+        .eq('status', 'active');
+      if (!isMountedRef.current) return;
+      const events = (rows || []) as QueueEventRow[];
+      if (events.length === 0) {
+        setEvents(new Map());
+        return;
+      }
+      const userIds = Array.from(
+        new Set(events.map(e => e.assigned_user_id).filter((id): id is string => !!id)),
+      );
+      let nameMap = new Map<string, string>();
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, full_name')
+          .in('id', userIds);
+        nameMap = new Map(
+          (profiles || []).map(p => [p.id, firstName(p.full_name, p.id.slice(0, 8))]),
+        );
+      }
+      if (!isMountedRef.current) return;
+      const map = new Map<string, QueueEventInfo>();
+      for (const ev of events) {
+        map.set(ev.conversation_id, {
+          event_id: ev.id,
+          conversation_id: ev.conversation_id,
+          assigned_user_id: ev.assigned_user_id,
+          assignee_name: ev.assigned_user_id ? nameMap.get(ev.assigned_user_id) ?? null : null,
+          expires_at: ev.expires_at,
+          paused_at: ev.paused_at,
+          status: ev.status,
+          rotation_number: ev.rotation_number,
+        });
+      }
+      setEvents(map);
+    } catch {
+      /* fila é decoração — falha silente */
+    }
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    fetchAll();
+    return () => { isMountedRef.current = false; };
+  }, [fetchAll]);
+
+  // Subscribe ao broadcast queue-update do cron Sprint C
+  useEffect(() => {
+    const channel = supabase
+      .channel('helpdesk-realtime')
+      .on('broadcast', { event: 'queue-update' }, () => { fetchAll(); })
+      .subscribe();
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
+  }, [fetchAll]);
+
+  /**
+   * Segundos restantes até `expires_at`. Retorna `null` quando:
+   *   - não há evento ativo para essa conversa;
+   *   - o evento está pausado (horário não-comercial — o relógio congela).
+   */
+  const secondsRemaining = useCallback((conversationId: string): number | null => {
+    const ev = events.get(conversationId);
+    if (!ev) return null;
+    if (ev.paused_at) return null;
+    const expiresMs = new Date(ev.expires_at).getTime();
+    return Math.max(0, Math.floor((expiresMs - now) / 1000));
+  }, [events, now]);
+
+  return { events, secondsRemaining, refetch: fetchAll };
+}
+
+/** Formata segundos como m:ss para a badge (3 → "0:03", 245 → "4:05"). */
+export function formatCountdown(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}

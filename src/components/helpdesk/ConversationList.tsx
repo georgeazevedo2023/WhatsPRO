@@ -50,6 +50,8 @@ interface ConversationListProps {
   onBulkAction?: (action: 'read' | 'resolve' | 'archive' | 'assign', value?: string) => void;
   userPermissions?: { canViewAll: boolean; canViewUnassigned: boolean; canViewAllInDept: boolean };
   defaultAssignmentFilter?: 'todas' | 'minhas' | 'nao-atribuidas';
+  /** D30 Sprint F: badge "Em fila — Lucas (3:42)" por conversation_id. */
+  queueBadgesMap?: Map<string, { assignee_name: string | null; seconds_remaining: number | null; paused: boolean }>;
 }
 
 const priorityOptions: { value: 'todas' | 'alta' | 'media' | 'baixa'; label: string }[] = [
@@ -78,6 +80,7 @@ interface ConversationRowProps {
   bulkMode: boolean;
   selectedIds: Set<string>;
   onToggleSelect?: (id: string) => void;
+  queueBadgesMap?: Map<string, { assignee_name: string | null; seconds_remaining: number | null; paused: boolean }>;
 }
 
 function ConversationRow({
@@ -94,6 +97,7 @@ function ConversationRow({
   bulkMode,
   selectedIds,
   onToggleSelect,
+  queueBadgesMap,
 }: { index: number; style: CSSProperties; ariaAttributes: Record<string, unknown> } & ConversationRowProps) {
   const c = conversations[index];
   if (!c) return null;
@@ -117,6 +121,7 @@ function ConversationRow({
           agentName={c.assigned_to ? agentNamesMap[c.assigned_to] || null : null}
           hasNotes={conversationNotesSet.has(c.id)}
           hasDraft={draftSet.has(c.id)}
+          queueBadge={queueBadgesMap?.get(c.id) ?? null}
         />
       </div>
     </div>
@@ -159,6 +164,7 @@ export const ConversationList = ({
   onBulkAction,
   userPermissions: _userPermissions,
   defaultAssignmentFilter: _defaultAssignmentFilter = 'todas',
+  queueBadgesMap,
   statusFilter = 'aberta',
   onStatusFilterChange,
   statusOptions = [],
@@ -210,7 +216,8 @@ export const ConversationList = ({
     bulkMode,
     selectedIds,
     onToggleSelect,
-  }), [conversations, selectedId, onSelect, inboxLabels, conversationLabelsMap, agentNamesMap, conversationNotesSet, draftSet, bulkMode, selectedIds, onToggleSelect]);
+    queueBadgesMap,
+  }), [conversations, selectedId, onSelect, inboxLabels, conversationLabelsMap, agentNamesMap, conversationNotesSet, draftSet, bulkMode, selectedIds, onToggleSelect, queueBadgesMap]);
 
   return (
     <>
