@@ -7,6 +7,26 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (R94 — Header/painel direito stale ao trocar assignee em background)
+
+### Bug detectado durante Teste 7 do D30 (testes ao vivo)
+Cron `requeue-conversations` (n8n) processou timeout do queue_event do Alberto e fez round-robin pra Jussara → Djavan → Slone. O DB atualizou `conversations.assigned_to` corretamente. **Mas** header da conversa e painel direito "Agente Responsável" continuaram mostrando o nome anterior (Jussara) — só a badge da lista esquerda atualizou (porque `useActiveQueueEvents` tem Realtime).
+
+### Causa
+`HelpDesk.tsx > setSelectedConversation` só atualiza local state quando o **próprio frontend** chama `handleAgentAssigned`. Mudanças em background (cron / outra aba) ficam invisíveis ao React.
+
+### Fix
+useEffect em `HelpDesk.tsx` observando `queueEvents` (do `useActiveQueueEvents`). Quando muda (sinal indireto do broadcast `queue-update`), faz fetch leve `select('assigned_to').eq('id', selectedConversation.id)` e sincroniza `conversations` + `selectedConversation` se difere. Cleanup com `cancelled = true` no return do effect.
+
+### Auditoria
+- `npx tsc --noEmit` = 0 erros
+- Teste manual em prod: aguardando user (precisa F5 ou hot-reload do localhost)
+
+### Documentação
+- R94 adicionada à tabela em `wiki/erros-e-licoes.md`
+
+---
+
 ## 2026-05-05 (R93 — QueuePauseToggle: UPDATE direto bloqueado pela RLS silente)
 
 ### Bug detectado durante Teste 5 do D30 (testes ao vivo)

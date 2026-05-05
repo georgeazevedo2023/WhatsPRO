@@ -418,6 +418,34 @@ const HelpDesk = () => {
 
   // D30 Sprint F: badge "Em fila — Lucas (3:42)" + countdown ao vivo + Realtime updates
   const { events: queueEvents, secondsRemaining: queueSecondsRemaining } = useActiveQueueEvents();
+
+  // D30 R94: quando queueEvents muda (broadcast queue-update do cron / assignAgent),
+  // a conversation.assigned_to pode ter mudado em background. Sincroniza header +
+  // painel direito da conversa selecionada e seu lugar na lista.
+  useEffect(() => {
+    const id = selectedConversation?.id;
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('conversations')
+        .select('assigned_to')
+        .eq('id', id)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      const newAssignee = (data.assigned_to as string | null) ?? null;
+      const currentAssignee = selectedConversation?.assigned_to ?? null;
+      if (newAssignee === currentAssignee) return;
+      setConversations(prev =>
+        prev.map(c => c.id === id ? { ...c, assigned_to: newAssignee } as typeof c : c),
+      );
+      setSelectedConversation(prev =>
+        prev?.id === id ? { ...prev, assigned_to: newAssignee } as typeof prev : prev,
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [queueEvents, selectedConversation?.id, selectedConversation?.assigned_to, setConversations, setSelectedConversation]);
+
   const queueBadgesMap = useMemo(() => {
     const map = new Map<string, { assignee_name: string | null; seconds_remaining: number | null; paused: boolean }>();
     for (const ev of queueEvents.values()) {

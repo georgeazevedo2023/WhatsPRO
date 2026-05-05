@@ -40,6 +40,16 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.29.2 (2026-05-05) — Hotfix R94: Helpdesk stale ao trocar assignee em background
+
+**Bug detectado durante Teste 7 do D30 (testes ao vivo):** cron `requeue-conversations` (n8n) processou timeout via round-robin, atualizou `conversations.assigned_to` no banco corretamente, mas o helpdesk continuou mostrando o assignee anterior no header e no painel direito "Agente Responsável" — apenas a badge da lista esquerda atualizou (via `useActiveQueueEvents`).
+
+**Fix em `src/pages/dashboard/HelpDesk.tsx`:** useEffect observando `queueEvents` (sinal indireto do broadcast `queue-update`). Quando muda, faz fetch leve `select('assigned_to').eq('id', selectedConversation.id)` e sincroniza `conversations` + `selectedConversation` se difere do estado local. Cleanup `cancelled = true` no return.
+
+**Auditoria:** tsc 0, R94 documentada em `wiki/erros-e-licoes.md`.
+
+---
+
 ### v7.29.1 (2026-05-05) — Hotfix R93: QueuePauseToggle bloqueado por RLS
 
 **Bug detectado durante Teste 5 manual do D30:** Lucas (atendente) clicou "Disponível" no helpdesk, UI virou "Pausado" + toast verde, mas SQL mostrou `queue_paused = false` no banco — UPDATE direto via PostgREST estava sendo bloqueado pela RLS (que permite só super_admin) **sem retornar 4xx**, apenas `data: []`.
