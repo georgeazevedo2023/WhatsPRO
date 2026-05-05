@@ -2,7 +2,7 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo, retention, cron, storage, db-constraint, controlled-input]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-04
+updated: 2026-05-05
 ---
 
 # Erros e Lições
@@ -112,66 +112,30 @@ updated: 2026-05-04
 
 ## Histórico de Erros
 
-> Bugs antigos (2026-04-06 a 2026-04-09) arquivados em: `wiki/log-arquivo-2026-04-12-fixes-kpi-s12.md`
+> Bugs antigos arquivados:
+> - 2026-04-06 a 2026-04-09 → `wiki/log-arquivo-2026-04-12-fixes-kpi-s12.md`
+> - 2026-04-11 a 2026-04-13 (PostgreSQL IMMUTABLE, S2 Orchestrator 6 bugs, M19 S2 aggregate-metrics 3 bugs, S5 Orchestrator 3 bugs) → [[wiki/erros-arquivo-historico-abril]]
 
-### PostgreSQL IMMUTABLE em índice parcial — `now()` proibido (2026-04-11)
+### D30 R91 — Round-robin de fila precisa SELECT FOR UPDATE no cursor (2026-05-04)
 
-**O que:** Migration `20260415000001` falharia em produção com `ERROR: functions in index predicate must be marked IMMUTABLE`. O índice `idx_lead_memory_lookup` usava `WHERE expires_at IS NULL OR expires_at > now()`.
-**Causa:** PostgreSQL exige que funções em predicados de índice parcial sejam IMMUTABLE. `now()` é VOLATILE — muda a cada chamada. O predicado de índice é avaliado na criação, não na query.
-**Correção:** Predicado simplificado para `WHERE expires_at IS NULL` (IMMUTABLE). Filtro dinâmico `expires_at > now()` movido para as queries que consultam o índice.
-**Regra 28:** NUNCA usar `now()`, `CURRENT_TIMESTAMP` ou qualquer função VOLATILE em predicados de índice parcial (`WHERE` do `CREATE INDEX`). O filtro temporal vai na query, não no índice.
+**O que:** Sprint A da Fila Inteligente precisava distribuir conversas em round-robin global. Versão ingênua mantinha `departments.last_assignee_position` como contador simples e fazia `UPDATE` no fim. Sob carga, **2 chamadas concorrentes** de `pick_next_assignee` (ex.: 2 handoffs simultâneos no mesmo dept) liam o mesmo cursor, escolhiam o mesmo membro, ambos avançavam — dois leads parando no mesmo atendente, próximo da fila pulado.
 
-### S2 Orchestrator — 6 bugs críticos encontrados na auditoria (2026-04-11)
+**Causa raiz:** sem `FOR UPDATE`, leitura concorrente é permitida e ambos enxergam o mesmo valor antes do UPDATE. Phantom da rotação justa.
 
-**O que:** Após commit 367b4b0 (S2 Orchestrator skeleton), auditoria encontrou 6 bugs que impediriam qualquer insert no banco.
+**Edge case adjacente:** quando todos os membros têm `queue_position = NULL`, o cursor satura no sentinela (`2147483647`) e a rotação para silenciosamente — backfill espaçado (`ROW_NUMBER() * 10`) na migration evita esse estado.
 
-**Bugs encontrados:**
-1. `current_step_id` em vez de `flow_step_id` (4 arquivos) — campo não existe na tabela
-2. `.single()` em `updateFlowState` → crash se state não encontrado
-3. `.single()` em `createFlowState` → pode crashar em race condition
-4. `instance_id` NOT NULL ausente no insert de `flow_states`
-5. `flow_id` + `instance_id` NOT NULL ausentes no insert de `flow_events`
-6. `event_type: 'subagent_called'` violaria CHECK constraint — tipo inválido (correto: `tool_called`)
-7. Coluna `event_data` não existe em `flow_events` — campo correto é `input` JSONB
+**Correção:** RPC `pick_next_assignee` (migration `20260504000007`) faz `SELECT … FOR UPDATE` em `departments` no início, locando a row do cursor para a transação inteira. Smoke test 8 chamadas paralelas em prod: rotação OK + loop infinito + nenhum atendente repetido.
 
-**Causa raiz:** Tipos definidos sem validar contra schema real do banco. Nomes de colunas inventados (`current_step_id`, `event_data`) sem conferir migration. CHECK constraint não consultada.
-**Correção:** Commit 7bb2f8e — `flow_step_id` em todos os arquivos, `.maybeSingle()` + error check, campos NOT NULL incluídos, `tool_called` como event_type, `input` JSONB em vez de `event_data`.
-**Regras:**
-- R29: SEMPRE ler o schema real (migration) antes de escrever código de insert
-- R30: CHECK constraints em `event_type` devem ser consultadas antes de logar evento
-- R31: `.single()` lança exceção → sempre `.maybeSingle()` em edge functions
-- R34: Antes de usar qualquer coluna no código, verificar schema real com `information_schema.columns` — `conversations` usa `contact_id`/`inbox_id`, não `lead_id`/`instance_id`; tabela `leads` não existe, é `lead_profiles`; `flow_steps` usa `subagent_type`, não `step_type`
-- R35: FKs em flow_states: `lead_id → lead_profiles.id` (não contacts.id). Para resolver lead de uma conversa: `conversations.contact_id → lead_profiles.contact_id → lead_profiles.id`
-- R32: `useState(() => sideEffect())` NÃO é `useEffect` — inicializador roda 1x no mount com estado inicial undefined. Para reagir a dados assíncronos usar `useEffect(() => {}, [dep])`
-- R33: Ao criar rotas React Router, SEMPRE verificar App.tsx E sidebar/nav. Código de página sem rota = inacessível (bug silencioso)
+**Regra 91 (preventiva):** Round-robin de fila exige `SELECT … FOR UPDATE no cursor` dentro da mesma transação que atribui o próximo. Sem o lock, leituras concorrentes quebram a justiça da rotação. Backfill da coluna de posição evita estado-sentinela.
 
 ---
 
-### M19 S2 aggregate-metrics — 3 bugs críticos (2026-04-13)
+### D30 R92 — Vault SUPABASE_ANON_KEY desincronizado de env das edge fns (2026-05-04)
 
-**B#1 — PostgREST `.eq()` com tabela relacionada não faz JOIN:**
-`eq('inboxes.instance_id', instanceId)` não é uma sintaxe PostgREST válida para filtrar em FK. Retorna array vazio silenciosamente — conversas nunca eram agregadas, métricas zeravam.
-**Correção:** 2 passos: buscar `inboxes.id WHERE instance_id=X`, depois `conversations.in('inbox_id', ids)`.
-**Regra:** Ao precisar filtrar conversas por instância, SEMPRE usar join explícito em 2 etapas. PostgREST suporta embedded filters apenas com select `!inner()` e alias, não com `.eq('fk_table.column')`.
+**O que:** Sprint C da Fila Inteligente fez o cron `requeue-conversations` chamar uma edge fn via `net.http_post` com `Bearer (vault SUPABASE_ANON_KEY)`. A chamada retornava **401** silenciosamente — `cron.job_run_details` mostrava `succeeded` (porque o SQL command `SELECT net.http_post(...) AS request_id` retornou 1 row), mas `net._http_response.status_code` mostrava `401`.
 
-**B#2 — `conversations.resolved_at` não existe:**
-Coluna selecionada e usada para calcular `avg_resolution_minutes`, mas o campo não existe na tabela (não foi incluído no schema). Causava erros silenciosos (`undefined`).
-**Correção:** Usar `updated_at` como proxy para conversas com `status='resolved'`.
-**Regra (reforço R29):** SEMPRE verificar schema real da tabela antes de selecionar colunas. `conversations` não tem `resolved_at` — usar `updated_at WHERE status='resolved'`.
+**Causa raiz:** Supabase rotacionou `SUPABASE_ANON_KEY` no env das edge functions para o novo formato `sb_publishable_*`, mas `vault.decrypted_secrets.SUPABASE_ANON_KEY` continuava com o JWT legacy. **TODOS os crons** que chamavam edge fns via vault key — `process-jobs`, `process-flow-followups`, `aggregate-metrics-*`, `e2e-scheduled` — estavam silenciosamente 401ando há tempo indeterminado. Detectado só no smoke do D30 Sprint C porque era a primeira coisa que dependia desse pipeline em prod imediatamente.
 
-**B#3 — Schema criado mas populate não implementado (T7/T8):**
-`lead_score_history` e `conversion_funnel_events` foram criadas nas migrations com RLS e índices corretos, mas nenhuma edge function inseria dados nelas. Auditoria encontrou 0 referências em código.
-**Correção:** Adicionadas `updateLeadScores()` e `recordFunnelEvents()` em `aggregate-metrics`, chamadas dentro de `aggregateDaily()` com try/catch isolado.
-**Regra:** Após criar uma tabela nova, verificar SEMPRE se existe código que a popula. Schema sem populate = tabela fantasma. A auditoria pós-entrega é obrigatória antes de declarar sprint como concluído.
+**Correção:** `SELECT vault.update_secret((SELECT id FROM vault.secrets WHERE name='SUPABASE_ANON_KEY'), '<publishable>')`. Vault refresh leva 1-2 ticks pra propagar (cache pg_net).
 
----
-
-### S5 Orchestrator — 3 bugs em Memory Service + Greeting (2026-04-12)
-
-**B#1 — `getStepType` lia campo inexistente:** `context.step_config.step_type` (undefined) → sempre despachava para stub 'custom'. Corrigido: `contextBuilder` injeta `subagent_type` no `step_config`; `getStepType` lê `subagent_type`.
-
-**B#2 — PostgREST `.upsert({ onConflict: 'col,col,col' })` falha:** `"there is no unique or exclusion constraint matching"`. PostgREST não resolve constraint por lista de colunas. Solução: criar RPC `upsert_lead_long_memory` com `INSERT … ON CONFLICT (lead_id, memory_type, scope)` — idêntica à `upsert_lead_short_memory` mas sem TTL. R36 preventivo.
-
-**B#3 — `step_data: {}` no insert sobrescreve DEFAULT:** `createFlowState` passava `step_data: {}`, sobrescrevendo o DEFAULT do banco `{message_count: 0, ...}`. Resultado: `message_count = undefined`. Check `isFirstMessage = (message_count === 0)` → false → `upsertLongMemory` nunca chamada. Correção dupla: (1) remover `step_data` do insert; (2) `?? 0` no check. R37+R38 preventivos.
-
-**E2E validado (commit 935fb3f):** Case B (sessions_count++), Case C (greeting+UAZAPI), Case D (pede nome→continue), Case A (extrai nome ASCII→advance, salva full_name + long_memory).
+**Regra 92 (preventiva):** Quando edge fn é chamada via `net.http_post` com Bearer da vault, o `cron.job_run_details` mostra apenas se o SQL command rodou — não se o HTTP retornou 2xx. Para validar de verdade, **olhar `net._http_response.status_code`** após cada execução. Padrão para escrever cron novo: incluir `INSERT INTO log_table (..., http_status) SELECT ... FROM net._http_response WHERE id = (resultado do http_post)` ou checagem assíncrona.

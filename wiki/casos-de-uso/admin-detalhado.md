@@ -2,7 +2,7 @@
 title: Admin — Painel de Configuração (Documentação Detalhada)
 tags: [admin, super-admin, painel, gating, rls, edge-functions, sync-rule]
 sources: [src/pages/dashboard/Admin*.tsx, src/components/admin/, supabase/functions/admin-*]
-updated: 2026-05-04
+updated: 2026-05-05
 ---
 
 # Admin — Painel de Configuração da Plataforma
@@ -83,9 +83,46 @@ Quando um membro é vinculado a uma caixa, 3 toggles definem o que ele vê dentr
 
 ## SYNC RULE no AIAgentTab
 
-`AIAgentTab.tsx:57-87` mantém `ALLOWED_FIELDS` — whitelist de campos do agente que podem ser auto-saved. **Toda nova feature do AI Agent (D28 excluded_products, D29 dynamic VALID_KEYS, service_categories, prompt_sections, tts_fallback_providers, poll_nps_*, etc) DEVE ser adicionada aqui** (item 4 do SYNC RULE).
+`AIAgentTab.tsx:57-87` mantém `ALLOWED_FIELDS` — whitelist de campos do agente que podem ser auto-saved. **Toda nova feature do AI Agent (D28 excluded_products, D29 dynamic VALID_KEYS, service_categories, prompt_sections, tts_fallback_providers, poll_nps_*, D30 extended_hours_until, etc) DEVE ser adicionada aqui** (item 4 do SYNC RULE).
 
 Auditoria 2026-05-04 confirmou: SYNC RULE íntegra ✅.
+
+---
+
+## D30 — Fila Inteligente de Handoff (componentes admin)
+
+3 superfícies de configuração foram adicionadas em 2026-05-04/05 para suportar a fila:
+
+### `DepartmentsTab` → botão "Fila" → `QueueConfig` dialog (Sprint D)
+
+Cada card de departamento ganhou um botão **"Fila"** (ícone `ListOrdered`) que abre um dialog modal:
+- **Toggle Modo Fila** (`departments.queue_mode_enabled`): ON = round-robin global; OFF = 100% para o atendente padrão
+- **Slider Timeout** (1-15 min, default 5) — segura cada conversa antes de avançar a fila
+- **Select Atendente padrão** (Modo OFF): quem recebe tudo quando a fila está desligada
+- **Drag-drop ordem da fila** (Modo ON, `@dnd-kit/sortable`): membros do dept reordenáveis, `queue_position` espaçada de 10 em 10
+- **Toggle Pausar/Despausar** por membro: `department_members.queue_paused` (sistema pula pausados)
+- **Toggle "Incluir gestor"** (só renderizado para `role=gerente`): `gestor_in_queue` — gestor por default fora da fila, vira opt-in
+- **Reset cursor RR** ao salvar — round-robin recomeça do topo da nova ordem
+
+Audit log: `update_dept_queue_config` via RPC `log_admin_action`.
+
+### `InboxesTab` → select inline "Departamento padrão (handoff)" (Sprint D, D-α)
+
+Cada caixa ganhou um **select inline** no card que define o `inboxes.default_department_id` — usado como **fallback final** da cascade de resolução de departamento (`profile → funnel → inbox.default → null`). Sem isso configurado em alguma camada, a IA chama o sino do gestor em vez de atribuir.
+
+Auto-save no onChange. Audit log: `set_inbox_default_dept`.
+
+### `AIAgentTab` → tab Segurança → `ExtendedHoursConfig` (Sprint E)
+
+Override pontual do horário comercial — útil em datas especiais (Black Friday, lançamento, live) sem editar o `business_hours` ou o cron. Renderizado logo abaixo do `BusinessHoursEditor`:
+- **Status display**: badge âmbar **"Ativo até DD/MM às HH:mm"** quando `extended_hours_until` está no futuro; **"Não ativado"** caso contrário
+- **4 quick actions**: +1 hora, +2 horas, Resto do dia (23:59 hoje), Até amanhã 23:59
+- **Custom datetime input** + botão Aplicar (disabled em vazio/passado)
+- **Botão "Cancelar agora"** só aparece quando ativo
+
+Schema (`ai_agents.extended_hours_until timestamptz`) e helper (`_shared/businessHours.ts`) já existiam — Sprint E é só a porta de entrada UX.
+
+Detalhes técnicos da fila (modos, timeouts, lifecycle, cascade D-α/β/γ): [[wiki/casos-de-uso/handoff-fila-detalhado]].
 
 ---
 
@@ -116,8 +153,9 @@ Auditoria 2026-05-04 confirmou: SYNC RULE íntegra ✅.
 - [[wiki/auditoria-admin-2026-05-04]] — Auditoria profunda 2026-05-04 (nota 6.5/10 recalibrada, 6 sprints)
 - [[wiki/auditoria-helpdesk-2026-05-02]] — Auditoria similar do Helpdesk
 - [[wiki/casos-de-uso/ai-agent-detalhado]] — AI Agent (configurado via AIAgentTab)
-- [[wiki/decisoes-chave]] — D21 (permissões inbox), D24/D25 (retention)
-- [[wiki/erros-e-licoes]] — R73 (soft permissions), R88 (CHECK constraint silent fail)
+- [[wiki/decisoes-chave]] — D21 (permissões inbox), D24/D25 (retention), D30 (fila inteligente)
+- [[wiki/casos-de-uso/handoff-fila-detalhado]] — fila inteligente completa (8 sprints)
+- [[wiki/erros-e-licoes]] — R73 (soft permissions), R88 (CHECK constraint silent fail), R91 (RR concorrência), R92 (vault rotation)
 - [[RULES.md]] — SYNC RULE 8 itens, CORS, padrões edge fn
 
 ---

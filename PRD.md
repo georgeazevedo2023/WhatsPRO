@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.27.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente — Sprint A+B+C+D+E+F+G (DB + Backend + Cron + Admin UI + Modo Estendido + Helpdesk UI + Tests/Retention)**
+> **Versão**: 7.28.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)**
 
 ## Visão Geral
 
@@ -39,6 +39,32 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.28.0 (2026-05-05) — D30 Fila Inteligente — Sprint H (Wikis Finais — 100% completa)
+
+**Goal:** fechar o D30 documentalmente. Admin-detalhado ganha seção completa da Fila Inteligente, R91 (RR concorrência) e R92 (vault rotation) viram entries históricos formais em `wiki/erros-e-licoes`, logs Sprint D+F+G+E são arquivados em wiki separada, log.md fica enxuto.
+
+**Arquivos novos:**
+- `wiki/log-arquivo-2026-05-05-d30-defg-e.md` — agrega logs Sprints D (Admin UI) + F (Helpdesk UI) + G (Tests/Retention) + E (Modo Estendido) numa página só. Preserva goal/arquivos/SYNC/auditoria de cada sprint para forense futura.
+
+**Arquivos modificados:**
+- `wiki/casos-de-uso/admin-detalhado.md` — nova seção **"D30 — Fila Inteligente de Handoff (componentes admin)"** com 3 superfícies: (1) `DepartmentsTab` → botão "Fila" → `QueueConfig` dialog com Modo + timeout + default_assignee + drag-drop + pause + gestor toggle; (2) `InboxesTab` → select inline "Departamento padrão (handoff)" → `inboxes.default_department_id` (D-α); (3) `AIAgentTab` → tab Segurança → `ExtendedHoursConfig` com status + 4 quick actions + custom datetime + cancel. Cross-ref para [[handoff-fila-detalhado]]. ALLOWED_FIELDS menciona `extended_hours_until`. Links de Erros e Decisões incluem D30/R91/R92.
+- `wiki/erros-e-licoes.md` — entries históricos detalhados:
+  - **D30 R91 — Round-robin de fila precisa SELECT FOR UPDATE no cursor (2026-05-04)**: causa raiz (leitura concorrente sem lock), edge case adjacente (queue_position=NULL satura sentinela 2147483647), correção (RPC `pick_next_assignee` com lock + backfill ROW_NUMBER()*10), smoke 8 chamadas paralelas em prod.
+  - **D30 R92 — Vault SUPABASE_ANON_KEY desincronizado de env das edge fns (2026-05-04)**: causa raiz (Supabase rotacionou env para `sb_publishable_*` mas vault continuou JWT legacy), impacto silencioso (4 crons quebraram sem rastro: `process-jobs`/`process-flow-followups`/`aggregate-metrics-*`/`e2e-scheduled`), por que `cron.job_run_details` mostra "succeeded" (SQL command rodou; status real só em `net._http_response.status_code`), correção (`vault.update_secret`).
+- `log.md` — esvaziado mantendo só Sprint H + referências cruzadas para os 2 logs arquivados.
+
+**Auditoria:**
+- `npx tsc --noEmit` = 0 erros
+- `npx vitest run` = 728 passam (sem deltas — só docs)
+
+**SYNC RULE auditada:** banco N/A | types.ts N/A | admin UI N/A | ALLOWED_FIELDS N/A | backend N/A | prompt N/A | system_settings N/A | docs ✅.
+
+**Estado D30 final:** **8 de 8 sprints shipados.** ~26.5h totais entregues entre 2026-05-04 e 05-05. Sprint A+B+C+D+E+F+G+H. Único bloqueio externo: 1 handoff real via WhatsApp para fechar E2E no helpdesk (gap aceito desde Sprint B; testes Vitest do Sprint G mitigam parcialmente).
+
+**Detalhes:** [[wiki/casos-de-uso/handoff-fila-detalhado]] (esta wiki é a fonte da verdade técnica), [[wiki/casos-de-uso/admin-detalhado]] (componentes UI), [[wiki/erros-e-licoes]] (R91, R92, R74, R77).
+
+---
 
 ### v7.27.0 (2026-05-05) — D30 Fila Inteligente — Sprint E (Modo Estendido)
 
