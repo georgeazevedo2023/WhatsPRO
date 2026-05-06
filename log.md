@@ -7,6 +7,38 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Onda 2 dados shipped via dblink: 1944 rows + diff zero vs antigo)
+
+**Estratégia bem-sucedida:** habilitar `dblink` extension no novo + connection string com senha DB do antigo + `INSERT INTO ... SELECT * FROM jsonb_populate_recordset(NULL::tabela, dblink(...))`. 4 batches em ~5 minutos.
+
+**Cross-check final (diff = 0 em todas):**
+
+| Tabela | Antigo | Novo | Diff |
+|---|---:|---:|---:|
+| auth_users (Eletropiso) | 7 | 7 | 0 ✅ |
+| contacts (escopo) | 15 | 15 | 0 ✅ |
+| conversations | 17 | 17 | 0 ✅ |
+| conversation_messages | 1341 | 1341 | 0 ✅ |
+| ai_agent_validations | 274 | 274 | 0 ✅ |
+| lead_database_entries | 5 | 5 | 0 ✅ |
+| flow_steps | 2 | 2 | 0 ✅ |
+| flow_triggers | 1 | 1 | 0 ✅ |
+
+**Total geral migrado:** ~1.944 rows + globais (admin_audit_log 17, system_settings 13, db_retention_policies 7, notifications 7, platform_usage_history 4).
+
+**Roles preservados:**
+- super_admin: George (`a1b4fd3e-e44c-4b2a-90aa-daf95e60f1b4`)
+- gerente: Josafa
+- user: Alberto, Djavan, Jussara, Lucas, Slone
+
+**Hashes bcrypt preservados** — atendentes logam no novo com mesma senha do antigo.
+
+**Pendente:** 4 storage objects (1 contact-avatar George + 3 bio-images) — copiar via Storage API.
+
+**Próximo:** Onda 2 storage + Onda 3 (vault secrets + edge fn env vars) + Onda 4 (deploy 41 edge fns).
+
+---
+
 ## 2026-05-06 (madrugada — Onda 2 PARCIAL: auth + core multi-tenant + contacts)
 
 **Migrado para o novo `prfcbfumyrrycsrcrvms`:**
