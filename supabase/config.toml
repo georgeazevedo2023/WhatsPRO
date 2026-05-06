@@ -1,4 +1,4 @@
-project_id = "euljumeflwtljegknawy"
+project_id = "prfcbfumyrrycsrcrvms"
 
 # ── External Webhooks (no Supabase JWT available) ──────────────────
 # These are called by UAZAPI or browsers — auth is handled manually inside

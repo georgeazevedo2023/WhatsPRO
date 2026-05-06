@@ -29,12 +29,12 @@ function getSocialIcon(platform: SocialPlatform): string {
 }
 
 function getBioPublicUrl(slug: string): string {
-  const base = import.meta.env.VITE_SUPABASE_URL || 'https://euljumeflwtljegknawy.supabase.co'
+  const base = import.meta.env.VITE_SUPABASE_URL || 'https://prfcbfumyrrycsrcrvms.supabase.co'
   return `${base}/functions/v1/bio-public?slug=${encodeURIComponent(slug)}`
 }
 
 async function trackClick(buttonId: string, supabaseUrl: string) {
-  const base = supabaseUrl || 'https://euljumeflwtljegknawy.supabase.co'
+  const base = supabaseUrl || 'https://prfcbfumyrrycsrcrvms.supabase.co'
   fetch(`${base}/functions/v1/bio-public`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -569,7 +569,7 @@ export default function BioPage() {
     if (!captureTarget || !page) return
     setIsCapturing(true)
     try {
-      const base = supabaseUrl || 'https://euljumeflwtljegknawy.supabase.co'
+      const base = supabaseUrl || 'https://prfcbfumyrrycsrcrvms.supabase.co'
       await fetch(`${base}/functions/v1/bio-public`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

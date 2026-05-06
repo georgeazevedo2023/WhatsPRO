@@ -12,7 +12,7 @@ import type {
 // ─── URL helper ───────────────────────────────────────────────────────────────
 
 function bioPublicUrl(slug: string): string {
-  const base = import.meta.env.VITE_SUPABASE_URL || 'https://euljumeflwtljegknawy.supabase.co'
+  const base = import.meta.env.VITE_SUPABASE_URL || 'https://prfcbfumyrrycsrcrvms.supabase.co'
   return `${base}/functions/v1/bio-public?slug=${encodeURIComponent(slug)}`
 }
 

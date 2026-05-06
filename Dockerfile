@@ -3,8 +3,8 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 # Supabase env vars (baked into the React build)
-ENV VITE_SUPABASE_URL=https://euljumeflwtljegknawy.supabase.co
-ENV VITE_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1bGp1bWVmbHd0bGplZ2tuYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NjYzMTQsImV4cCI6MjA4OTU0MjMxNH0.TAem9XE_b7Sx-rlHpZiU40rXKvwYWCBnqwLlAFYetJk
+ENV VITE_SUPABASE_URL=https://prfcbfumyrrycsrcrvms.supabase.co
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_ayu87rwh94XQcMt1_1ka_w_hOQy8rZe
 
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts

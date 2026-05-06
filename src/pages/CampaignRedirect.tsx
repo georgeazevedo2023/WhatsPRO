@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LandingForm } from '@/components/campaigns/LandingForm';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://euljumeflwtljegknawy.supabase.co';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://prfcbfumyrrycsrcrvms.supabase.co';
 
 interface FormField {
   id: string;

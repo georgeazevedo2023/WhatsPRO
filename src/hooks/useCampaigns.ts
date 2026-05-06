@@ -238,6 +238,6 @@ export function generateSlug(name: string): string {
 }
 
 export function buildTrackingUrl(slug: string): string {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://euljumeflwtljegknawy.supabase.co';
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://prfcbfumyrrycsrcrvms.supabase.co';
   return `${supabaseUrl}/functions/v1/go?c=${slug}`;
 }

@@ -7,6 +7,27 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Onda 6 PRONTA — commit cutover NÃO pushed)
+
+Frontend rebuildado pra apontar pro novo Supabase. **Não pushed** — usuário decide momento do cutover.
+
+**Arquivos atualizados (`euljumeflwtljegknawy` → `prfcbfumyrrycsrcrvms`):**
+- `.env` (3 vars)
+- `Dockerfile` (ENV vars no build)
+- `supabase/config.toml` (project_id)
+- `src/pages/BioPage.tsx` (3 fallbacks)
+- `src/pages/CampaignRedirect.tsx` (1 fallback)
+- `src/hooks/useCampaigns.ts` (1 fallback)
+- `src/hooks/useBioPages.ts` (1 fallback)
+
+Validação: `npx tsc --noEmit` passou (0 erros).
+
+**Cutover acontece quando o usuário rodar `git push`** + redeploy via Portainer. CI vai buildar nova imagem com env do novo, atendentes do Eletropiso vão começar a chamar `prfcbfumyrrycsrcrvms`.
+
+**Próximo:** Onda 7 — usuário atualiza n8n workflow URL + UAZAPI webhook URL no painel.
+
+---
+
 ## 2026-05-06 (madrugada — Onda 5 SHIPPED: 15 pg_cron jobs no novo)
 
 10 crons SQL-only herdados do replay schema + 5 HTTP recriados via `cron.schedule()` com URL apontando pra `prfcbfumyrrycsrcrvms.supabase.co`:
@@ -49,16 +70,18 @@ NÃO deployadas (corretamente):
 
 | Secret | Validado HTTP |
 |---|---|
-| `UAZAPI_SERVER_URL` `https://wsmart.uazapi.com` | ✅ 26 instâncias visíveis |
-| `UAZAPI_ADMIN_TOKEN` `V86Q3LAFj2nx1jDBXgw1yuN7PDFmUI4yDRcqTaG9PqUpN57bFp` | ✅ |
-| `GROQ_API_KEY` `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` (principal) | ✅ Llama 3.3 70B respondeu |
-| `GEMINI_API_KEY` `AIzaSyDNnXilQkAbL7CNey34nulhXwGTem_ebhg` | ✅ 49 modelos |
-| `MISTRAL_API_KEY` `0n7x8q4FL3t8d00JVXQLD4gJukWumECp` | ✅ 68 modelos |
-| `OPENAI_API_KEY` `sk-proj-8198o2Hv...` (Metrics) | ✅ 133 modelos |
-| `ALLOWED_ORIGIN` `https://crm.wsmart.com.br` | (já setado anterior) |
-| `INTERNAL_FUNCTION_KEY` `c22c5d696ddc...` (regenerada) | (já setado anterior) |
+| `UAZAPI_SERVER_URL` (servidor produção wsmart) | ✅ 26 instâncias visíveis |
+| `UAZAPI_ADMIN_TOKEN` (admin token) | ✅ |
+| `GROQ_API_KEY` (principal) | ✅ Llama 3.3 70B respondeu |
+| `GEMINI_API_KEY` | ✅ 49 modelos |
+| `MISTRAL_API_KEY` | ✅ 68 modelos |
+| `OPENAI_API_KEY` (Metrics) | ✅ 133 modelos |
+| `ALLOWED_ORIGIN` (`crm.wsmart.com.br`) | (já setado anterior) |
+| `INTERNAL_FUNCTION_KEY` (regenerada 32 bytes) | (já setado anterior) |
 
-**Vault DB:** `SUPABASE_ANON_KEY` = `sb_publishable_ayu87rwh94XQcMt1_1ka_w_hOQy8rZe` (usado pelos crons via Bearer).
+(valores em `<REDACTED>` — ver painel Supabase Settings → Edge Functions → Secrets)
+
+**Vault DB:** `SUPABASE_ANON_KEY` = publishable key do projeto novo (formato `sb_publishable_*`).
 
 **Próximo:** Onda 4 — deploy 41 edge fns (HIGH RISK: ai-agent, ai-agent-playground, e2e-test exigem aprovação por commit).
 
