@@ -7,6 +7,34 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — HOTFIX 3: 27 colunas faltando em 7 tabelas)
+
+**Sintoma:** Após login + GRANTs, frontend mostrava "0 conversas / Nenhuma conversa nesta caixa" mesmo com 17 rows em `conversations` no DB.
+
+**Causa raiz:** Coluna `archived` faltando em `public.conversations` (frontend filtra `archived=false`). Auditoria expandida via `dblink` cruzando `information_schema.columns` revelou **27 colunas faltando em 7 tabelas**. Origem: migrations Lovable que pulei (substituidas pelo snapshot 2026-03-20) tinham vários `ALTER TABLE ADD COLUMN` que não rodaram.
+
+**Tabelas afetadas:**
+- `ai_agents` (8 colunas: business_info, excluded_products, extraction_address_enabled, handoff_message, max_enrichment_questions, returning_greeting_message, voice_name, voice_reply_to_audio)
+- `bio_pages` (9 colunas relacionadas ao Bio Link e captura de leads)
+- `bio_buttons` (3 colunas: starts_at, ends_at, catalog_product_id)
+- `ai_agent_knowledge`, `ai_agent_media` (updated_at)
+- `e2e_test_batches` (4 colunas)
+- `lead_profiles` (objections text[])
+- `conversations` (archived bool)
+
+**Fix:**
+1. ALTER TABLE ADD COLUMN IF NOT EXISTS pra cada coluna (com default copiado do antigo)
+2. UPDATE via dblink pra preencher VALORES reais do antigo (defaults dos ALTERs ficaram com valor padrão, dados originais perdidos)
+3. NOTIFY pgrst, 'reload schema'
+
+**Validação:**
+- `ai_agents.business_info IS NOT NULL` = 1 (Eletropiso preenchida)
+- `conversations.archived = false` = 17 (correto)
+
+**Lição (R99):** Ao replicar schema entre projetos via skip de migrations Lovable + snapshot, NÃO basta replay das migrations subsequentes — também precisa re-puxar via dblink/dump as colunas adicionadas pelas Lovable migrations puladas. Auditoria via cross-DB diff em `information_schema.columns` é o método definitivo: `WHERE (table_name, column_name) NOT IN (SELECT ... FROM novo)`.
+
+---
+
 ## 2026-05-06 (madrugada — HOTFIX 2: GRANTs faltando em todas tabelas public)
 
 **Sintoma:** Após login OK, frontend mostrava "Você não tem acesso a nenhuma caixa" + sidebar com role "Atendente" + 403 em queries diretas (`user_roles`, `user_profiles`, `departments`, `instances`, `inbox_users`, `handoff_queue_events`).
