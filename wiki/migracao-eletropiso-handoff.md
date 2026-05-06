@@ -82,7 +82,7 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 | 5 ✅ | 15 pg_cron jobs ativos no novo (10 SQL-only herdados + 5 HTTP recriados com URL nova). NÃO recriado: requeue-conversations (n8n cuida). Smoke process-flow-followups retorna 500 RLS — fn viva, debug Onda 8. 2026-05-06 | Novo |
 | 6 ✅ | Frontend Docker rebuild com env do novo. Push + CI 57s + Portainer webhook 204. Bundle novo `index-PKnxTzaI.js` apontando 100% `prfcbfumyrrycsrcrvms.supabase.co`. 2026-05-06 | Repo + você |
 | 7 ✅ | n8n fluxos 1+2 atualizados pelo usuário (URL + Bearer). UAZAPI webhook continua apontando fluxwebhook.wsmart.com.br (n8n não mudou). Smoke pré-push: whatsapp-webhook 200, requeue-conversations 200. 2026-05-06 | Você |
-| 8 | Smoke E2E (login, helpdesk, conversa, IA, cron); SE OK → **PAUSAR antigo**; SE FALHAR → rollback (UAZAPI volta antigo) | Ambos |
+| 8 ⏳ | Smoke E2E (login OK ✅, 13 conversas aparecem ✅, falta validar mensagem nova WhatsApp + IA + cron). 3 hotfixes shipped pós-cutover (R97 instance_id, R98 GRANTs, R99 27 colunas). **Aguardando smoke completo pra pausar antigo.** Ver [[wiki/migracao-eletropiso-COMPLETA]] | Ambos |
 
 ### Critério de "produção liso"
 - Login funciona
