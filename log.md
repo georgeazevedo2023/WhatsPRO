@@ -7,6 +7,27 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — HOTFIX auth.users após cutover: instance_id NULL)
+
+**Sintoma:** Após cutover, login `george.azevedo2023@gmail.com` retornava 400 "Invalid login credentials" mesmo com hash bcrypt validado matematicamente via SQL (`crypt('123456@', encrypted_password) = encrypted_password` retornava true).
+
+**Causa raiz:** Quando inseri os 7 auth.users via SQL (Onda 2), **omiti** o campo `instance_id` no INSERT — ficou NULL no novo. No antigo era `00000000-0000-0000-0000-000000000000` (UUID zero, padrão GoTrue/Supabase Auth). GoTrue usa esse campo pra rotear users — sem ele, Auth API retorna `user_not_found` mesmo com row presente em `auth.users`.
+
+**Sintoma secundário:** `auth.identities` também estava vazio. Identities são usadas pra mapear provider→user no login. Inseri todas via dblink antes de descobrir o problema do `instance_id`. Identities sozinhas não resolveram — instance_id era a causa raiz.
+
+**Fix:**
+```sql
+UPDATE auth.users SET instance_id = '00000000-0000-0000-0000-000000000000' WHERE instance_id IS NULL;
+```
+
+Validação: `POST /auth/v1/token?grant_type=password` retornou JWT válido após o UPDATE. Login confirmado funcional.
+
+**Lição (R97):** Ao migrar `auth.users` via SQL direto (sem passar pelo Admin API do Supabase), conferir manualmente que `instance_id` está populado. Padrão default `'00000000-0000-0000-0000-000000000000'` é pré-requisito pro GoTrue enxergar o user. Mesmo `auth.identities` populadas e hash válido não bastam.
+
+**Próximo:** smoke E2E completa — login de outro atendente + helpdesk + IA + cron.
+
+---
+
 ## 2026-05-06 (madrugada — Ondas 6+7 SHIPPED: CUTOVER LIVE)
 
 **Onda 7 (n8n + UAZAPI) feito pelo usuário:**
