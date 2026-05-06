@@ -7,6 +7,26 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Onda 5 SHIPPED: 15 pg_cron jobs no novo)
+
+10 crons SQL-only herdados do replay schema + 5 HTTP recriados via `cron.schedule()` com URL apontando pra `prfcbfumyrrycsrcrvms.supabase.co`:
+
+| jobid | nome | schedule | tipo |
+|---:|---|---|---|
+| 23 | process-flow-followups | 0 * * * * | HTTP |
+| 24 | aggregate-metrics-hourly | 0 * * * * | HTTP |
+| 25 | aggregate-metrics-daily-consolidation | 30 0 * * * | HTTP |
+| 26 | platform-usage-snapshot | 11 6 * * * | SQL |
+| 27 | e2e-automated-tests | 0 */6 * * * | HTTP |
+
+**NÃO recriado:** `requeue-conversations` (D30) — n8n já cuida no novo cluster (decisão do user).
+
+**Smoke:** disparo manual em `process-flow-followups` retornou 500 `permission denied for table flow_states` — fn está viva (Bearer aceito), erro de RLS interno. Debug fica pra Onda 8 (smoke E2E completa). Não-bloqueante pra próxima onda.
+
+**Próximo:** Onda 6 — frontend Docker rebuild com URL+publishable do novo.
+
+---
+
 ## 2026-05-06 (madrugada — Onda 4 SHIPPED: 41 edge fns deployadas no novo)
 
 `npx supabase functions deploy --project-ref prfcbfumyrrycsrcrvms` (sem args = todas) deployou 41 fns em ~2 min, todas v1 ACTIVE.
