@@ -7,6 +7,18 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (noite — PAUSA pra migração Eletropiso, handoff salvo)
+
+Decisão: usuário quer migrar Eletropiso pra Supabase NOVO (`prfcbfumyrrycsrcrvms`), em conta separada da org `qwxxtqdqletmetdnqmes`. Estratégia confirmada: **Clean migration** (só Eletropiso, descarta lixo de teste). Ordem: **Sprints 2-6 da auditoria PRIMEIRO** (corrigir tudo no antigo, ~12-14h), DEPOIS migração 8 ondas (~6-8h). Total: 18-22h multi-sessão.
+
+**Bloqueio atual:** MCP Supabase aqui só vê org antiga (`qwxxtqdqletmetdnqmes`), não o projeto novo. Próxima sessão precisa MCP reconfigurado com `Personal Access Token sbp_64d35110…` (que está no histórico desta conversa).
+
+Handoff completo: [[wiki/migracao-eletropiso-handoff]] (175 linhas) — frase de retomada **"continuar migração eletropiso"**.
+
+⚠️ Credenciais (DB password, Service Role JWT, Personal Access Token) foram passadas em chat — **rotacionar após migração**.
+
+---
+
 ## 2026-05-05 (noite — Sprint 1 da auditoria: 5 P1s shipped, commit e4def62)
 
 Auto-auditoria do plano antes de executar (filtragem pegou 6 problemas: ordem, baseline ausente, Sprint 2 redundante). Shipped: **P1-3** ALTER FUNCTION SET search_path em 24 fns SECURITY DEFINER (9 helpers RLS), **P1-4+5** fetchWithTimeout 30s + log warn em process-jobs/processProfilePicFetch, **P1-8** 6 FKs form_sessions/submissions migradas (CASCADE pra NOT NULL, SET NULL pra nullable), **P1-1** process-flow-followups deployada v1 + config.toml — smoke 200 OK, cron jobid 3 (1x/h) volta a funcionar (R96 fechado). Baseline e final: tsc 0, vitest 736 pass = **zero regressão**. Frase retomada: "executar Sprint 2".

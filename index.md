@@ -71,6 +71,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/free-forever-playbook]] | Plano operacional pra ficar no plano grátis Supabase: 4 camadas + escalation por nível (60/70/85%) — 2026-05-05 |
 | [[wiki/testes-d30-sprint-f-playwright]] | Specs Playwright de 8 cenários da Sprint F + regression de R93/R94/R95 — 2026-05-05 |
 | [[wiki/auditoria-completa-2026-05-05]] | **Auditoria completa do projeto (5 ondas paralelas):** 0 P0 / 8 P1 / 11 P2 / 7 P3 — saúde geral 6.8/10. Plano de correção em 6 sprints. **Sprint 1 SHIPPED 2026-05-05 (commit e4def62):** P1-3 search_path em 24 fns + P1-4/5 process-jobs hardening + P1-8 FKs CASCADE/SET NULL + P1-1 process-flow-followups deploy v1. Zero regressão (vitest 736 pass mantido). |
+| [[wiki/migracao-eletropiso-handoff]] | **HANDOFF ATIVO** — Migração Eletropiso pra Supabase novo (`prfcbfumyrrycsrcrvms`). Sprints 2-6 antigo PRIMEIRO, depois 8 ondas migração. Frase retomada: **"continuar migração eletropiso"**. Bloqueio: MCP precisa novo token. |
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |
 | [[wiki/protocolo-subagentes]] | Como dividir tarefas em ondas paralelas — 4 passos + regras de conflito |
 | [[wiki/log-arquivo-2026-04-04-a-09]] | Log historico arquivado |
