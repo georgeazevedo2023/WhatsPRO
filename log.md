@@ -7,6 +7,38 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — HOTFIX 2: GRANTs faltando em todas tabelas public)
+
+**Sintoma:** Após login OK, frontend mostrava "Você não tem acesso a nenhuma caixa" + sidebar com role "Atendente" + 403 em queries diretas (`user_roles`, `user_profiles`, `departments`, `instances`, `inbox_users`, `handoff_queue_events`).
+
+**Body do 403:** `{"code":"42501","message":"permission denied for table user_roles","hint":"GRANT SELECT ON public.user_roles TO authenticated"}`
+
+**Causa raiz:** Postgres exige 2 camadas: GRANT (permissão básica de operação) + RLS (filtro de rows). Sem GRANT, RLS nem é avaliado — bloqueia direto. As migrations Lovable que pulei (Sprints 1-2 da migração marcou como skipped) tinham os GRANTs implícitos. Sem rodar, anon/authenticated ficaram sem permissão em **todas as tabelas public**.
+
+**Validação adicional:** `is_super_admin('a1b4fd3e...')` rpc retorna `true` (função funciona). Policies RLS estão idênticas ao antigo. Apenas GRANTs faltavam.
+
+**Fix:**
+```sql
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated;
+```
+
+**Pegadinha:** primeira tentativa incluiu `GRANT EXECUTE ON ALL FUNCTIONS` — falhou em `dblink_connect_u` (função interna sem permissão) e abortou TODA a transação. Removendo a parte de funções, GRANTs nas tabelas passaram. Defaults garantem que tabelas futuras herdam.
+
+**Validação:**
+- `GET /rest/v1/user_roles` (com Bearer George) → retorna row super_admin ✅
+- `GET /rest/v1/instances` → retorna Eletropiso ✅
+- `GET /rest/v1/conversations` → HTTP 206 ✅
+
+**Lição (R98):** Ao replicar schema entre projetos Supabase via push de migrations + skip seletivo, conferir manualmente que `GRANT ... TO anon, authenticated` foi aplicado em todas as tabelas `public`. Sem GRANT, RLS é cosmético — PostgREST retorna 403/42501 antes mesmo de avaliar as policies.
+
+**Próximo:** smoke E2E completa (recarregar frontend + verificar conversas + IA + cron).
+
+---
+
 ## 2026-05-06 (madrugada — HOTFIX auth.users após cutover: instance_id NULL)
 
 **Sintoma:** Após cutover, login `george.azevedo2023@gmail.com` retornava 400 "Invalid login credentials" mesmo com hash bcrypt validado matematicamente via SQL (`crypt('123456@', encrypted_password) = encrypted_password` retornava true).
