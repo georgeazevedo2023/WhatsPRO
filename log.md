@@ -7,6 +7,24 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (noite tardia — Sprint 2 da auditoria shipped, sessão de migração ativa)
+
+**Frase retomada:** "continuar migração eletropiso" → MCP `supabase-novo` confirmado conectado ao projeto destino `prfcbfumyrrycsrcrvms` (vazio — só `keepalive` placeholder). Estratégia mantida: Sprints 2-6 da auditoria PRIMEIRO, depois 8 ondas de migração.
+
+**Sprint 2 shipped (4 fixes, ~30min):**
+- P1-6 `ChatPanel.tsx:206` — `getSessionUserId()` async sem await → cacheado em `currentUserIdRef` no mount.
+- P1-7 `ChatPanel.tsx:80-85` — `.then` sem error handling → IIFE async + try/catch + `cancelled` flag.
+- P2-1 `activate-ia/index.ts` — `browserCorsHeaders` estático → `getDynamicCorsHeaders(req)` por request.
+- P2-3 `helpdeskBroadcast.ts:50,68` — UPDATE sem count check (R93 pattern) → `.select('id')` + check `data.length === 0` em `updateConversationAndBroadcast` e `assignAgent`.
+
+**Validação:** tsc 0, vitest 736 pass / 5 fail (FormBuilder pré-existente) / 3 skip = **idêntico ao baseline**. Zero regressão. Frontend não precisa deploy; `activate-ia` deploy fica pareado com Sprint 3 (verify_jwt drift, HIGH RISK).
+
+**Credenciais do projeto novo passadas em chat** (DB pwd, Service Role JWT, PAT). Memorando: rotacionar TODAS após migração concluir (já no handoff).
+
+**Próximo:** aprovar Sprint 3 (HIGH RISK — toca `ai-agent-playground/index.ts`) ou pular pra Sprint 4 (P2 medium, ~4h, sem HIGH RISK).
+
+---
+
 ## 2026-05-05 (noite — PAUSA pra migração Eletropiso, handoff salvo)
 
 Decisão: usuário quer migrar Eletropiso pra Supabase NOVO (`prfcbfumyrrycsrcrvms`), em conta separada da org `qwxxtqdqletmetdnqmes`. Estratégia confirmada: **Clean migration** (só Eletropiso, descarta lixo de teste). Ordem: **Sprints 2-6 da auditoria PRIMEIRO** (corrigir tudo no antigo, ~12-14h), DEPOIS migração 8 ondas (~6-8h). Total: 18-22h multi-sessão.

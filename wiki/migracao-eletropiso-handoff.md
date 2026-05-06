@@ -64,7 +64,7 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 
 | Sprint | Conteúdo | Tempo | HIGH RISK? |
 |---|---|---|:-:|
-| **2** | P1-6 ChatPanel `getSessionUserId` async sem await + P1-7 Promise.then sem catch + P2-1 `activate-ia` CORS dinâmico + P2-3 `helpdeskBroadcast` R93 pattern | 1h30 | Não |
+| **2** ✅ | P1-6 ChatPanel `getSessionUserId` async sem await + P1-7 Promise.then sem catch + P2-1 `activate-ia` CORS dinâmico + P2-3 `helpdeskBroadcast` R93 pattern — **SHIPPED 2026-05-05** (commit pendente nesta sessão) | 1h30 | Não |
 | **3** | P1-2 `verify_jwt` drift (`activate-ia` + `ai-agent-playground`) | 1h | **Sim** (toca `ai-agent-playground`) |
 | **4** | 5 P2 medium: env var `FLUX_WEBHOOK_URL`, rollback UI ChatPanel, schema Zod PasteTab, `ALLOWED_ORIGIN` secret, particionar 3 wikis grandes | 4h | Não |
 | **5** | 6 P2 cleanup: `flow_followups` policies, `keep_alive` RLS, `apply-env-secrets` órfã, Docker `:latest` tag, sub-folder index, etc | 4h | Parcial |
@@ -95,21 +95,14 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 
 ## ⏭️ Próximo passo imediato (próxima sessão)
 
-**Pré-requisito antes de qualquer coisa:** confirmar que o MCP do Supabase tem acesso ao projeto novo `prfcbfumyrrycsrcrvms`. Testar com:
+**MCP `supabase-novo` confirmado conectado** ao projeto `prfcbfumyrrycsrcrvms` (verificado 2026-05-05 via `get_project_url` → `https://prfcbfumyrrycsrcrvms.supabase.co`). Projeto está vazio (só `keepalive` placeholder em `public`).
 
-```
-mcp__supabase__list_projects
-```
+**Sprint 2 SHIPPED 2026-05-05** (vide log.md + PRD v7.29.4): 4 fixes aplicados, tsc 0, vitest 736 pass / 5 fail (FormBuilder pré-existente) / 3 skip — idêntico ao baseline. Commit pendente.
 
-Se aparecer `prfcbfumyrrycsrcrvms` na lista → **OK, prosseguir com Sprint 2**.
-Se NÃO aparecer → **bloqueio**: o token MCP precisa ser trocado pelo `sbp_64d35110…`. Avisar o usuário pra editar `claude_desktop_config.json` (ou equivalente) e reiniciar Claude Code.
-
-**Se MCP OK:** começar **Sprint 2 da auditoria**:
-1. Ler `src/components/helpdesk/ChatPanel.tsx:206` (P1-6 — async sem await)
-2. Ler `src/components/helpdesk/ChatPanel.tsx:83-84` (P1-7 — Promise.then sem catch)
-3. Ler `supabase/functions/activate-ia/index.ts` (P2-1 — CORS estático)
-4. Ler `src/lib/helpdeskBroadcast.ts:50,68` (P2-3 — UPDATE silencioso)
-5. Aplicar fixes; rodar tsc + vitest baseline (esperado 736 pass); commit
+**Próximo passo decisão:**
+- **Opção A — Sprint 3 (HIGH RISK, ~1h):** P1-2 `verify_jwt` drift. Toca `supabase/functions/ai-agent-playground/index.ts` (HIGH RISK). Antes: ler ambas as fns (`activate-ia` + `ai-agent-playground`) pra confirmar manual-auth interno, decidir caminho (atualizar config.toml OU re-deploy), **esperar aprovação explícita por commit**. `activate-ia` pode ser re-deployada nesta sprint (já fixada o CORS na Sprint 2).
+- **Opção B — Sprint 4 (sem HIGH RISK, ~4h):** P2-2 env var FLUX_WEBHOOK_URL + P2-4 rollback optimistic UI ChatPanel + P2-5 schema Zod PasteTab + P2-9 setar ALLOWED_ORIGIN secret + P2-11 particionar 3 wikis grandes.
+- **Opção C — Pular pra Fase B (Migração) parcial:** começar inventário da Onda 0 do projeto antigo enquanto rolas Sprints 3-6.
 
 ## 🔗 Referências
 

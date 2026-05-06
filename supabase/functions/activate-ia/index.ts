@@ -1,4 +1,4 @@
-import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
+import { getDynamicCorsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { STATUS_IA } from '../_shared/constants.ts'
 import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
@@ -9,6 +9,8 @@ import { unauthorizedResponse } from '../_shared/auth.ts'
 const log = createLogger('activate-ia')
 
 Deno.serve(async (req) => {
+  const corsHeaders = getDynamicCorsHeaders(req)
+
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }

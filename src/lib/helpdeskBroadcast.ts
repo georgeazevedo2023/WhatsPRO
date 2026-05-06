@@ -41,14 +41,21 @@ export async function broadcastStatusChanged(conversationId: string, status: str
   });
 }
 
-/** Update conversation in DB + broadcast to channels */
+/** Update conversation in DB + broadcast to channels (R93: checa rows_affected) */
 export async function updateConversationAndBroadcast(
   conversationId: string,
   updates: Record<string, unknown>,
   broadcastEvent?: { event: string; payload: Record<string, unknown> },
 ) {
-  const { error } = await supabase.from('conversations').update(updates).eq('id', conversationId);
+  const { data, error } = await supabase
+    .from('conversations')
+    .update(updates)
+    .eq('id', conversationId)
+    .select('id');
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error(`updateConversationAndBroadcast: 0 rows affected (RLS denied or conversation ${conversationId} not found)`);
+  }
 
   if (broadcastEvent) {
     await broadcast(broadcastEvent.event, broadcastEvent.payload);
@@ -65,8 +72,15 @@ export async function updateConversationAndBroadcast(
  * `requeue-conversations` continuaria gerenciando timeouts em paralelo.
  */
 export async function assignAgent(conversationId: string, agentId: string | null) {
-  const { error } = await supabase.from('conversations').update({ assigned_to: agentId }).eq('id', conversationId);
+  const { data, error } = await supabase
+    .from('conversations')
+    .update({ assigned_to: agentId })
+    .eq('id', conversationId)
+    .select('id');
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error(`assignAgent: 0 rows affected (RLS denied or conversation ${conversationId} not found)`);
+  }
   // D30: marca eventos de fila ativos como manual_override (não-bloqueante)
   try {
     await supabase

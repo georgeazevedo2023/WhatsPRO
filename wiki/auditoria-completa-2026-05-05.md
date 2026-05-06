@@ -117,17 +117,17 @@ updated: 2026-05-05
 
 **Total: ~1h30. Critério de sucesso:** 5 commits, todos passam tsc + vitest, zero deploy quebrado.
 
-### Sprint 2 — P1 frontend (1h30)
+### Sprint 2 — P1 frontend (1h30) ✅ SHIPPED 2026-05-05
 **Goal:** fechar 2 P1s do ChatPanel + 1 backend (CORS dinâmico).
 
-| # | Item | Fix | Tempo |
-|---|---|---|---|
-| 6 | P1-6 | Cachear userId em useRef em ChatPanel.tsx:206 | 20min |
-| 7 | P1-7 | Trocar `.then` por async/await + try/catch em ChatPanel.tsx:83-84 | 15min |
-| 8 | P2-1 | activate-ia usa `getDynamicCorsHeaders(req)` | 20min |
-| 9 | P2-3 | helpdeskBroadcast `.update().select()` + count check (R93 pattern) | 30min |
+| # | Item | Fix | Tempo | Status |
+|---|---|---|---|---|
+| 6 | P1-6 | Cachear userId em useRef em ChatPanel.tsx:206 | 20min | ✅ |
+| 7 | P1-7 | Trocar `.then` por async/await + try/catch em ChatPanel.tsx:83-84 | 15min | ✅ |
+| 8 | P2-1 | activate-ia usa `getDynamicCorsHeaders(req)` | 20min | ✅ (deploy pareado com Sprint 3) |
+| 9 | P2-3 | helpdeskBroadcast `.update().select()` + count check (R93 pattern) | 30min | ✅ |
 
-**Total: ~1h30. Validação manual no helpdesk:** abrir 2 abas, mandar mensagem em uma, verificar typing indicator não dispara na outra com seu próprio nome.
+**Resultado:** tsc 0, vitest 736 pass / 5 fail / 3 skip = idêntico ao baseline. Zero regressão. Validação manual ainda pendente no helpdesk (2 abas, typing indicator).
 
 ### Sprint 3 — P1 HIGH RISK (verify_jwt drift) — exige aprovação explícita
 **Goal:** alinhar config.toml com prod nos 2 casos divergentes.

@@ -68,6 +68,16 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   const prevMsgCountRef = useRef(0);
   const [typingAgent, setTypingAgent] = useState<string | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const currentUserIdRef = useRef<string | null>(null);
+
+  // Cache user id once on mount — avoids async-without-await in broadcast callback
+  useEffect(() => {
+    let cancelled = false;
+    getSessionUserId()
+      .then((id) => { if (!cancelled) currentUserIdRef.current = id; })
+      .catch(() => { /* unauthenticated session — typing indicator just won't filter self */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const notes = messages.filter(m => m.direction === 'private_note');
   const chatMessages = messages.filter(m => m.direction !== 'private_note');
@@ -80,8 +90,29 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   useEffect(() => {
     setAtivandoIa(false);
     if (!conversation?.id) { setIaAtivada(false); return; }
-    supabase.from('conversations').select('status_ia').eq('id', conversation.id).maybeSingle()
-      .then(({ data }) => setIaAtivada(data?.status_ia === STATUS_IA.LIGADA));
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('conversations')
+          .select('status_ia')
+          .eq('id', conversation.id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) {
+          console.warn('[ChatPanel] Failed to load IA state:', error.message);
+          setIaAtivada(false);
+          return;
+        }
+        setIaAtivada(data?.status_ia === STATUS_IA.LIGADA);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[ChatPanel] Unexpected error loading IA state:', err);
+          setIaAtivada(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
   }, [conversation?.id]);
 
   const conversationId = conversation?.id;
@@ -203,7 +234,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         }
       })
       .on('broadcast', { event: 'agent-typing' }, (payload) => {
-        const currentUserId = getSessionUserId();
+        const currentUserId = currentUserIdRef.current;
         if (payload.payload?.conversation_id === conversation.id && payload.payload?.agent_id !== currentUserId) {
           setTypingAgent(payload.payload.agent_name as string);
           clearTimeout(typingTimerRef.current);

@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.29.0 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)**
+> **Versão**: 7.29.4 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **Sprint 2 da auditoria 2026-05-05 shipped (4 fixes — ChatPanel async, helpdeskBroadcast R93, activate-ia CORS dinâmico)**
 
 ## Visão Geral
 
@@ -39,6 +39,28 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.29.4 (2026-05-05) — Sprint 2 da auditoria: 4 fixes frontend + CORS dinâmico
+
+**Contexto:** Sprint 2 do plano de correção da auditoria 2026-05-05 (continuação de Sprint 1 shipped no commit `e4def62`). Foco: 2 P1s do ChatPanel + 2 P2s. Sem HIGH RISK. Validação manual prevista no helpdesk (typing indicator não dispara com seu próprio nome).
+
+**Fixes:**
+
+| # | Arquivo | Mudança |
+|---|---|---|
+| P1-6 | `src/components/helpdesk/ChatPanel.tsx:206` | `getSessionUserId()` async era chamada sem await — `currentUserId` virava Promise, comparação `!==` sempre verdadeira, typing indicator falhava sempre. **Fix:** cacheia `userId` em `currentUserIdRef` no mount, callback do broadcast lê do ref. |
+| P1-7 | `src/components/helpdesk/ChatPanel.tsx:80-85` | `.then(({ data }) => …)` ignorava `error` do `maybeSingle()` — falha de RLS/rede deixava `iaAtivada` em `false` silente. **Fix:** convertido pra IIFE async com `try/catch` + check explícito de `error` + cleanup `cancelled` flag. |
+| P2-1 | `supabase/functions/activate-ia/index.ts` | Usava `browserCorsHeaders` estático (1ª origin do whitelist) — não respeitava request Origin. **Fix:** `getDynamicCorsHeaders(req)` por request, alinha com padrão das outras edge fns. |
+| P2-3 | `src/lib/helpdeskBroadcast.ts:50,68` | UPDATE direto via PostgREST sem checar `count` — RLS poderia silenciosamente bloquear (R93 pattern). **Fix:** `.update().eq().select('id')` + check `data.length === 0` com erro descritivo em `updateConversationAndBroadcast` e `assignAgent`. |
+
+**Auditoria:**
+- tsc: 0 errors (baseline + final)
+- vitest: 736 pass / 5 fail (FormBuilder pré-existente) / 3 skip = **idêntico ao baseline, zero regressão**
+- 0 deploy necessário (frontend) — `activate-ia` deploy em separado quando rodar Sprint 3 (HIGH RISK pareado)
+
+**Próximo:** Sprint 3 (P1-2 verify_jwt drift) — exige aprovação explícita por tocar `ai-agent-playground` (HIGH RISK).
+
+---
 
 ### v7.29.3 (2026-05-05) — Hotfix R95: handoffQueue não populava department_id
 
