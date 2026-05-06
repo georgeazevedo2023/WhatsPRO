@@ -7,6 +7,35 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Onda 1 da migração shipped: schema replicado no novo)
+
+**Estado final do projeto novo `prfcbfumyrrycsrcrvms`:**
+- 164 migrations registradas em `supabase_migrations.schema_migrations`
+- **91 base tables + 6 views** (vs antigo 88 + 6) — 3 tabelas extras inócuas
+- **224 policies RLS** (+2 vs antigo 222)
+- 85 functions, 353 indexes, 41 triggers
+- 10 crons ativos (todos SQL-only — 6 crons HTTP desabilitados aguardando Onda 5 com URLs corretas)
+
+**Estratégia aplicada:**
+1. Push CLI das 159 migrations locais com 56 Lovable iniciais marcadas como skipped (superseded pelo snapshot 2026-03-20).
+2. Skipped 1 seed migration (hardcoded user George — vai ser criado na Onda 2).
+3. Skipped duplicada `20260324013238_utm_campaigns` (criada 2x).
+4. Aplicou parcialmente `20260404000001_create_e2e_test_batches` (CREATE POLICY com ref `public.users` — bug histórico, ignora policy igual antigo fez).
+5. Aplicou parcialmente `20260414000001_m17_f5_nps` (CREATE POLICY IF NOT EXISTS — sintaxe inválida em PG; ignora policies igual antigo fez).
+6. Trazendo 4 migrations antigo-MCP-only via `statements` column (`platform_usage_history`, `enable_handoff_queue_events_retention`, `rpc_set_my_queue_paused_d30_r93`, +2 cron-skipped).
+7. Aplicou 4 últimas locais via MCP direto (search_path com guard de existência, form_fks_on_delete, db_to_fn_metrics, keep_alive_enable_rls).
+8. Criou 4 tabelas globais antigo-MCP-only inline (`admin_audit_log`, `job_queue`, `playground_evaluations`, `playground_test_suites`).
+9. Replicou 9 policies que faltavam (e2e_test_batches × 3, notifications × 2, ai_agent_* × 3, rate_limit_log × 1).
+10. Desabilitou 6 crons HTTP no novo apontando para projetos errados (`crzcpnczpuzwieyzbqev` ou `euljumeflwtljegknawy`) — recriados na Onda 5.
+
+**Gaps conhecidos (a tratar depois):**
+- Repo local tem migrations duplicadas (Sprint 1 names em local AND antigo-MCP-only). Repo precisa reconciliar pra futuros `db push` funcionarem.
+- 3 tabelas extras no novo (provavelmente vieram de migrations duplicadas tipo `20260323100000_utm_campaigns` + `20260324013238`). Inócuas.
+
+**Próximo passo:** Onda 2 — migrar dados Eletropiso (~1.900 rows + 7 auth users) do antigo pro novo.
+
+---
+
 ## 2026-05-06 (madrugada — Sprint 5 código shipped: P2-7, P2-8, P2-10)
 
 3 fixes parte da Sprint 5 (só código que vai pro novo via repo; operacional fica pra setar direto no novo):
