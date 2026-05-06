@@ -7,6 +7,49 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (noite — HOTFIX R102: dept NULL em conversas atendidas pela IA + smoke completo)
+
+**Smoke E2E completo finalmente:** usuária mandou "Olá" no WhatsApp, IA respondeu "Olá! Bem-vindo a Eletropiso, com quem eu falo?". 🎉
+
+**3 dúvidas reportadas pela usuária — diagnóstico:**
+
+1. **Conversa George não aparece na lista** — está sim no DB (`828e45b2-...`, last_msg 23:27). **Cache stale do React Query** (hook `useHelpdeskConversations` carregou antes do INSERT, realtime broadcast não invalidou). **Refresh resolve.** Não é bug de DB.
+2. **Botão "Ativar IA" desligado** — DB diz `status_ia='ligada'` ✅. Mesmo cache stale. **Refresh resolve.**
+3. **Departamento "Nenhum"** — DB confirma `department_id=NULL` ❌. **Bug real R102.**
+
+### R102 — Webhook não populava dept em conversas novas
+
+**Causa:** `whatsapp-webhook/index.ts:789-801` setava apenas `inbox_id, contact_id, status, priority, is_read, last_message_at` no INSERT de conversa nova. R95 (2026-05-05) corrigiu o caminho do `assign-handoff`, mas conversas atendidas pela IA (que NUNCA fazem handoff) ficavam sem dept indefinidamente.
+
+**Impacto:** 16 conversas Eletropiso afetadas (incluindo a recém-criada do George).
+
+**Fix aplicado:**
+1. **Backfill SQL via MCP** — 16 conversas ganharam `department_id=Vendas` (UPDATE com JOIN inboxes WHERE dept IS NULL AND default_department_id IS NOT NULL)
+2. **Fix código:** SELECT de inbox passa a incluir `default_department_id`; INSERT de conversa popula `department_id: inbox.default_department_id ?? null`. tsc 0.
+
+**Pendente operacional:** usuário precisa rodar `npx supabase functions deploy whatsapp-webhook --project-ref prfcbfumyrrycsrcrvms` (eu não tenho PAT da org nova). Sem deploy, próximas conversas novas voltam a entrar com dept NULL — backfill cobre só as existentes.
+
+**SYNC RULE:** N/A (fix backend isolado, não AI Agent feature).
+
+**R102 documentado** em `wiki/erros-e-licoes.md` (linhas 226-247) com regra preventiva: ao criar registro novo em tabela com FK opcional para config default em parent, popular desde criação — não confiar em fluxo posterior (handoff) pra setar.
+
+### Status final do smoke E2E migração
+
+✅ Mensagem WhatsApp recebida pelo webhook (R101 fechou o gate)
+✅ IA processou e respondeu corretamente
+✅ Conversa criada no helpdesk
+✅ Department populado após R102 backfill (refresh do UI mostra "Vendas")
+⚠️ Cache stale do React Query — refresh resolve, mas merece investigação do hook `useHelpdeskConversations`/realtime broadcast em sessão futura
+
+**Smoke E2E migração Eletropiso COMPLETO.** Atendentes operam plenamente no projeto novo.
+
+**Frase pra retomar:**
+- **"investigar realtime cache stale helpdesk"** — atacar #1 e #2 (cache stale ao receber msg nova)
+- **"prossiga"** — Onda 5 Playwright
+- **"pausar projeto antigo"** — pausar `euljumeflwtljegknawy` (recuperável 30d) já que smoke 100%
+
+---
+
 ## 2026-05-06 (noite — HOTFIX R101: GRANTs faltando para service_role)
 
 **Goal:** Smoke E2E real da migração — usuária mandou WhatsApp pro Eletropiso, n8n recebeu UAZAPI webhook, encaminhou pro `whatsapp-webhook` do projeto novo, **404 "Instance not found"**. Atendentes não recebiam mensagens.

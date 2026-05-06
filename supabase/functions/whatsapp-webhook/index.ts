@@ -500,7 +500,7 @@ Deno.serve(async (req) => {
 
     // If inbox_id was already resolved from status_ia block, skip instance/inbox lookup
     let instance: { id: string; name: string; token: string } | null = null
-    let inbox: { id: string } | null = null
+    let inbox: { id: string; default_department_id?: string | null } | null = null
 
     // Check for inbox_id from payload (propagated from isRawMessage) or from status_ia resolution
     const payloadInboxId = payload.inbox_id || resolvedInboxIdForMessage
@@ -563,7 +563,7 @@ Deno.serve(async (req) => {
       // Find inbox for this instance
       const { data: foundInbox } = await supabase
         .from('inboxes')
-        .select('id')
+        .select('id, default_department_id')
         .eq('instance_id', instance.id)
         .maybeSingle()
 
@@ -786,6 +786,9 @@ Deno.serve(async (req) => {
     }
 
     if (!conversation) {
+      // R102: popular department_id desde criação. Antes era setado só no handoff
+      // (R95 corrigiu assign-handoff), mas conversas atendidas pela IA nunca passam
+      // por handoff e ficavam com dept=NULL → "Departamento: Nenhum" no helpdesk.
       const { data: newConv } = await supabase
         .from('conversations')
         .insert({
@@ -795,6 +798,7 @@ Deno.serve(async (req) => {
           priority: 'media',
           is_read: false,
           last_message_at: msgTimestamp,
+          department_id: inbox.default_department_id ?? null,
         })
         .select('id, status_ia')
         .single()

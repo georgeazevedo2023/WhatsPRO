@@ -224,3 +224,24 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO se
 Validação: `service_role_has_grants 0 → 91`. Curl no `whatsapp-webhook` voltou a retornar 200 OK + conversation_id.
 
 **Regra 101 (preventiva):** Ao replicar projeto Supabase via push de migrations, conferir GRANTs em **três roles** (`anon`, `authenticated`, `service_role`), não dois. Sintoma característico de service_role sem GRANT: edge fn retorna 4xx/zeros silenciosamente em queries de tabelas que existem no DB. Verificação rápida: `SELECT COUNT(*) FROM information_schema.role_table_grants WHERE table_schema='public' AND grantee='service_role'` deve ser ≥ N tabelas. Se for 0, é R101. Detectado pelo smoke E2E real (não testes Playwright que rodam só no client) — confirma que **smoke contra UAZAPI/webhook é o único teste que pega esse padrão**.
+
+---
+
+### R102 — `whatsapp-webhook` cria conversa nova sem `department_id` (helpdesk mostra "Nenhum") (2026-05-06)
+
+**O que:** Smoke E2E pós-R101: usuária mandou WhatsApp, IA respondeu corretamente, mas painel direito do helpdesk mostrava "Departamento: Nenhum" pra conversa nova do George. R95 (2026-05-05) corrigiu isso pro caminho do `assign-handoff`, mas conversas atendidas pela IA (que NUNCA passam por handoff) continuavam sem dept.
+
+**Causa raiz:** `supabase/functions/whatsapp-webhook/index.ts:789-801` — INSERT de nova conversa setava apenas `inbox_id`, `contact_id`, `status`, `priority`, `is_read`, `last_message_at`. **Não populava `department_id`** mesmo quando `inboxes.default_department_id` estava configurado. Decisão histórica: dept era setado só no momento do handoff. Mas com IA resolvendo a maioria dos atendimentos, o gap se tornou crônico.
+
+**Impacto:** 16 conversas no projeto novo Eletropiso com `department_id=NULL` apesar da inbox ter `default_department_id=Vendas`. Painel direito do helpdesk + filtros por departamento não funcionavam direito. R95 fechou um buraco; R102 fecha o segundo.
+
+**Correção:**
+1. **Backfill SQL (1x):**
+   ```sql
+   UPDATE conversations c SET department_id = i.default_department_id
+   FROM inboxes i
+   WHERE c.inbox_id = i.id AND c.department_id IS NULL AND i.default_department_id IS NOT NULL;
+   ```
+2. **Fix código (`whatsapp-webhook/index.ts`):** SELECT de inbox passa a incluir `default_department_id`; INSERT de conversa nova popula `department_id: inbox.default_department_id ?? null`.
+
+**Regra 102 (preventiva):** Ao criar registro novo em tabela com FK opcional para configuração default em outra tabela parent (ex: `conversations.department_id` ↔ `inboxes.default_department_id`), **popular desde a criação**. Não confiar que outro fluxo (handoff, atribuição, etc) vai setar depois — pode nunca acontecer (ex: IA resolve e fecha). Padrão: SELECT do parent já traz a config default + INSERT do filho usa. Cross-ref com R95 (mesmo padrão pro caminho de handoff).
