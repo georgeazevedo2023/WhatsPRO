@@ -119,14 +119,46 @@ updated: 2026-05-06
 
 Migração via `supabase storage` ou cópia direta entre buckets — volume pequeno, viável manual se preciso.
 
-## Vault secrets (2)
+## Vault secrets (2 no DB vault)
 
 | Nome | Tamanho | Uso |
 |---|---:|---|
 | `supabase_anon_key` | 208 chars | JWT legacy (cron antigo `e2e-automated-tests`) |
 | `SUPABASE_ANON_KEY` | 46 chars | Publishable `sb_publishable_*` (crons novos pós-R92) |
 
-Ambos precisam ser re-criados no projeto novo com as **chaves do projeto novo** (não copiar valor — copiar nome+propósito).
+Ambos precisam ser re-criados no projeto novo com as **chaves do projeto novo** (não copiar valor — copiar nome+propósito). Recomendação: usar SÓ `SUPABASE_ANON_KEY` (publishable) no novo, descartar legacy `supabase_anon_key` lowercase.
+
+## Edge Functions secrets (8 custom + defaults Supabase auto-provê)
+
+Confirmados pelo usuário em 2026-05-06 via Painel Settings → Edge Functions → Secrets.
+
+### Custom secrets (TODOS migram com VALORES) — confirmado pelo usuário
+| Nome | Categoria | Valor no novo |
+|---|---|---|
+| `UAZAPI_SERVER_URL` | UAZAPI | **Mesmo** (URL do servidor UAZAPI) |
+| `UAZAPI_ADMIN_TOKEN` | UAZAPI | **Mesmo** (token API) |
+| `GROQ_API_KEY` | LLM external | **Mesmo** (Groq) |
+| `GEMINI_API_KEY` | LLM external | **Mesmo** (Google) |
+| `MISTRAL_API_KEY` | LLM external | **Mesmo** (Mistral) |
+| `OPENAI_API_KEY` | LLM external | **Mesmo** (OpenAI) |
+| `INTERNAL_FUNCTION_KEY` | Internal auth | **Regenerar** (recomendado — fecha superfície de risco do antigo) |
+| `ALLOWED_ORIGIN` | CORS | **Mesmo** (`https://crm.wsmart.com.br`) |
+
+### Default secrets (auto-providos pelo Supabase — NÃO precisa replicar manualmente)
+- `SUPABASE_URL`, `SUPABASE_DB_URL`
+- `SUPABASE_PUBLISHABLE_KEYS`, `SUPABASE_SECRET_KEYS`
+- `SUPABASE_ANON_KEY` (deprecated), `SUPABASE_SERVICE_ROLE_KEY` (deprecated)
+- `SUPABASE_JWKS`
+- `SB_REGION`, `SB_EXECUTION_ID`, `DENO_DEPLOYMENT_ID`
+
+## Decisões dos 4 bloqueios (confirmadas 2026-05-06)
+
+| # | Pergunta | Decisão |
+|---|---|---|
+| 1 | Descartar 5 instâncias disabled? | ✅ **Sim** — clean migration |
+| 2 | Migrar `keep_alive` table+cron? | ✅ **Sim** — é o cron crítico do Free Forever (insere 1 row/dia pra não deixar Supabase pausar projeto). Manter nome `keep_alive` com underscore. RLS pode ser ENABLE no novo — `service_role` (que executa o cron) bypass RLS por default. Drop placeholder `keepalive` (singular) que existe no novo. |
+| 3 | `apply-env-secrets` órfã: delete? | ✅ **Sim** — sem código no repo desde 2026-03-21, sem rastreabilidade. Será deletada na Sprint 5 P2-8. |
+| 4 | Lista de env vars das edge fns | ✅ **8 custom** acima + defaults auto-providos. Migra todos com mesmo valor exceto `INTERNAL_FUNCTION_KEY` (regenerar). |
 
 ## pg_cron jobs (12 ativos)
 
@@ -171,12 +203,13 @@ HIGH RISK fns (exigem aprovação por commit):
 
 **Estratégia da migração de schema (Onda 1):** replay completo das 160 migrations no novo projeto, em ordem por `version`. Auditável e idempotente. Se alguma quebrar (FK em ordem trocada, function dependency), corrigir antes de avançar.
 
-## Bloqueios potenciais identificados
+## Bloqueios potenciais identificados (todos resolvidos)
 
-1. **`keep_alive` sem RLS (P2-7):** já replicada no projeto novo via `keepalive` (singular sem underscore). Decidir nome final antes da Onda 1.
-2. **`apply-env-secrets` órfã:** decidir delete vs versionar no repo antes de migrar (P2-8).
-3. **Vault secrets nomes duplicados:** `supabase_anon_key` (lower) + `SUPABASE_ANON_KEY` (upper). No novo projeto, usar só `SUPABASE_ANON_KEY` (publishable) — limpar legado.
-4. **JWT legacy em `e2e-automated-tests` cron (jobid 1):** usa `vault.decrypted_secrets WHERE name = 'supabase_anon_key'` (lowercase). Atualizar pra `SUPABASE_ANON_KEY` na re-criação.
+1. **`keep_alive` sem RLS (P2-7):** ✅ Resolução: ENABLE RLS na Sprint 5 (service_role bypass garante cron continua). Manter nome `keep_alive`, drop placeholder `keepalive` no novo.
+2. **`apply-env-secrets` órfã:** ✅ Decidido delete na Sprint 5 P2-8.
+3. **Vault secrets nomes duplicados:** ✅ Usar SÓ `SUPABASE_ANON_KEY` (publishable) no novo, descartar legacy lowercase.
+4. **JWT legacy em `e2e-automated-tests` cron (jobid 1):** Atualizar pra `SUPABASE_ANON_KEY` na re-criação dos crons (Onda 5).
+5. **`INTERNAL_FUNCTION_KEY`:** Regenerar no novo (recomendação confirmada pelo usuário).
 
 ## Cobertura desta Onda 0
 

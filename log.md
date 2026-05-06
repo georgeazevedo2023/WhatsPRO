@@ -7,6 +7,22 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — 4 bloqueios da Onda 1 resolvidos)
+
+Usuário respondeu os 4 bloqueios pendentes da migração:
+1. ✅ Descartar 5 instâncias disabled — confirmado.
+2. ✅ Migrar `keep_alive` (cron crítico do Free Forever, insere 1 row/dia pra não pausar projeto). RLS pode ser enabled — service_role bypass garante cron continua.
+3. ✅ Delete `apply-env-secrets` em prod (Sprint 5 P2-8).
+4. ✅ 8 custom secrets listados via screenshot do painel: UAZAPI_SERVER_URL, UAZAPI_ADMIN_TOKEN, GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, OPENAI_API_KEY, INTERNAL_FUNCTION_KEY, ALLOWED_ORIGIN. Defaults Supabase (SUPABASE_*, SB_*, DENO_*) auto-provê. Migrar com mesmos valores exceto INTERNAL_FUNCTION_KEY (regenerar — recomendação minha aceita pelo usuário).
+
+Wiki atualizada: [[wiki/migracao-eletropiso-inventario]] agora documenta os 8 secrets + decisões dos bloqueios.
+
+**Smoke test ainda pendente** (toggle IA + typing indicator + Playground).
+
+**Próximo:** smoke test pelo usuário + Sprint 5 código (3h, sem dependência) ou pular pra Onda 1 (replay schema, ~2h).
+
+---
+
 ## 2026-05-06 (madrugada — Onda 0 da migração Eletropiso shipped)
 
 **Frase ativa:** continuar migração eletropiso (mesma sessão da Sprint 3).
