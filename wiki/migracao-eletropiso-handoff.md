@@ -80,9 +80,9 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 | 3 ✅ | Vault + 8 edge fn secrets shipped 2026-05-06. Todas 5 keys externas validadas via HTTP (UAZAPI/OpenAI/Groq/Gemini/Mistral). INTERNAL_FUNCTION_KEY regenerada. ALLOWED_ORIGIN apontando crm.wsmart.com.br | Novo |
 | 4 ✅ | 41 edge fns deployadas no novo (`supabase functions deploy --project-ref prfcbfumyrrycsrcrvms`) — todas v1 ACTIVE, verify_jwt alinhado config.toml. apply-env-secrets corretamente NÃO deployada (deletada na Sprint 5). 2026-05-06 | Novo |
 | 5 ✅ | 15 pg_cron jobs ativos no novo (10 SQL-only herdados + 5 HTTP recriados com URL nova). NÃO recriado: requeue-conversations (n8n cuida). Smoke process-flow-followups retorna 500 RLS — fn viva, debug Onda 8. 2026-05-06 | Novo |
-| 6 | Frontend Docker: rebuild com novas envs (URL + publishable key) → push → você redeploy via Portainer | Repo + você |
-| 7 | n8n workflow URL update + UAZAPI webhook URL update | **Você no painel** |
-| 8 | Smoke E2E (login, helpdesk, conversa, IA, cron, monitoring); SE OK → **PAUSAR antigo**; SE FALHAR → rollback (UAZAPI volta antigo) | Ambos |
+| 6 ✅ | Frontend Docker rebuild com env do novo. Push + CI 57s + Portainer webhook 204. Bundle novo `index-PKnxTzaI.js` apontando 100% `prfcbfumyrrycsrcrvms.supabase.co`. 2026-05-06 | Repo + você |
+| 7 ✅ | n8n fluxos 1+2 atualizados pelo usuário (URL + Bearer). UAZAPI webhook continua apontando fluxwebhook.wsmart.com.br (n8n não mudou). Smoke pré-push: whatsapp-webhook 200, requeue-conversations 200. 2026-05-06 | Você |
+| 8 | Smoke E2E (login, helpdesk, conversa, IA, cron); SE OK → **PAUSAR antigo**; SE FALHAR → rollback (UAZAPI volta antigo) | Ambos |
 
 ### Critério de "produção liso"
 - Login funciona
@@ -112,6 +112,33 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 - [[CLAUDE.md]] — protocolo de início/fim sessão + regras
 - [[RULES.md]] — HIGH RISK files
 - [[log.md]] — sessão 2026-05-05 inteira
+
+## 🔄 Rotação obrigatória pós-migração
+
+Lista expandida em 2026-05-06 (sessão de migração) — secrets expostos no chat E/OU no histórico Git (GitHub secret scanning bloqueou e foram allowed):
+
+**Edge fn secrets do projeto novo:**
+- `GROQ_API_KEY` (principal)
+- `MISTRAL_API_KEY`
+- `OPENAI_API_KEY` (origem Metrics)
+- `UAZAPI_ADMIN_TOKEN`
+- `INTERNAL_FUNCTION_KEY` (gerada nesta sessão — pode manter, regenerar é opcional)
+
+**Database passwords:**
+- DB pwd antigo `euljumeflwtljegknawy` (rotacionar antes de pausar projeto)
+- DB pwd novo `prfcbfumyrrycsrcrvms`
+
+**Tokens Supabase:**
+- Service Role JWT do novo (passado no chat na primeira mensagem da sessão)
+- Personal Access Token usado pelo MCP/CLI (`sbp_*`)
+
+**Outras:**
+- `ADMIN_PASSWORD` do `.env.local` Playwright (atual `123456@` — fraca + exposta)
+- Publishable key antiga `sb_publishable_EMObRF5zFC-w2V9BRD6DwQ_Rs5C9Bd8` (Bearer cron antigo n8n)
+
+**Não precisa rotacionar:**
+- Publishable do novo (`sb_publishable_ayu87rwh94XQcMt1_1ka_w_hOQy8rZe`) — é DESIGN ser pública
+- Bcrypt hashes dos 7 atendentes (preservados no auth.users) — atendentes mantêm senha original
 
 ## ⚠️ HIGH RISK files (NÃO tocar sem aprovação explícita)
 

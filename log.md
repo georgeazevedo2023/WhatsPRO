@@ -7,6 +7,33 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Ondas 6+7 SHIPPED: CUTOVER LIVE)
+
+**Onda 7 (n8n + UAZAPI) feito pelo usuário:**
+- Fluxo 1 `requeue-conversations` (1min): URL atualizada `prfcbfumyrrycsrcrvms.supabase.co` + Bearer publishable nova
+- Fluxo 2 `whatsapp-webhook` (UAZAPI inbound): URL atualizada
+- UAZAPI webhook na instância Eletropiso continua apontando `https://fluxwebhook.wsmart.com.br/webhook/eletropiso_2026` (mesmo n8n cluster, sem mudança necessária)
+
+**Smoke pré-push:**
+- `whatsapp-webhook`: 200 + skip event não-message (correto)
+- `requeue-conversations`: 200 + processou fila (vazia)
+
+**Onda 6 push + deploy:**
+- GitHub bloqueou push por secret scanning (Groq key em log.md de commits anteriores). User clicou "Allow" no link unblock.
+- Commit `629916e` pushed (após `git commit --amend` redigindo log.md atual).
+- CI build success em 57s.
+- Webhook Portainer disparado: 204 No Content.
+- Container redeployado com bundle novo `index-PKnxTzaI.js`.
+- Verificado: 2 ocorrências de `prfcbfumyrrycsrcrvms.supabase.co` no bundle, zero `euljumeflwtljegknawy`.
+
+**CUTOVER COMPLETO** — atendentes Eletropiso a partir de agora conversam com o novo projeto.
+
+**Lição aprendida (feedback memory salva):** NUNCA escrever valores de API keys em plaintext em arquivos committed (mesmo log.md/wiki). Sempre usar descrição/hash/preview até 8 chars. GitHub secret scanning bloqueia push e exige unblock manual.
+
+**Próximo:** Onda 8 — smoke E2E (login atendente, mandar msg, IA responde, fluxo completo) + pausar projeto antigo se OK.
+
+---
+
 ## 2026-05-06 (madrugada — Onda 6 PRONTA — commit cutover NÃO pushed)
 
 Frontend rebuildado pra apontar pro novo Supabase. **Não pushed** — usuário decide momento do cutover.
