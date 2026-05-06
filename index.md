@@ -70,6 +70,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/deploy-checklist]] | Checklist obrigatorio de deploy |
 | [[wiki/free-forever-playbook]] | Plano operacional pra ficar no plano grátis Supabase: 4 camadas + escalation por nível (60/70/85%) — 2026-05-05 |
 | [[wiki/testes-d30-sprint-f-playwright]] | Specs Playwright de 8 cenários da Sprint F + regression de R93/R94/R95 — 2026-05-05 |
+| [[wiki/auditoria-completa-2026-05-05]] | **Auditoria completa do projeto (5 ondas paralelas):** 0 P0 / 8 P1 / 11 P2 / 7 P3 — saúde geral 6.8/10. Plano de correção em 6 sprints. Top P1: process-flow-followups não deployada (cron 1x/h em fn fantasma), verify_jwt drift, 26 fns SECURITY DEFINER sem search_path |
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |
 | [[wiki/protocolo-subagentes]] | Como dividir tarefas em ondas paralelas — 4 passos + regras de conflito |
 | [[wiki/log-arquivo-2026-04-04-a-09]] | Log historico arquivado |
@@ -196,4 +197,4 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 
 ---
 
-*Última atualização: 2026-05-05 tarde (Auditoria órfãos n8n + R96 + Fase 2 defesa em código) — Estado atual: PRD v7.22.0, M19 ativo (S6/S7/S9 abertos), D30 100% shipped. Sessão tarde: descoberta forense de 2 chamadores externos (`event-processor` 404 + `process-jobs` 401) queimando ~10k invocações/dia (60% Free Tier) sem o monitoring DB enxergar. Migration `20260505000002_platform_usage_db_to_fn_metrics` aplicada em prod estende `snapshot_platform_usage()` com sentinel R96 (alert yellow se DB→fn error_pct ≥50% com ≥10 chamadas). R96 documentado em erros-e-licoes.md. Playbook Free Forever ganha SOP §5 "Auditoria de tráfego órfão". Pendente operacional fora do repo: cleanup workflows n8n. Bundle prod `index-CFmkOcne.js`.*
+*Última atualização: 2026-05-05 noite (Auditoria completa do projeto — 5 ondas paralelas) — Estado atual: PRD v7.22.0, M19 ativo (S6/S7/S9 abertos), D30 100% shipped. Sessão noite: 5 subagentes Explore em paralelo cobriram backend/frontend/db/vault/config. Saúde geral 6.8/10. Zero P0 confirmados (3 P0 dos agentes eram falsos positivos), 8 P1 reais. Top P1: `process-flow-followups` cron 1x/h batendo em fn não-deployada, `verify_jwt` drift em 2 fns, 26 SECURITY DEFINER sem search_path. Documento completo `wiki/auditoria-completa-2026-05-05.md` (187 linhas) com plano em 6 sprints. Sessão tarde: R96 sentinel + Fase 2 defesa em código (Free Forever monitoring). Bundle prod `index-CFmkOcne.js`.*

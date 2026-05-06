@@ -7,6 +7,44 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (noite — Auditoria completa do projeto: 5 ondas paralelas)
+
+### Goal
+Auditoria 100% read-only do projeto inteiro procurando inconsistências, bugs e vulnerabilidades. Saída: documento priorizado P0-P3 + plano de correção em sprints.
+
+### Execução
+- 5 subagentes Explore em paralelo (Backend, Frontend, DB, Vault, Config&Deploy)
+- Cada um produziu top 5 achados com file:line concretos + severity
+- Orquestrador validou achados suspeitos antes de finalizar (rebaixou 3 P0 falsos positivos pra P3, descobriu 1 P2 novo)
+
+### Resultado
+**Saúde geral: 6.8/10**
+- **0 P0 confirmados** (3 P0 dos agentes eram falsos positivos)
+- **8 P1 reais**: 2 backend, 2 frontend, 2 DB, 3 config
+- **11 P2** + **7 P3**
+
+**Top 5 P1 mais urgentes:**
+1. `process-flow-followups` cron 1x/h batendo em fn fantasma (igual R96, mas crítico — followups de leads não rodam há tempo indeterminado)
+2. `verify_jwt` drift entre config.toml e prod (`activate-ia` + `ai-agent-playground`)
+3. 26 funções SECURITY DEFINER sem `SET search_path` (9 são helpers RLS críticos: `is_super_admin`, `has_role`, etc)
+4. ChatPanel.tsx:206 `getSessionUserId()` async chamada sem await (typing indicator falha sempre)
+5. FK órfãs em `form_sessions`/`form_submissions` (ON DELETE NO ACTION acumula órfãs)
+
+### Plano de correção
+Documento completo: [[wiki/auditoria-completa-2026-05-05]] (187 linhas)
+- Sprint 1: 5 P1s seguros (~1h30) — quick wins sem HIGH RISK
+- Sprint 2: P1 frontend + P2 CORS (~1h30)
+- Sprint 3: P1 HIGH RISK verify_jwt drift (exige aprovação explícita)
+- Sprint 4-5: P2 (4h+4h)
+- Sprint 6: P3 backlog
+
+### Auditoria
+- 5 agentes paralelos ~5min, validação cruzada via SQL/Read
+- Docs: auditoria-completa (187 linhas), log, index
+- Frase pra retomar: **"executar Sprint 1 da auditoria"** (5 P1 seguros, ~1h30, sem HIGH RISK)
+
+---
+
 ## 2026-05-05 (tarde — Auditoria órfãos n8n + Fase 2 defesa em código)
 
 ### Goal
