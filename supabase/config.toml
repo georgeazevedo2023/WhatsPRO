@@ -77,6 +77,10 @@ verify_jwt = true
 [functions.process-follow-ups]
 verify_jwt = true
 
+# Cron job (1h) — Sprint S10 Orchestrator followups (P1-1 fix 2026-05-05)
+[functions.process-flow-followups]
+verify_jwt = false
+
 [functions.send-shift-report]
 verify_jwt = true
 

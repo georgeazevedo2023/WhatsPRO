@@ -60,21 +60,26 @@ async function processLeadAutoAdd(job: Job): Promise<void> {
 }
 
 async function processProfilePicFetch(job: Job): Promise<void> {
+  const log = createLogger('process-jobs:profilePic')
   const { contact_jid, instance_token } = job.payload as Record<string, string>
   if (!contact_jid || !instance_token) return
 
-  const resp = await fetch(`${UAZAPI_URL}/contact/getProfilePic`, {
+  const resp = await fetchWithTimeout(`${UAZAPI_URL}/contact/getProfilePic`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'token': instance_token },
     body: JSON.stringify({ id: contact_jid }),
-  })
+  }, 30000)
 
-  if (resp.ok) {
-    const data = await resp.json()
-    const picUrl = data.profilePicUrl || data.imgUrl || data.url || data.eurl || null
-    if (picUrl && typeof picUrl === 'string' && picUrl.startsWith('http')) {
-      await supabase.from('contacts').update({ profile_pic_url: picUrl }).eq('jid', contact_jid)
-    }
+  if (!resp.ok) {
+    log.warn('UAZAPI getProfilePic non-ok', { status: resp.status, jid: contact_jid })
+    return
+  }
+
+  const data = await resp.json()
+  const picUrl = data.profilePicUrl || data.imgUrl || data.url || data.eurl || null
+  if (picUrl && typeof picUrl === 'string' && picUrl.startsWith('http')) {
+    const { error } = await supabase.from('contacts').update({ profile_pic_url: picUrl }).eq('jid', contact_jid)
+    if (error) log.warn('contacts UPDATE failed', { jid: contact_jid, error: error.message })
   }
 }
 
