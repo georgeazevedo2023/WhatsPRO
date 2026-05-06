@@ -7,6 +7,41 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (manhã — Playwright Onda 3: 30 testes profundos, 0 bugs)
+
+**Goal:** terceira onda Playwright cobrindo Métricas profundas, Admin profundo, Catálogo, Knowledge, Forms e Bio Page editor.
+
+**Specs novos (`e2e/13..18`):**
+- `13-metricas-deep.spec.ts` — /gestao/transbordo, /gestao/origem, KPIs, filtros, /assistant input
+- `14-admin-deep.spec.ts` — /admin/secrets, /admin/docs, /admin/backup, users new btn, /admin/inboxes Eletropiso
+- `15-catalog-deep.spec.ts` — lista produtos, btn add, busca, sem 401/403, conteúdo migrado
+- `16-knowledge-deep.spec.ts` — header, btn novo FAQ, lista, sem 401/403, sem white screen
+- `17-forms-deep.spec.ts` — página, btn novo, lista (6 forms), sem 401/403, sidebar
+- `18-bio-deep.spec.ts` — página, btn criar, lista, sem 401/403, sem white screen
+
+**Resultado: 31/31 PASS** em 3.9min. **Zero falhas na primeira run** — lições das Ondas 1+2 (seletores tolerantes, count, OR locator, texto-âncora múltiplo) aplicadas desde o começo.
+
+**Confirmações cruzadas:**
+- R98 (GRANTs) corrigido em todas as RLS testadas
+- R99 (27 colunas) corrigido — páginas dependentes renderizam
+- R100 (SelectItem) era a única bomba relógio (grep confirma)
+
+**Cobertura acumulada (3 ondas):** 90 testes, 90/90 PASS, 1 bug real corrigido (R100), suite completa em ~14min.
+
+**Commit `d92a99a` pushed** (R100 fix + 60 testes Onda 1+2 + Playwright setup). CI buildou em ~57s, Portainer redeployou — produção ganhou o fix R100 + os 60 testes históricos.
+
+**SYNC RULE:** N/A (infra de testes, sem feature do AI Agent).
+
+**Próximas ondas (~6h cada):**
+- **Onda 4:** CRUD profundo — abrir conversa Helpdesk, salvar AI Agent campos, drag-drop Kanban, Wizard funis 4 passos, Flows wizard 4 etapas, NPS/Polls editor
+- **Onda 5:** Realtime, edge cases (session expira, network slow), regression de R93/R94/R95
+
+**Frase pra retomar:**
+- **"prossiga"** — Onda 4 (CRUD profundo, ~30 testes)
+- **"continuar smoke E2E migracao"** — você manda msg pro 558181696546
+
+---
+
 ## 2026-05-06 (manhã — Playwright Onda 2: 30 testes deep + bug R100 corrigido)
 
 **Goal:** aprofundar cobertura E2E em 6 áreas (Helpdesk deep, AI Agent deep, Leads/CRM deep, Campanhas, Broadcast, Flows) — 30 testes a mais sobre os 30 da Onda 1.
