@@ -7,6 +7,44 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (tarde — Playwright Onda 4: 30 testes interativos, 0 bugs)
+
+**Goal:** quarta onda Playwright cobrindo interações leves (clicks, fill+restore, navegação tabs/passos) em Helpdesk conversation, AI Agent tabs, Kanban Board detail, Funnels Wizard, Flows Wizard, Lead detail.
+
+**Specs novos (`e2e/19..24`):**
+- `19-helpdesk-conversation.spec.ts` — lista lateral, click conversa, URL, header inbox, console errors
+- `20-ai-agent-tabs.spec.ts` — Setup default, navegar Prompt/Qualificação/Inteligência, **fill+restore input** (padrão read-only pra testar editável sem destruir dados de prod)
+- `21-kanban-detail.spec.ts` — /crm lista, click board, /crm/:id, sidebar, sem 401/403
+- `22-funnels-wizard.spec.ts` — Wizard renderiza, etapas, 7 tipos, cards interativos, conteúdo
+- `23-flows-wizard.spec.ts` — /flows/new/wizard, /templates, /new modes, /flows lista, RLS
+- `24-lead-detail.spec.ts` — Lista leads, click → /leads/:id, sem ErrorBoundary, RLS, sidebar
+
+**Run inicial: 29/30 PASS.** 1 falha em Funnels Wizard #4 — passo 1 do wizard é "Qual o objetivo do seu funil?" (cards clicáveis, sem inputs). Fix: validar elementos interativos em vez de inputs.
+
+**Run final: 30/30 PASS** após fix.
+
+**Padrão novo "fill+restore"** documentado em `20-ai-agent-tabs.spec.ts:5` — testa que input é editável sem persistir mudança em prod.
+
+### Cobertura acumulada (4 ondas)
+
+| Onda | Testes | Pass | Bugs reais | Tempo |
+|------|---:|---:|---:|---:|
+| 1 | 30 | 30/30 | 0 | 3.7min |
+| 2 | 30 | 30/30 | 1 (R100) | 6.1min |
+| 3 | 30 | 30/30 | 0 | 3.9min |
+| 4 | 30 | 30/30 | 0 | ~6min |
+| **Total** | **120** | **120/120 ✅** | **1** | **~20min suite full** |
+
+**SYNC RULE:** N/A (infra de testes).
+
+**Áreas ainda não cobertas:** drag-drop (flaky), realtime multi-session, CRUD destrutivo (prod = Eletropiso real), upload, edge cases (session expira, network slow).
+
+**Frase pra retomar:**
+- **"prossiga"** — Onda 5 (~30 testes): scenarios reais com fill+restore extensivo, helpdesk reply input, validação de templates, hover/keyboard nav, error boundaries
+- **"continuar smoke E2E migracao"** — você manda msg pro 558181696546
+
+---
+
 ## 2026-05-06 (manhã — Playwright Onda 3: 30 testes profundos, 0 bugs)
 
 **Goal:** terceira onda Playwright cobrindo Métricas profundas, Admin profundo, Catálogo, Knowledge, Forms e Bio Page editor.
