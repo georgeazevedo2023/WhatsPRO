@@ -52,3 +52,4 @@ __pycache__/
 /test-guardrail.yml
 /avancado-tab.yml
 /prod-login.yml
+e2e/.auth/

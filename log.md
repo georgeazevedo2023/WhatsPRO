@@ -7,6 +7,96 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (manhã — Playwright Onda 2: 30 testes deep + bug R100 corrigido)
+
+**Goal:** aprofundar cobertura E2E em 6 áreas (Helpdesk deep, AI Agent deep, Leads/CRM deep, Campanhas, Broadcast, Flows) — 30 testes a mais sobre os 30 da Onda 1.
+
+**Specs novos (`e2e/07..12`):**
+- `07-helpdesk-deep.spec.ts` — inbox selector, tabs escopo, painel central, sem 401/403 (R98 regression), QueuePauseToggle
+- `08-ai-agent-deep.spec.ts` — tab Setup fields, tab Qualificação categorias (Eletropiso 23 cat), /knowledge, /playground tabs, /catalog
+- `09-leads-crm-deep.spec.ts` — filtro/busca leads, sidebar, /crm placeholder, /funnels lista, /funnels/new wizard
+- `10-campanhas.spec.ts` — /campaigns lista, /new form, placeholders, sidebar Disparador, sem 4xx/5xx
+- `11-broadcast.spec.ts` — /broadcast main, /history, /leads, /templates, /scheduled
+- `12-flows.spec.ts` — /flows lista, /new selector, /new/templates, /instances Eletropiso visível, /assistant widget
+
+**Run inicial: 25/30 PASS (5 fail).**
+- 4 falhas eram seletor frágil (QueuePauseToggle só renderiza se user em deptos, Playground tem 4 tabs com botão só na Manual, Sidebar Campanhas dentro de Collapsible Disparador) → ajustadas
+- **1 falha era BUG REAL** → R100
+
+### 🚨 R100 — Bug em CampaignForm corrigido
+
+**Detectado por Playwright** quando a fn `/campaigns/new` lançou ErrorBoundary:
+> `A <Select.Item /> must have a value prop that is not an empty string.`
+
+**Causa:** `src/components/campaigns/CampaignForm.tsx:309` tinha `<SelectItem value="">Nenhum</SelectItem>`. Radix Select reserva `value=""` para placeholder; ao montar, lança erro síncrono → componente inteiro crasha → criação de campanha 100% inacessível.
+
+**Fix:** sentinel `__none__` com mapeamento bidirecional no `value`/`onValueChange`. Estado interno e payload do INSERT permanecem `""` ("sem funil"). Grep confirmou: era a única ocorrência no projeto.
+
+**Validação pós-fix:**
+- `tsc --noEmit` = 0 erros
+- 5/5 testes Campanhas passam
+- Todas as 60 specs Onda 1+2 passam: **61/61 PASS** (60 testes + 1 setup) em 6.1min
+
+**Regra 100 documentada** em [[wiki/erros-e-licoes]] — checklist de PR: `grep -rn 'SelectItem value=""' src/` deve sempre retornar 0.
+
+### SYNC RULE
+Frontend único arquivo (`CampaignForm.tsx`) — não é feature do AI Agent, sem 8-way sync.
+
+### Auditoria
+- 5 ondas de seletor frágil corrigidas (sem bug)
+- 1 bug real corrigido (R100)
+- Wiki nova `playwright-onda2.md` (~120 linhas)
+- Wiki `erros-e-licoes.md` ganhou R100 (linha ~163, total 187)
+- Working tree: `CampaignForm.tsx` modificado + 6 specs novos + config + setup + wiki
+
+### Frase pra retomar
+- **"prossiga"** — Onda 3 (~30 testes, 6h): Métricas profundas (4 fichas), Admin CRUD, Catálogo CRUD, Knowledge CRUD
+- **"continuar smoke E2E migracao"** — você manda msg pro 558181696546 e eu valido
+- **"commit + push fix R100"** — produção pega o fix
+
+---
+
+## 2026-05-06 (manhã — Playwright Onda 1: 30 testes smoke, 31/31 PASS)
+
+**Goal:** introduzir suite Playwright cobrindo 30 testes (5/spec × 6 áreas) sobre dev local pra dar uma safety net antes da Onda 2/3/4 com mais profundidade.
+
+**Setup novo:**
+- `@playwright/test@1.59.x` + `dotenv` em devDependencies
+- `playwright.config.ts` (ESM, `workers: 1`, storageState global, trace/screenshot/video em falhas)
+- `e2e/global.setup.ts` — autentica 1x e salva `e2e/.auth/admin.json` (gitignored)
+- `e2e/01..06-*.spec.ts` — 6 specs cobrindo Auth, Helpdesk, AI Agent, Leads/CRM, Admin, Dashboard/Métricas
+- `.env.local` já tinha `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`TEST_BASE_URL=http://localhost:8080`
+
+**Run inicial: 22/30 PASS (9 fail)** — todas as 9 falhas eram **seletor frágil, zero bug real na app**:
+- Sidebar Helpdesk como `<button>` (não `<a role=link>`)
+- Spans com `sm:hidden` (responsive)
+- HelpDesk/AdminPanel/ManagerDashboard sem `<h1>/<h2>` explícito
+- AIAgentTab usa `<button>` custom (não shadcn Tabs com `role="tab"`)
+- AdminPanel é `<Navigate>` puro pra `/admin/inboxes`
+- Cookies persistindo entre testes de auth-positivo → auth-negativo
+
+**Run final: 31/31 PASS em 3.7min.** Auditoria completa em `wiki/playwright-onda1.md`.
+
+**Lições documentadas para próximas ondas:**
+- Não usar h1/h2 como âncora — várias páginas-chave não têm
+- Sidebar global ("Atendimento") = ponto de teste estável quando logado
+- Limpeza de auth: `clearCookies` + `localStorage.clear()` + `sessionStorage.clear()` antes de cada teste sem-auth
+- `getByRole('tab')` retorna 0 em AIAgentTab (e provavelmente outras seções) — usar texto direto
+
+**SYNC RULE:** N/A (infra de testes, não AI Agent feature). Não atualiza PRD nem RoadmapTab.
+
+**Próximas ondas (após decisão do usuário):**
+- Onda 2 (~30 testes, 6h): Core Atendimento — Helpdesk profundo, AI Agent CRUD, Leads CRUD
+- Onda 3 (~30 testes, 6h): Canais — Campanhas, Bio, Forms, Funis, Broadcast
+- Onda 4 (~30 testes, 8h): Plataforma — Dashboard, Métricas (4 fichas), Admin (7 sub), Instâncias
+
+**Pendências paralelas (não relacionadas a Playwright):**
+- Smoke E2E migração Eletropiso pausado (esperando user mandar msg WhatsApp pro 558181696546)
+- Cleanup n8n (`event-processor` 404 + `process-jobs` 401 — ver [[wiki/free-forever-playbook]])
+- Rotação credenciais pós-migração (ver [[wiki/migracao-eletropiso-COMPLETA]])
+
+---
+
 ## 2026-05-06 (madrugada — HOTFIX 3: 27 colunas faltando em 7 tabelas)
 
 **Sintoma:** Após login + GRANTs, frontend mostrava "0 conversas / Nenhuma conversa nesta caixa" mesmo com 17 rows em `conversations` no DB.

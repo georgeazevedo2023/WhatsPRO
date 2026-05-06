@@ -303,10 +303,13 @@ export function CampaignForm({ campaign }: CampaignFormProps) {
 
           <div className="space-y-2">
             <Label>Funil CRM (opcional)</Label>
-            <Select value={kanbanBoardId} onValueChange={setKanbanBoardId}>
+            <Select
+              value={kanbanBoardId || '__none__'}
+              onValueChange={(v) => setKanbanBoardId(v === '__none__' ? '' : v)}
+            >
               <SelectTrigger><SelectValue placeholder="Nenhum — nao criar card automatico" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Nenhum</SelectItem>
+                <SelectItem value="__none__">Nenhum</SelectItem>
                 {boards.map(b => (
                   <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                 ))}

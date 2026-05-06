@@ -159,3 +159,31 @@ updated: 2026-05-05
 **Correção operacional (n8n, fora do repo, pendente):** desabilitar/deletar workflow `event-processor` (endpoint nunca existiu); decidir entre deletar workflow `process-jobs` (job_queue vazio há 30d) ou atualizar `Authorization: Bearer` pro novo `SUPABASE_ANON_KEY` publishable.
 
 **Regra 96 (preventiva):** Edge fns chamadas por sistemas externos (n8n, IoT, browser direto) precisam **auditoria periódica de logs do dashboard de Edge Functions** — `net._http_response` só vê tráfego DB→fn. Sintomas: 4xx/5xx repetitivos com `function_id: null` (fn fantasma) ou padrão temporal cron-like (10s, 60s, 5min). SOP no [[wiki/free-forever-playbook]] seção "Auditoria de tráfego órfão". Sempre que rotacionar vault ou alterar workflow externo, conferir logs nos próximos 10min.
+
+---
+
+### R100 — `<SelectItem value="">` quebra a página inteira (Radix Select) (2026-05-06)
+
+**O que:** Playwright Onda 2 detectou ErrorBoundary `"Erro em Nova Campanha"` em `/dashboard/campaigns/new`. Mensagem: `A <Select.Item /> must have a value prop that is not an empty string.` Toda a página de criação de campanha estava inacessível desde algum ponto não rastreado.
+
+**Causa raiz:** `src/components/campaigns/CampaignForm.tsx:309` tinha `<SelectItem value="">Nenhum</SelectItem>` no Select de "Funil CRM (opcional)". Radix Select reserva `value=""` para "limpar seleção" (volta pro placeholder). Quando você passa `value=""` em `<SelectItem>`, ele lança erro síncrono ao montar — derruba o componente inteiro via ErrorBoundary, pessoa nem consegue criar campanha.
+
+**Por que escapou de prod:** o erro só aparece quando o componente monta. Provavelmente foi introduzido após um upgrade do Radix/shadcn que adicionou essa validação, ou nunca foi testado E2E. Não tinha cobertura Playwright até hoje.
+
+**Correção:** sentinel `__none__` com mapeamento bidirecional:
+```tsx
+<Select
+  value={kanbanBoardId || '__none__'}
+  onValueChange={(v) => setKanbanBoardId(v === '__none__' ? '' : v)}
+>
+  <SelectTrigger>...</SelectTrigger>
+  <SelectContent>
+    <SelectItem value="__none__">Nenhum</SelectItem>
+    {boards.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+  </SelectContent>
+</Select>
+```
+
+Estado interno e payload do INSERT permanecem `""` (semântica "sem funil"). Sentinel só vive dentro do Select.
+
+**Regra 100 (preventiva):** **NUNCA** usar `<SelectItem value="">` em Radix/shadcn Select. Para representar "Nenhum"/"Vazio" use sentinel (`'__none__'`, `'NONE'`, etc) e converta `<-> ''` no `onValueChange`/`value`. Adicionar grep no checklist de PR: `grep -rn 'SelectItem value=""' src/` deve retornar 0 ocorrências sempre. Considerar lint custom ou hook de pre-commit. Detectado por Playwright (`wiki/playwright-onda2.md`) — tipo de bug que só E2E acha.
