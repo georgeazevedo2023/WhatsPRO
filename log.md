@@ -7,6 +7,43 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (noite — HOTFIX R101: GRANTs faltando para service_role)
+
+**Goal:** Smoke E2E real da migração — usuária mandou WhatsApp pro Eletropiso, n8n recebeu UAZAPI webhook, encaminhou pro `whatsapp-webhook` do projeto novo, **404 "Instance not found"**. Atendentes não recebiam mensagens.
+
+**Cadeia de diagnóstico:**
+1. SQL direto: `SELECT * FROM instances WHERE name='Eletropiso'` → 1 row OK (token bate, owner_jid bate)
+2. Reproduzi 404 via curl direto na edge fn
+3. Testei query OR via PostgREST com publishable key → `[]` (esperado por RLS)
+4. Policies RLS de `instances`: 4 policies normais
+5. **GRANTs:** `anon`, `authenticated`, `postgres` tinham SELECT. **`service_role` NÃO tinha GRANT em NENHUMA das 91 tabelas public.**
+
+**Causa raiz:** R98 (hotfix da migração) corrigiu GRANTs para `anon`/`authenticated` mas esqueceu `service_role`. Service_role normalmente bypassa RLS, mas precisa do GRANT básico antes — sem ele, recebe `[]` silenciosamente em SELECTs (sem erro 42501, sem nada). **TODAS as 41 edge fns que usam `createServiceClient()` estavam silenciosamente quebradas** desde o cutover (5h atrás).
+
+**Fix:** Migration `20260506232300_r101_grant_service_role_public.sql` aplicada via MCP. Aplica os mesmos GRANTs do R98, mas para `service_role`.
+
+**Validação:**
+- `service_role_has_grants` 0 → 91 tabelas
+- `curl POST /functions/v1/whatsapp-webhook` com payload UAZAPI Eletropiso → **200 OK + conversation_id `4e1625cd-...`**
+- Cleanup: deletei conversa de teste + contact duplicado "George Test" (`410e62c1-...`); George real (`d54caaac...`, criado 2026-02-24) intacto
+
+**SYNC RULE:** N/A (fix infraestrutural, não AI Agent feature). Migration registrada no repo.
+
+**R101 documentado** em `wiki/erros-e-licoes.md` (linhas 191-225) com:
+- Cadeia completa de descoberta
+- Por que escapou (R98 cobriu apenas anon/authenticated, service_role não testado)
+- Regra preventiva: ao replicar projeto Supabase, conferir GRANTs em **3 roles** (anon, authenticated, service_role)
+- Verificação rápida via `information_schema.role_table_grants`
+- **Smoke E2E real é o único teste que pega esse padrão** (Playwright client-side não detecta — passa pelo authenticated com RLS, não service_role)
+
+**Próximo:** smoke E2E real completo — usuária precisa **mandar outra msg WhatsApp** (n8n não retentou a primeira). Validar fluxo end-to-end (msg recebida → IA responde → conversa visível no helpdesk).
+
+**Frase pra retomar:**
+- **"continuar smoke E2E"** — você manda outra msg pro 558181696546 e eu valido fluxo completo
+- **"prossiga"** — Onda 5 Playwright
+
+---
+
 ## 2026-05-06 (tarde — Playwright Onda 4: 30 testes interativos, 0 bugs)
 
 **Goal:** quarta onda Playwright cobrindo interações leves (clicks, fill+restore, navegação tabs/passos) em Helpdesk conversation, AI Agent tabs, Kanban Board detail, Funnels Wizard, Flows Wizard, Lead detail.

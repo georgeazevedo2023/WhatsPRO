@@ -187,3 +187,40 @@ updated: 2026-05-05
 Estado interno e payload do INSERT permanecem `""` (semântica "sem funil"). Sentinel só vive dentro do Select.
 
 **Regra 100 (preventiva):** **NUNCA** usar `<SelectItem value="">` em Radix/shadcn Select. Para representar "Nenhum"/"Vazio" use sentinel (`'__none__'`, `'NONE'`, etc) e converta `<-> ''` no `onValueChange`/`value`. Adicionar grep no checklist de PR: `grep -rn 'SelectItem value=""' src/` deve retornar 0 ocorrências sempre. Considerar lint custom ou hook de pre-commit. Detectado por Playwright (`wiki/playwright-onda2.md`) — tipo de bug que só E2E acha.
+
+---
+
+### R101 — GRANTs faltando para `service_role` quebram TODAS as edge fns silenciosamente (2026-05-06)
+
+**O que:** Smoke E2E pós-cutover Eletropiso retornou `whatsapp-webhook` 404 "Instance not found" mesmo com instância existente no DB (`name=Eletropiso`, `owner_jid=558181696546`). Atendentes não recebiam mensagens novas no helpdesk.
+
+**Cadeia de descoberta:**
+1. Usuária mandou WhatsApp pro número Eletropiso → UAZAPI disparou webhook → n8n encaminhou pro `whatsapp-webhook` → 404.
+2. Verifiquei no DB: `SELECT * FROM instances WHERE name='Eletropiso'` retorna 1 row OK.
+3. Reproduzi via curl direto na edge fn → 404 confirmado.
+4. Testei a query OR exata via PostgREST com publishable key → `[]` (esperado, RLS).
+5. Verifiquei policies RLS de `instances` → 4 policies normais (`is_super_admin OR user_instance_access`).
+6. Verifiquei GRANTs → `anon`, `authenticated`, `postgres` tinham SELECT. **`service_role` NÃO tinha GRANT em nenhuma das 91 tabelas public.**
+
+**Causa raiz:** No projeto novo (`prfcbfumyrrycsrcrvms`), GRANTs do schema `public` foram aplicados apenas para `anon` e `authenticated` (R98 hotfix). `service_role` ficou de fora. Como service_role normalmente bypassa RLS *após* ter o privilégio básico, sem GRANT ele recebe `[]` silenciosamente em SELECTs (sem erro de "permission denied" — simplesmente zero rows visíveis).
+
+**Impacto:** TODAS as 41 edge fns que usam `createServiceClient()` estavam quebradas:
+- `whatsapp-webhook` — não achava instância → 404
+- `ai-agent` — não achava agente, mensagens, leads
+- `ai-agent-debounce`, `requeue-conversations`, `assign-handoff` — todas com queries vazias
+- crons HTTP que dependem de service_role internamente
+
+**Por que escapou:** R98 corrigiu GRANTs para `anon`/`authenticated` (camada do frontend). Service_role não foi testado porque (a) não passa pelo PostgREST com headers do user, (b) bypass de RLS mascarava qualquer expectativa de erro, (c) zero invocações pós-cutover até a primeira msg WhatsApp real disparar o caminho.
+
+**Correção:** Migration `20260506232300_r101_grant_service_role_public.sql`:
+```sql
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO service_role;
+```
+
+Validação: `service_role_has_grants 0 → 91`. Curl no `whatsapp-webhook` voltou a retornar 200 OK + conversation_id.
+
+**Regra 101 (preventiva):** Ao replicar projeto Supabase via push de migrations, conferir GRANTs em **três roles** (`anon`, `authenticated`, `service_role`), não dois. Sintoma característico de service_role sem GRANT: edge fn retorna 4xx/zeros silenciosamente em queries de tabelas que existem no DB. Verificação rápida: `SELECT COUNT(*) FROM information_schema.role_table_grants WHERE table_schema='public' AND grantee='service_role'` deve ser ≥ N tabelas. Se for 0, é R101. Detectado pelo smoke E2E real (não testes Playwright que rodam só no client) — confirma que **smoke contra UAZAPI/webhook é o único teste que pega esse padrão**.
