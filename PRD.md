@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.29.5 | **Última atualização**: 2026-05-06 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **Sprint 2 da auditoria 2026-05-05 shipped (4 fixes — ChatPanel async, helpdeskBroadcast R93, activate-ia CORS dinâmico)** + **Sprint 3 shipped 2026-05-06 (P1-2 verify_jwt drift — activate-ia v12 alinhada com config, ai-agent-playground config alinhada com prod)**
+> **Versão**: 7.29.6 | **Última atualização**: 2026-05-06 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **Sprint 2 da auditoria 2026-05-05 shipped (4 fixes — ChatPanel async, helpdeskBroadcast R93, activate-ia CORS dinâmico)** + **Sprint 3 shipped 2026-05-06 (P1-2 verify_jwt drift — activate-ia v12 alinhada com config, ai-agent-playground config alinhada com prod)**
 
 ## Visão Geral
 
@@ -39,6 +39,24 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.29.6 (2026-05-06) — Sprint 5 (parte código): P2-7, P2-8, P2-10
+
+**Contexto:** parte da Sprint 5 da auditoria 2026-05-05 — só os P2s que ficam no código (vão via repo pra futura migração Eletropiso). Operacionais (P2-2, P2-9) ficam pra setar direto no projeto novo. P2-6 era falso positivo (`flow_followups` já tem RLS ON sem policies = só service_role bypass acessa).
+
+**Fixes:**
+- **P2-7** `keep_alive` sem RLS — migration `keep_alive_enable_rls` ENABLE RLS sem policies (service_role bypass garante cron `keep_alive_daily` continua inserindo 1 row/dia). COMMENT na tabela documenta o propósito Free Forever.
+- **P2-8** `apply-env-secrets` órfã — fn deletada de prod via `npx supabase functions delete apply-env-secrets --project-ref euljumeflwtljegknawy`. Sem código no repo desde 2026-03-21 — risco zero. R96 (chamadores externos invisíveis) limpou último candidato a 4xx silencioso.
+- **P2-10** Docker tag `:latest` → `${IMAGE_TAG:-latest}` em `docker-compose.yml`. CI seta `IMAGE_TAG=<sha>` em prod (reproducibilidade); default `latest` mantém dev local.
+
+**Skip / análise:**
+- **P2-6** `flow_followups` policies — auditoria reportou "service_role com USING(true) — defense-in-depth fraca", mas `pg_policy` confirmou ZERO policies na tabela (RLS ON + sem policies = bloqueia anon/authenticated por completo, só service_role acessa via bypass). Já está seguro por design de Postgres.
+
+**Auditoria:** tsc 0 errors. Migration aplicada via MCP `apply_migration`. Sem deploy de fn frontend/backend.
+
+**Próximo:** Onda 1 da migração Eletropiso (replay schema no projeto novo).
+
+---
 
 ### v7.29.5 (2026-05-06) — Sprint 3 da auditoria: P1-2 verify_jwt drift (HIGH RISK aprovado)
 

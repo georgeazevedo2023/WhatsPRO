@@ -1,8 +1,10 @@
 version: "3.8"
 
+# Tag controlada por var de env IMAGE_TAG (CI define com SHA do commit).
+# Default 'latest' fica para dev local; prod (Portainer) seta IMAGE_TAG=<sha>.
 services:
   app:
-    image: ghcr.io/georgeazevedo2023/whatspro:latest
+    image: ghcr.io/georgeazevedo2023/whatspro:${IMAGE_TAG:-latest}
     build: .
     networks:
       - wsmart

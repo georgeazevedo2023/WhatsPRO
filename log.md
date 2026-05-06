@@ -7,6 +7,22 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Sprint 5 código shipped: P2-7, P2-8, P2-10)
+
+3 fixes parte da Sprint 5 (só código que vai pro novo via repo; operacional fica pra setar direto no novo):
+
+- P2-7 `keep_alive` ENABLE RLS via migration `20260506014000_keep_alive_enable_rls`. Sem policies → service_role bypass garante cron continua. Aplicada no projeto antigo via MCP `apply_migration`.
+- P2-8 `apply-env-secrets` deletada de prod via CLI `supabase functions delete`. Sem código no repo desde 2026-03-21.
+- P2-10 `docker-compose.yml` agora usa `ghcr.io/.../whatspro:${IMAGE_TAG:-latest}` — CI seta SHA em prod, dev mantém latest.
+
+**Skip:** P2-6 era falso positivo. `pg_policy` confirmou ZERO policies em `flow_followups` (não "USING(true)" como auditoria sugeria). Já seguro.
+
+tsc 0. Migration registrada também localmente em `supabase/migrations/`.
+
+**Próximo:** Onda 1 — replay 159 migrations locais no projeto novo `prfcbfumyrrycsrcrvms` (drop placeholder `keepalive` antes).
+
+---
+
 ## 2026-05-06 (madrugada — 4 bloqueios da Onda 1 resolvidos)
 
 Usuário respondeu os 4 bloqueios pendentes da migração:
