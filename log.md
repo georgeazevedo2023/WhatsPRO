@@ -7,6 +7,12 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-05 (noite — Sprint 1 da auditoria: 5 P1s shipped, commit e4def62)
+
+Auto-auditoria do plano antes de executar (filtragem pegou 6 problemas: ordem, baseline ausente, Sprint 2 redundante). Shipped: **P1-3** ALTER FUNCTION SET search_path em 24 fns SECURITY DEFINER (9 helpers RLS), **P1-4+5** fetchWithTimeout 30s + log warn em process-jobs/processProfilePicFetch, **P1-8** 6 FKs form_sessions/submissions migradas (CASCADE pra NOT NULL, SET NULL pra nullable), **P1-1** process-flow-followups deployada v1 + config.toml — smoke 200 OK, cron jobid 3 (1x/h) volta a funcionar (R96 fechado). Baseline e final: tsc 0, vitest 736 pass = **zero regressão**. Frase retomada: "executar Sprint 2".
+
+---
+
 ## 2026-05-05 (noite — Auditoria completa do projeto: 5 ondas paralelas)
 
 ### Goal
