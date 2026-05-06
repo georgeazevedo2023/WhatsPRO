@@ -7,6 +7,28 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Sprint 3 da auditoria shipped: P1-2 verify_jwt drift fechado)
+
+**Aprovação explícita do usuário** ("vai com a opção A, sprint 3" + "s") pra tocar arquivo HIGH RISK (`ai-agent-playground/index.ts`).
+
+**Auditoria do estado real (via MCP `list_edge_functions` no projeto antigo):**
+- `activate-ia` em prod: `verify_jwt=true` v11 (config.toml dizia `false`)
+- `ai-agent-playground` em prod: `verify_jwt=false` v21 (config.toml dizia `true`)
+
+**Decisão:** alinhar AMBAS para `false`. Análise: ambas têm manual auth interno robusto (`getUser` + check super_admin em activate-ia; `verifySuperAdmin` em playground). Manter `false` no gateway é seguro e evita risco de mexer em fn HIGH RISK.
+
+**Execução:**
+1. `supabase/config.toml:54-55` — playground `true → false` + comentário.
+2. `npx supabase functions deploy activate-ia --project-ref euljumeflwtljegknawy` — v11 → v12 (já trazia fix CORS da Sprint 2).
+3. NÃO deployar playground (HIGH RISK; config agora reflete prod, não há drift).
+4. MCP confirmou estado pós-deploy: ambas `verify_jwt=false`.
+
+**Pendente:** smoke test manual no helpdesk (toggle IA) + Playground (super_admin abre, conversa flui).
+
+**Próximo passo:** Sprint 4 (P2 medium, ~4h, sem HIGH RISK) ou Onda 0 do inventário Eletropiso (~30min) — lembrete: ainda faltam **Sprints 4, 5, 6** da auditoria antes da migração.
+
+---
+
 ## 2026-05-05 (noite tardia — Sprint 2 da auditoria shipped, sessão de migração ativa)
 
 **Frase retomada:** "continuar migração eletropiso" → MCP `supabase-novo` confirmado conectado ao projeto destino `prfcbfumyrrycsrcrvms` (vazio — só `keepalive` placeholder). Estratégia mantida: Sprints 2-6 da auditoria PRIMEIRO, depois 8 ondas de migração.

@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.29.4 | **Última atualização**: 2026-05-05 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **Sprint 2 da auditoria 2026-05-05 shipped (4 fixes — ChatPanel async, helpdeskBroadcast R93, activate-ia CORS dinâmico)**
+> **Versão**: 7.29.5 | **Última atualização**: 2026-05-06 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **Sprint 2 da auditoria 2026-05-05 shipped (4 fixes — ChatPanel async, helpdeskBroadcast R93, activate-ia CORS dinâmico)** + **Sprint 3 shipped 2026-05-06 (P1-2 verify_jwt drift — activate-ia v12 alinhada com config, ai-agent-playground config alinhada com prod)**
 
 ## Visão Geral
 
@@ -39,6 +39,35 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.29.5 (2026-05-06) — Sprint 3 da auditoria: P1-2 verify_jwt drift (HIGH RISK aprovado)
+
+**Contexto:** Sprint 3 do plano de correção da auditoria 2026-05-05. Único P1 que toca arquivo HIGH RISK (`ai-agent-playground/index.ts`) — exigiu aprovação explícita do usuário antes de executar. Foco: alinhar config.toml com estado real de prod nas 2 fns divergentes detectadas pela auditoria.
+
+**Drift detectado e fechado:**
+
+| Fn | config.toml (antes) | prod (antes) | Decisão | Estado final |
+|---|---|---|---|---|
+| `activate-ia` | `false` | `true` (v11) | re-deploy alinha prod com config | prod `false` v12 ✅ |
+| `ai-agent-playground` | `true` | `false` (v21) | config alinha com prod (sem deploy do HIGH RISK) | config `false` v21 ✅ |
+
+**Por que ambas em `false` é seguro:**
+- `activate-ia` tem manual auth interno (linha 18-28): valida `Authorization: Bearer` + `userClient.auth.getUser(token)` + check super_admin/instance_access. Gateway-level verify era redundante.
+- `ai-agent-playground` tem `verifySuperAdmin(req)` interno (linha 27): rejeita imediatamente sem super_admin antes de qualquer lógica. Manual auth idêntico ao usado em outras fns admin.
+
+**Por que NÃO inverter (deixar ambas `true`):** mudar prod do playground pra `true` é HIGH RISK (gateway começaria a exigir JWT, podendo quebrar chamadas do frontend), sem ganho real (manual auth interno já cobre).
+
+**Mudanças:**
+- `supabase/config.toml:54-55` — `verify_jwt=true` → `verify_jwt=false` em `ai-agent-playground` + comentário explicando manual auth.
+- Re-deploy `activate-ia` v11→v12 (já trazia fix de CORS dinâmico da Sprint 2 esperando deploy).
+
+**Auditoria pós-deploy:**
+- MCP `list_edge_functions` confirmou `activate-ia.verify_jwt=false` v12 e `ai-agent-playground.verify_jwt=false` v21 (intacta).
+- Smoke test manual pendente: toggle IA no helpdesk + abrir Playground como super_admin (esperado: ambos continuam funcionando).
+
+**Risco mitigado:** próximo `npx supabase functions deploy --project-ref` em batch já não vai mais reverter config nem expor fn admin sem auth — config.toml é fonte da verdade alinhada com prod.
+
+---
 
 ### v7.29.4 (2026-05-05) — Sprint 2 da auditoria: 4 fixes frontend + CORS dinâmico
 

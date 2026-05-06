@@ -129,14 +129,23 @@ updated: 2026-05-05
 
 **Resultado:** tsc 0, vitest 736 pass / 5 fail / 3 skip = idêntico ao baseline. Zero regressão. Validação manual ainda pendente no helpdesk (2 abas, typing indicator).
 
-### Sprint 3 — P1 HIGH RISK (verify_jwt drift) — exige aprovação explícita
+### Sprint 3 — P1 HIGH RISK (verify_jwt drift) ✅ SHIPPED 2026-05-06
 **Goal:** alinhar config.toml com prod nos 2 casos divergentes.
 
-⚠️ **HIGH RISK:** `ai-agent-playground` está na lista do RULES.md de fns que exigem aprovação. Antes de tocar:
-1. Ler `ai-agent-playground/index.ts` (manual auth interno?)
-2. Ler `activate-ia/index.ts` (manual auth interno?)
-3. Decidir caminho (atualizar config OU re-deploy)
-4. **Esperar aprovação explícita** do usuário antes de qualquer mudança
+**Aprovação explícita** do usuário recebida antes de qualquer mudança em arquivo HIGH RISK.
+
+**Decisão final:** alinhar AMBAS para `verify_jwt=false`. Ambas as fns têm manual auth interno robusto:
+- `activate-ia`: `userClient.auth.getUser(token)` + check super_admin/instance_access
+- `ai-agent-playground`: `verifySuperAdmin(req)` (mesmo helper das fns admin)
+
+Manter `false` no gateway é seguro (defense-in-depth está no manual auth) e evita risco de mexer em fn HIGH RISK em prod.
+
+**Execução:**
+1. `supabase/config.toml:54-55` — `ai-agent-playground` `true → false` + comentário documentando manual auth.
+2. Re-deploy `activate-ia` (`npx supabase functions deploy`) → v11 → v12 (já carregava fix CORS dinâmico da Sprint 2 esperando deploy).
+3. NÃO deployar `ai-agent-playground` (HIGH RISK; sem drift agora).
+
+**Validação:** MCP `list_edge_functions` confirmou estado final — `activate-ia.verify_jwt=false v12` + `ai-agent-playground.verify_jwt=false v21` (intacta). Pendente: smoke manual.
 
 ### Sprint 4 — P2 medium (4h)
 - P2-2: env var FLUX_WEBHOOK_URL pra activate-ia

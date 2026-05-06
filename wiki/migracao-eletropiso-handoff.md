@@ -65,7 +65,7 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 | Sprint | Conteúdo | Tempo | HIGH RISK? |
 |---|---|---|:-:|
 | **2** ✅ | P1-6 ChatPanel `getSessionUserId` async sem await + P1-7 Promise.then sem catch + P2-1 `activate-ia` CORS dinâmico + P2-3 `helpdeskBroadcast` R93 pattern — **SHIPPED 2026-05-05** (commit pendente nesta sessão) | 1h30 | Não |
-| **3** | P1-2 `verify_jwt` drift (`activate-ia` + `ai-agent-playground`) | 1h | **Sim** (toca `ai-agent-playground`) |
+| **3** ✅ | P1-2 `verify_jwt` drift (`activate-ia` + `ai-agent-playground`) — **SHIPPED 2026-05-06** (config alinhada, prod activate-ia v12 com `verify_jwt=false`) | 1h | **Sim** (toca config de fn HIGH RISK; aprovação explícita recebida) |
 | **4** | 5 P2 medium: env var `FLUX_WEBHOOK_URL`, rollback UI ChatPanel, schema Zod PasteTab, `ALLOWED_ORIGIN` secret, particionar 3 wikis grandes | 4h | Não |
 | **5** | 6 P2 cleanup: `flow_followups` policies, `keep_alive` RLS, `apply-env-secrets` órfã, Docker `:latest` tag, sub-folder index, etc | 4h | Parcial |
 | **6** | 7 P3 backlog (opcional) | 2-3h | Não |

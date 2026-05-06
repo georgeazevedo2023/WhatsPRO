@@ -51,8 +51,10 @@ verify_jwt = true
 [functions.sync-conversations]
 verify_jwt = true
 
+# Manual auth via verifySuperAdmin() interno — gateway verify_jwt = false
+# (alinhado com prod 2026-05-06; ver Sprint 3 da auditoria 2026-05-05)
 [functions.ai-agent-playground]
-verify_jwt = true
+verify_jwt = false
 
 [functions.scrape-product]
 verify_jwt = true
