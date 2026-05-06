@@ -76,7 +76,7 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 |---|---|---|
 | 0 ✅ | Inventário read-only do antigo: `instance_id` Eletropiso, contagens por tabela, lista users, storage objects, vault keys, cron jobs — **SHIPPED 2026-05-06** ([[wiki/migracao-eletropiso-inventario]]) | Antigo |
 | 1 ✅ | Schema novo: replay das migrations do repo + 11 antigo-MCP-only — **SHIPPED 2026-05-06** | Novo |
-| 2 | Dados Eletropiso: `WHERE instance_id = $eletropiso_id` por tabela. Auth users: super_admin + atendentes Eletropiso | Antigo→Novo |
+| 2 ⚠️ PARCIAL | Dados Eletropiso: `WHERE instance_id = $eletropiso_id` por tabela. Auth users + core multi-tenant + 15 contacts shipped 2026-05-06. **Faltam ~1.900 rows** (1.341 messages + 274 validations dominam). Bloqueio: estratégia atual não escala — precisa dblink/dump | Antigo→Novo |
 | 3 | Vault + secrets + env vars: você me passa valores quando eu pedir; setar via Management API | Novo |
 | 4 | Deploy de 38-39 edge fns (excluindo órfãs como `apply-env-secrets`); HIGH RISK pausas | Novo |
 | 5 | Recriar 12 pg_cron jobs com URL do novo project_ref | Novo |

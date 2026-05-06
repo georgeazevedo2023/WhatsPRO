@@ -7,6 +7,35 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Onda 2 PARCIAL: auth + core multi-tenant + contacts)
+
+**Migrado para o novo `prfcbfumyrrycsrcrvms`:**
+- 7 auth users (hash bcrypt preservado — login funciona com senha antiga)
+- 7 user_profiles + 7 user_roles (super_admin × George, gerente × Josafa, user × 5)
+- 1 instance Eletropiso `r466a98889b5809`
+- 1 inbox + 1 dept "Vendas"
+- 6 department_members (queue_position 10/20/30/40/50/60)
+- 6 inbox_users (todos role=agente)
+- 7 user_instance_access
+- 15 contacts (escopo Eletropiso)
+
+**Pendente (~1.900 rows):**
+- 13 lead_profiles, 17 conversations, **1.341 conversation_messages**, 5 lead_score_history, 2 lead_memory
+- 1 ai_agent, 7 products, 13 knowledge, **274 ai_agent_validations**, 4 agent_profiles
+- Kanban (1 board + 8 colunas), lead_databases (1+5), forms (6+25 fields), flows (1+2+1+2+12)
+- 11 handoff_queue_events
+- Globais (~40 rows: system_settings 13, admin_audit_log 17, db_retention_policies 7, platform_usage_history 4)
+- Storage objects (4: 1 contact-avatar + 3 bio-images)
+
+**Bloqueio identificado:** estratégia manual `jsonb_to_recordset` por tabela não escala pra 1.341 messages + 274 validations. Próxima sessão precisa usar uma das abordagens:
+- **A)** `dblink` direto entre os 2 projetos (precisa senha DB do antigo — você passar via chat)
+- **B)** `npx supabase db dump --data-only` linkando antigo, filtrar por instance_id, aplicar via psql
+- **C)** Script Python com cliente postgres lendo antigo + escrevendo novo (mais robusto mas requer setup)
+
+**Frase de retomada:** "continuar onda 2 — escolhi opção [A/B/C]"
+
+---
+
 ## 2026-05-06 (madrugada — Onda 1 da migração shipped: schema replicado no novo)
 
 **Estado final do projeto novo `prfcbfumyrrycsrcrvms`:**
