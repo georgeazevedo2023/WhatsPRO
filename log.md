@@ -7,6 +7,37 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (noite — Projeto antigo `euljumeflwtljegknawy` PAUSADO)
+
+**Decisão usuária:** pausar projeto antigo agora (não esperar 24-48h) já que smoke E2E completo confirmou cutover OK.
+
+**Confirmação dupla antes do pause:**
+- `mcp__supabase__list_projects` listou 2 projetos na org `qwxxtqdqletmetdnqmes`:
+  - `crzcpnczpuzwieyzbqev` "Novo WsmartQR" (2026-02-22) — **NÃO pausado** (não foi pedido)
+  - `euljumeflwtljegknawy` "wspro_v2" (2026-03-20) — **migrado pro `prfcbfumyrrycsrcrvms`** ✅ alvo correto
+
+**Pause executado:** `mcp__supabase__pause_project` retornou `{success:true}`. Status: `ACTIVE_HEALTHY → PAUSING → INACTIVE` (~30s). Free Tier: projeto fica recuperável por 90d antes de receber warning.
+
+**Restore (caso precise):** dashboard → Settings → General → "Restore project" (<1min). Nada deletado, só compute desligado. DB + storage + edge fns + crons preservados em snapshot.
+
+**Não impactado pelo pause:**
+- Atendentes Eletropiso operam 100% no novo `prfcbfumyrrycsrcrvms`
+- n8n workflow `eletropiso_2026` aponta pro novo (Onda 7 da migração)
+- UAZAPI webhook aponta pro n8n (sem mudança necessária)
+- Frontend bundle aponta pro novo (commit `629916e`)
+
+**Pendências paralelas (não relacionadas ao pause):**
+- Deploy `whatsapp-webhook` no novo (R102 fix) — `npx supabase functions deploy whatsapp-webhook --project-ref prfcbfumyrrycsrcrvms`
+- Rotação de credenciais (lista em `wiki/migracao-eletropiso-COMPLETA`)
+- Investigar realtime cache stale do helpdesk (#1 + #2 da última smoke)
+
+**Frase pra retomar:**
+- **"deployar webhook"** — eu te dou o comando, você roda
+- **"prossiga"** — Onda 5 Playwright
+- **"rotacionar credenciais"** — checklist da rotação pós-migração
+
+---
+
 ## 2026-05-06 (noite — HOTFIX R102: dept NULL em conversas atendidas pela IA + smoke completo)
 
 **Smoke E2E completo finalmente:** usuária mandou "Olá" no WhatsApp, IA respondeu "Olá! Bem-vindo a Eletropiso, com quem eu falo?". 🎉
