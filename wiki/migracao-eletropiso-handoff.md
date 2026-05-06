@@ -78,7 +78,7 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 | 1 ✅ | Schema novo: replay das migrations do repo + 11 antigo-MCP-only — **SHIPPED 2026-05-06** | Novo |
 | 2 ✅ | Dados Eletropiso (~1.944 rows): auth users + core multi-tenant + 15 contacts + 13 lead_profiles + 17 conversations + 1.341 messages + 274 validations + ai_agent + 7 products + 13 knowledge + 4 profiles + kanban + forms + flows + handoff_queue + globais — **SHIPPED 2026-05-06 via dblink (cross-check diff=0)**. Pendente: 4 storage objects | Antigo→Novo |
 | 3 ✅ | Vault + 8 edge fn secrets shipped 2026-05-06. Todas 5 keys externas validadas via HTTP (UAZAPI/OpenAI/Groq/Gemini/Mistral). INTERNAL_FUNCTION_KEY regenerada. ALLOWED_ORIGIN apontando crm.wsmart.com.br | Novo |
-| 4 | Deploy de 38-39 edge fns (excluindo órfãs como `apply-env-secrets`); HIGH RISK pausas | Novo |
+| 4 ✅ | 41 edge fns deployadas no novo (`supabase functions deploy --project-ref prfcbfumyrrycsrcrvms`) — todas v1 ACTIVE, verify_jwt alinhado config.toml. apply-env-secrets corretamente NÃO deployada (deletada na Sprint 5). 2026-05-06 | Novo |
 | 5 | Recriar 12 pg_cron jobs com URL do novo project_ref | Novo |
 | 6 | Frontend Docker: rebuild com novas envs (URL + publishable key) → push → você redeploy via Portainer | Repo + você |
 | 7 | n8n workflow URL update + UAZAPI webhook URL update | **Você no painel** |

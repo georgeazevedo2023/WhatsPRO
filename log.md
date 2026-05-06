@@ -7,6 +7,22 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Onda 4 SHIPPED: 41 edge fns deployadas no novo)
+
+`npx supabase functions deploy --project-ref prfcbfumyrrycsrcrvms` (sem args = todas) deployou 41 fns em ~2 min, todas v1 ACTIVE.
+
+Fns deployadas: activate-ia, admin-create-user, admin-delete-user, admin-update-user, aggregate-metrics, ai-agent, ai-agent-debounce, ai-agent-playground, analyze-summaries, assign-handoff, assistant-chat, auto-summarize, bio-public, cleanup-old-media, database-backup, db-cleanup-old-backups, db-retention-backup, e2e-scheduled, e2e-test, fire-outgoing-webhook, form-bot, form-public, go, group-reasons, guided-flow-builder, health-check, orchestrator, process-flow-followups, process-follow-ups, process-jobs, process-scheduled-messages, refresh-avatar, requeue-conversations, scrape-product, scrape-products-batch, send-shift-report, summarize-conversation, sync-conversations, transcribe-audio, uazapi-proxy, whatsapp-webhook.
+
+**verify_jwt** alinhado com config.toml em todas (sem drift).
+
+NÃO deployadas (corretamente):
+- `apply-env-secrets` (já deletada do antigo na Sprint 5)
+- `keep-alive` (não é fn, só cron SQL no novo)
+
+**Próximo:** Onda 5 — recriar 12 pg_cron jobs no novo com URLs apontando pra `prfcbfumyrrycsrcrvms.supabase.co`.
+
+---
+
 ## 2026-05-06 (madrugada — Onda 3 SHIPPED: 8 secrets + vault publishable)
 
 **Edge fn secrets (8/8 setados via `supabase secrets set --project-ref prfcbfumyrrycsrcrvms`):**
