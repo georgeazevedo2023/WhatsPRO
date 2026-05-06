@@ -1,6 +1,6 @@
 ---
 title: Free Forever Playbook — Como nunca sair do plano grátis Supabase
-tags: [free-tier, monitoring, retention, cron, n8n, escalation]
+tags: [free-tier, monitoring, retention, cron, n8n, escalation, orphan-traffic]
 sources: [supabase/migrations/20260505*.sql, db_retention_policies, snapshot_platform_usage]
 updated: 2026-05-05
 ---
@@ -56,8 +56,9 @@ Cron `platform-usage-snapshot` (jobid 13, 06:11 UTC diário) executa SQL puro �
 A função `snapshot_platform_usage()`:
 1. Lê db_size, storage, mau (tudo via SQL)
 2. Calcula % vs limite Free
-3. Persiste em `platform_usage_history` (com índice em `measured_at`)
-4. Determina nível:
+3. Lê `db_to_fn_calls_24h` + `db_to_fn_error_pct_24h` de `net._http_response` (sentinel R96)
+4. Persiste em `platform_usage_history` (com índice em `measured_at`)
+5. Determina nível:
 
 | Nível | Faixa do maior pct | Ação |
 |---|---|---|
@@ -67,7 +68,9 @@ A função `snapshot_platform_usage()`:
 | 🔴 red | 70-85% | **notification + investigação imediata** |
 | 🚨 critical | ≥85% | **notification + ação obrigatória** |
 
-5. Dedupe: notificação não duplica em < 20h pro mesmo level.
+6. Dedupe: notificação não duplica em < 20h pro mesmo level.
+
+> **Sentinel R96 (2026-05-05):** se DB→fn tem ≥10 chamadas/24h E ≥50% retornaram 4xx/5xx, eleva alert pra `yellow` mesmo se db/storage/mau estão verdes — sintoma forte de R92 voltando ou config quebrada. Notificação dedicada `db_to_fn_health_alert`. **Limitação:** não vê tráfego externo (n8n) — pra esse, ver §5 abaixo.
 
 ### Camada 4 — Este playbook (✅ shipped 2026-05-05)
 
@@ -148,7 +151,35 @@ GROUP BY 1
 ORDER BY 1 DESC;
 ```
 
-## 5. Escalation se este plano não for suficiente
+## 5. Auditoria de tráfego órfão (R96 — chamadores externos invisíveis)
+
+> Workflows externos (n8n WSMARTvps, IoT, browser direto) batem no gateway `*.supabase.co/functions/v1/*` **sem passar por `net._http_response`**. O monitoring DB não vê. Único lugar onde aparecem: dashboard Supabase → Edge Functions → Logs. Auditoria mensal obrigatória.
+
+### Sintomas
+
+- 4xx/5xx repetitivo com `function_id: null` → workflow externo em fn fantasma (deletada/renomeada)
+- 401 cron-like (10s/60s/5min) → workflow externo com auth quebrado (R92-like)
+- 200 com execution_time_ms sempre ~0 ou timeout → workflow mal configurado
+
+### SOP mensal — checklist (5 min)
+
+1. `mcp__supabase__get_logs service=edge-function` (ou dashboard > Functions > Logs, filtrar `status_code != 2xx`)
+2. Agrupar por path. Pra cada fn com >100 invocações 4xx em 24h:
+   - `function_id: null` → fn fantasma. Desabilitar workflow no n8n.
+   - 401 com `function_id` válido → token rotacionado. Atualizar workflow.
+   - Cruzar com `SELECT jobid, jobname FROM cron.job` — se não estiver lá, é externo.
+3. Cross-check com snapshot: `SELECT measured_at::date, db_to_fn_calls_24h, db_to_fn_error_pct_24h FROM platform_usage_history ORDER BY measured_at DESC LIMIT 7`. Se erro alto há dias → fix imediato.
+
+### Snapshot histórico
+
+| Data | Órfão | Inv/dia | Ação |
+|---|---|---:|---|
+| 2026-05-05 | `event-processor` 404 (10s) — fn nunca existiu | 8.640 | n8n cleanup pendente |
+| 2026-05-05 | `process-jobs` 401 (60s) — auth pós-R92, job_queue vazio 30d | 1.440 | n8n cleanup pendente |
+
+Total descoberto 2026-05-05: ~302k/mês = ~60% do limite Free Tier — **maior gap silencioso**. Preferir pg_cron interno a workflow externo (single source of truth, vault rotation fixa em 1 lugar).
+
+## 6. Escalation se este plano não for suficiente
 
 Se em 1 ano de uso real algum recurso passar de 70% **com o playbook em dia**, sinaliza que o tráfego está subindo e o plano grátis pode estar realmente apertado. Próximas opções:
 
@@ -158,10 +189,10 @@ Se em 1 ano de uso real algum recurso passar de 70% **com o playbook em dia**, s
 
 > Plano grátis é viável até atingir **~50 atendentes ativos + ~200 leads/dia** com este playbook ligado. Acima disso, Pro vale.
 
-## 6. Links
+## 7. Links
 
 - [[wiki/decisoes-chave]] — D24/D25 (retention), D30 (fila), R74/R77 (whitelist + vault)
-- [[wiki/erros-e-licoes]] — R92 (vault rotation), R74 (is_table_protected)
+- [[wiki/erros-e-licoes]] — R92 (vault rotation), R74 (is_table_protected), **R96 (chamadores externos invisíveis)**
 - [[wiki/casos-de-uso/admin-detalhado]] — Painel Admin / Retention page
 - [[CLAUDE.md]] — Regras de ouro
 - Supabase dashboard: https://supabase.com/dashboard/project/euljumeflwtljegknawy
