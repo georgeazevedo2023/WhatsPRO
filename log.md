@@ -7,6 +7,25 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Onda 2 storage + Onda 3 parcial)
+
+**Storage (Onda 2 final):** 4 objects copiados via curl (download URL pública antigo → POST com service_role do novo). Bucket `bio-images` criado primeiro (faltava no novo).
+- contact-avatars/d54caaac-...jpg (2.7KB - George avatar)
+- bio-images/.../4772e872-...png (63KB)
+- bio-images/.../70c6b77c-...png (2.2MB)
+- bio-images/.../fe7e212c-...png (2.2MB)
+
+**Onda 3 parcial:**
+- Vault secret `SUPABASE_ANON_KEY` setado com publishable do novo (`sb_publishable_ayu87rwh94XQcMt1_1ka_w_hOQy8rZe`) — usado pelos crons via Bearer.
+- Vault secret legacy `supabase_anon_key` (lowercase) já existia do replay (provavelmente Supabase auto-cria).
+- Edge fn secrets `ALLOWED_ORIGIN=https://crm.wsmart.com.br` e `INTERNAL_FUNCTION_KEY=c22c5d696ddc7969dd9527990d86f25ad0d1c16d973187b47dfcf7fe9901e800` (regenerada) setados via `supabase secrets set`.
+
+**Pendente Onda 3:** 6 secrets externos — usuário precisa passar valores:
+- UAZAPI_SERVER_URL, UAZAPI_ADMIN_TOKEN
+- GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, OPENAI_API_KEY
+
+---
+
 ## 2026-05-06 (madrugada — Onda 2 dados shipped via dblink: 1944 rows + diff zero vs antigo)
 
 **Estratégia bem-sucedida:** habilitar `dblink` extension no novo + connection string com senha DB do antigo + `INSERT INTO ... SELECT * FROM jsonb_populate_recordset(NULL::tabela, dblink(...))`. 4 batches em ~5 minutos.
