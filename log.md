@@ -7,6 +7,32 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (madrugada — Onda 0 da migração Eletropiso shipped)
+
+**Frase ativa:** continuar migração eletropiso (mesma sessão da Sprint 3).
+
+Inventário read-only do projeto antigo (`euljumeflwtljegknawy`) via MCP. Saída: [[wiki/migracao-eletropiso-inventario]] (175 linhas).
+
+**Achados-chave:**
+- `instance_id` Eletropiso: `r466a98889b5809` (única `disabled=false` de 6 instâncias).
+- 7 auth users (1 super_admin + 1 gerente + 5 atendentes), todos vinculados à Eletropiso. Migram 100%.
+- Volume: ~1.900 rows escopadas (1.341 mensagens + 274 validações IA dominam). DB total: 26.6 MB.
+- 4 storage objects (1 contact-avatar + 3 bio-images) — volume manual viável.
+- 2 vault secrets (`supabase_anon_key` legacy + `SUPABASE_ANON_KEY` publishable) — re-criar com chaves do novo projeto.
+- 12 pg_cron jobs ativos. **4 têm URL hardcoded** apontando pro projeto antigo — atualizar antes de ativar no novo.
+- 160 migrations no histórico — replay direto na Onda 1 (auditável e idempotente).
+- 43 edge functions ativas — 41 migram, `apply-env-secrets` órfã não migra (decidir delete vs versionar).
+
+**Bloqueios pré-Onda 1 a confirmar com usuário:**
+1. Descartar mesmo as 5 instâncias disabled (sem clones de teste)?
+2. Nome da tabela `keep_alive` vs `keepalive` (já no novo)?
+3. `apply-env-secrets`: delete em prod ou versionar no repo?
+4. Env vars das edge functions: usuário precisa listar no painel Settings → Edge Functions → Secrets (não acessível via MCP).
+
+**Próximo passo:** Sprint 4 (P2 medium, ~4h) ou aguardar respostas + iniciar Onda 1 (replay schema).
+
+---
+
 ## 2026-05-06 (madrugada — Sprint 3 da auditoria shipped: P1-2 verify_jwt drift fechado)
 
 **Aprovação explícita do usuário** ("vai com a opção A, sprint 3" + "s") pra tocar arquivo HIGH RISK (`ai-agent-playground/index.ts`).

@@ -74,7 +74,7 @@ Quando você abrir nova sessão e digitar isso, eu devo:
 
 | Onda | Conteúdo | Toca quem |
 |---|---|---|
-| 0 | Inventário read-only do antigo: `instance_id` Eletropiso, contagens por tabela, lista users, storage objects, vault keys, env vars | Antigo |
+| 0 ✅ | Inventário read-only do antigo: `instance_id` Eletropiso, contagens por tabela, lista users, storage objects, vault keys, cron jobs — **SHIPPED 2026-05-06** ([[wiki/migracao-eletropiso-inventario]]) | Antigo |
 | 1 | Schema novo: replay de TODAS as migrations do repo, em ordem | Novo |
 | 2 | Dados Eletropiso: `WHERE instance_id = $eletropiso_id` por tabela. Auth users: super_admin + atendentes Eletropiso | Antigo→Novo |
 | 3 | Vault + secrets + env vars: você me passa valores quando eu pedir; setar via Management API | Novo |
