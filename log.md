@@ -9,6 +9,67 @@ type: log
 
 ---
 
+## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-07 tarde (Sessão 3 Sandbox COMPLETA com R113 + R113.1 + R113.2)
+
+> Sessão 3 = 5 commits, 2 root causes profundas (cron 401 + ai-agent auth inline), G1+H1 validados em prod E2E.
+
+### Commits hoje (em ordem)
+
+| Hash | Conteúdo |
+|---|---|
+| `8291a3b` | R113 — vault.CRON_AUTH_KEY + 5 crons reschedulados + auth.ts patch defensivo |
+| `5cbcb42` | R113.1 — G1 (objecao:* síncrono) + H1 (venda:fechada determinístico) + tests |
+| `6518a8b` | R113.2 — ai-agent auth inline → verifyCronOrService + debounce INTERNAL_FUNCTION_KEY |
+| `715c5a0` | docs(log): R113.2 |
+| `d2efe8a` | (este — handoff sessão 3) |
+
+### Validação E2E em produção real
+
+**G1 (objecao síncrono):** msg "achei muito caro queria desconto" via UAZAPI Sandbox às 13:46:29 → trigger `desconto` matched, `detectObjection` retornou `preco`, IA respondeu handoff em 22s, conversation tags receberam `objecao:preco` + `ia:shadow` síncrono. ai_agent_logs metadata contém `{ trigger: "desconto", objection: "preco" }`. ✅
+
+**H1 (venda:fechada determinístico):** msg "pode mandar o pix" às 13:47:37 (conversa em shadow) → `detectSaleClosed` retornou `pix_solicitado` → tag `venda:fechada` adicionada ANTES de qualquer guard. Em paralelo, shadow LLM extraiu `intencao:compra`. ✅
+
+### Lições críticas
+
+1. **Auth duplicado é bomba relógio**: ai-agent tinha auth inline divergente das outras 13 functions. Padronização não pegou esse caso. Auditoria recomendada.
+2. **Gateway-rewrite invisível**: Supabase reescreve `sb_publishable_*` em JWT 444-char ANTES de chegar na função. Comparação string com env var nunca casa. Use `INTERNAL_FUNCTION_KEY` (formato neutro).
+3. **Diagnóstico antes de hotfix**: rollback inicial NÃO resolveu — código era OK, ambiente era o bug. ~30min metodológicos > horas de tentativa-erro.
+4. **Test environment é seguro pra investigar fundo**: usuário confirmou "ainda não temos clientes reais". Posso tomar mais tempo pra fazer certo.
+
+### O que foi shipado em produção
+
+- 5 crons rodando 200 (CRON_AUTH_KEY pattern)
+- ai-agent v20+ aceita 5 formatos de auth
+- ai-agent-debounce v3 usa INTERNAL_FUNCTION_KEY
+- G1 + H1 helpers ativos (objectionDetection.ts, saleClosedDetection.ts, 14 testes Deno)
+- 'venda' adicionado a BASE_VALID_TAG_KEYS + UI green badge
+
+### O que NÃO foi feito (próxima sessão)
+
+- **Onda 2 completa** (8 cenários: E1/M4/M8/M10/G2/G3/H2/H3) — só validei G1+H1. Custo estimado R$1, 1h.
+- **Onda 3** (N3 áudio, N7 retention, M9 imagem 404, M5/M6) — R$1-2, 2h+
+- **Roteirizar I1-I3** limites de interação
+- **Auditar outras funções** com auth inline (e2e-test, ai-agent-playground) — preventivo
+
+### 🚀 FRASE PRA RETOMAR
+
+**`continuar plano sandbox sessão 4`** — pega Onda 2 completa, depois Onda 3 e I1-I3. Custo estimado total: R$3-4. Tempo: 4-5h.
+
+Alternativas:
+- `auditar auth inline em outras edge functions` — preventivo, ~30min, R$0
+- `gerar relatório consolidado v1.0 sandbox testing` — fechar versão, criar release notes
+- `adicionar suggested_categories nas outras 12 categorias excluded_products` — UX
+
+### Auto-avaliação sessão 3 — 0-10
+
+- **Conteúdo:** 9/10 — 2 root causes profundas resolvidas + 2 helpers determinísticos shipados + E2E validado em prod
+- **Orquestração:** 9/10 — 5 commits atomic + wiki R113/R113.2 + log handoff + tests Deno
+- **Honestidade:** 10/10 — admiti que rollback inicial estava errado, pausei pra diagnose, não escondi anomalias
+- **Tempo:** 6/10 — gastei ~4h (vs 30-40min estimado pra plano "(b) diagnose"), mas custo no test env tolerável
+- **Estado vault:** 9/10 — tudo documentado, frase de retomada concreta com 4 alternativas
+
+---
+
 ## 2026-05-07 (tarde) — Sessão 3 Sandbox · R113.2 ai-agent auth inline corrigido + E2E validado
 
 > Após R113.1 (G1+H1 helpers shipados em commit 5cbcb42), descobri que ai-agent INLINE auth (linha 70-73) ignorava verifyCronOrService — comparava direto com SUPABASE_ANON_KEY. Combinado com gateway Supabase reescrevendo sb_publishable_* em JWT 444-char, todas as chamadas debounce→ai-agent retornavam 401.
