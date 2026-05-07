@@ -10,19 +10,35 @@ import { Ban, Plus, Trash2, AlertCircle } from 'lucide-react'
 export interface ExcludedProduct {
   id: string
   keywords: string[]
-  message: string  // R112: agora obrigatório. Validação no save bloqueia vazio.
+  message?: string  // R112 rev: opcional novamente. Runtime gera fallback dinâmico via suggested_categories.
   suggested_categories?: string[]
 }
 
 /**
- * Template padrão usado quando admin clica "Usar mensagem padrão".
- * R112: NUNCA usar "não trabalhamos com" — viola regra de ouro do AI Agent.
+ * Template padrão usado quando admin clica "Usar mensagem padrão" OU quando
+ * fica em branco (runtime gera o fallback dinâmico).
+ *
+ * R112 (rev): EXCEÇÃO da regra de ouro — para excluded_products é OK dizer
+ * "não trabalhamos com" porque admin configurou intencionalmente E acompanha
+ * alternativas (suggested_categories). Honestidade > eufemismo aqui.
  */
-function buildDefaultMessage(businessName?: string): string {
-  const prefix = businessName && businessName.trim() !== ''
-    ? `Esse não é nosso foco principal! Aqui na ${businessName.trim()}`
-    : 'Esse não é nosso foco principal! Aqui'
-  return `${prefix} a gente trabalha com materiais de construção (tintas, fechaduras, telhas, elétrica, hidráulica, impermeabilizantes). Posso te ajudar com algo dessa área? 😊`
+function buildDefaultMessage(matchedKeyword: string, suggestedCategories?: string[]): string {
+  const validCats = (suggestedCategories || [])
+    .map(c => (c || '').trim())
+    .filter(c => c.length > 0)
+
+  let alternatives: string
+  if (validCats.length === 0) {
+    alternatives = 'outros materiais relacionados'
+  } else if (validCats.length === 1) {
+    alternatives = validCats[0]
+  } else if (validCats.length === 2) {
+    alternatives = `${validCats[0]} e ${validCats[1]}`
+  } else {
+    alternatives = `${validCats.slice(0, -1).join(', ')} e ${validCats[validCats.length - 1]}`
+  }
+
+  return `Infelizmente não trabalhamos com ${matchedKeyword}, mas temos ${alternatives}. Posso te ajudar em algo mais? 😊`
 }
 
 interface ExcludedProductsConfigProps {
@@ -114,13 +130,14 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
     while (ids.includes(id)) {
       id = `${baseId}_${i++}`
     }
-    // R112: pré-preencher message com template default (admin pode customizar ou apagar e re-clicar "Usar mensagem padrão")
+    // R112 rev: deixa message vazio — runtime gera fallback dinâmico via suggested_categories
     updateItems([
       ...items,
       {
         id,
         keywords: [],
-        message: buildDefaultMessage(config.business_info?.name as string | undefined),
+        message: '',
+        suggested_categories: [],
       },
     ])
   }
@@ -148,8 +165,9 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
         </CardTitle>
         <CardDescription>
           Liste produtos ou serviços que sua loja não trabalha. Quando o lead perguntar sobre algum,
-          a IA responde educadamente <strong>sem fazer transbordo</strong> e sugere alternativas.
-          A "Resposta da IA" é <strong>obrigatória</strong> — sem ela, a IA pode acabar dizendo "não trabalhamos com" (frase proibida pela regra de atendimento). Use o botão "Usar mensagem padrão" como ponto de partida.
+          a IA responde <strong>sem fazer transbordo</strong> e sugere alternativas que você vende.
+          Preencha as <strong>"Categorias alternativas"</strong> — a IA monta automaticamente a resposta no formato:
+          <em>"Infelizmente não trabalhamos com [item], mas temos [alternativas]. Posso te ajudar em algo mais?"</em>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -172,9 +190,10 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
             {items.map((item, index) => {
               const idDup = duplicateIds.has(item.id)
               const noKeywords = !item.keywords || item.keywords.length === 0
-              const noMessage = !item.message || item.message.trim() === ''  // R112: validação dura
-              const hasError = idDup || noKeywords || noMessage
-              const defaultMessage = buildDefaultMessage(config.business_info?.name as string | undefined)
+              // R112 rev: message agora é OPCIONAL — quando vazio, runtime gera fallback dinâmico com suggested_categories
+              const hasError = idDup || noKeywords
+              const firstKeyword = item.keywords?.[0] || '[palavra-chave]'
+              const previewMessage = buildDefaultMessage(firstKeyword, item.suggested_categories)
 
               return (
                 <div
@@ -237,14 +256,33 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
                   </div>
 
                   <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      Categorias alternativas que você vende
+                      <span className="text-muted-foreground ml-1">(separadas por vírgula — usadas no fallback automático)</span>
+                    </Label>
+                    <Input
+                      value={(item.suggested_categories || []).join(', ')}
+                      onChange={(e) => {
+                        const cats = e.target.value.split(',').map((c) => c.trim()).filter(Boolean)
+                        updateItem(index, { suggested_categories: cats })
+                      }}
+                      placeholder="acessórios para quarto, cadeiras, mesa de cabeceira"
+                      className="text-sm"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Quando lead perguntar sobre <strong>{firstKeyword}</strong>, IA dirá: <em>"Infelizmente não trabalhamos com {firstKeyword}, mas temos {item.suggested_categories?.length ? item.suggested_categories.join(', ') : 'outros materiais relacionados'}. Posso te ajudar em algo mais? 😊"</em>
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs">
-                        Resposta da IA quando o lead perguntar
-                        <span className="text-destructive ml-1">*</span>
+                        Resposta personalizada da IA
+                        <span className="text-muted-foreground ml-1">(opcional — sobrescreve o fallback automático)</span>
                       </Label>
                       <Button
                         type="button"
-                        onClick={() => updateItem(index, { message: defaultMessage })}
+                        onClick={() => updateItem(index, { message: previewMessage })}
                         variant="ghost"
                         size="sm"
                         className="h-6 text-[11px]"
@@ -255,20 +293,14 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
                     <Textarea
                       value={item.message || ''}
                       onChange={(e) => updateItem(index, { message: e.target.value })}
-                      placeholder={defaultMessage}
-                      className={`min-h-[70px] text-sm ${noMessage ? 'border-destructive' : ''}`}
+                      placeholder={previewMessage}
+                      className="min-h-[70px] text-sm"
                     />
-                    {noMessage && (
-                      <p className="text-xs text-destructive flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        Mensagem obrigatória — sem ela, IA pode dizer "não trabalhamos com" (proibido). Clique em "Usar mensagem padrão" como ponto de partida.
-                      </p>
-                    )}
-                    {!noMessage && (
-                      <p className="text-[11px] text-muted-foreground">
-                        Dica: cite alternativas que você vende para reaproveitar o interesse do lead.
-                      </p>
-                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      {item.message && item.message.trim() !== ''
+                        ? 'Mensagem personalizada ativa — sobrescreve o fallback automático acima.'
+                        : 'Em branco, IA usa o fallback automático mostrado acima (gerado das categorias alternativas).'}
+                    </p>
                   </div>
                 </div>
               )
@@ -287,7 +319,8 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
             <li>A IA verifica a mensagem do lead antes de qualquer outra regra</li>
             <li>Match exato em palavra-inteira (não casa partes — "correio" não casa "correios")</li>
             <li>Se casar, IA responde e <strong>NÃO faz transbordo</strong> nem incrementa contador de mensagens</li>
-            <li><strong>Resposta da IA é obrigatória</strong> — clique em "Usar mensagem padrão" como base e personalize com alternativas que você vende</li>
+            <li>IA monta resposta automática a partir das <strong>categorias alternativas</strong> — quanto mais relevantes, melhor o cross-sell</li>
+            <li>Resposta personalizada é opcional — preencha só se quiser sobrescrever o fallback automático</li>
             <li>Se o lead insistir ou pedir vendedor depois, fluxo normal de transbordo se aplica</li>
           </ul>
         </div>

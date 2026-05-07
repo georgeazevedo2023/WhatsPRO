@@ -33,14 +33,39 @@ export interface ExcludedProductMatch {
 /**
  * Gera frase de fallback quando admin deixou message vazio.
  *
- * R112: NUNCA usar "Não trabalhamos com / não temos" — viola regra de ouro do AI Agent.
- * Em vez disso, redireciona pro escopo da loja sem negação direta.
+ * R112 (rev 2026-05-07): EXCEÇÃO documentada da regra de ouro do AI Agent.
+ * A regra "NUNCA dizer 'não trabalhamos com'" vale pro LLM (que não deve inventar
+ * essa frase quando search falha). Mas para `excluded_products`, fluxo é separado
+ * (vai direto via sendTextMsg, nunca passa pelo prompt), e admin CONFIGUROU
+ * intencionalmente que não vendemos esse item — então é honesto e profissional.
+ *
+ * Template: "Infelizmente não trabalhamos com {keyword}, mas temos {alternatives}.
+ *            Posso te ajudar em algo mais? 😊"
+ *
+ * `alternatives` vem de `item.suggested_categories` (admin preenche). Se vazio,
+ * usa fallback genérico "outros materiais relacionados".
  */
-export function buildFallbackMessage(_matchedKeyword: string, businessName?: string): string {
-  const prefix = businessName && businessName.trim() !== ''
-    ? `Esse não é nosso foco principal! Aqui na ${businessName.trim()}`
-    : 'Esse não é nosso foco principal! Aqui'
-  return `${prefix} a gente trabalha com materiais de construção (tintas, fechaduras, telhas, elétrica, hidráulica, impermeabilizantes). Posso te ajudar com algo dessa área? 😊`
+export function buildFallbackMessage(
+  matchedKeyword: string,
+  _businessName?: string,
+  suggestedCategories?: string[],
+): string {
+  const validCats = (suggestedCategories || [])
+    .map(c => (c || '').trim())
+    .filter(c => c.length > 0)
+
+  let alternatives: string
+  if (validCats.length === 0) {
+    alternatives = 'outros materiais relacionados'
+  } else if (validCats.length === 1) {
+    alternatives = validCats[0]
+  } else if (validCats.length === 2) {
+    alternatives = `${validCats[0]} e ${validCats[1]}`
+  } else {
+    alternatives = `${validCats.slice(0, -1).join(', ')} e ${validCats[validCats.length - 1]}`
+  }
+
+  return `Infelizmente não trabalhamos com ${matchedKeyword}, mas temos ${alternatives}. Posso te ajudar em algo mais? 😊`
 }
 
 /**
@@ -85,7 +110,7 @@ export function matchExcludedProduct(
         const trimmedAdminMsg = (item.message || '').trim()
         const message = trimmedAdminMsg !== ''
           ? trimmedAdminMsg
-          : buildFallbackMessage(kw, businessName)  // R112: fallback NÃO usa "não trabalhamos com"
+          : buildFallbackMessage(kw, businessName, item.suggested_categories)  // R112: fallback dinâmico com alternativas
         return {
           product: item,
           matchedKeyword: kw,

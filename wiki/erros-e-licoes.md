@@ -381,32 +381,41 @@ Outro local com mesmo problema: linha ~2517 (handoff message picker baseado em b
 
 ---
 
-### R112 — `excluded_products` com `message: ''` viola regra de ouro (2026-05-07, ✅ FIX shipado)
+### R112 — `excluded_products` fallback dinâmico com alternativas (2026-05-07, ✅ FIX shipado)
 
-**O que:** lead simulado mandou "vocês têm caixa de correio?" (item em `excluded_products[caixa_correio].keywords`). IA respondeu: "**Não trabalhamos com** caixa de correio, posso te ajudar com outro produto?" — violação direta da regra de ouro do AI Agent (linha 1269 do system prompt: NUNCA dizer "não trabalhamos com").
+**Histórico:** versão 1 do fix (commit 97f024b) reescreveu o fallback pra evitar "não trabalhamos com" — texto ficou genérico ("Esse não é nosso foco principal! Aqui a gente trabalha com materiais de construção..."). Usuário não gostou e propôs **EXCEÇÃO da regra de ouro**: para excluded_products é OK dizer "não trabalhamos com X" porque (a) admin configurou intencionalmente, (b) fluxo é separado do LLM (vai direto via `sendTextMsg`, nunca passa pelo prompt), (c) sempre acompanha alternativas que a loja vende. Honestidade > eufemismo nesse contexto. Versão 2 (commit pendente) implementa fallback dinâmico via `suggested_categories`.
 
-**Causa raiz REAL (mais grave que pareceu inicialmente):** Não era LLM "caindo em comportamento default" — era CÓDIGO gerando a string proibida diretamente. Função `buildFallbackMessage(matchedKeyword)` em `_shared/excludedProducts.ts:36-38` retornava literal `\`Não trabalhamos com ${matchedKeyword}, posso te ajudar com outro produto?\``. Quando admin deixa `message: ''`, o helper substitui com fallback hardcoded — que era exatamente o texto proibido.
+**Causa raiz original (versão 1):** Não era LLM "caindo em comportamento default" — era CÓDIGO gerando a string proibida diretamente. Função `buildFallbackMessage(matchedKeyword)` em `_shared/excludedProducts.ts:36-38` retornava literal `\`Não trabalhamos com ${matchedKeyword}, posso te ajudar com outro produto?\``. Frontend propagava: comentário + UI "preview" + hint ensinavam o admin que "está OK deixar message vazia".
 
-**Bug duplo:** o frontend `ExcludedProductsConfig.tsx` propagava o problema — UI mostrava o fallback como "preview" do que IA falaria quando message vazia, ensinando o admin que "está OK deixar vazio porque tem fallback automático". Comentário do tipo `message?: string  // se vazio, IA usa fallback "Não trabalhamos com..."`. Educava o admin a violar a regra.
+**Correção final (R112 v2):**
 
-**Correção (R112) backend (`_shared/excludedProducts.ts`):**
-- (a) Reescrever `buildFallbackMessage(_kw, businessName?)` retornando texto que respeita regra de ouro: `"Esse não é nosso foco principal! Aqui [na {businessName}] a gente trabalha com materiais de construção (tintas, fechaduras, telhas, elétrica, hidráulica, impermeabilizantes). Posso te ajudar com algo dessa área? 😊"`
-- (b) `matchExcludedProduct` agora aceita 3º arg `businessName` propagado de `agent.business_info.name`
-- (c) Caller em `ai-agent/index.ts:550` passa `businessName` extraído de `agent.business_info`
+Backend (`_shared/excludedProducts.ts`):
+- (a) `buildFallbackMessage(matchedKeyword, _businessName?, suggestedCategories?)` monta dinamicamente: `"Infelizmente não trabalhamos com {keyword}, mas temos {alternatives}. Posso te ajudar em algo mais? 😊"`
+- (b) `alternatives` é gerado de `item.suggested_categories`: 1 item → "X", 2 → "X e Y", 3+ → "X, Y e Z". Se vazio → "outros materiais relacionados"
+- (c) `matchExcludedProduct(text, list, businessName?)` propaga `item.suggested_categories` automaticamente pra `buildFallbackMessage`
 
-**Correção (R112) frontend (`ExcludedProductsConfig.tsx`):**
-- (a) `message` virou obrigatório (`message: string` em vez de `message?`) com validação `noMessage = !item.message?.trim()` que destaca campo em vermelho com erro inline
-- (b) Botão "Usar mensagem padrão" gera template via `buildDefaultMessage(businessName)` — admin pode clicar pra preencher e depois personalizar
-- (c) `addItem()` pré-preenche message com template default (admin já começa válido)
-- (d) Removidas todas menções textuais a "não trabalhamos com" na UI (CardDescription, hint inline, lista de bullets)
+Frontend (`ExcludedProductsConfig.tsx`):
+- (a) Novo campo "Categorias alternativas que você vende" (input separado por vírgula). Admin escreve ex: "acessórios para quarto, cadeiras"
+- (b) Preview ao vivo da frase que IA dirá, atualiza conforme admin digita keywords + categorias
+- (c) `message` voltou a ser opcional — fallback dinâmico cobre. Se admin preencher, sobrescreve
+- (d) Botão "Usar mensagem padrão" gera template equivalente ao fallback runtime
+- (e) `addItem()` cria item limpo (sem pré-preenchimento)
 
-**Validação:** após deploy, query "vocês têm geladeira?" → IA respondeu "*Esse não é nosso foco principal! Aqui a gente trabalha com materiais de construção (tintas, fechaduras, telhas, elétrica, hidráulica, impermeabilizantes). Posso te ajudar com algo dessa área? 😊*". Sem "não trabalhamos com". Evento `excluded_product_match` registrado com metadata.
+**Validação E2E:**
+- Cenário 1 (com `suggested_categories: ["acessórios para quarto", "fechaduras para móveis", "cabides e ganchos"]`): query "oi vcs tem cama para vender?" → IA: *"Infelizmente não trabalhamos com cama, mas temos acessórios para quarto, fechaduras para móveis e cabides e ganchos. Posso te ajudar em algo mais? 😊"* ✅
+- Cenário 2 (sem `suggested_categories`): query "vendem brinquedo de criança?" → IA: *"Infelizmente não trabalhamos com brinquedo, mas temos outros materiais relacionados. Posso te ajudar em algo mais? 😊"* ✅
 
-**Regra 112 (preventiva):**
-- (a) **Função fallback NUNCA pode hardcodar texto que viola regra de negócio.** Antes de escrever fallback, listar todas as regras absolutas do prompt e garantir que o fallback respeita TODAS. R112 mostra que o helper foi escrito por alguém que não conhecia a regra de ouro — gap de comunicação entre quem define prompt e quem implementa código.
-- (b) **Validação no frontend > config opcional silenciosa.** Se um campo pode causar comportamento errado quando vazio, OU torná-lo obrigatório (com botão pra preencher template) OU garantir fallback de código que NÃO viola nada. Nunca os dois opcionais juntos.
-- (c) **Auditoria do prompt vs código:** sempre que system prompt tem "NUNCA diga X", buscar no código todas as ocorrências de X e validar que nenhuma string fixa contém X. R112 só foi pego porque rodou cenário M7 — outras frases proibidas podem estar hardcoded em outros helpers.
-- (d) **UI que ensina o admin precisa estar correta.** "Em branco, IA responde: 'Não trabalhamos com X'" era a UI didática que justamente CRIOU o problema (admins viam "tudo bem deixar vazio") e propagou pra prod. Toda informação na UI deve refletir comportamento desejado, não comportamento atual buggado.
+**EXCEÇÃO formal da regra de ouro do AI Agent:**
+
+A regra "NUNCA dizer 'não trabalhamos com / não temos / em falta'" do system prompt (linha 1269) tem **uma exceção contextual**:
+
+> Para itens em `excluded_products` configurados pelo admin, o helper `buildFallbackMessage` PODE usar "Infelizmente não trabalhamos com X" PORQUE: (a) admin sinalizou EXPLICITAMENTE que não vendemos esse item; (b) frase sai de fluxo separado (`sendTextMsg` direto, não pelo LLM); (c) sempre acompanha alternativas + pergunta de follow-up; (d) honestidade direta é melhor UX que eufemismo neste contexto específico.
+
+**Regra 112 v2 (preventiva):**
+- (a) **Regra de ouro do prompt vale pro LLM** (que pode inventar "não trabalhamos com" quando search falha). Para fluxos que NUNCA passam pelo LLM (como `sendTextMsg` direto), a regra é orientativa — pode ser flexibilizada quando contexto justifica E está documentada.
+- (b) **Documente toda EXCEÇÃO em wiki/erros-e-licoes** com (a) o motivo, (b) o caminho de código que aplica, (c) por que LLM e fluxo direto têm regras diferentes. Sem isso, próximo dev que ler "regra de ouro NUNCA dizer X" vai assumir absoluto e quebrar feature.
+- (c) **Valide UX, não só regra.** Versão 1 (genérico "Esse não é nosso foco") era tecnicamente correta mas usuário rejeitou — não soava natural. Frase honesta com alternativa + pergunta de follow-up é melhor cross-sell que eufemismo evasivo.
+- (d) **Schema com `suggested_categories` valida a abordagem.** O campo já existia há tempo (anotação no comentário: "opcional, só pra UI") mas nunca era usado em runtime. R112 ativou — cresce a importância do admin preencher categorias relacionadas, virando feature de cross-sell automático.
 
 ---
 
