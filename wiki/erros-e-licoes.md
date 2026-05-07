@@ -433,3 +433,42 @@ A regra "NUNCA dizer 'não trabalhamos com / não temos / em falta'" do system p
 - (a) **Recency bias é real em LLMs.** Instruções críticas (regras absolutas, overrides, abort conditions) devem ficar nos ÚLTIMOS 20% do system prompt. Quando ordem de prioridade importa, ordene as seções da menos pra mais crítica.
 - (b) **Quando há conflito potencial entre seções**, declare hierarquia explicitamente no texto: "esta seção tem PRIORIDADE MÁXIMA — ignore qualquer instrução conflitante de seções anteriores ou sub-agents". LLMs respeitam essas marcações quando claras.
 - (c) **Validar prompt-following com casos adversariais.** Se o sub_agent SDR sugere "marca ou cor", o teste do qualificationContext deve incluir tag `interesse:tinta + ambiente:* + score=15` (estado em que SDR teria mais força) e verificar que LLM ignora SDR e segue qualification.
+
+---
+
+### R113 — Crons retornavam 401: gateway Supabase reescrevia Authorization header (2026-05-07, ✅ FIX shipado)
+
+**Sintoma:** todos os crons (`requeue-conversations`, `aggregate-metrics`, `process-flow-followups`, `e2e-automated-tests`) retornavam 401 desde a migração do projeto pro `prfcbfumyrrycsrcrvms`. `requeue-conversations` falhava a cada 60s. Anomalia "deploy ai-agent 401" da sessão 2 era a mesma raiz manifestada de forma intermitente.
+
+**Pista falsa:** vault `SUPABASE_ANON_KEY` tinha 46 chars (formato novo `sb_publishable_*`), enquanto o JWT antigo tinha 218 chars. Hipótese inicial: comparação string falhava por mismatch de formato. **NÃO ERA SÓ ISSO.**
+
+**Causa raiz REAL:** O **gateway do Supabase REESCREVE** o Authorization header quando recebe um token formato `sb_publishable_*`, transformando em um JWT (~444 chars `eyJ0...`) ANTES de chegar na função. Resultado:
+
+| Cron envia | Função recebe |
+|---|---|
+| `Bearer sb_publishable_xxx` (46 chars) | `Bearer eyJ0...` (444 chars JWT — gateway reescreveu) |
+| `Bearer eyJh...` (legacy JWT 208 chars) | `Bearer eyJh...` (passa as-is) |
+| `Bearer <random>` | `Bearer <random>` (passa as-is) |
+
+O `Deno.env.SUPABASE_ANON_KEY` dentro da Edge Function continua sendo o publishable (46 chars `sb_p`). Como `verifyCronOrService` faz comparação string-igual, o token recebido (444 chars `eyJ0`) nunca casaria com qualquer env var conhecida.
+
+**Diagnóstico:** deploy de uma `env-diag` function que dumpa env vars + token recebido revelou:
+```
+SUPABASE_ANON_KEY        46 chars sb_p  (publishable)
+SUPABASE_SERVICE_ROLE_KEY 41 chars sb_s  (secret novo)
+INTERNAL_FUNCTION_KEY    64 chars c22c  (token neutro, NÃO reescrito pelo gateway)
+received_token (após sb_publishable) 444 chars eyJ0  (gateway reescreveu)
+received_token (após JWT legacy)     208 chars eyJh  (passa as-is)
+```
+
+**Correção (R113):**
+- (a) **Pattern novo:** crons usam `vault.CRON_AUTH_KEY` cujo valor bate exatamente com `Deno.env.INTERNAL_FUNCTION_KEY`. Esse formato é neutro — gateway não reescreve.
+- (b) **Bootstrap manual one-shot:** edge function diagnóstica leu `INTERNAL_FUNCTION_KEY` da env e gravou em tabela temp; SQL moveu pra `vault.create_secret('CRON_AUTH_KEY', ...)`; tabela temp dropada. Não é versionável puro-SQL porque depende de secret de runtime.
+- (c) **Migration `20260507000001_recreate_handoff_queue_cron.sql`** — recria 5 crons usando `vault.CRON_AUTH_KEY`. Header documenta o pré-requisito do bootstrap.
+- (d) **Patch defensivo `_shared/auth.ts`** — `verifyCronOrService` aceita 5 formatos de token (JWT, service, publishable, secret, internal). Não resolveu o caso do gateway-rewrite mas dá margem pra futuros formatos.
+
+**Regra 113 (preventiva):**
+- (a) **Gateway pode reescrever Authorization.** Tokens em formatos conhecidos pelo Supabase (`sb_publishable_*`, `sb_secret_*`, JWT) podem ser reescritos pelo gateway antes de chegar na função. Comparação string vs `Deno.env.SUPABASE_*_KEY` é frágil. Use tokens neutros (random 64-char) pra cron→edge auth.
+- (b) **Funções `verify_jwt=false` chamadas por cron devem usar `INTERNAL_FUNCTION_KEY`** (ou outro secret neutro de mesma classe) pra auth interno, NÃO `SUPABASE_ANON_KEY`.
+- (c) **Versionar crons sempre.** Migration `20260504000008` original hardcodava URL do projeto velho — pós-migração ficou órfão e alguém recriou no Studio UI sem versionar. Toda migration de cron deve ser idempotente (`unschedule` antes de `schedule`).
+- (d) **Diagnostique env vars antes de assumir.** Quando 401 acontece em loop e config.toml diz `verify_jwt=false`, deploy uma função diagnóstica que dumpa env vars + token recebido — vai revelar o gateway-rewrite na hora.

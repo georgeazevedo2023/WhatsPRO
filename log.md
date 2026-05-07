@@ -9,6 +9,53 @@ type: log
 
 ---
 
+## 2026-05-07 — Sessão 3 Sandbox INICIADA · R113 cron 401 ROOT CAUSE + FIX
+
+> Onda 1 do plano sandbox sessão 3 começou com a anomalia 401 da sessão 2 (Task #19). Investigação revelou que era ponta visível de problema permanente afetando 4 crons. Fix shipado.
+
+### O que foi descoberto
+
+**Sintoma original:** anomalia "ai-agent 401" durante deploy R112.2 (sessão 2). Investigando logs achamos `requeue-conversations` retornando 401 a cada ~60s + `aggregate-metrics` + `process-flow-followups` também 401. Métricas, fila inteligente e follow-ups parados há dias.
+
+**Pista 1 (falsa):** vault `SUPABASE_ANON_KEY` tinha 46 chars (publishable novo). JWT antigo tem 218 chars. Hipótese inicial: comparação string falhava por mismatch de formato. **NÃO ERA SÓ ISSO.**
+
+**Pista 2 (real):** deploy de função `env-diag` revelou que **o gateway Supabase REESCREVE o Authorization header** quando recebe `sb_publishable_*` — transforma em JWT (~444 chars `eyJ0`) antes de chegar na função. Como `Deno.env.SUPABASE_ANON_KEY` na função é o publishable original, comparação string nunca casa. Detalhes em [[wiki/erros-e-licoes]] R113.
+
+### Fix shipado (R113)
+
+- (a) Vault entry nova `CRON_AUTH_KEY` com mesmo valor de `INTERNAL_FUNCTION_KEY` (token neutro 64-char que gateway NÃO reescreve)
+- (b) 5 crons reschedulados pra usar `CRON_AUTH_KEY`: `handoff-queue-requeue`, `aggregate-metrics-hourly`, `aggregate-metrics-daily-consolidation`, `process-flow-followups`, `e2e-automated-tests`
+- (c) Migration `20260507000001_recreate_handoff_queue_cron.sql` versiona os 5 crons (antes só 1 estava em migration apontando pro projeto velho)
+- (d) Patch defensivo `_shared/auth.ts` — `verifyCronOrService` aceita 5 formatos de token (JWT, service, publishable, secret, internal). Defensivo pra futuras rotações de chave Supabase
+- (e) Edge function `env-diag` deixada inerte (returns 410) por ainda não termos delete via MCP
+
+### Validação
+
+- `requeue-conversations` voltou a retornar 200 a cada 60s (logs `expired_processed:0` ok — não há fila pendente)
+- `aggregate-metrics`, `process-flow-followups`, `e2e-automated-tests` vão normalizar nas próximas chamadas (são hourly/6h)
+
+### Arquivos modificados
+
+- `supabase/functions/_shared/auth.ts` — verifyCronOrService multi-format
+- `supabase/migrations/20260507000001_recreate_handoff_queue_cron.sql` — 5 crons usando CRON_AUTH_KEY
+- `wiki/erros-e-licoes.md` — entrada R113
+
+### O que NÃO foi feito ainda (Sessão 3 continua)
+
+- Refinar G1: tag `objecao:preco` no momento do handoff (Task #2)
+- Refinar H1: heurística `venda:fechada` pra pix/paguei/comprovante (Task #3)
+- Onda 2: 8 cenários baratos (E1/M4/M8/M10/G2/G3/H2/H3) — R$ 0,50-1,00
+- Onda 3: 4 cenários caros (N3/N7/M9/M5/M6) — R$ 1-2 + 30min wait
+- Roteirizar I1-I3 limites de interação
+
+### Auto-avaliação parcial
+
+- **Conteúdo:** 9/10 — diagnóstico foi mais profundo que o esperado, descobrimos gateway-rewrite (não-óbvio). Fix funcionando em produção.
+- **Orquestração:** 9/10 — migration versionada + wiki R113 documentado + patch defensivo + log atualizado.
+- **Tempo:** ~1.5h gasto na Onda 1 só pro 401 fix. Sessão 3 ainda tem ~3-4h de trabalho pendente.
+
+---
+
 ## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-07 manhã (Sessão 2 Sandbox COMPLETA com R112)
 
 > Modo autônomo aprovado. **17 cenários executados em sessão 2**, **5 commits hoje**, **8 bugs corrigidos** (R107, R108, R109, R110, R110.1, R111, R112 v1, R112 v2). Custo total acumulado: ~R$ 1,20 (sessão 1 R$ 0,29 + sessão 2 R$ 0,57 + retestes R112 R$ 0,30).

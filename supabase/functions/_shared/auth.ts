@@ -42,8 +42,16 @@ export async function verifySuperAdmin(req: Request): Promise<{ userId: string }
 
 /**
  * Verifies the request comes from a cron job or internal service.
- * Checks for the service_role key in the Authorization header.
- * This is used for functions called by pg_cron or scheduled jobs.
+ * Accepts multiple key formats to survive Supabase key rotations:
+ *   - Legacy JWT anon (auto-injected as SUPABASE_ANON_KEY)
+ *   - JWT service role (auto-injected as SUPABASE_SERVICE_ROLE_KEY)
+ *   - Modern publishable (sb_publishable_*) — set SUPABASE_PUBLISHABLE_KEY secret
+ *   - Modern secret (sb_secret_*) — set SUPABASE_SECRET_KEY secret
+ *   - Custom shared INTERNAL_FUNCTION_KEY
+ *
+ * Why multi-format: vault.decrypted_secrets may store either old JWT or new
+ * sb_publishable_* depending on when project was provisioned. Comparing only
+ * to one format breaks crons after migrations.
  */
 export function verifyCronOrService(req: Request): boolean {
   const log = createLogger('auth')
@@ -55,22 +63,27 @@ export function verifyCronOrService(req: Request): boolean {
   }
 
   const token = authHeader.replace('Bearer ', '')
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-  const internalKey = Deno.env.get('INTERNAL_FUNCTION_KEY')
 
-  const isService = serviceKey && token === serviceKey
-  const isAnon = anonKey && token === anonKey
-  const isInternal = internalKey && token === internalKey
+  const candidates: Array<[string, string | undefined]> = [
+    ['service', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')],
+    ['anon_jwt', Deno.env.get('SUPABASE_ANON_KEY')],
+    ['publishable', Deno.env.get('SUPABASE_PUBLISHABLE_KEY')],
+    ['secret', Deno.env.get('SUPABASE_SECRET_KEY')],
+    ['internal', Deno.env.get('INTERNAL_FUNCTION_KEY')],
+  ]
 
-  if (!isService && !isAnon && !isInternal) {
-    log.error('Token mismatch', { tokenLength: token.length, hasService: !!serviceKey, hasAnon: !!anonKey, hasInternal: !!internalKey })
-    return false
+  for (const [mode, key] of candidates) {
+    if (key && token === key) {
+      log.info('verifyCronOrService successful', { mode })
+      return true
+    }
   }
 
-  const mode = isInternal ? 'internal' : (isService ? 'service' : 'anon')
-  log.info('verifyCronOrService successful', { mode })
-  return true
+  log.error('Token mismatch', {
+    tokenLength: token.length,
+    available: candidates.filter(([, v]) => !!v).map(([m]) => m),
+  })
+  return false
 }
 
 /** Standard 401 response */
