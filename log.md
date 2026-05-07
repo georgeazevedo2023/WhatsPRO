@@ -9,6 +9,41 @@ type: log
 
 ---
 
+## 2026-05-07 (tarde) — Sessão 3 Sandbox · R113.2 ai-agent auth inline corrigido + E2E validado
+
+> Após R113.1 (G1+H1 helpers shipados em commit 5cbcb42), descobri que ai-agent INLINE auth (linha 70-73) ignorava verifyCronOrService — comparava direto com SUPABASE_ANON_KEY. Combinado com gateway Supabase reescrevendo sb_publishable_* em JWT 444-char, todas as chamadas debounce→ai-agent retornavam 401.
+
+### Diagnóstico metodológico
+
+Plano (b) executado: deploy de env-diag function que probava ai-agent com cada formato de token disponível. Todos retornavam 401 — incluindo INTERNAL_FUNCTION_KEY (token neutro). Confirmou que o fix anterior (verifyCronOrService multi-format) não tinha efeito porque ai-agent usava auth inline próprio.
+
+### Fix shipado (commit 6518a8b)
+
+- **ai-agent/index.ts L70-73**: substitui auth inline por `verifyCronOrService(req)`. Aceita 5 formatos.
+- **ai-agent-debounce/index.ts L152**: usa `INTERNAL_FUNCTION_KEY` ao chamar ai-agent (token neutro que gateway não reescreve). Fallback pra ANON_KEY mantém compat.
+- **_shared/auth.ts**: adiciona `verifyCronOrServiceDiag` helper que retorna detalhes do mismatch como JSON. Útil pra debug futuro sem redeploy.
+- **R113.1 bug fix**: H1 block (detectSaleClosed) usava `incomingText` antes da declaração (linha 232 vs 314) → TDZ ReferenceError. Movido pra depois das empty-text guards.
+
+### Validação E2E
+
+Msg "oi, tem tinta acrílica branca?" via UAZAPI Sandbox às 13:35:35 UTC → IA respondeu em 25s (debounce 10s + LLM 15s). Auth fix confirmado em produção.
+
+### Lições
+
+- **Auditar auth duplicado**: 14 funções têm `verifyCronOrService` mas apenas ai-agent tinha auth inline divergente. Dívida técnica que causou R113.2.
+- **Padronizar internal calls**: toda chamada function→function deve usar `INTERNAL_FUNCTION_KEY` pra evitar gateway-rewrite. R113.2 padroniza debounce. Próxima sessão: auditar outras funções (e2e-test, ai-agent-playground).
+- **Diagnóstico antes de hotfix**: rollback inicial do ai-agent NÃO resolveu (problema era no env, não no código), mas tomei tempo pra analisar metodicamente e achar a raiz. ~30min bem investidos vs 401 em loop.
+
+### Estado atual
+
+- `master` em commit 6518a8b
+- Crons: ✅ todos 200 (CRON_AUTH_KEY pattern)
+- ai-agent v20+: ✅ aceita 5 formatos de auth, helpers G1+H1 ativos
+- ai-agent-debounce v3: ✅ usa INTERNAL_FUNCTION_KEY
+- Próxima sessão: validar G1+H1 com cenários reais + Onda 2
+
+---
+
 ## 2026-05-07 — Sessão 3 Sandbox INICIADA · R113 cron 401 ROOT CAUSE + FIX
 
 > Onda 1 do plano sandbox sessão 3 começou com a anomalia 401 da sessão 2 (Task #19). Investigação revelou que era ponta visível de problema permanente afetando 4 crons. Fix shipado.
