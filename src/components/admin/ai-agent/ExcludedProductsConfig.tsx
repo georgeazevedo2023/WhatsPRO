@@ -10,8 +10,19 @@ import { Ban, Plus, Trash2, AlertCircle } from 'lucide-react'
 export interface ExcludedProduct {
   id: string
   keywords: string[]
-  message?: string  // Opcional — se vazio, IA usa fallback "Não trabalhamos com [keyword], posso te ajudar com outro produto?"
+  message: string  // R112: agora obrigatório. Validação no save bloqueia vazio.
   suggested_categories?: string[]
+}
+
+/**
+ * Template padrão usado quando admin clica "Usar mensagem padrão".
+ * R112: NUNCA usar "não trabalhamos com" — viola regra de ouro do AI Agent.
+ */
+function buildDefaultMessage(businessName?: string): string {
+  const prefix = businessName && businessName.trim() !== ''
+    ? `Esse não é nosso foco principal! Aqui na ${businessName.trim()}`
+    : 'Esse não é nosso foco principal! Aqui'
+  return `${prefix} a gente trabalha com materiais de construção (tintas, fechaduras, telhas, elétrica, hidráulica, impermeabilizantes). Posso te ajudar com algo dessa área? 😊`
 }
 
 interface ExcludedProductsConfigProps {
@@ -103,12 +114,13 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
     while (ids.includes(id)) {
       id = `${baseId}_${i++}`
     }
+    // R112: pré-preencher message com template default (admin pode customizar ou apagar e re-clicar "Usar mensagem padrão")
     updateItems([
       ...items,
       {
         id,
         keywords: [],
-        message: '',
+        message: buildDefaultMessage(config.business_info?.name as string | undefined),
       },
     ])
   }
@@ -137,7 +149,7 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
         <CardDescription>
           Liste produtos ou serviços que sua loja não trabalha. Quando o lead perguntar sobre algum,
           a IA responde educadamente <strong>sem fazer transbordo</strong> e sugere alternativas.
-          Se a "Resposta da IA" ficar em branco, ela usa automaticamente <em>"Não trabalhamos com [palavra-chave], posso te ajudar com outro produto?"</em>
+          A "Resposta da IA" é <strong>obrigatória</strong> — sem ela, a IA pode acabar dizendo "não trabalhamos com" (frase proibida pela regra de atendimento). Use o botão "Usar mensagem padrão" como ponto de partida.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -160,9 +172,9 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
             {items.map((item, index) => {
               const idDup = duplicateIds.has(item.id)
               const noKeywords = !item.keywords || item.keywords.length === 0
-              const hasError = idDup || noKeywords
-              const firstKeyword = item.keywords?.[0] || '[palavra-chave]'
-              const fallbackPreview = `Não trabalhamos com ${firstKeyword}, posso te ajudar com outro produto?`
+              const noMessage = !item.message || item.message.trim() === ''  // R112: validação dura
+              const hasError = idDup || noKeywords || noMessage
+              const defaultMessage = buildDefaultMessage(config.business_info?.name as string | undefined)
 
               return (
                 <div
@@ -225,21 +237,38 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-xs">
-                      Resposta da IA quando o lead perguntar
-                      <span className="text-muted-foreground ml-1">(opcional)</span>
-                    </Label>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs">
+                        Resposta da IA quando o lead perguntar
+                        <span className="text-destructive ml-1">*</span>
+                      </Label>
+                      <Button
+                        type="button"
+                        onClick={() => updateItem(index, { message: defaultMessage })}
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[11px]"
+                      >
+                        Usar mensagem padrão
+                      </Button>
+                    </div>
                     <Textarea
                       value={item.message || ''}
                       onChange={(e) => updateItem(index, { message: e.target.value })}
-                      placeholder={fallbackPreview}
-                      className="min-h-[70px] text-sm"
+                      placeholder={defaultMessage}
+                      className={`min-h-[70px] text-sm ${noMessage ? 'border-destructive' : ''}`}
                     />
-                    <p className="text-[11px] text-muted-foreground">
-                      {item.message
-                        ? 'Dica: cite alternativas que você vende para reaproveitar o interesse do lead.'
-                        : <>Em branco, IA responde: <em>"{fallbackPreview}"</em></>}
-                    </p>
+                    {noMessage && (
+                      <p className="text-xs text-destructive flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        Mensagem obrigatória — sem ela, IA pode dizer "não trabalhamos com" (proibido). Clique em "Usar mensagem padrão" como ponto de partida.
+                      </p>
+                    )}
+                    {!noMessage && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Dica: cite alternativas que você vende para reaproveitar o interesse do lead.
+                      </p>
+                    )}
                   </div>
                 </div>
               )
@@ -258,7 +287,7 @@ export function ExcludedProductsConfig({ config, onChange }: ExcludedProductsCon
             <li>A IA verifica a mensagem do lead antes de qualquer outra regra</li>
             <li>Match exato em palavra-inteira (não casa partes — "correio" não casa "correios")</li>
             <li>Se casar, IA responde e <strong>NÃO faz transbordo</strong> nem incrementa contador de mensagens</li>
-            <li>Se a "Resposta da IA" estiver em branco, IA usa fallback automático com a palavra-chave que casou</li>
+            <li><strong>Resposta da IA é obrigatória</strong> — clique em "Usar mensagem padrão" como base e personalize com alternativas que você vende</li>
             <li>Se o lead insistir ou pedir vendedor depois, fluxo normal de transbordo se aplica</li>
           </ul>
         </div>

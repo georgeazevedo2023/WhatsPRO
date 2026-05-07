@@ -381,20 +381,32 @@ Outro local com mesmo problema: linha ~2517 (handoff message picker baseado em b
 
 ---
 
-### R112 — `excluded_products` com `message: ''` viola regra de ouro (2026-05-07, PENDENTE)
+### R112 — `excluded_products` com `message: ''` viola regra de ouro (2026-05-07, ✅ FIX shipado)
 
 **O que:** lead simulado mandou "vocês têm caixa de correio?" (item em `excluded_products[caixa_correio].keywords`). IA respondeu: "**Não trabalhamos com** caixa de correio, posso te ajudar com outro produto?" — violação direta da regra de ouro do AI Agent (linha 1269 do system prompt: NUNCA dizer "não trabalhamos com").
 
-**Causa raiz:** todos os 13 grupos em `excluded_products` da Eletropiso real têm `message: ''` (string vazia). Quando IA detecta match e tenta usar fallback configurado, fallback é vazio → cai em comportamento default → LLM gera resposta natural com "não trabalhamos com" (verbo proibido).
+**Causa raiz REAL (mais grave que pareceu inicialmente):** Não era LLM "caindo em comportamento default" — era CÓDIGO gerando a string proibida diretamente. Função `buildFallbackMessage(matchedKeyword)` em `_shared/excludedProducts.ts:36-38` retornava literal `\`Não trabalhamos com ${matchedKeyword}, posso te ajudar com outro produto?\``. Quando admin deixa `message: ''`, o helper substitui com fallback hardcoded — que era exatamente o texto proibido.
 
-**Status:** PENDENTE — exige decisão de design entre 3 caminhos:
-- **(a)** Fallback default no código: se `message===''`, usar template tipo "Esse não é nosso foco — oferecemos materiais de construção. Posso ajudar com algo dessa área?"
-- **(b)** Validação no admin (frontend): bloquear save de excluded_products com message vazia
-- **(c)** Tag silenciosa: tagear `excluded_product_match:caixa_correio` mesmo sem fallback, IA continua processando normal mas conhecimento do dept pega no handoff
+**Bug duplo:** o frontend `ExcludedProductsConfig.tsx` propagava o problema — UI mostrava o fallback como "preview" do que IA falaria quando message vazia, ensinando o admin que "está OK deixar vazio porque tem fallback automático". Comentário do tipo `message?: string  // se vazio, IA usa fallback "Não trabalhamos com..."`. Educava o admin a violar a regra.
+
+**Correção (R112) backend (`_shared/excludedProducts.ts`):**
+- (a) Reescrever `buildFallbackMessage(_kw, businessName?)` retornando texto que respeita regra de ouro: `"Esse não é nosso foco principal! Aqui [na {businessName}] a gente trabalha com materiais de construção (tintas, fechaduras, telhas, elétrica, hidráulica, impermeabilizantes). Posso te ajudar com algo dessa área? 😊"`
+- (b) `matchExcludedProduct` agora aceita 3º arg `businessName` propagado de `agent.business_info.name`
+- (c) Caller em `ai-agent/index.ts:550` passa `businessName` extraído de `agent.business_info`
+
+**Correção (R112) frontend (`ExcludedProductsConfig.tsx`):**
+- (a) `message` virou obrigatório (`message: string` em vez de `message?`) com validação `noMessage = !item.message?.trim()` que destaca campo em vermelho com erro inline
+- (b) Botão "Usar mensagem padrão" gera template via `buildDefaultMessage(businessName)` — admin pode clicar pra preencher e depois personalizar
+- (c) `addItem()` pré-preenche message com template default (admin já começa válido)
+- (d) Removidas todas menções textuais a "não trabalhamos com" na UI (CardDescription, hint inline, lista de bullets)
+
+**Validação:** após deploy, query "vocês têm geladeira?" → IA respondeu "*Esse não é nosso foco principal! Aqui a gente trabalha com materiais de construção (tintas, fechaduras, telhas, elétrica, hidráulica, impermeabilizantes). Posso te ajudar com algo dessa área? 😊*". Sem "não trabalhamos com". Evento `excluded_product_match` registrado com metadata.
 
 **Regra 112 (preventiva):**
-- (a) **Configuração com strings vazias é bug latente.** Toda config opcional que cai em fallback do LLM precisa de OU validação no admin OU template default no código. Vazio = comportamento indefinido = regra de ouro pode ser violada.
-- (b) **Smoke test pós-config:** sempre que admin configurar nova lista de keywords/message/triggers, rodar smoke E2E com 1 keyword da lista pra validar que comportamento é o esperado.
+- (a) **Função fallback NUNCA pode hardcodar texto que viola regra de negócio.** Antes de escrever fallback, listar todas as regras absolutas do prompt e garantir que o fallback respeita TODAS. R112 mostra que o helper foi escrito por alguém que não conhecia a regra de ouro — gap de comunicação entre quem define prompt e quem implementa código.
+- (b) **Validação no frontend > config opcional silenciosa.** Se um campo pode causar comportamento errado quando vazio, OU torná-lo obrigatório (com botão pra preencher template) OU garantir fallback de código que NÃO viola nada. Nunca os dois opcionais juntos.
+- (c) **Auditoria do prompt vs código:** sempre que system prompt tem "NUNCA diga X", buscar no código todas as ocorrências de X e validar que nenhuma string fixa contém X. R112 só foi pego porque rodou cenário M7 — outras frases proibidas podem estar hardcoded em outros helpers.
+- (d) **UI que ensina o admin precisa estar correta.** "Em branco, IA responde: 'Não trabalhamos com X'" era a UI didática que justamente CRIOU o problema (admins viam "tudo bem deixar vazio") e propagou pra prod. Toda informação na UI deve refletir comportamento desejado, não comportamento atual buggado.
 
 ---
 

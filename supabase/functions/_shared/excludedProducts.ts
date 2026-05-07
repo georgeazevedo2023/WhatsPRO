@@ -32,9 +32,15 @@ export interface ExcludedProductMatch {
 
 /**
  * Gera frase de fallback quando admin deixou message vazio.
+ *
+ * R112: NUNCA usar "Não trabalhamos com / não temos" — viola regra de ouro do AI Agent.
+ * Em vez disso, redireciona pro escopo da loja sem negação direta.
  */
-export function buildFallbackMessage(matchedKeyword: string): string {
-  return `Não trabalhamos com ${matchedKeyword}, posso te ajudar com outro produto?`
+export function buildFallbackMessage(_matchedKeyword: string, businessName?: string): string {
+  const prefix = businessName && businessName.trim() !== ''
+    ? `Esse não é nosso foco principal! Aqui na ${businessName.trim()}`
+    : 'Esse não é nosso foco principal! Aqui'
+  return `${prefix} a gente trabalha com materiais de construção (tintas, fechaduras, telhas, elétrica, hidráulica, impermeabilizantes). Posso te ajudar com algo dessa área? 😊`
 }
 
 /**
@@ -58,6 +64,7 @@ function normalize(text: string): string {
 export function matchExcludedProduct(
   incomingText: string,
   excludedProducts: ExcludedProduct[] | null | undefined,
+  businessName?: string,
 ): ExcludedProductMatch | null {
   if (!excludedProducts || excludedProducts.length === 0) return null
   if (!incomingText || incomingText.trim().length === 0) return null
@@ -78,7 +85,7 @@ export function matchExcludedProduct(
         const trimmedAdminMsg = (item.message || '').trim()
         const message = trimmedAdminMsg !== ''
           ? trimmedAdminMsg
-          : buildFallbackMessage(kw)  // usa a keyword ORIGINAL (com acento/case do admin) no fallback
+          : buildFallbackMessage(kw, businessName)  // R112: fallback NÃO usa "não trabalhamos com"
         return {
           product: item,
           matchedKeyword: kw,

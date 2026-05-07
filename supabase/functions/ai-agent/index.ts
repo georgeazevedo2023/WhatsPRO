@@ -547,7 +547,8 @@ Deno.serve(async (req) => {
     // Skip if already in shadow (don't reply at all).
     if (conversation.status_ia !== STATUS_IA.SHADOW) {
       const excluded = (agent.excluded_products || []) as ExcludedProduct[]
-      const matched = matchExcludedProduct(incomingText, excluded)
+      const businessName = (agent.business_info as Record<string, unknown> | null)?.name as string | undefined
+      const matched = matchExcludedProduct(incomingText, excluded, businessName)
       if (matched) {
         log.info('Excluded product matched — replying without handoff', {
           id: matched.product.id,
