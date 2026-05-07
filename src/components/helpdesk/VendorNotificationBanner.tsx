@@ -1,37 +1,23 @@
 /**
- * VendorNotificationBanner — banner contextual no header do Helpdesk.
+ * VendorNotificationBanner — alerta no header do Helpdesk pro vendedor
+ * que ainda não tem `personal_whatsapp` cadastrado.
  *
- * Mostra alerta APENAS quando:
- *   - Vendor tem `personal_whatsapp` cadastrado, E
- *   - Janela WhatsApp 24h vai expirar em <2h (amarelo), OU
- *   - Janela já expirou (vermelho).
- *
- * Vendor sem cadastro → não renderiza nada (admin que cadastra; vendedor não precisa
- * ser confrontado com um banner que ele não pode resolver).
- *
- * Inclui número de telefone da primeira instância do user pra mostrar onde mandar msg.
+ * UAZAPI não tem janela WhatsApp 24h (regra da Business API oficial), então
+ * o único estado que justifica banner é o vendor sem número cadastrado —
+ * sinaliza pro vendor que admin precisa cadastrar pra ele receber notif.
  */
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Clock, AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatPhone } from '@/lib/phoneUtils';
 
-type State = 'hidden' | 'expiring_soon' | 'expired' | 'no_number';
-
-interface SessionInfo {
-  state: State;
-  minutesRemaining: number;
-  instancePhone: string | null;
-}
-
-const DISMISS_KEY_PREFIX = 'wpro_notif_banner_dismissed_';
+const DISMISS_KEY_PREFIX = 'wpro_notif_no_number_dismissed_';
 
 export function VendorNotificationBanner() {
   const { user } = useAuth();
-  const [info, setInfo] = useState<SessionInfo>({ state: 'hidden', minutesRemaining: 0, instancePhone: null });
+  const [show, setShow] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
@@ -40,112 +26,40 @@ export function VendorNotificationBanner() {
 
     (async () => {
       try {
-        const [{ data: profile }, { data: access }] = await Promise.all([
-          supabase
-            .from('user_profiles')
-            .select('personal_whatsapp, whatsapp_session_until')
-            .eq('id', user.id)
-            .maybeSingle(),
-          supabase
-            .from('user_instance_access')
-            .select('instance_id')
-            .eq('user_id', user.id)
-            .limit(1),
-        ]);
-
-        if (!alive) return;
-
-        const personal = (profile as { personal_whatsapp?: string | null } | null)?.personal_whatsapp;
-        const sessionUntil = (profile as { whatsapp_session_until?: string | null } | null)?.whatsapp_session_until;
-
-        // Gap G: sinaliza vendor que ainda não tem número cadastrado pra alertar admin.
-        if (!personal) {
-          setInfo({ state: 'no_number', minutesRemaining: 0, instancePhone: null });
-          return;
-        }
-
-        // Carrega phone da primeira instância (pra mostrar onde mandar "oi")
-        const firstInstanceId = (access as { instance_id?: string }[] | null)?.[0]?.instance_id;
-        let instancePhone: string | null = null;
-        if (firstInstanceId) {
-          const { data: inst } = await supabase
-            .from('instances')
-            .select('owner_jid')
-            .eq('id', firstInstanceId)
-            .maybeSingle();
-          const ownerJid = (inst as { owner_jid?: string | null } | null)?.owner_jid;
-          if (ownerJid) {
-            instancePhone = String(ownerJid).split('@')[0].replace(/[^\d]/g, '');
-          }
-        }
-
-        const now = Date.now();
-        if (!sessionUntil) {
-          // Tem número mas nunca fez handshake → comporta como expired (precisa mandar msg).
-          if (alive) setInfo({ state: 'expired', minutesRemaining: 0, instancePhone });
-          return;
-        }
-
-        const untilMs = new Date(sessionUntil).getTime();
-        if (untilMs < now) {
-          if (alive) setInfo({ state: 'expired', minutesRemaining: 0, instancePhone });
-        } else if (untilMs - now < 2 * 60 * 60 * 1000) {
-          if (alive) setInfo({
-            state: 'expiring_soon',
-            minutesRemaining: Math.round((untilMs - now) / 60000),
-            instancePhone,
-          });
-        } else {
-          if (alive) setInfo({ state: 'hidden', minutesRemaining: 0, instancePhone });
-        }
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('personal_whatsapp')
+          .eq('id', user.id)
+          .maybeSingle();
+        const personal = (data as { personal_whatsapp?: string | null } | null)?.personal_whatsapp;
+        if (alive) setShow(!personal);
       } catch {
-        if (alive) setInfo({ state: 'hidden', minutesRemaining: 0, instancePhone: null });
+        if (alive) setShow(false);
       }
     })();
 
     return () => { alive = false; };
   }, [user?.id]);
 
-  if (!user?.id || info.state === 'hidden' || dismissed) return null;
+  if (!user?.id || !show || dismissed) return null;
 
-  // Banner pode ser dispensado por sessão (não persiste após reload — intencional).
-  const dismissKey = `${DISMISS_KEY_PREFIX}${user.id}_${info.state}`;
+  const dismissKey = `${DISMISS_KEY_PREFIX}${user.id}`;
   if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(dismissKey) === '1') {
     return null;
   }
 
-  const isExpired = info.state === 'expired';
-  const isNoNumber = info.state === 'no_number';
-  const phoneDisplay = info.instancePhone ? formatPhone(info.instancePhone) : 'WhatsApp da empresa';
-
-  const tone = isExpired || isNoNumber
-    ? 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
-    : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300';
-
   return (
     <div
-      className={cn('flex items-center gap-2 px-3 py-2 rounded-md border text-xs', tone)}
+      className={cn(
+        'flex items-center gap-2 px-3 py-2 rounded-md border text-xs',
+        'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300',
+      )}
       role="alert"
       aria-live="polite"
     >
-      {(isExpired || isNoNumber)
-        ? <AlertTriangle className="w-4 h-4 shrink-0" />
-        : <Clock className="w-4 h-4 shrink-0" />
-      }
+      <AlertTriangle className="w-4 h-4 shrink-0" />
       <p className="flex-1 leading-tight">
-        {isNoNumber ? (
-          <>
-            <strong>Notificações WhatsApp não configuradas</strong> — peça ao admin pra cadastrar seu número pessoal em <em>Equipe</em> pra receber alertas de novos atendimentos.
-          </>
-        ) : isExpired ? (
-          <>
-            <strong>Notificações inativas</strong> — mande qualquer mensagem (ex: "oi") pra <strong>{phoneDisplay}</strong> pra reativar pelas próximas 24h.
-          </>
-        ) : (
-          <>
-            Janela de notificações expira em <strong>{info.minutesRemaining} min</strong>. Renove agora mandando qualquer msg pra <strong>{phoneDisplay}</strong>.
-          </>
-        )}
+        <strong>Notificações WhatsApp não configuradas.</strong> Peça ao admin pra cadastrar seu número pessoal em <em>Equipe</em> pra receber alertas de novos atendimentos no seu WhatsApp.
       </p>
       <button
         type="button"

@@ -9,6 +9,45 @@ type: log
 
 ---
 
+## 2026-05-07 (noite, parte 3) — Refactor v7.32.2: corrigir premissa errada UAZAPI
+
+> Usuário sinalizou: "não trabalhamos com API oficial, usamos UAZAPI". Identifiquei que toda a lógica de handshake/janela 24h da v7.32.0/v7.32.1 era cópia da regra da WhatsApp Business API oficial (Meta) — irrelevante pra UAZAPI (proxy WhatsApp Web). Refactor de simplificação: ~80 linhas removidas, 2 colunas vestigiais dropadas.
+
+### Removido
+
+- Webhook intercept de handshake (~50 linhas em whatsapp-webhook).
+- Auto-resposta "✅ Notificações ativas pelas próximas 24h".
+- Guard `skip_session_expired` em notify-vendor-assignment + escalate-stale-handoffs.
+- Estados visuais `never_handshake` / `expired` / `expiring_soon` no UserNotificationPanel.
+- Banner amarelo/vermelho com janela 24h no VendorNotificationBanner (reescrito — só `no_number` sobra).
+- DROP `user_profiles.whatsapp_handshake_at` + `whatsapp_session_until`.
+- Texto "precisa mandar oi por dia" nos tooltips/descrições.
+
+### Mantido (continua válido)
+
+- Cadastro `personal_whatsapp` E.164 + opt-in
+- Pause admin/gestor com presets
+- Rate limit 3/h ⭐
+- Batching rajada (60s) ⭐
+- business_hours real
+- Escalation 5/10min
+- Reatribuição órfã
+- KPI 1ª resposta
+- Custo display
+- Idempotência UNIQUE
+- Banner "no_number"
+
+### Lição registrada
+
+`wiki/erros-e-licoes.md` agora tem seção destacada: **UAZAPI ≠ Business API oficial Meta**. Regra preventiva pra futuras sessões.
+
+### Auto-avaliação
+
+- **Refactor: 9/10** — código mais simples, UX honesta com o que UAZAPI realmente é.
+- **Erro original: -3 pontos** na auto-avaliação geral pelo gap de premissa.
+
+---
+
 ## 2026-05-07 (noite, parte 2) — Gaps F3+ resolvidos (v7.32.1)
 
 > Logo após shipar v7.32.0, usuário pediu "mapeie e resolva todos os gaps". Auditoria final classificou 13 gaps em 3 níveis. Resolvi 7 (A-G), documentei 6 como roadmap (I-M + dashboard pause-history) por dependência externa.

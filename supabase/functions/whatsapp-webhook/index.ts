@@ -5,7 +5,6 @@ import { unauthorizedResponse } from '../_shared/auth.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { syncContactAvatar, isWhatsAppCdnUrl } from '../_shared/avatarStorage.ts'
-import { sendUazapiText } from '../_shared/sendWhatsApp.ts'
 
 // Module-level singleton: reuse connection pool across requests in same Deno isolate
 const supabase = createServiceClient()
@@ -575,48 +574,6 @@ Deno.serve(async (req) => {
         })
       }
       inbox = foundInbox
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // F0.2 — Vendor handshake intercept (renova janela WhatsApp 24h)
-    // Se a msg vem de um vendedor cadastrado em users.personal_whatsapp,
-    // renova `whatsapp_session_until` e responde com auto-msg de confirmação.
-    // NÃO cria conversa de helpdesk.
-    // ─────────────────────────────────────────────────────────────────────────
-    if (message.fromMe !== true && instance?.token) {
-      const senderRaw = message.chatid || message.sender || ''
-      const senderPhone = extractPhone(senderRaw)
-      if (senderPhone && senderPhone.length >= 10) {
-        const senderE164 = `+${senderPhone}`
-        const { data: vendor } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, whatsapp_handshake_at')
-          .eq('personal_whatsapp', senderE164)
-          .maybeSingle()
-        if (vendor) {
-          const now = new Date()
-          const sessionUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-          await supabase
-            .from('user_profiles')
-            .update({
-              whatsapp_session_until: sessionUntil.toISOString(),
-              whatsapp_handshake_at: vendor.whatsapp_handshake_at || now.toISOString(),
-            })
-            .eq('id', vendor.id)
-
-          const firstName = (vendor.full_name || '').trim().split(/\s+/)[0] || 'membro'
-          await sendUazapiText(
-            instance.token,
-            senderPhone,
-            `✅ Notificações ativas pelas próximas 24h, ${firstName}!`,
-          )
-
-          log.info('Vendor handshake renewed', { vendor_id: vendor.id, session_until: sessionUntil.toISOString() })
-          return new Response(JSON.stringify({ ok: true, vendor_handshake: true }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          })
-        }
-      }
     }
 
     // Extract message fields from UAZAPI format

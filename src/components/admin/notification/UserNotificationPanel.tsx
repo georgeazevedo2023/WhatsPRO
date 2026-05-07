@@ -25,7 +25,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Bell, BellOff, MessageCircle, Loader2, Pencil, Pause, Play,
-  AlertTriangle, CheckCircle2, Clock,
+  CheckCircle2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -35,8 +35,6 @@ interface UserNotificationData {
   full_name: string | null;
   personal_whatsapp: string | null;
   notify_on_assignment: boolean;
-  whatsapp_handshake_at: string | null;
-  whatsapp_session_until: string | null;
   notifications_paused_until: string | null;
   notifications_paused_reason: string | null;
 }
@@ -46,16 +44,12 @@ interface Props {
   onUpdated?: () => void;
 }
 
-type SessionState = 'no_number' | 'never_handshake' | 'expired' | 'expiring_soon' | 'active' | 'paused';
+type SessionState = 'no_number' | 'opted_out' | 'active' | 'paused';
 
 function getSessionState(u: UserNotificationData): SessionState {
   if (u.notifications_paused_until && new Date(u.notifications_paused_until) > new Date()) return 'paused';
   if (!u.personal_whatsapp) return 'no_number';
-  if (!u.whatsapp_handshake_at || !u.whatsapp_session_until) return 'never_handshake';
-  const until = new Date(u.whatsapp_session_until).getTime();
-  const now = Date.now();
-  if (until < now) return 'expired';
-  if (until - now < 2 * 60 * 60 * 1000) return 'expiring_soon';
+  if (!u.notify_on_assignment) return 'opted_out';
   return 'active';
 }
 
@@ -188,9 +182,7 @@ export function UserNotificationPanel({ user, onUpdated }: Props) {
   const renderStatusBadge = () => {
     const cfg: Record<SessionState, { label: string; className: string; Icon: typeof Bell }> = {
       no_number: { label: 'Não cadastrado', className: 'bg-muted/40 text-muted-foreground border-border/40', Icon: BellOff },
-      never_handshake: { label: 'Aguardando 1ª msg do vendedor', className: 'bg-amber-500/10 text-amber-600 border-amber-500/30', Icon: Clock },
-      expired: { label: 'Janela expirou — pedir "oi" no WhatsApp', className: 'bg-red-500/10 text-red-600 border-red-500/30', Icon: AlertTriangle },
-      expiring_soon: { label: 'Janela expira em <2h', className: 'bg-amber-500/10 text-amber-600 border-amber-500/30', Icon: Clock },
+      opted_out: { label: 'Opt-out', className: 'bg-muted/40 text-muted-foreground border-border/40', Icon: BellOff },
       active: { label: 'Ativo', className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30', Icon: CheckCircle2 },
       paused: {
         label: user.notifications_paused_until
@@ -311,17 +303,6 @@ export function UserNotificationPanel({ user, onUpdated }: Props) {
           )}
         </div>
 
-        {/* Hint pra cadastrar handshake */}
-        {state === 'never_handshake' && user.personal_whatsapp && (
-          <p className="text-[10px] text-amber-600/80 leading-tight">
-            Peça pro vendedor mandar qualquer mensagem (ex: "oi") pro WhatsApp da empresa pra ativar a janela de notificações.
-          </p>
-        )}
-        {state === 'expired' && (
-          <p className="text-[10px] text-red-600/80 leading-tight">
-            A janela WhatsApp de 24h expirou. O vendedor precisa mandar uma nova mensagem pro WhatsApp da empresa pra reativar.
-          </p>
-        )}
       </div>
 
       {/* Modal Pausar */}

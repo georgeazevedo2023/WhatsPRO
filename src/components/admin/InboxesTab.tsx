@@ -372,7 +372,7 @@ const InboxesTab: React.FC<Props> = ({ onTeamChanged, openCreate, onOpenCreateCh
                         <InstanceNotificationToggle instanceId={inbox.instance_id} />
                       </div>
                       <p className="text-[11px] text-muted-foreground">
-                        Quando ativado, vendedores recebem alerta no WhatsApp pessoal sempre que receberem um lead. Cadastre o número do vendedor em <strong>Membros</strong>.
+                        Quando ativado, vendedores recebem alerta no WhatsApp pessoal sempre que um lead for atribuído a eles. Cadastre o número de cada vendedor em <strong>Membros</strong>.
                       </p>
                     </div>
 

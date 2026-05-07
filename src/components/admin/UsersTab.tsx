@@ -66,8 +66,6 @@ interface UserWithRole {
   // Notif WhatsApp (lidos via select * em user_profiles)
   personal_whatsapp?: string | null;
   notify_on_assignment?: boolean;
-  whatsapp_handshake_at?: string | null;
-  whatsapp_session_until?: string | null;
   notifications_paused_until?: string | null;
   notifications_paused_reason?: string | null;
 }
@@ -696,8 +694,6 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                               full_name: u.full_name,
                               personal_whatsapp: u.personal_whatsapp ?? null,
                               notify_on_assignment: u.notify_on_assignment ?? true,
-                              whatsapp_handshake_at: u.whatsapp_handshake_at ?? null,
-                              whatsapp_session_until: u.whatsapp_session_until ?? null,
                               notifications_paused_until: u.notifications_paused_until ?? null,
                               notifications_paused_reason: u.notifications_paused_reason ?? null,
                             }}

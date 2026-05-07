@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.32.1 | **Última atualização**: 2026-05-07 | **Status**: Produção + OpenAI gpt-4.1-mini + 42 Edge Functions + 62+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **R115 Dashboard Insights do Gestor (3 fases)** + **Notif handoff por WhatsApp pessoal (MVP F0+F1+F2 — handshake 24h, 8 guards, rate limit 3/h, pause admin/gestor)**
+> **Versão**: 7.32.2 | **Última atualização**: 2026-05-07 | **Status**: Produção + OpenAI gpt-4.1-mini + 42 Edge Functions + 62+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **R115 Dashboard Insights do Gestor (3 fases)** + **Notif handoff por WhatsApp pessoal (MVP F0+F1+F2 — handshake 24h, 8 guards, rate limit 3/h, pause admin/gestor)**
 
 ## Visão Geral
 
@@ -39,6 +39,33 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.32.2 (2026-05-07) — Refactor: UAZAPI não tem janela 24h (correção de premissa errada)
+
+**Contexto:** Após shipar v7.32.1, usuário reforçou "não trabalhamos com API oficial, usamos UAZAPI". Identificado que toda a lógica de handshake/janela 24h foi implementada incorretamente — essa regra é da WhatsApp Business API oficial (Meta), NÃO do UAZAPI (que usa WhatsApp Web protocol via chip). UAZAPI não tem janela formal — o risco real é banimento de chip por uso abusivo, mitigado pelo rate limit (3/h) + batching + business_hours já existentes.
+
+**Refactor:**
+
+- Edge `whatsapp-webhook`: REMOVIDO intercept de handshake (~50 linhas). Vendedor não precisa mais mandar "oi" pra ativar. Conversas inbound seguem fluxo normal.
+- Edge `notify-vendor-assignment`: REMOVIDO guard `skip_session_expired` + select de `whatsapp_session_until`. Função `notifyPreviousAssignee` simplificada (sem checagem de janela).
+- Edge `escalate-stale-handoffs`: REMOVIDO checagem de `whatsapp_session_until` (vendor + manager).
+- UI `UserNotificationPanel`: 6 estados → 4 (no_number / opted_out / active / paused). Removidos: never_handshake, expired, expiring_soon, hints "mande oi pra renovar".
+- UI `VendorNotificationBanner`: completamente reescrito — só sinaliza vendedor sem `personal_whatsapp` cadastrado (alerta single-state amarelo). Removidos estados expired/expiring.
+- UI `InstanceNotificationToggle`: tooltip atualizado ("rate limit 3/h" em vez de "renovar janela").
+- Migration: DROP `user_profiles.whatsapp_handshake_at` + `whatsapp_session_until`.
+- Total: ~80 linhas removidas + 2 colunas dropadas.
+
+**Por que aconteceu:** quando usuário disse "instância do helpdesk", vi `uazapi-proxy` no código mas tratei mentalmente como Business API oficial (regra default que vinha do meu treinamento sobre WhatsApp pra empresas). Não questionei a premissa, e nas 3 auditorias subsequentes não revisitei essa base. Lição: **questionar premissas técnicas sobre integrações específicas antes de codar**.
+
+**Tudo o que continua funcionando:** cadastro `personal_whatsapp` + opt-in + pause admin/gestor + business_hours + rate limit 3/h + batching rajada + escalation 5/10min + reatribuição órfã + KPI 1ª resposta + custo display + idempotência UNIQUE + banner "no_number".
+
+**Impacto pro admin/vendor:**
+- Admin: tela de cadastro mais simples (3 estados: 🟢 Ativo / ⏸ Pausado / 📭 Não cadastrado). Não precisa explicar handshake.
+- Vendor: cadastra número uma vez, recebe notif sempre que assignment ocorrer. Sem ritual matinal de "mandar oi".
+
+**Auto-avaliação:** **8/10** — refactor correto, mas o erro original derrubou a nota. Lição registrada em `wiki/erros-e-licoes.md`.
+
+---
 
 ### v7.32.1 (2026-05-07) — Notif handoff: gaps F3+ resolvidos (A/B/C/D + médios E/F/G)
 

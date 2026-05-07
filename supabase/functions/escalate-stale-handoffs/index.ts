@@ -50,12 +50,11 @@ async function vendorResponded(conversation_id: string, assigned_to_id: string, 
 async function rePing(row: NotifRow, log: ReturnType<typeof createLogger>): Promise<void> {
   const { data: vendor } = await supabase
     .from('user_profiles')
-    .select('full_name, personal_whatsapp, whatsapp_session_until, notifications_paused_until, notify_on_assignment')
+    .select('full_name, personal_whatsapp, notifications_paused_until, notify_on_assignment')
     .eq('id', row.assigned_to_id)
     .maybeSingle()
   if (!vendor || !vendor.personal_whatsapp || !vendor.notify_on_assignment) return
   if (vendor.notifications_paused_until && new Date(vendor.notifications_paused_until).getTime() > Date.now()) return
-  if (!vendor.whatsapp_session_until || new Date(vendor.whatsapp_session_until).getTime() < Date.now()) return
 
   if (!row.instance_id) return
   const { data: inst } = await supabase
@@ -110,7 +109,7 @@ async function alertManagers(row: NotifRow, log: ReturnType<typeof createLogger>
 
   const { data: managerProfiles } = await supabase
     .from('user_profiles')
-    .select('id, full_name, personal_whatsapp, whatsapp_session_until, notifications_paused_until, notify_on_assignment')
+    .select('id, full_name, personal_whatsapp, notifications_paused_until, notify_on_assignment')
     .in('id', managerIds)
 
   if (!managerProfiles) return
@@ -128,13 +127,11 @@ async function alertManagers(row: NotifRow, log: ReturnType<typeof createLogger>
 
   for (const mgr of (managerProfiles as Array<{
     id: string; full_name: string | null; personal_whatsapp: string | null;
-    whatsapp_session_until: string | null; notifications_paused_until: string | null;
-    notify_on_assignment: boolean;
+    notifications_paused_until: string | null; notify_on_assignment: boolean;
   }>)) {
     if (mgr.id === row.assigned_to_id) continue // não alerta o próprio
     if (!mgr.personal_whatsapp || !mgr.notify_on_assignment) continue
     if (mgr.notifications_paused_until && new Date(mgr.notifications_paused_until).getTime() > Date.now()) continue
-    if (!mgr.whatsapp_session_until || new Date(mgr.whatsapp_session_until).getTime() < Date.now()) continue
 
     const mgrFirst = (mgr.full_name || '').trim().split(/\s+/)[0] || 'gestor'
     const text = [

@@ -92,8 +92,8 @@ export function InstanceNotificationToggle({ instanceId, className }: Props) {
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-xs">
           <p className="text-xs">
-            Quando ativado, vendedores recebem alerta no WhatsApp pessoal sempre que receberem um lead.
-            Eles precisam mandar qualquer mensagem pro número desta instância uma vez por dia pra reativar a janela.
+            Quando ativado, vendedores recebem alerta no WhatsApp pessoal sempre que receberem um lead atribuído.
+            Sujeito a opt-in individual e rate limit de 3 notif/hora por vendedor.
           </p>
         </TooltipContent>
       </Tooltip>

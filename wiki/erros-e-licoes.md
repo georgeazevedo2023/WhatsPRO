@@ -1,13 +1,26 @@
 ---
 title: Erros e Lições
-tags: [erros, bugs, licoes, preventivo, retention, cron, storage, db-constraint, controlled-input]
+tags: [erros, bugs, licoes, preventivo, retention, cron, storage, db-constraint, controlled-input, uazapi-vs-meta]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-05
+updated: 2026-05-07
 ---
 
 # Erros e Lições
 
 > Consultado no INÍCIO de cada sessão. Verifique se o erro que você está prestes a cometer já está aqui.
+
+---
+
+## ⚠️ UAZAPI ≠ WhatsApp Business API oficial (Meta) — incidente 2026-05-07
+
+**Erro:** ao implementar v7.32.0 (notif handoff), apliquei a **regra de janela 24h** que é da **Business API oficial Meta** ao código que usa **UAZAPI**. UAZAPI é proxy não-oficial sobre WhatsApp Web (chip) — **não tem janela 24h formal**. Resultado: implementei ~80 linhas vestigiais (handshake, auto-resposta, guard `skip_session_expired`, banner amarelo/vermelho, 2 colunas DB) que tive que remover na v7.32.2.
+
+**Causa raiz:** quando vi `uazapi-proxy` no código, mentalmente tratei como "WhatsApp Business API oficial" (regra default do meu treinamento). Não questionei a premissa. Nas 3 auditorias subsequentes, gaps colaterais foram pegos mas a base errada passou batido.
+
+**Regra preventiva:**
+1. **WhatsPRO usa UAZAPI** (não Business API Meta). Sempre que mexer com WhatsApp, lembrar: **chip via Web protocol**, sem regras formais Meta.
+2. Antes de aplicar qualquer regra "padrão" do WhatsApp pra empresas (HSM templates, janela 24h, opt-in formal, message_status callbacks), perguntar: **isso é da API oficial ou do WhatsApp em geral?**.
+3. Risco real do UAZAPI: **banimento de chip** por uso abusivo (volume + frequência + denúncias). Mitigado por rate limit, batching, business_hours, opt-in. NÃO por handshake.
 
 ---
 

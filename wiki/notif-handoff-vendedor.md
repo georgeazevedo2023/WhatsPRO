@@ -38,38 +38,39 @@ Lead morno (ex.: Eletropiso, piso vinílico) esfria em 10-15min. Hoje vendedor p
 Atender: https://crm.wsmart.com.br/dashboard/helpdesk?conv=abc123
 ```
 
-## Janela WhatsApp 24h (limitação aceita)
+## Sem janela 24h (UAZAPI ≠ Business API oficial)
 
-WhatsApp Business só permite mensagem livre se contato mandou msg pra empresa nas últimas 24h. **Vendedor precisa "renovar handshake" no início do turno** — manda qualquer msg pro WhatsApp da empresa, sistema responde "✅ Notificações ativas pelas próximas 24h, Lucas!".
+UAZAPI usa WhatsApp Web protocol (chip), **não tem janela 24h formal** (regra da Business API oficial Meta). Vendedor cadastra número uma vez e pronto — sem handshake, sem renovação. Risco real é **banimento de chip** por uso abusivo, mitigado por:
 
-- Sem isso: notif **não envia** (skip `skip_session_expired`).
-- UI alerta: badge ⚠️ no painel admin + banner amarelo/vermelho no helpdesk header do próprio vendedor.
+- Rate limit 3/hora por vendedor.
+- Batching de rajada (msg compacta se outra <60s atrás).
+- `business_hours` por agent.
 
-## 8 guards (skip silencioso + log em `notification_log.skip_reason`)
+## 7 guards (skip silencioso + log em `notification_log.skip_reason`)
 
 | Reason | Quando |
 |--------|--------|
 | `skip_disabled` | `instance_settings.notifications_enabled = false` |
 | `skip_optout` | Vendedor desativou opt-in (`notify_on_assignment = false`) |
 | `skip_no_number` | Vendedor sem `personal_whatsapp` cadastrado |
-| `skip_session_expired` | Janela WhatsApp 24h expirou |
 | `skip_paused` | Admin/gestor pausou via `notifications_paused_until` |
-| `skip_off_hours` | Fora de business_hours (D30 Sprint A) |
+| `skip_off_hours` | Fora de business_hours |
 | `skip_queue_paused` | Vendedor pausou a fila no helpdesk header |
 | `skip_rate_limited` | Mais de 3 notif/hora pro mesmo vendedor |
+| `skip_no_instance_token` | Instância sem token UAZAPI configurado |
 
 ## Tabelas tocadas
 
-- `user_profiles` — 8 colunas novas (personal_whatsapp + notify + handshake + session_until + 4 paused).
+- `user_profiles` — 6 colunas (personal_whatsapp + notify_on_assignment + 4 paused-related).
 - `conversations` — `assigned_at TIMESTAMPTZ` novo.
 - `instance_settings` — tabela nova (PK `instance_id`, FK `instances`). Feature flag `notifications_enabled`.
 - `notification_log` — tabela nova. UNIQUE (conv, vendor) garante idempotência.
 
 ## Edge functions
 
-- `notify-vendor-assignment` (nova) — pipeline com 8 guards + envio via UAZAPI + log.
-- `whatsapp-webhook` (modificada) — intercept antes de criar conversa: matching por `personal_whatsapp` → atualiza `whatsapp_session_until` + auto-resposta.
-- `_shared/handoffQueue.ts` (modificado) — após UPDATE `assigned_to`, dispara fetch fire-and-forget pra `notify-vendor-assignment`.
+- `notify-vendor-assignment` — pipeline com 7 guards + envio via UAZAPI + log + batching.
+- `escalate-stale-handoffs` — cron 1min: re-ping em 5min, alerta gerente em 10min se vendor não respondeu.
+- `_shared/handoffQueue.ts` — após UPDATE `assigned_to + assigned_at`, dispara fetch fire-and-forget com `previous_assigned_to_id` pra notif de reatribuição órfã.
 
 ## RPC
 
@@ -82,7 +83,7 @@ WhatsApp Business só permite mensagem livre se contato mandou msg pra empresa n
 | Cadastrar número/toggle/pausar vendedor | Admin → Equipe → expand vendedor → seção "Notificações WhatsApp" |
 | Toggle por instância (feature flag on/off) | Admin → Caixas → card da inbox → seção "Notificações WhatsApp pra vendedores" |
 | Histórico de envios + skips | Admin → /dashboard/admin/notifications |
-| Banner no helpdesk (vendedor) | Header do helpdesk, abaixo dos filtros |
+| Banner no helpdesk (vendedor) | Header do helpdesk — só aparece se vendor não tem `personal_whatsapp` cadastrado |
 
 ## Gaps resolvidos em v7.32.1 (2026-05-07)
 

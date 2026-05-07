@@ -33,12 +33,10 @@ type SkipReason =
   | 'skip_disabled'
   | 'skip_optout'
   | 'skip_no_number'
-  | 'skip_session_expired'
   | 'skip_paused'
   | 'skip_off_hours'
   | 'skip_queue_paused'
   | 'skip_rate_limited'
-  | 'skip_no_handshake'
   | 'skip_no_instance_token'
 
 const RATE_LIMIT_PER_HOUR = 3
@@ -165,14 +163,13 @@ async function notifyPreviousAssignee(
 ): Promise<void> {
   const { data: prev } = await supabase
     .from('user_profiles')
-    .select('full_name, personal_whatsapp, notify_on_assignment, whatsapp_session_until, notifications_paused_until')
+    .select('full_name, personal_whatsapp, notify_on_assignment, notifications_paused_until')
     .eq('id', previous_user_id)
     .maybeSingle()
   if (!prev) return
   if (!prev.notify_on_assignment) return
   if (!prev.personal_whatsapp) return
   if (prev.notifications_paused_until && new Date(prev.notifications_paused_until).getTime() > Date.now()) return
-  if (!prev.whatsapp_session_until || new Date(prev.whatsapp_session_until).getTime() < Date.now()) return
 
   const { data: conv } = await supabase
     .from('conversations')
@@ -275,7 +272,7 @@ Deno.serve(async (req: Request) => {
     // 2. Carrega vendor
     const { data: vendor } = await supabase
       .from('user_profiles')
-      .select('id, full_name, personal_whatsapp, notify_on_assignment, whatsapp_session_until, notifications_paused_until')
+      .select('id, full_name, personal_whatsapp, notify_on_assignment, notifications_paused_until')
       .eq('id', assigned_to_id)
       .maybeSingle()
 
@@ -333,13 +330,6 @@ Deno.serve(async (req: Request) => {
     if (vendor.notifications_paused_until && new Date(vendor.notifications_paused_until).getTime() > now) {
       await logSkip(conversation_id, assigned_to_id, instanceId, 'skip_paused')
       return new Response(JSON.stringify({ ok: true, skipped: 'skip_paused' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
-
-    if (!vendor.whatsapp_session_until || new Date(vendor.whatsapp_session_until).getTime() < now) {
-      await logSkip(conversation_id, assigned_to_id, instanceId, 'skip_session_expired')
-      return new Response(JSON.stringify({ ok: true, skipped: 'skip_session_expired' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
