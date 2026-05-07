@@ -8,6 +8,9 @@ import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
 import { unauthorizedResponse, verifyCronOrService } from '../_shared/auth.ts'
 import { detectObjection } from '../_shared/objectionDetection.ts'
 import { detectSaleClosed } from '../_shared/saleClosedDetection.ts'
+import { detectPayment } from '../_shared/paymentDetection.ts'
+import { detectBrand } from '../_shared/brandDetection.ts'
+import { detectClientType } from '../_shared/clientTypeDetection.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.ts'
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
@@ -350,6 +353,74 @@ Deno.serve(async (req) => {
             metadata: { detection_type: objectionType, incoming_text: textForDetection.substring(0, 200) },
           })
           log.info('Objection detected', { type: objectionType, conversation_id })
+        }
+      }
+    }
+
+    // R115: detect payment intent (manager dashboard "preferred payment" metric).
+    // Idempotent. Only matches strong intent ("vou de pix", "manda o boleto") —
+    // queries like "aceita pix?" return null (see paymentDetection.ts QUERY_INDICATORS).
+    {
+      const hasPagamentoTag = (conversation.tags || []).some((t: string) => t.startsWith('pagamento:'))
+      const textForDetection = shadow_only ? (vendor_message || '') : incomingText
+      if (!hasPagamentoTag && textForDetection) {
+        const paymentMethod = detectPayment(textForDetection)
+        if (paymentMethod) {
+          await supabase.from('conversations').update({
+            tags: mergeTags(conversation.tags || [], { pagamento: paymentMethod }),
+          }).eq('id', conversation_id)
+          conversation.tags = mergeTags(conversation.tags || [], { pagamento: paymentMethod })
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'payment_detected',
+            latency_ms: Date.now() - startTime,
+            metadata: { detection_type: paymentMethod, incoming_text: textForDetection.substring(0, 200) },
+          })
+          log.info('Payment detected', { method: paymentMethod, conversation_id })
+        }
+      }
+    }
+
+    // R115: detect brand mentions (manager dashboard "top brands" metric).
+    // Cross-references DEFAULT_BRANDS list. Idempotent — first brand wins per conversation.
+    {
+      const hasMarcaTag = (conversation.tags || []).some((t: string) => t.startsWith('marca_citada:'))
+      const textForDetection = shadow_only ? (vendor_message || '') : incomingText
+      if (!hasMarcaTag && textForDetection) {
+        const brand = detectBrand(textForDetection)
+        if (brand) {
+          await supabase.from('conversations').update({
+            tags: mergeTags(conversation.tags || [], { marca_citada: brand }),
+          }).eq('id', conversation_id)
+          conversation.tags = mergeTags(conversation.tags || [], { marca_citada: brand })
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'brand_mentioned',
+            latency_ms: Date.now() - startTime,
+            metadata: { detection_type: brand, incoming_text: textForDetection.substring(0, 200) },
+          })
+          log.info('Brand mentioned', { brand, conversation_id })
+        }
+      }
+    }
+
+    // R115: detect client type / profession (manager dashboard "professional vs DIY").
+    // Requires self-identification ("sou pintor") OR short reply (≤3 words).
+    // LLM-only path was unreliable in production (0 tags despite explicit prompt).
+    {
+      const hasTipoTag = (conversation.tags || []).some((t: string) => t.startsWith('tipo_cliente:'))
+      const textForDetection = shadow_only ? (vendor_message || '') : incomingText
+      if (!hasTipoTag && textForDetection) {
+        const clientType = detectClientType(textForDetection)
+        if (clientType) {
+          await supabase.from('conversations').update({
+            tags: mergeTags(conversation.tags || [], { tipo_cliente: clientType }),
+          }).eq('id', conversation_id)
+          conversation.tags = mergeTags(conversation.tags || [], { tipo_cliente: clientType })
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'client_type_detected',
+            latency_ms: Date.now() - startTime,
+            metadata: { detection_type: clientType, incoming_text: textForDetection.substring(0, 200) },
+          })
+          log.info('Client type detected', { type: clientType, conversation_id })
         }
       }
     }
@@ -2360,11 +2431,11 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             if (!VALID_KEYS.has(key)) { rejected.push(rawTag); log.warn('Tag rejected: invalid key', { rawTag, resolvedKey }); continue }
             if (key === 'motivo' && !VALID_MOTIVOS.has(value)) { rejected.push(rawTag); log.warn('Tag rejected: invalid motivo', { tag }); continue }
             if (key === 'objecao' && !VALID_OBJECOES.has(value)) { rejected.push(rawTag); log.warn('Tag rejected: invalid objecao', { tag }); continue }
-            // R114 v2: regex determinístico (linha ~331) já tagged objecao:* pra essa msg.
-            // LLM erra subtipo em frases ambíguas (G3: "preço" vs "concorrência") — não permitir
-            // sobrescrever via set_tags. Idempotência por mensagem.
-            if (key === 'objecao' && (conversation.tags || []).some((t: string) => t.startsWith('objecao:'))) {
-              rejected.push(rawTag); log.info('Tag rejected: objecao already set deterministically', { rawTag }); continue
+            // R114 v2 + R115: regex determinístico já tagged essas keys pra essa msg.
+            // LLM tentaria sobrescrever subtipo, especialmente em frases ambíguas. Idempotência.
+            const PROTECTED_DETERMINISTIC_KEYS = ['objecao', 'pagamento', 'marca_citada', 'tipo_cliente']
+            if (PROTECTED_DETERMINISTIC_KEYS.includes(key) && (conversation.tags || []).some((t: string) => t.startsWith(`${key}:`))) {
+              rejected.push(rawTag); log.info('Tag rejected: deterministic key already set', { rawTag, key }); continue
             }
             if (rawKey !== resolvedKey) log.info('Tag aliased', { from: rawTag, to: tag })
             newTags.push(tag)
