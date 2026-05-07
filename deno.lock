@@ -4,6 +4,10 @@
     "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.100.1"
   },
   "remote": {
+    "https://deno.land/std@0.190.0/fmt/colors.ts": "d67e3cd9f472535241a8e410d33423980bec45047e343577554d3356e1f0ef4e",
+    "https://deno.land/std@0.190.0/testing/_diff.ts": "1a3c044aedf77647d6cac86b798c6417603361b66b54c53331b312caeb447aea",
+    "https://deno.land/std@0.190.0/testing/_format.ts": "a69126e8a469009adf4cf2a50af889aca364c349797e63174884a52ff75cf4c7",
+    "https://deno.land/std@0.190.0/testing/asserts.ts": "e16d98b4d73ffc4ed498d717307a12500ae4f2cbe668f1a215632d19fcffc22f",
     "https://esm.sh/@supabase/supabase-js@2.100.1": "3da58de1a4bce64c5072ceabe7be743adc0456fa04a9adf8d139ecd7b84e6457"
   },
   "workspace": {
@@ -14,6 +18,7 @@
         "npm:@dnd-kit/utilities@^3.2.2",
         "npm:@eslint/js@^9.32.0",
         "npm:@hookform/resolvers@^3.10.0",
+        "npm:@playwright/test@^1.59.1",
         "npm:@radix-ui/react-accordion@^1.2.11",
         "npm:@radix-ui/react-alert-dialog@^1.1.14",
         "npm:@radix-ui/react-aspect-ratio@^1.1.7",
@@ -57,6 +62,7 @@
         "npm:cmdk@^1.1.1",
         "npm:date-fns-tz@^3.2.0",
         "npm:date-fns@^3.6.0",
+        "npm:dotenv@^17.4.2",
         "npm:embla-carousel-react@^8.6.0",
         "npm:eslint-plugin-react-hooks@^5.2.0",
         "npm:eslint-plugin-react-refresh@~0.4.20",

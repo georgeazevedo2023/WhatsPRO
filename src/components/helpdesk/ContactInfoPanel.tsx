@@ -689,6 +689,7 @@ export const ContactInfoPanel = ({
                       : key === 'produto' ? 'bg-purple-500/15 text-purple-400 border-purple-500/30'
                       : key === 'acabamento' || key === 'marca_preferida' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
                       : key === 'objecao' ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                      : key === 'venda' ? 'bg-green-500/15 text-green-400 border-green-500/30'
                       : key === 'sentimento' ? 'bg-pink-500/15 text-pink-400 border-pink-500/30'
                       : 'bg-muted text-muted-foreground';
                     return (

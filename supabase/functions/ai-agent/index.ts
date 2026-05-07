@@ -6,6 +6,8 @@ import { STATUS_IA } from '../_shared/constants.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
 import { unauthorizedResponse } from '../_shared/auth.ts'
+import { detectObjection } from '../_shared/objectionDetection.ts'
+import { detectSaleClosed } from '../_shared/saleClosedDetection.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.ts'
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
@@ -228,6 +230,30 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 4.7 R113.1 H1: detect sale-closed signals BEFORE any guard so they're tagged
+    // even out-of-hours or during shadow mode. Idempotent: skips if `venda:*` already present.
+    {
+      const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
+      if (!hasVendaTag) {
+        const saleType = detectSaleClosed(incomingText)
+        if (saleType) {
+          // Map detection types to tag value (all map to 'fechada' for the conversation
+          // tag — type lives in metadata for analytics)
+          await supabase.from('conversations').update({
+            tags: mergeTags(conversation.tags || [], { venda: 'fechada' }),
+          }).eq('id', conversation_id)
+          // refresh in-memory tags so downstream code sees it
+          conversation.tags = mergeTags(conversation.tags || [], { venda: 'fechada' })
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'sale_closed_detected',
+            latency_ms: Date.now() - startTime,
+            metadata: { detection_type: saleType, incoming_text: incomingText.substring(0, 200) },
+          })
+          log.info('Sale closed detected', { type: saleType, conversation_id })
+        }
+      }
+    }
+
     // 4.8 Business hours check — usa helper compartilhado (R107: extended_hours_until override)
     {
       const isOutsideHours = isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
@@ -436,6 +462,7 @@ Deno.serve(async (req) => {
     // short-circuit — the LLM needs to answer "Aceita pix?" first, then handoff.
     // Solution: only check the LAST message for triggers. Earlier msgs go to LLM.
     let pendingHandoffTrigger: string | null = null
+    let pendingHandoffTriggerMsg: string = ''  // R113.1 G1: msg that fired trigger, used for deferred objection detection
     // Skip triggers if already in shadow (handoff already happened — prevents duplicate)
     if (triggers.length > 0 && hasInteracted && conversation.status_ia !== STATUS_IA.SHADOW) {
       // Use only the last incoming message for trigger detection
@@ -468,6 +495,7 @@ Deno.serve(async (req) => {
           // Multiple msgs grouped — let LLM answer the prior questions, then handoff at the end
           // Store the trigger; handoff will execute AFTER LLM response
           pendingHandoffTrigger = matchedTrigger
+          pendingHandoffTriggerMsg = lastMsg
           // Remove the trigger message from the queue so LLM only sees the questions
           incomingMessages.splice(-1, 1)
           log.info('Handoff trigger deferred — answering prior questions first', { trigger: matchedTrigger, priorMsgs: incomingMessages.length })
@@ -514,16 +542,21 @@ Deno.serve(async (req) => {
             conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
           })
 
+          // R113.1 G1: detect objection synchronously so seller sees it on right panel
+          const objectionTag = detectObjection(lastMsg)
+          const tagsToMerge: Record<string, string> = { ia: STATUS_IA.SHADOW }
+          if (objectionTag) tagsToMerge.objecao = objectionTag
+
           await supabase.from('conversations').update({
             status_ia: STATUS_IA.SHADOW,
-            tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+            tags: mergeTags(conversation.tags || [], tagsToMerge),
             lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
           }).eq('id', conversation_id)
 
           await supabase.from('ai_agent_logs').insert({
             agent_id, conversation_id, event: 'handoff_trigger',
             latency_ms: Date.now() - startTime,
-            metadata: { trigger: matchedTrigger, incoming_text: incomingText.substring(0, 300), queue: queueRes },
+            metadata: { trigger: matchedTrigger, objection: objectionTag, incoming_text: incomingText.substring(0, 300), queue: queueRes },
           })
           broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
 
@@ -3105,15 +3138,20 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
       })
+      // R113.1 G1: detect objection synchronously (deferred path)
+      const objectionTagDeferred = detectObjection(pendingHandoffTriggerMsg)
+      const tagsToMergeDeferred: Record<string, string> = { ia: STATUS_IA.SHADOW }
+      if (objectionTagDeferred) tagsToMergeDeferred.objecao = objectionTagDeferred
+
       await supabase.from('conversations').update({
         status_ia: STATUS_IA.SHADOW,
-        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        tags: mergeTags(conversation.tags || [], tagsToMergeDeferred),
         lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
       }).eq('id', conversation_id)
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'handoff_trigger',
         latency_ms: Date.now() - startTime,
-        metadata: { trigger: pendingHandoffTrigger, deferred: true, incoming_text: incomingText.substring(0, 300), queue: queueRes },
+        metadata: { trigger: pendingHandoffTrigger, objection: objectionTagDeferred, deferred: true, incoming_text: incomingText.substring(0, 300), queue: queueRes },
       })
       broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
     }

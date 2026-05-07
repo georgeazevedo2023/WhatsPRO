@@ -546,7 +546,7 @@ export const BASE_VALID_TAG_KEYS: ReadonlySet<string> = new Set([
   'servico', 'agendamento', 'funil', 'intencao',
   // vendas/negociacao
   'tipo_cliente', 'concorrente', 'motivo_perda', 'conversao',
-  'venda_status', 'pagamento',
+  'venda_status', 'venda', 'pagamento',
   // shadow do vendedor
   'vendedor_tom', 'vendedor_desconto', 'vendedor_upsell',
   'vendedor_followup', 'vendedor_alternativa',
