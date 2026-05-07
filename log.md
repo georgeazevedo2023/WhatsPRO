@@ -7,6 +7,62 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (noite — Auditoria do AI Agent: R103 + R104 + R105 corrigidos)
+
+**Trigger:** usuária reportou 4 perguntas após smoke E2E + análise da conversa do George (20:27-21:01 BRT). Investigação produziu 3 bugs reais corrigidos.
+
+### R103 — LLM pulava `tipo_tinta` na qualificação
+
+**Sintoma:** IA não perguntou se era acrílica/esmalte/verniz. Foi de ambiente direto pra cor (priority 3) misturada com marca (de outra stage).
+
+**Causa:** helper `getNextField()` em `_shared/serviceCategories.ts` existia e era testado, mas **nunca era chamado em produção**. O LLM tinha que inferir a próxima pergunta sozinho com base em texto no system prompt — improvisava.
+
+**Fix:** nova função `buildQualificationContext()` em `ai-agent/index.ts` que pré-computa a próxima pergunta a cada turno (categoria → stage → próximo field via `getNextField` → phrasing pronto via `formatPhrasing`) e injeta como bloco `[QUALIFICAÇÃO ATUAL]` no system prompt. LLM passa a transcrever em vez de inferir.
+
+**Lição (R103):** helper exportado + testado mas sem caller em produção é dívida silenciosa.
+
+### R104 — Tag `marca_indisponivel:rosa,_parede,_interna` (falso positivo)
+
+**Sintoma:** após search_products falhar, IA tagou a query inteira como marca indisponível. "rosa" é cor, "parede"/"interna" é ambiente.
+
+**Causa:** em `ai-agent/index.ts`, quando AND filter retorna zero produtos, código pega `missingTerms` (palavras da query ausentes em todo catálogo) e seta `brandNotFound = missingTerms.join(', ')`. Heurística boa pra catálogos grandes (faltar 1-2 termos = provável marca), péssima pra catálogos rasos (Eletropiso = 7 produtos → quase qualquer query tem 3+ termos faltando).
+
+**Fix:** guard `missingTerms.length <= 2` em ambos caminhos (AND filter result + wordByWordBroad). Com ≥3 termos faltando, deixa `brandNotFound = null` (catálogo raso, não falta de marca).
+
+**Lição (R104):** detecção heurística sem lista de referência (ex: marcas conhecidas) precisa de guard de tamanho contra falsos positivos.
+
+### R105 — `business_hours` NULL pós-migração
+
+**Sintoma:** usuária mandou msg 20:51 BRT (fora horário 08-18h), IA respondeu normalmente sem disparar `out_of_hours_message`.
+
+**Causa:** coluna `ai_agents.business_hours` ficou NULL no projeto novo (não veio na migração via dblink). R99 cobriu schema mas não dados. Sem `business_hours`, o código do ai-agent pula a checagem inteira (`if (bh && typeof bh === 'object')`).
+
+**Fix:** UPDATE direto via MCP populando formato weekly Eletropiso (Seg-Sex 8-18, Sáb 8-12, Dom fechado). `out_of_hours_message` já estava cadastrada — só faltavam os horários.
+
+**Lição (R105):** ao migrar JSONB opcional, fazer diff explícito `WHERE coluna IS NULL` no novo + smoke test específico (cenário fora de horário). Validar schema não basta.
+
+### Auditoria geral — outros achados
+
+- ✅ **Crons HTTP:** todos 4 batendo no novo `prfcbfumyrrycsrcrvms.supabase.co`
+- ✅ **status_ia consistente:** 17/17 conversas com valor válido (única `shadow` é a do George pós-handoff)
+- ✅ **handoff_queue_events:** 12 totais, 1 responded (Alberto pegou George), 0 active orfãs
+- ✅ **GRANTs service_role:** 91/91 tabelas após R101
+- ✅ **Tabelas órfãs:** apenas `message_templates` (legítima — Broadcast templates) e `pg_stat_progress_basebackup` (system view nativa)
+- ⚠️ **B3 (cache stale React Query):** ainda aberto, refresh resolve, baixa prioridade
+
+### Deploy
+
+- `ai-agent` v1 → v2 (R103 + R104) via `npx supabase functions deploy`
+- `business_hours` populado via MCP (R105)
+- 0 erros tsc
+
+### Frase pra retomar
+- **"testar nova conversa"** — você manda msg fora de horário OU manda msg pedindo tinta e valida ordem das perguntas
+- **"prossiga"** — Onda 5 Playwright (drag-drop, realtime)
+- **"investigar B3 cache stale"** — atacar o realtime do helpdesk
+
+---
+
 ## 2026-05-06 (noite — Projeto antigo `euljumeflwtljegknawy` PAUSADO)
 
 **Decisão usuária:** pausar projeto antigo agora (não esperar 24-48h) já que smoke E2E completo confirmou cutover OK.

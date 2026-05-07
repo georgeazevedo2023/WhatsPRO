@@ -18,6 +18,7 @@ import {
   formatPhrasing,
   extractInteresseFromTags,
   getCurrentStage,
+  getNextField,
   getScoreFromTags,
   calculateScoreDelta,
   getExitAction,
@@ -1276,6 +1277,40 @@ ${contextBlock}`
 - NUNCA dizer "não trabalhamos com", "não temos", "não encontrei", "em falta", "indisponível" em NENHUMA circunstância. Se o produto não existe, entre no fluxo de enriquecimento naturalmente e depois transfira.
 - QUALIFICAÇÃO + OBJEÇÃO NA MESMA MSG: se o lead enviou cor + objeção na mesma mensagem (ex: "Branco\\nAchei caro"), PRIMEIRO chame search_products com a cor, DEPOIS responda a objeção com dados reais do catálogo.`
 
+    // R103 — bloco de qualificação dinâmica injetado a cada turno.
+    // Antes do R103, o LLM tinha que inferir sozinho o stage atual + próximo field;
+    // ele tomava liberdade e combinava perguntas (ex: "marca ou cor?") pulando
+    // fields prioritários como tipo_tinta. Agora o sistema pré-computa a próxima
+    // pergunta exata e injeta no prompt — LLM passa a transcrever, não inferir.
+    function buildQualificationContext(currentTags: string[], agentCfg: any): string {
+      try {
+        const interesse = extractInteresseFromTags(currentTags || [])
+        if (!interesse) return ''
+        const config = getCategoriesOrDefault(agentCfg)
+        const category = matchCategory(interesse, config)
+        if (!category) return ''
+        const score = getScoreFromTags(currentTags || [])
+        const stage = getCurrentStage(score, category, config.default)
+        if (!stage) return ''
+        const nextField = getNextField(stage, currentTags || [])
+        if (!nextField) return ''
+        const phrasing = formatPhrasing(stage.phrasing, nextField)
+        return `[QUALIFICAÇÃO ATUAL — siga rigorosamente]
+Categoria detectada: ${category.label} (id: ${category.id})
+Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.exit_action})
+PRÓXIMA PERGUNTA OBRIGATÓRIA: ${nextField.label} (priority ${nextField.priority})
+FRASE EXATA SUGERIDA: "${phrasing}"
+REGRAS:
+- Faça APENAS essa pergunta — NUNCA combine com outro field (errado: "marca ou cor?", certo: pergunte só ${nextField.label}).
+- Use o phrasing sugerido literalmente (pode ajustar tom mas mantenha o {label} e {examples} exatos).
+- Após a resposta, chame set_tags(["${nextField.key}:VALOR"]) IMEDIATAMENTE.
+- NUNCA pule esse field — ele tem priority ${nextField.priority} no stage atual.`
+      } catch {
+        return ''
+      }
+    }
+    const qualificationContext = buildQualificationContext(conversation.tags || [], agent)
+
     const systemPrompt = [
       identitySection,
       businessSection,
@@ -1291,6 +1326,7 @@ ${contextBlock}`
       knowledgeInstruction,
       subAgentInstruction,
       dynamicContext,
+      qualificationContext,
       additionalSection,
     ].filter(Boolean).join('\n\n')
       // Solution 5: Recency bias — compound name rule as LAST line of system prompt
@@ -1617,9 +1653,14 @@ ${contextBlock}`
                   })
                 )
                 if (missingTerms.length > 0) {
-                  brandNotFound = missingTerms.join(', ')
+                  // R104 — só registrar como "brand not found" se 1-2 termos faltam. ≥3 termos
+                  // sugere catálogo raso (várias palavras genéricas como "tinta rosa parede interna"
+                  // viram falsos positivos de marca). Evita tag "marca_indisponivel:rosa,_parede,_interna".
+                  if (missingTerms.length <= 2) {
+                    brandNotFound = missingTerms.join(', ')
+                  }
                   products = []
-                  log.info('Post-search AND filter: brand/term not in catalog → zero results, skip fuzzy', { missingTerms, query: searchText })
+                  log.info('Post-search AND filter: terms not in catalog → zero results, skip fuzzy', { missingTerms, brandNotFound, query: searchText })
                 }
                 // else: all words exist somewhere but not together → keep originals (better than 0 for soft match)
               }
@@ -1633,8 +1674,11 @@ ${contextBlock}`
                 })
               )
               if (missingFromBroad.length > 0) {
-                brandNotFound = missingFromBroad.join(', ')
-                log.info('Post-search brand detection (from broad results): term not in catalog → skip fuzzy', { missingFromBroad, query: searchText })
+                // R104 — mesmo guard: ≥3 termos = catálogo raso, não brand
+                if (missingFromBroad.length <= 2) {
+                  brandNotFound = missingFromBroad.join(', ')
+                }
+                log.info('Post-search brand detection (from broad results): terms not in catalog', { missingFromBroad, brandNotFound, query: searchText })
               }
             }
           }

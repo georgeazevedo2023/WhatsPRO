@@ -245,3 +245,51 @@ Validação: `service_role_has_grants 0 → 91`. Curl no `whatsapp-webhook` volt
 2. **Fix código (`whatsapp-webhook/index.ts`):** SELECT de inbox passa a incluir `default_department_id`; INSERT de conversa nova popula `department_id: inbox.default_department_id ?? null`.
 
 **Regra 102 (preventiva):** Ao criar registro novo em tabela com FK opcional para configuração default em outra tabela parent (ex: `conversations.department_id` ↔ `inboxes.default_department_id`), **popular desde a criação**. Não confiar que outro fluxo (handoff, atribuição, etc) vai setar depois — pode nunca acontecer (ex: IA resolve e fecha). Padrão: SELECT do parent já traz a config default + INSERT do filho usa. Cross-ref com R95 (mesmo padrão pro caminho de handoff).
+
+---
+
+### R103 — LLM pula fields prioritários da stage de qualificação (2026-05-06)
+
+**O que:** Conversa real do George testando a IA pós-migração: ele perguntou "voces tem tinta?", IA perguntou ambiente, George respondeu "quarto da minha filha" → IA combinou duas perguntas: "Tem preferência por alguma marca ou cor?" — pulou o campo **tipo_tinta** (priority 2) que estava entre ambiente (priority 1) e cor (priority 3) na stage de Identificação. Vendedor humano recebeu o lead sem saber se a tinta é acrílica/esmalte/verniz, info crítica para recomendar produto.
+
+**Causa raiz:** o helper `getNextField()` em `_shared/serviceCategories.ts` foi escrito e testado, mas **nunca foi invocado em produção** — apenas nos próprios testes unitários. O ai-agent passava o sdr_flow + system prompt instruindo o LLM a "perguntar na ordem de priority", mas sem injeção concreta de qual é a próxima pergunta. O LLM interpretava livremente, combinando fields ou pulando.
+
+**Correção (R103):** introduzida função `buildQualificationContext()` em `ai-agent/index.ts` que executa a cada turno:
+1. Detecta categoria pelas tags (`extractInteresseFromTags`)
+2. Calcula stage atual (`getCurrentStage`)
+3. Acha próximo field via **`getNextField`** (helper que estava órfão)
+4. Formata phrasing pronto via `formatPhrasing(stage.phrasing, nextField)`
+5. Injeta no system prompt um bloco `[QUALIFICAÇÃO ATUAL]` com regras explícitas: "PRÓXIMA PERGUNTA OBRIGATÓRIA: {label}", "FRASE EXATA SUGERIDA: ...", "NUNCA combine com outro field".
+
+Resultado: LLM passa a transcrever a pergunta computada em vez de inferir. Bloco aparece a cada turno enquanto houver categoria detectada + stage incompleto.
+
+**Regra 103 (preventiva):** quando lógica de qualificação envolve ordem rigorosa de campos, **não confiar só em texto no system prompt** ("pergunte na ordem"). Pré-computar a próxima pergunta concreta no backend e injetar no prompt do LLM como diretiva — pré-compute > pós-instrução. Helpers como `getNextField` que só rodam em testes são **dívida silenciosa** — se o helper existe e cobre uma regra de negócio, deve ter caller real em produção. Auditar: `grep -rn 'export function NOME' src/ | wc -l` vs callers; se zero callers em código non-test, é red flag.
+
+---
+
+### R104 — `brandNotFound` falso positivo com catálogos rasos (2026-05-06)
+
+**O que:** Mesma conversa do George — após search_products falhar 2x, a IA salvou tag `marca_indisponivel:rosa,_parede,_interna` no contexto da conversa. Mas "rosa" é cor, "parede" e "interna" são ambiente. A tag tagou a query inteira como se fosse marca.
+
+**Causa raiz:** em `ai-agent/index.ts` (lógica pós-search AND filter), quando a busca em catálogo retorna zero produtos, o código identifica termos da query que não aparecem em NENHUM produto e marca como `brandNotFound`. Isso era seguro quando o catálogo é grande e completo (faltar 1 termo = provável marca). Mas o catálogo do Eletropiso tem só 7 produtos migrados — quase qualquer query tem 3+ termos faltando, todos viram "brandNotFound" mesmo sendo cor/ambiente/etc.
+
+**Correção (R104):** guard de tamanho — só setar `brandNotFound = missingTerms.join(', ')` se `missingTerms.length <= 2`. Com ≥3 termos faltando, o sintoma é catálogo raso (não falta de marca específica) — ignorar e deixar `brandNotFound = null`. Aplicado em ambos os caminhos: AND filter result e wordByWordBroad detection.
+
+**Regra 104 (preventiva):** detecção heurística de "termo X é marca" baseada em ausência no catálogo é frágil quando o catálogo é raso. Aplicar guard de tamanho (1-2 termos faltando = provável marca; 3+ = ruído). Idealmente, manter lista de marcas conhecidas por agente (`ai_agents.known_brands`) e só tagar `brandNotFound` quando termo faltante está na lista. Mas até lá, o guard de tamanho cobre os falsos positivos catastróficos.
+
+---
+
+### R105 — `business_hours` órfão pós-migração (2026-05-06)
+
+**O que:** Smoke E2E pós-cutover Eletropiso: usuária mandou WhatsApp 20:51 BRT (terça, fora do horário comercial 08-18h cadastrado). IA respondeu normalmente sem mandar a `out_of_hours_message`. Esperado: "Estamos fora do nosso horário de atendimento agora..." em vez de greeting + qualificação.
+
+**Causa raiz:** durante a migração de dados (Onda 2 via dblink), a coluna `ai_agents.business_hours` (jsonb) ficou NULL no projeto novo apesar de estar populada no antigo. O código do ai-agent só faz checagem de horário se `bh && typeof bh === 'object'` — com NULL, pula a checagem inteira. A `out_of_hours_message` estava cadastrada certinho, mas nunca acionada.
+
+R99 cobriu 27 colunas faltando em 7 tabelas, mas `business_hours` não estava na lista (a coluna existia, faltou só o dado). É a 2ª variante do problema R99 — schema OK mas dados não vieram.
+
+**Correção:** UPDATE direto via MCP populando o formato weekly esperado pelo código:
+```json
+{"sun":{"open":false},"mon":{"open":true,"start":"08:00","end":"18:00"},...,"sat":{"open":true,"start":"08:00","end":"12:00"}}
+```
+
+**Regra 105 (preventiva):** ao migrar JSONB ou colunas opcionais entre projetos via dblink, fazer **diff explícito** após o transplante: `WHERE coluna IS NULL` no novo + comparar com count no antigo (enquanto antigo ainda está disponível). Para configs operacionais (business_hours, system_settings, prompts customizados), criar smoke test pós-migração: simular cenário "fora de horário"/"feriado"/"sentinela" e confirmar comportamento esperado. Apenas validar schema (R99) não basta — dados ausentes são bug silencioso até alguém tropeçar em produção.
