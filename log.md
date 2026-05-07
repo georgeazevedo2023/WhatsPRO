@@ -47,6 +47,16 @@ Sessão 2 N5 tinha sido PARCIAL (IA só respondia tinta, ignorava entrega/frete/
 - ✅ **Regressão N5 corrigida** (provavelmente derivado de R109 prompt strengthening)
 - Gap menor: tag `interesse:impermeabilizantes` (LLM misclass — não bloqueia conversa)
 
+### Onda 3 inicial — N7 retention (PASS parcial)
+
+- Setup: msg "tem tinta acrilica branca pra parede da sala?" → IA qualificou (`interesse:tinta`, `produto:tinta_acrilica_branca`)
+- Timeshift -35min via SQL: **falhou** (MCP transient durante UPDATE)
+- Msg pós-pausa: "voltei" (3min real depois)
+- IA preservou Wsmart + tags + continuou qualificação ("qual ambiente? interno ou externo?")
+- ✅ Preservação de contexto via tags validada
+- ⚠️ Retenção REAL >30min NÃO validada (timeshift não aplicou)
+- Nota: IA não fez recap explícito ("voltando à tinta acrílica..."); apenas seguiu próximo field do funil
+
 ### Lições críticas (R114 derivadas)
 
 1. **CHECK constraints duplicados são bug latente** — auditar via `pg_constraint` periodicamente.
