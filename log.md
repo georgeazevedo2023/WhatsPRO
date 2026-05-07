@@ -47,6 +47,21 @@ Sessão 2 N5 tinha sido PARCIAL (IA só respondia tinta, ignorava entrega/frete/
 - ✅ **Regressão N5 corrigida** (provavelmente derivado de R109 prompt strengthening)
 - Gap menor: tag `interesse:impermeabilizantes` (LLM misclass — não bloqueia conversa)
 
+### R115 Dashboard Insights do Gestor (3 fases shipadas — F1+F2+F3)
+
+Pediu auditoria de coletores + dashboard rico com 13 métricas (produtos vendidos, em falta, objeções, pagamento, horário, vendas, cotações, sem resposta, marcas, tipo de cliente).
+
+**3 commits:**
+- `0de8f04` — F1: 3 detectores determinísticos (Payment/Brand/ClientType) + 22 tests + LLM gates + migration events. E2E "sou pintor, quero tinta Coral, vou pagar de pix" → 3 tags + 3 logs paralelos.
+- `656c0cb` — F2: 13 SQL functions (STABLE + SECURITY DEFINER + grants). Smoke test passing.
+- `94310dd` — F3: hook useDashboardInsights + 5 componentes + aba Insights no ManagerDashboard. TypeCheck 0 erros.
+
+**Não shipado:**
+- `dash_horario_atendimento` plpgsql (% in/out business_hours) — fica pra F2.5
+- F4 Playwright spec
+- Drill-down pages
+- Tag `produto_vendido:NOME` (vincular venda ao último carousel)
+
 ### Onda 3 inicial — N7 retention (PASS parcial)
 
 - Setup: msg "tem tinta acrilica branca pra parede da sala?" → IA qualificou (`interesse:tinta`, `produto:tinta_acrilica_branca`)

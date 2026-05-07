@@ -40,6 +40,78 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.31.0 (2026-05-07) — R115 Dashboard Insights do Gestor (3 fases shipadas)
+
+**Contexto:** Usuário pediu dashboard rico com 10+ métricas (produtos vendidos, em falta, objeções, forma de pagamento, horário de atendimento, vendas por vendedor, cotações, leads sem resposta, marcas mais citadas + não trabalhadas, tipo de cliente). Auditoria revelou que dashboard atual (ManagerDashboard) tinha só KPIs básicos (newLeads, conversionRate, handoffRate) e nenhum dos 13 itens estava exposto. Algumas métricas precisavam de coletores novos (pagamento, marca, tipo_cliente).
+
+**F1 — 3 coletores determinísticos novos (commit 0de8f04):**
+- `detectPayment` (5 tipos: pix/cartao/parcelado/boleto/dinheiro). Distingue intenção ("vou de pix") de consulta ("aceita pix?") via QUERY_INDICATORS guard.
+- `detectBrand` (lista DEFAULT_BRANDS com 40+ marcas brasileiras de construção). Match com fronteiras non-ASCII pra evitar substring (coral ≠ coralina).
+- `detectClientType` (16 profissões: pintor/eletricista/arquiteto/marceneiro/etc). Self-id check ("sou X" / "trabalho como Y") + short-reply (≤3 words) heurística.
+- 22 testes Deno passando (7+8+7).
+- Mirror do R114 pattern: regex roda em toda msg + LLM gate (`PROTECTED_DETERMINISTIC_KEYS`) impede sobrescrita via set_tags.
+- VALID_KEYS: `marca_citada` adicionada.
+- Migration: events `payment_detected`, `brand_mentioned`, `client_type_detected` ao CHECK.
+- E2E validado: msg "sou pintor, quero tinta Coral, vou pagar de pix" → 3 tags + 3 logs em paralelo.
+
+**F2 — 13 SQL functions pro dashboard (commit 656c0cb):**
+- `dash_top_produtos_citados` — search_products tool_calls.query
+- `dash_top_marcas_citadas` — tag marca_citada agrupada
+- `dash_top_objecoes` — tag objecao agrupada (R114)
+- `dash_top_pagamentos` — tag pagamento + pct
+- `dash_top_tipos_cliente` — tag tipo_cliente + pct
+- `dash_produtos_em_falta` — search_products com result vazio
+- `dash_marcas_nao_trabalhadas` — tag marca_indisponivel (R110)
+- `dash_excluded_match` — event excluded_product_match (R112)
+- `dash_vendas_por_vendedor` — venda:fechada + assigned_to + user_profiles
+- `dash_cotacoes` — motivo:orcamento (total/handoff/fechadas)
+- `dash_conversao_orcamento_venda` — taxa orçamento→venda
+- `dash_sla_sem_resposta` — live, threshold customizável (default 30min)
+- `dash_kpis_resumo` — agregados (conversas/vendas/cotacoes/handoffs/objecoes/taxas)
+- Todas STABLE + SECURITY DEFINER + grants service_role/authenticated.
+
+**F3 — Aba "Insights" no ManagerDashboard (commit 94310dd):**
+- Novo hook `useDashboardInsights`: 13 RPCs em paralelo via Promise.all (60s staleTime)
+- 5 componentes novos em `src/components/manager/insights/`:
+  - `TopListCard` (genérico — top-N com bar chart simples)
+  - `InsightsKpiRow` (6 KPIs em linha)
+  - `SlaAlertList` (leads sem resposta >30min, click → abre conversa)
+  - `VendedoresRanking` (medalhistas com bars)
+  - `InsightsTab` (orquestrador 4 linhas de widgets)
+- ManagerDashboard reorganizado em Tabs: "Métricas" (vista atual) | "Insights" (nova).
+- TypeCheck 0 erros, respeita filtros existentes (instanceId + period).
+
+**Métricas cobertas (13 widgets):**
+1. Top produtos perguntados
+2. Top marcas citadas
+3. Top objeções
+4. Top forma de pagamento
+5. Top tipo de cliente (pintor/eletricista/etc)
+6. Produtos em falta (search vazio)
+7. Marcas não trabalhadas
+8. Produtos fora de escopo
+9. Vendas por vendedor
+10. Cotações (total/handoff/fechadas)
+11. Conversão orçamento → venda
+12. Leads sem resposta >30min (live)
+13. KPIs resumo agregados
+
+**Não shipado (deferred):**
+- `dash_horario_atendimento` (% in/out business_hours) — função plpgsql complexa, fica pra F2.5
+- F4 Playwright spec do dashboard
+- Drill-down pages com export CSV
+- Tag `produto_vendido:NOME` (vincular venda ao último carousel exibido) — feature ainda mais granular
+
+**Lições novas (R115):**
+- Pattern R114 escala bem: 3 detectores adicionais com 0 retrabalho (mesmo template idempotente + LLM gate).
+- DEFAULT_BRANDS hardcoded é OK pra MVP — virar dinâmica via `ai_agents.known_brands` é trivial depois.
+- detectClientType usa heurística de "short-reply" pra capturar respostas tipo "Pintor" sem self-id. Compensa LLM-only que não pegava em produção.
+- Smoke test pós-deploy de SQL functions com dados reais (1 conversa válida) confirma viabilidade antes de UI.
+
+**Próximo:** F4 (Playwright spec dashboard + auditar duplicate constraints em outras tabelas — preventivo R114).
+
+---
+
 ### v7.30.1 (2026-05-07) — R114 detectObjection determinístico + LLM gate + CHECK constraint legacy
 
 **Contexto:** Sessão 4 sandbox executou Onda 2 (G2/G3/H2/H3/M6/E1) e descobriu que `detectObjection` (R113.1) só rodava dentro do flow de handoff, enquanto `detectSaleClosed` rodava em toda msg. G3 ("Achei mais barato em outra loja por R$ 80") falhou com tipo errado: LLM tageou `objecao:preco` via `set_tags` em vez de `concorrencia`. Fix em 3 partes.
