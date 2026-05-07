@@ -17,7 +17,7 @@ import { LeadFilesSection } from '@/components/leads/LeadFilesSection';
 import { LeadJourneyTimeline } from '@/components/leads/LeadJourneyTimeline';
 import { LeadFunnelCard } from '@/components/leads/LeadFunnelCard';
 import { ConversationModal } from '@/components/leads/ConversationModal';
-import { ArrowLeft, MapPin, Settings2, Trash2, Loader2, Save, Contact2, ExternalLink, Activity, ShoppingCart, AlertCircle, Bot, Clock } from 'lucide-react';
+import { ArrowLeft, MapPin, Settings2, Trash2, Loader2, Save, Contact2, ExternalLink, Activity, ShoppingCart, AlertCircle, Bot, Clock, CreditCard, Tag as TagIcon, AlertOctagon } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import type { ActionEvent, MediaFile } from '@/components/leads/types';
@@ -414,6 +414,10 @@ const LeadDetail = () => {
   const kpiItens = [...new Set([...kpiProdutos, ...kpiInteresses])];
   const kpiProdutoFalta = tags.find(t => t.startsWith('marca_indisponivel:'))?.split(':').slice(1).join(':').replace(/_/g, ' ').replace(/,\s*/g, ', ') ?? null;
   const kpiTipoCliente = tags.find(t => t.startsWith('tipo_cliente:'))?.split(':').slice(1).join(':').replace(/_/g, ' ') ?? extractedData['tipo_cliente'] ?? null;
+  // R115: KPIs novos derivados dos detectores determinísticos
+  const kpiPagamento = tags.find(t => t.startsWith('pagamento:'))?.split(':').slice(1).join(':').replace(/_/g, ' ') ?? null;
+  const kpiMarcaCitada = tags.find(t => t.startsWith('marca_citada:'))?.split(':').slice(1).join(':').replace(/_/g, ' ') ?? null;
+  const kpiObjecao = tags.find(t => t.startsWith('objecao:'))?.split(':').slice(1).join(':').replace(/_/g, ' ') ?? null;
   // Shadow/IA check usa APENAS tags da conversa mais recente (não agregadas — evita herdar ia:shadow de conversas antigas)
   const latestConvTags = latestConv?.tags ?? [];
   const kpiAtendidoIA = latestConvTags.some(t => t.startsWith('ia:shadow')) ? 'Shadow' : (latestConvTags.some(t => t.startsWith('motivo:') || t.startsWith('produto:') || t.startsWith('interesse:')) ? 'Sim' : 'Não');
@@ -609,6 +613,18 @@ const LeadDetail = () => {
                 <div className="flex flex-col gap-0.5 rounded-md bg-red-500/10 border border-red-500/20 px-2.5 py-2">
                   <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-red-400/70"><AlertCircle className="w-2.5 h-2.5" />Em falta</span>
                   <span className="text-xs font-medium text-red-300 leading-tight truncate" title={kpiProdutoFalta ?? '—'}>{kpiProdutoFalta ?? '—'}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-cyan-400/70"><CreditCard className="w-2.5 h-2.5" />Pagamento</span>
+                  <span className="text-xs font-medium text-cyan-300 leading-tight truncate capitalize" title={kpiPagamento ?? '—'}>{kpiPagamento ?? '—'}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-yellow-400/70"><TagIcon className="w-2.5 h-2.5" />Marca citada</span>
+                  <span className="text-xs font-medium text-yellow-300 leading-tight truncate capitalize" title={kpiMarcaCitada ?? '—'}>{kpiMarcaCitada ?? '—'}</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md bg-rose-500/10 border border-rose-500/20 px-2.5 py-2">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-rose-400/70"><AlertOctagon className="w-2.5 h-2.5" />Objeção</span>
+                  <span className="text-xs font-medium text-rose-300 leading-tight truncate capitalize" title={kpiObjecao ?? '—'}>{kpiObjecao ?? '—'}</span>
                 </div>
                 <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2.5 py-2">
                   <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400/70"><Clock className="w-2.5 h-2.5" />Início</span>

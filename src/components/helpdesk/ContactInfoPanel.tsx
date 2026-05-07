@@ -691,6 +691,9 @@ export const ContactInfoPanel = ({
                       : key === 'objecao' ? 'bg-red-500/15 text-red-400 border-red-500/30'
                       : key === 'venda' ? 'bg-green-500/15 text-green-400 border-green-500/30'
                       : key === 'sentimento' ? 'bg-pink-500/15 text-pink-400 border-pink-500/30'
+                      : key === 'pagamento' ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+                      : key === 'marca_citada' ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
+                      : key === 'tipo_cliente' ? 'bg-violet-500/15 text-violet-400 border-violet-500/30'
                       : 'bg-muted text-muted-foreground';
                     return (
                       <Badge key={t} variant="outline" className={`text-[10px] px-1.5 py-0 ${color}`} title={`${key}: ${val}`}>
