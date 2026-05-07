@@ -15,6 +15,8 @@ import LazySection from '@/components/dashboard/LazySection';
 import GoalProgressBar from '@/components/gestao/GoalProgressBar';
 import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import DbSizeCard from '@/components/manager/DbSizeCard';
+import InsightsTab from '@/components/manager/insights/InsightsTab';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useManagerMetrics } from '@/hooks/useManagerMetrics';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
 import { useInstanceGoals } from '@/hooks/useInstanceGoals';
@@ -125,7 +127,17 @@ export default function ManagerDashboard() {
       )}
 
       {effectiveInstanceId && (
-        <>
+        <Tabs defaultValue="metricas" className="w-full">
+          <TabsList className="mb-2">
+            <TabsTrigger value="metricas">Métricas</TabsTrigger>
+            <TabsTrigger value="insights">Insights</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="insights" className="flex flex-col gap-4">
+            <InsightsTab instanceId={effectiveInstanceId} periodDays={filters.periodDays} />
+          </TabsContent>
+
+          <TabsContent value="metricas" className="flex flex-col gap-4">
           {/* KPI Cards */}
           {isLoading ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -191,7 +203,8 @@ export default function ManagerDashboard() {
           <LazySection height="340px">
             {metrics ? <SellerRankingChart sellers={metrics.sellers} /> : <Skeleton className="h-80 rounded-xl" />}
           </LazySection>
-        </>
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
