@@ -472,3 +472,37 @@ received_token (após JWT legacy)     208 chars eyJh  (passa as-is)
 - (b) **Funções `verify_jwt=false` chamadas por cron devem usar `INTERNAL_FUNCTION_KEY`** (ou outro secret neutro de mesma classe) pra auth interno, NÃO `SUPABASE_ANON_KEY`.
 - (c) **Versionar crons sempre.** Migration `20260504000008` original hardcodava URL do projeto velho — pós-migração ficou órfão e alguém recriou no Studio UI sem versionar. Toda migration de cron deve ser idempotente (`unschedule` antes de `schedule`).
 - (d) **Diagnostique env vars antes de assumir.** Quando 401 acontece em loop e config.toml diz `verify_jwt=false`, deploy uma função diagnóstica que dumpa env vars + token recebido — vai revelar o gateway-rewrite na hora.
+
+---
+
+### R113.2 — debounce → ai-agent retornava 401 (auth inline ignorando verifyCronOrService) (2026-05-07, ✅ FIX shipado)
+
+**Sintoma:** Após R113 (que consertou só os crons), msgs WhatsApp pararam de gerar resposta da IA. `ai-agent-debounce` retornava 200, depois `ai-agent` retornava 401 sistematicamente. Sandbox testing impossível.
+
+**Causa raiz REAL:** Diferente de outras 13 edge functions, `ai-agent/index.ts` linhas 70-73 tinha **auth INLINE próprio** que NÃO usava `verifyCronOrService`:
+
+```ts
+const token = authHeader?.replace('Bearer ', '')
+const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+if (!token || token !== anonKey) {
+  return unauthorizedResponse(corsHeaders)
+}
+```
+
+Como `Deno.env.SUPABASE_ANON_KEY` é o `sb_publishable_*` (formato novo), e o gateway reescrevia esse token em JWT 444-char antes de chegar na função, a comparação string sempre falhava. **O patch defensivo em `verifyCronOrService` (R113) não tinha efeito** porque ai-agent não usava a função.
+
+**Diagnóstico:** deploy de `env-diag` que probava ai-agent com cada token disponível (INTERNAL/ANON/SERVICE). Todos retornaram 401 mesmo o `INTERNAL_FUNCTION_KEY` (que tem formato neutro e gateway não reescreve). Isso confirmou que o problema NÃO era só gateway-rewrite — era código inline rejeitando.
+
+**Correção (R113.2):**
+- (a) **debounce → INTERNAL_FUNCTION_KEY**: `ai-agent-debounce/index.ts` agora usa `Deno.env.INTERNAL_FUNCTION_KEY` (com fallback pra `SUPABASE_ANON_KEY`) ao chamar ai-agent. Token neutro 64-char não é reescrito pelo gateway.
+- (b) **ai-agent usa verifyCronOrService**: `ai-agent/index.ts` linhas 70-73 substituídas por `if (!verifyCronOrService(req)) return unauthorizedResponse(corsHeaders)`. Aceita ANON/SERVICE/PUBLISHABLE/SECRET/INTERNAL.
+- (c) **Diagnóstico via `verifyCronOrServiceDiag`**: helper novo em `_shared/auth.ts` que retorna detalhes do mismatch (tokens prefixos/sufixos, candidates env disponíveis). Útil pra debugging futuro sem precisar redeployar com prints.
+
+**Validação E2E:** msg "oi, tem tinta acrílica branca?" enviada via UAZAPI Sandbox → IA respondeu em 25s (10s debounce + 15s LLM). Auth fix confirmado em produção.
+
+**Bug bonus:** R113.1 (sale-closed detection) tinha `incomingText` usado antes da declaração no escopo (linha 232 vs 314). Bloco movido pra depois das empty-text guards (linha 332+).
+
+**Regra 113.2 (preventiva):**
+- (a) **Toda chamada interna entre edge functions deve usar `INTERNAL_FUNCTION_KEY`**, não `SUPABASE_ANON_KEY`. Auditoria recomendada: grep `'SUPABASE_ANON_KEY'` em chamadas `fetch` pra outras edge functions.
+- (b) **Não duplique auth inline.** Se uma função tem `verifyCronOrService`, USE essa função. Auth inline divergente é dívida técnica que quebra silencioso.
+- (c) **Teste E2E real após mudanças de auth.** TypeCheck + tests unitários NÃO pegam regressões de auth — só smoke teste com chamada real (curl ou msg via UAZAPI) confirma.

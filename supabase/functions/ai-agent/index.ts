@@ -5,7 +5,7 @@ import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '..
 import { STATUS_IA } from '../_shared/constants.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
-import { unauthorizedResponse } from '../_shared/auth.ts'
+import { unauthorizedResponse, verifyCronOrService } from '../_shared/auth.ts'
 import { detectObjection } from '../_shared/objectionDetection.ts'
 import { detectSaleClosed } from '../_shared/saleClosedDetection.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
@@ -66,11 +66,10 @@ Deno.serve(async (req) => {
   let _convId: string | null = null
 
   try {
-    // Validate caller: only accept requests with valid anon key (called by debounce/webhook)
-    const authHeader = req.headers.get('Authorization')
-    const token = authHeader?.replace('Bearer ', '')
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-    if (!token || token !== anonKey) {
+    // R113.3: usa verifyCronOrService (aceita ANON/SERVICE/PUBLISHABLE/SECRET/INTERNAL).
+    // Antes era comparação inline só contra SUPABASE_ANON_KEY, que quebrou quando o
+    // gateway Supabase passou a reescrever sb_publishable_* em JWT 444-char.
+    if (!verifyCronOrService(req)) {
       return unauthorizedResponse(corsHeaders)
     }
 
@@ -230,30 +229,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4.7 R113.1 H1: detect sale-closed signals BEFORE any guard so they're tagged
-    // even out-of-hours or during shadow mode. Idempotent: skips if `venda:*` already present.
-    {
-      const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
-      if (!hasVendaTag) {
-        const saleType = detectSaleClosed(incomingText)
-        if (saleType) {
-          // Map detection types to tag value (all map to 'fechada' for the conversation
-          // tag — type lives in metadata for analytics)
-          await supabase.from('conversations').update({
-            tags: mergeTags(conversation.tags || [], { venda: 'fechada' }),
-          }).eq('id', conversation_id)
-          // refresh in-memory tags so downstream code sees it
-          conversation.tags = mergeTags(conversation.tags || [], { venda: 'fechada' })
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'sale_closed_detected',
-            latency_ms: Date.now() - startTime,
-            metadata: { detection_type: saleType, incoming_text: incomingText.substring(0, 200) },
-          })
-          log.info('Sale closed detected', { type: saleType, conversation_id })
-        }
-      }
-    }
-
     // 4.8 Business hours check — usa helper compartilhado (R107: extended_hours_until override)
     {
       const isOutsideHours = isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
@@ -328,6 +303,29 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'no_vendor_message' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    // R113.1 H1: detect sale-closed signals once incomingText is computed.
+    // Idempotent: skips if `venda:*` already tagged. Runs even during shadow mode
+    // (lead replies after handoff get tagged so dashboards see closed deals).
+    {
+      const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
+      const textForDetection = shadow_only ? (vendor_message || '') : incomingText
+      if (!hasVendaTag && textForDetection) {
+        const saleType = detectSaleClosed(textForDetection)
+        if (saleType) {
+          await supabase.from('conversations').update({
+            tags: mergeTags(conversation.tags || [], { venda: 'fechada' }),
+          }).eq('id', conversation_id)
+          conversation.tags = mergeTags(conversation.tags || [], { venda: 'fechada' })
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'sale_closed_detected',
+            latency_ms: Date.now() - startTime,
+            metadata: { detection_type: saleType, incoming_text: textForDetection.substring(0, 200) },
+          })
+          log.info('Sale closed detected', { type: saleType, conversation_id })
+        }
+      }
     }
 
     // 5.4.1 #M16: Early load funnel data (needed for handoff triggers + max_lead_messages before context injection)

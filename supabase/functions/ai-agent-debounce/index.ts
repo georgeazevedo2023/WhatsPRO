@@ -149,7 +149,12 @@ Deno.serve(async (req) => {
     // ATOMIC processing: UPDATE ... WHERE processed=false AND process_after <= now()
     // Only ONE timer callback will succeed — others get 0 rows and skip.
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-    const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
+    // R113.2: Use INTERNAL_FUNCTION_KEY (64-char neutral token) instead of
+    // SUPABASE_ANON_KEY. Reason: when ANON_KEY is the new sb_publishable_*
+    // format, the Supabase gateway REWRITES it to a 444-char JWT before
+    // forwarding, breaking string-equal comparison in verifyCronOrService.
+    // INTERNAL_FUNCTION_KEY is a non-Supabase format so it passes through.
+    const ANON_KEY = Deno.env.get('INTERNAL_FUNCTION_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!
 
     const processAfterDelay = async () => {
       await new Promise(r => setTimeout(r, debounceMs))

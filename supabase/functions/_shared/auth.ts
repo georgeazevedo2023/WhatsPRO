@@ -79,17 +79,62 @@ export function verifyCronOrService(req: Request): boolean {
     }
   }
 
-  log.error('Token mismatch', {
-    tokenLength: token.length,
-    available: candidates.filter(([, v]) => !!v).map(([m]) => m),
+  // R113.3 DIAG: dump comparison details to find why no token matches
+  const detail = candidates.map(([m, v]) => ({
+    mode: m,
+    has_env: !!v,
+    env_len: v?.length ?? null,
+    env_prefix: v?.substring(0, 6) ?? null,
+    env_suffix: v?.substring((v?.length || 6) - 4) ?? null,
+  }))
+  log.error('Token mismatch DIAG', {
+    token_len: token.length,
+    token_prefix: token.substring(0, 6),
+    token_suffix: token.substring(token.length - 4),
+    candidates: detail,
   })
   return false
 }
 
 /** Standard 401 response */
-export function unauthorizedResponse(corsHeaders: Record<string, string>): Response {
+export function unauthorizedResponse(corsHeaders: Record<string, string>, diag?: unknown): Response {
   return new Response(
-    JSON.stringify({ error: 'Unauthorized' }),
+    JSON.stringify({ error: 'Unauthorized', diag }),
     { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   )
+}
+
+/** Variant that gathers diag inline — meant for verifyCronOrService callers */
+export function verifyCronOrServiceDiag(req: Request): { ok: boolean; diag: unknown } {
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    return { ok: false, diag: { reason: 'missing_or_bad_header' } }
+  }
+  const token = authHeader.replace('Bearer ', '')
+  const candidates: Array<[string, string | undefined]> = [
+    ['service', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')],
+    ['anon_jwt', Deno.env.get('SUPABASE_ANON_KEY')],
+    ['publishable', Deno.env.get('SUPABASE_PUBLISHABLE_KEY')],
+    ['secret', Deno.env.get('SUPABASE_SECRET_KEY')],
+    ['internal', Deno.env.get('INTERNAL_FUNCTION_KEY')],
+  ]
+  for (const [mode, key] of candidates) {
+    if (key && token === key) return { ok: true, diag: { matched: mode } }
+  }
+  return {
+    ok: false,
+    diag: {
+      reason: 'no_match',
+      token_len: token.length,
+      token_prefix: token.substring(0, 6),
+      token_suffix: token.substring(token.length - 4),
+      candidates: candidates.map(([m, v]) => ({
+        mode: m,
+        has_env: !!v,
+        env_len: v?.length ?? null,
+        env_prefix: v?.substring(0, 6) ?? null,
+        env_suffix: v?.substring((v?.length || 6) - 4) ?? null,
+      })),
+    },
+  }
 }
