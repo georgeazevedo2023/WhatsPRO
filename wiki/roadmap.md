@@ -2,7 +2,7 @@
 title: Roadmap
 tags: [roadmap, milestones, fases, status, m19-s10, eletropiso, d28-excluded-products, helpdesk-escopo-tabs]
 sources: [.planning/ROADMAP.md (deprecated), .planning/STATE.md (deprecated), CLAUDE.md, PRD.md]
-updated: 2026-05-05
+updated: 2026-05-07
 ---
 
 # Roadmap
@@ -105,6 +105,8 @@ updated: 2026-05-05
 | **D30 Fila Inteligente — Sprint G** (Tests + Retention) | ✅ Shipped (2026-05-05) | 53 testes Vitest novos: `handoffDepartment.test.ts` (6, cascade D-α + edge cases), `businessHours.test.ts` (17, extended override + weekly + legacy + faixa invertida + TZ-safe via `vi.useFakeTimers` UTC), `handoffQueue.test.ts` (20, Modo OFF/ON/D-β + falha + `applyAssigneeNameTemplate` D-γ), `useActiveQueueEvents.test.ts` (10, fetch + `secondsRemaining` paused/zero/positivo + realtime + `formatCountdown`). Migration `20260505000001_handoff_queue_retention_policy` (seed id=8: 90d OFF/dry_run). Smoke prod: dry-run policy retorna 0 candidates sem erro, `is_table_protected=false`, 3 índices na tabela. tsc 0, **vitest 715 passam (+53)**, 5 pré-existentes em FormBuilder. |
 | **D30 Fila Inteligente — Sprint E** (Modo Estendido) | ✅ Shipped (2026-05-05) | `ExtendedHoursConfig.tsx` (~210 linhas) na tab Segurança do AIAgentTab logo abaixo do BusinessHoursEditor: status display (Ativo até DD/MM às HH:mm com badge âmbar OU Não ativado), 4 quick actions (+1h, +2h, Resto do dia, Até amanhã 23:59), custom datetime input com Aplicar (disabled em vazio/passado), botão "Cancelar agora" só quando ativo. `extended_hours_until` adicionado em `ALLOWED_FIELDS`. Schema (Sprint A) e helper backend (Sprint C, testado em G) já existiam — Sprint E é só a porta de entrada UX. **13 testes Vitest novos**: status null/passado/futuro, quick actions, cancel, custom (vazio/passado/futuro/pré-populado). tsc 0, **vitest 728 passam (+13)**. |
 | **D30 Fila Inteligente — Sprint H** (Wikis Finais) | ✅ Shipped (2026-05-05) | `wiki/casos-de-uso/admin-detalhado.md` ganha seção D30 (3 superfícies: QueueConfig dialog, InboxesTab default_dept select inline, ExtendedHoursConfig na tab Segurança); `wiki/erros-e-licoes.md` ganha entries históricos detalhados de R91 (RR concorrência: causa raiz + edge case sentinela + smoke 8 chamadas paralelas) e R92 (vault rotation: 4 crons quebrados silenciosamente, por que `cron.job_run_details` mostra "succeeded", correção via `vault.update_secret`); `wiki/log-arquivo-2026-05-05-d30-defg-e.md` agrega logs Sprints D+F+G+E (preservando goal/arquivos/SYNC de cada um); `log.md` enxugado. **D30 100% completo (8/8 sprints).** ~26.5h totais entregues em 2 dias. |
+| **R115 Dashboard Insights do Gestor** (3 fases) | ✅ Shipped (2026-05-07) | F1 detectores determinísticos novos (payment/brand/client_type) + F2 13 SQL functions + F3 aba Insights com 13 widgets + F4 KPIs visuais pra tags determinísticas. PRD v7.31.0. |
+| **Notif Handoff por WhatsApp Pessoal** | ✅ Shipped (2026-05-07, v7.32.2) | Vendedor recebe ping no WhatsApp pessoal quando lead atribuído. F0+F1+F2 base (cadastro + 7 guards + idempotência) + F3 (escalation 5/10min + reatribuição órfã + batching + KPI 1ª resposta). Refactor v7.32.2 removeu lógica de janela 24h (regra Business API oficial — irrelevante pra UAZAPI/WhatsApp Web). [[wiki/notif-handoff-vendedor]]. |
 
 **Plano completo:** [[wiki/metricas-plano-implementacao]]
 
