@@ -364,6 +364,40 @@ Outro local com mesmo problema: linha ~2517 (handoff message picker baseado em b
 
 ---
 
+### R111 — Fuzzy fallback ignora filtros de price/category (2026-05-07)
+
+**O que:** lead simulado mandou "quero tinta acrílica branca pra parede interna até 500 reais". LLM passou `max_price: 500` corretamente. Mas search retornou Tinta Eggshell R$ 792 + Cuba + Manta — produtos fora do filtro do cliente.
+
+**Causa raiz:** quando primary search e word-by-word fallback retornam 0, código chama `search_products_fuzzy` RPC (pg_trgm word-level). RPC só recebe `agent_id`, `query`, `threshold`, `limit` — **NÃO recebe min_price / max_price / category**. Resultado fuzzy era atribuído direto a `products` sem nenhum post-filter.
+
+**Correção (R111):** após `fuzzyProducts` retornar com resultados, aplicar JS post-filter respeitando `args.min_price`, `args.max_price` e `args.category` (este último com `stripAccents` no haystack). Se filter zera resultados, log info mas não erro (lead pode receber 0 produtos = enrichment ou handoff).
+
+**Validação:** mesma query "tinta acrilica branca pra parede interna até 500" → carrossel com 2 produtos, ambos R$ ≤ 500 (Coral Standard R$ 427 + Esmalte Dialine R$ 51). Eggshell R$ 792 NÃO entrou.
+
+**Regra 111 (preventiva):**
+- (a) **Toda fallback chain de search precisa propagar TODOS os filtros do tool args.** RPCs no Postgres não devem ser tratadas como atalhos — se o filtro é importante (preço, categoria), aplicar JS antes de retornar.
+- (b) **Auditar fallbacks após adicionar novo arg em ferramenta.** Quando `min_price` foi adicionado em `search_products`, primary e broad respeitaram, mas fuzzy ficou esquecido. Pattern: search test com filter de preço como smoke obrigatório após qualquer mudança em search.
+- (c) **Falha silenciosa pior que erro.** Aqui não dava erro — só retornava produtos errados. Lead achava que loja vende produto fora do orçamento dele. Logs precisam destacar quando fuzzy é usado pra detectar este tipo de regressão.
+
+---
+
+### R112 — `excluded_products` com `message: ''` viola regra de ouro (2026-05-07, PENDENTE)
+
+**O que:** lead simulado mandou "vocês têm caixa de correio?" (item em `excluded_products[caixa_correio].keywords`). IA respondeu: "**Não trabalhamos com** caixa de correio, posso te ajudar com outro produto?" — violação direta da regra de ouro do AI Agent (linha 1269 do system prompt: NUNCA dizer "não trabalhamos com").
+
+**Causa raiz:** todos os 13 grupos em `excluded_products` da Eletropiso real têm `message: ''` (string vazia). Quando IA detecta match e tenta usar fallback configurado, fallback é vazio → cai em comportamento default → LLM gera resposta natural com "não trabalhamos com" (verbo proibido).
+
+**Status:** PENDENTE — exige decisão de design entre 3 caminhos:
+- **(a)** Fallback default no código: se `message===''`, usar template tipo "Esse não é nosso foco — oferecemos materiais de construção. Posso ajudar com algo dessa área?"
+- **(b)** Validação no admin (frontend): bloquear save de excluded_products com message vazia
+- **(c)** Tag silenciosa: tagear `excluded_product_match:caixa_correio` mesmo sem fallback, IA continua processando normal mas conhecimento do dept pega no handoff
+
+**Regra 112 (preventiva):**
+- (a) **Configuração com strings vazias é bug latente.** Toda config opcional que cai em fallback do LLM precisa de OU validação no admin OU template default no código. Vazio = comportamento indefinido = regra de ouro pode ser violada.
+- (b) **Smoke test pós-config:** sempre que admin configurar nova lista de keywords/message/triggers, rodar smoke E2E com 1 keyword da lista pra validar que comportamento é o esperado.
+
+---
+
 ### R109 — qualificationContext sobrescrito por outras seções (R103 parcial) (2026-05-07)
 
 **O que:** após R103 fix (commit 5fc1038), LLM ainda misturava perguntas em alguns turnos. Cenário B1.2: tags = `[ambiente:interno, lead_score:15, ...]`, próximo field deveria ser `tipo_tinta` (priority 2). LLM perguntou "preferência por marca ou cor?" — pulou tipo_tinta e misturou `marca_preferida` (stage 2) com `cor` (priority 3).

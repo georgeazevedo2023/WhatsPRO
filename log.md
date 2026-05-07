@@ -9,6 +9,66 @@ type: log
 
 ---
 
+## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-07 madrugada (Sessão 2 Sandbox)
+
+> Modo autônomo aprovado. 14 cenários executados após sessão 1 + commit `6b4bfa8`. 2 fixes shipados (R110+R110.1 stop-words, R111 fuzzy filters). 1 pendência aberta (R112). Custo R$ 0,57.
+
+### O que foi feito (sessão 2)
+
+**Bloco N (humanização):**
+- N1 fragmentação (debounce 3→1) ✅
+- N2 typos ("tnta acrilca pra parde da sla") ✅
+- N4 emojis + abreviações ✅
+- N5 mistura de assuntos ⚠️ (IA respondeu só 1/4)
+- N6 mudança de ideia ✅
+- N3 áudio + N7 retention skipped (exigem setup)
+
+**Bloco M (mídia):**
+- M1 produto único + R110.1 expansão de stop-words ⚠️
+- M2 filtro de preço — R111 BUG corrigido + validado ✅
+- M3 botão REPLY ⚠️ (gera novo carrossel)
+- M7 produto excluído 🔴 (R112 pendente — viola regra de ouro)
+
+**Bloco B/F restante:**
+- B2 marca explícita ✅, B3 porta ✅, B4 default ✅
+- F2 eletricista ✅, F3 cliente final ✅
+
+**Fixes shipados:**
+- **R110 + R110.1** — `_shared/qualificationStopWords.ts` aplicado em `search_products` (Case A + Case B). Lista cobre ambientes/cores/acabamentos/tipos/unidades. Tag `marca_indisponivel:parede,_interna` falsa não acontece mais
+- **R111** — fuzzy fallback aplica JS post-filter pra `min_price`/`max_price`/`category`. "tinta até 500 reais" agora respeita
+
+**Pendência R112:** excluded_products com `message: ''` faz IA dizer "não trabalhamos com" (viola regra de ouro). Decisão de design entre 3 caminhos — paro pra próxima sessão (exceção A da metodologia autônoma).
+
+### Estado de produção
+
+- `ai-agent` em prod com R107+R108+R109+R110+R110.1+R111
+- Working tree: 2 arquivos modificados (qualificationStopWords + ai-agent), 1 wiki nova (relatório sessão 2), erros-e-licoes atualizado, log atualizado
+- `extended_hours_until` restaurado pra NULL após sessão
+- Branch master, último commit shipado: `178c504` (R110 + Bloco N plano)
+
+### Métricas acumuladas (sessões 1+2)
+
+- 22 cenários executados em ~3h
+- 30 inbound + 34 outbound msgs
+- 24 chamadas LLM
+- 386k tokens
+- $0.157 USD ≈ R$ 0,86 total
+
+### 🚀 FRASE PRA RETOMAR
+
+- **`commit sessão 2`** — commitar R110.1 + R111 + relatório sessão 2 (recomendado)
+- **`continuar sessão 3`** — R112 fix + N3 áudio + N7 retention + M4 vision
+- **`fix R112`** — decisão design fallback default
+
+### Auto-avaliação 0-10
+
+- **Conteúdo:** 9/10 — 14 cenários novos cobertos, 2 bugs fixados E2E, 1 documentado. Faltou áudio/vision/comprovante (skipped, exigem setup)
+- **Orquestração:** 9/10 — sessão1 + sessão2 + erros-e-licoes (R107-R112) + plano-v3-bloco-N + log + memory cross-referenciados
+- **Honestidade:** 10/10 — reportei R112 como FAIL aberto sem inflar PASS. M7 violou regra de ouro do AI Agent — admiti
+- **Estado vault:** 9/10 — pendente commit sessão 2
+
+---
+
 ## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-07 madrugada (Sessão 1 Sandbox)
 
 > Continuação direta da sessão anterior. Sandbox NÃO é receptor — é EMISSOR (token UAZAPI da Sandbox manda msgs pro número da Eletropiso real). Webhook de prod (`eletropiso_2026` n8n) processa. Próxima sessão lê este bloco + relatório-testes-sandbox-sessao1.

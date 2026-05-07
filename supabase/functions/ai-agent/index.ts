@@ -1694,8 +1694,22 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
             const { data: fuzzyProducts } = await supabase
               .rpc('search_products_fuzzy', { _agent_id: agent_id, _query: searchText, _threshold: 0.3, _limit: 10 })
             if (fuzzyProducts && fuzzyProducts.length > 0) {
-              products = fuzzyProducts
-              log.info('search_products fuzzy fallback found results', { count: products.length, query: searchText, topSim: fuzzyProducts[0]?.sim })
+              // R111 — fuzzy RPC bypassa filtros do args. Aplicar JS post-filter pra respeitar min_price, max_price, category.
+              const filteredFuzzy = (fuzzyProducts as any[]).filter((p: any) => {
+                if (args.min_price && (p.price === null || p.price === undefined || Number(p.price) < args.min_price)) return false
+                if (args.max_price && (p.price === null || p.price === undefined || Number(p.price) > args.max_price)) return false
+                if (categoryText) {
+                  const cat = stripAccents(`${p.category || ''} ${p.subcategory || ''}`)
+                  if (!cat.includes(stripAccents(categoryText))) return false
+                }
+                return true
+              })
+              if (filteredFuzzy.length > 0) {
+                products = filteredFuzzy
+                log.info('search_products fuzzy fallback found results (filtered)', { countRaw: fuzzyProducts.length, countFiltered: filteredFuzzy.length, query: searchText, topSim: fuzzyProducts[0]?.sim })
+              } else {
+                log.info('search_products fuzzy fallback: results filtered out by price/category', { countRaw: fuzzyProducts.length, args, query: searchText })
+              }
             }
           }
 

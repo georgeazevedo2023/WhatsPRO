@@ -22,6 +22,8 @@ export const QUALIFICATION_STOP_WORDS = new Set<string>([
   'sala', 'quarto', 'banheiro', 'cozinha', 'garagem', 'area', 'areas',
   'teto', 'tetos', 'piso', 'pisos', 'fachada', 'fachadas', 'muro', 'muros',
   'casa', 'apartamento', 'obra', 'obras', 'reforma', 'construcao',
+  'laje', 'lajes', 'exposta', 'exposto', 'cobertura', 'coberta', 'caixa', 'caixas',
+  'porta', 'portas', 'entrada', 'janela', 'janelas',
 
   // Cores
   'branco', 'branca', 'preto', 'preta', 'cinza', 'azul', 'vermelho', 'vermelha',
