@@ -7,6 +7,74 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+---
+
+## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-06 noite
+
+> Sessão limpa pelo usuário. Próxima sessão lê este bloco + MEMORY.md + roadmap + erros-e-licoes pra continuar sem contexto perdido.
+
+### O que foi feito hoje (2026-05-06)
+
+**Migração Eletropiso pós-cutover (continuação):**
+- Smoke E2E completo via WhatsApp real ✅
+- 7 hotfixes: R97 (instance_id), R98 (GRANTs anon/auth), R99 (27 colunas), R101 (GRANTs service_role), R102 (dept NULL), R103 (LLM pula tipo_tinta), R104 (brand falso positivo), R105 (business_hours NULL), R106 (out-of-hours repete)
+- Projeto antigo `euljumeflwtljegknawy` PAUSADO via MCP
+
+**Playwright shipado (4 ondas):**
+- 120 testes, 120/120 PASS, 1 bug real corrigido (R100 SelectItem value="" CampaignForm)
+- Wikis: `playwright-onda1`, `onda2`, `onda3`, `onda4` em `wiki/`
+- Suite roda em ~20min
+
+**Sandbox IA criada (testes reais):**
+- Número: `558185749970` (UAZAPI: Testador da Eletropiso)
+- Instance ID: `rb84e079eeab167`, Token: `9a6ff3f5-31ee-4302-9fd6-5d4bc488ff5e`
+- AI Agent: clone integral Eletropiso (23 categorias), `business_hours=NULL` (24/7)
+- Webhook UAZAPI já apontando direto pro `whatsapp-webhook` do Supabase novo
+- Refs em `wiki/sandbox-ia-instancia.md`
+
+**Plano de testes Sandbox:**
+- 15 cenários documentados em `wiki/plano-testes-sandbox.md`
+- Bloco A (smoke 3) + B (qualificação R103, 4) + C (produtos 3) + D (handoff 3) + E (edge cases 2)
+- Cada cenário com PASS criteria + métricas reportadas
+- + 6 specs Onda 5 Playwright planejados
+
+### Estado de produção AGORA
+
+- Projeto novo `prfcbfumyrrycsrcrvms` 100% operacional
+- Eletropiso real atende em produção
+- Sandbox IA pronta pra testes
+- Edge fns mais recentes: `whatsapp-webhook` v2 (R102), `ai-agent` v3 (R103+R104+R106)
+- Working tree limpo
+- Branch: master, último commit: `5672caf` (R106 + Sandbox)
+
+### Pendências paralelas (não bloqueantes)
+
+1. **Cache stale React Query (B3)** — refresh contorna, mas merece investigação dedicada do realtime broadcast no useHelpdeskConversations
+2. **Rotação de credenciais pós-migração** — lista em `wiki/migracao-eletropiso-COMPLETA`
+3. **Catálogo Sandbox raso** — 7 produtos clonados; pra C1 funcionar bem, precisa cadastrar mais produtos OU aceitar que C2 (sem produtos) é o cenário comum
+
+### 🚀 FRASE PRA RETOMAR
+
+**Opção 1 (recomendada):** **`executar A1 plano sandbox`**
+- Claude lê `wiki/plano-testes-sandbox.md`, monitora Sandbox via MCP, espera você mandar `oi` pelo celular pessoal pro `558185749970`
+- Reporta PASS/FAIL com dados do DB
+- Após A1 OK, segue A2, A3, B1...
+
+**Opção 2:** **`executar Bloco B`** — pula direto pra qualificação por categoria (B1 valida R103)
+
+**Opção 3:** **`continuar Onda 5 Playwright`** — prepara os 6 specs novos (sem precisar de WhatsApp real)
+
+**Opção 4:** **`investigar cache stale realtime helpdesk`** — ataca B3
+
+### Auto-avaliação 0-10 da sessão
+
+- **Conteúdo:** 9/10 — 7 bugs reais corrigidos em prod, smoke E2E completo, Sandbox criada, plano de teste detalhado, 4 ondas Playwright (120 testes)
+- **Orquestração:** 10/10 — log + 4 wikis Playwright + sandbox + plano-testes + erros-e-licoes (R97-R106) + MEMORY.md, todos cross-referenciados
+- **Estado vault:** 10/10 — sem dívida documental, frase de retomada concreta
+- **Honesto:** B3 (cache stale) ainda em aberto, mas refresh contorna. Catálogo Sandbox raso é limitação, não bug
+
+---
+
 ## 2026-05-06 (noite — R106 + Sandbox IA criada para testes reais)
 
 ### R106 — Out-of-hours message repete + ignora shadow
