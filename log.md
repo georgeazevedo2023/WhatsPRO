@@ -39,6 +39,14 @@ type: log
 - Log: `event=objection_detected, detection_type=concorrencia` ✅ (observabilidade)
 - LLM tentou `set_tags(["objecao:preco"])` mas foi rejeitado pelo guard
 
+### Reteste bonus pós-R114 — N5 mistura de assuntos
+
+Sessão 2 N5 tinha sido PARCIAL (IA só respondia tinta, ignorava entrega/frete/pix). Reteste pós-R114:
+- Frase: "tem tinta? aliás vocês entregam? quanto custa? aceita pix?"
+- IA aborda os 4: tinta (carrossel + Iquine R$51,90) + preço + PIX/cartão/boleto/dinheiro + entrega ("vou verificar disponibilidade")
+- ✅ **Regressão N5 corrigida** (provavelmente derivado de R109 prompt strengthening)
+- Gap menor: tag `interesse:impermeabilizantes` (LLM misclass — não bloqueia conversa)
+
 ### Lições críticas (R114 derivadas)
 
 1. **CHECK constraints duplicados são bug latente** — auditar via `pg_constraint` periodicamente.
