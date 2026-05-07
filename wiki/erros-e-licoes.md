@@ -293,3 +293,22 @@ R99 cobriu 27 colunas faltando em 7 tabelas, mas `business_hours` não estava na
 ```
 
 **Regra 105 (preventiva):** ao migrar JSONB ou colunas opcionais entre projetos via dblink, fazer **diff explícito** após o transplante: `WHERE coluna IS NULL` no novo + comparar com count no antigo (enquanto antigo ainda está disponível). Para configs operacionais (business_hours, system_settings, prompts customizados), criar smoke test pós-migração: simular cenário "fora de horário"/"feriado"/"sentinela" e confirmar comportamento esperado. Apenas validar schema (R99) não basta — dados ausentes são bug silencioso até alguém tropeçar em produção.
+
+---
+
+### R106 — Mensagem fora de horário repete a cada msg do lead (sem cooldown, ignora shadow) (2026-05-06)
+
+**O que:** após R105 fix popular `business_hours`, lead George mandou "Ok" 21:34 → IA respondeu out_of_hours ✅. Mas em seguida George mandou "obrigado" 21:42 → IA respondeu out_of_hours **DE NOVO**. E a conversa do George estava em `status_ia='shadow'` (handoff já feito) — IA deveria ficar passiva, mas ainda assim disparou out_of_hours.
+
+**Causa raiz:** o branch `if (isOutsideHours)` em `ai-agent/index.ts` envia a `out_of_hours_message` cega: sem checar histórico recente, sem checar `status_ia`. Lead manda 5 msgs fora de horário → recebe 5 mensagens automáticas idênticas. Pós-handoff, IA continua "ajudando" mesmo em shadow.
+
+**Correção (R106):** dois guards adicionados antes do envio:
+
+1. **Skip shadow:** se `conversation.status_ia === STATUS_IA.SHADOW`, retornar 200 sem enviar nada. Após handoff, IA fica 100% passiva — atendente humano que decide responder.
+2. **Cooldown 60min:** SELECT em `conversation_messages` procurando msg outgoing com mesmo conteúdo da `out_of_hours_message` nos últimos 60min. Se existe, retornar sem enviar (lead já foi avisado). Janela de 60min é UX razoável: uma vez por hora basta.
+
+**Regra 106 (preventiva):** auto-respostas (out_of_hours, fora-do-escopo, fallback do excluded_products, etc) precisam SEMPRE de:
+- (a) **Cooldown** — não repetir a mesma mensagem em curto intervalo. Lead manda "oi", "alguém aí?", "responde por favor" → recebe 1 resposta, não 3.
+- (b) **Skip se conversa não-ativa** — shadow, resolved, archived: IA fica passiva. Auto-resposta fora desses estados é spam pro humano que pegou o handoff.
+
+Pattern: sempre que adicionar nova auto-resposta no ai-agent, aplicar essas 2 verificações antes do envio.

@@ -7,6 +7,47 @@ type: log
 
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
+## 2026-05-06 (noite — R106 + Sandbox IA criada para testes reais)
+
+### R106 — Out-of-hours message repete + ignora shadow
+
+**Sintoma:** George mandou "Ok" 21:34 → out_of_hours ✅. "obrigado" 21:42 → out_of_hours DE NOVO. Conversa estava em shadow (handoff feito) — IA deveria estar passiva.
+
+**Causa:** `ai-agent/index.ts` envia `out_of_hours_message` cega — sem cooldown, sem checar `status_ia`. Lead manda N msgs fora de horário → recebe N respostas idênticas.
+
+**Fix:** 2 guards antes do envio:
+1. `conversation.status_ia === SHADOW` → retorna sem enviar (handoff feito, IA passiva)
+2. SELECT de mensagem outgoing idêntica nos últimos 60min → cooldown (1 resposta por hora basta)
+
+Deploy `ai-agent` v2 → v3.
+
+### Sandbox IA criada (instância de teste 558185749970)
+
+**Setup completo via MCP:**
+- `instances`: id `rb84e079eeab167`, name "Sandbox IA", token `9a6ff3f5-...`, owner_jid `558185749970`, status `connected`
+- `inboxes`: name "Sandbox IA"
+- `departments`: name "Sandbox Vendas" (Modo Fila OFF, default_assignee George)
+- `inbox_users`: George admin com tudo (can_view_all)
+- `department_members`: George posição 10 disponível
+- `user_instance_access`: George → Sandbox
+- `ai_agents`: name "Sandbox Agent" — clonado integralmente do Eletropiso (23 service_categories, sub_agents, prompt_sections, validator, business_info, excluded_products...) **EXCETO** `business_hours = NULL` (sandbox atende 24/7)
+
+**Webhook UAZAPI:** usuário configurou apontando pra `https://prfcbfumyrrycsrcrvms.supabase.co/functions/v1/whatsapp-webhook` (direto, sem n8n).
+
+**Smoke validado:** curl POST com payload simulado → 200 OK + conversation_id criado. Cleanup das rows de teste OK.
+
+**Vantagens:**
+- Testes não poluem dados Eletropiso real
+- Pode testar fora de horário (ou simulando) sem afetar atendentes
+- Config independente: pode mexer no agente sandbox sem risco
+- Fixes R103/R104/R105/R106 valem aqui também (mesma versão da fn)
+
+**Frase pra retomar:**
+- **"executar plano de teste sandbox"** — começa do Cenário 1 do plano
+- **"prossiga"** — Onda 5 Playwright
+
+---
+
 ## 2026-05-06 (noite — Auditoria do AI Agent: R103 + R104 + R105 corrigidos)
 
 **Trigger:** usuária reportou 4 perguntas após smoke E2E + análise da conversa do George (20:27-21:01 BRT). Investigação produziu 3 bugs reais corrigidos.

@@ -270,7 +270,37 @@ Deno.serve(async (req) => {
 
       if (isOutsideHours) {
         log.info('Outside business hours', { source: bhSource, hour: brDate.getHours(), minute: brDate.getMinutes() })
+
+        // R106 — Skip se conversa já fez handoff (status_ia=shadow). IA fica passiva.
+        if (conversation.status_ia === STATUS_IA.SHADOW) {
+          log.info('Skipping out-of-hours msg — conversation in shadow (handoff done)', { conversation_id })
+          return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'outside_business_hours_but_shadow' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        // R106 — Cooldown: se já enviamos out_of_hours_message nos últimos 60min nesta
+        // conversa, NÃO repetir. Lead manda 5 msgs fora de horário → recebe 1 só.
         if (agent.out_of_hours_message) {
+          const cooldownMs = 60 * 60 * 1000
+          const cooldownIso = new Date(Date.now() - cooldownMs).toISOString()
+          const { data: recentOof } = await supabase
+            .from('conversation_messages')
+            .select('id')
+            .eq('conversation_id', conversation_id)
+            .eq('direction', 'outgoing')
+            .eq('content', agent.out_of_hours_message)
+            .gte('created_at', cooldownIso)
+            .limit(1)
+            .maybeSingle()
+
+          if (recentOof) {
+            log.info('Skipping out-of-hours msg — already sent within 60min', { conversation_id })
+            return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'outside_business_hours_cooldown' }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+
           await sendTextMsg(agent.out_of_hours_message)
           await supabase.from('conversation_messages').insert({
             conversation_id, direction: 'outgoing', content: agent.out_of_hours_message,
