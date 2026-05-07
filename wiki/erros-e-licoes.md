@@ -347,6 +347,23 @@ Outro local com mesmo problema: linha ~2517 (handoff message picker baseado em b
 
 ---
 
+### R110 — Stop-words de qualificação viravam falsos `marca_indisponivel:*` (2026-05-07)
+
+**O que:** durante teste F1 sessão 1, lead simulado mandou "sou pintor profissional, preciso de tinta acrilica branca pra parede interna". Search retornou vazio + tag `marca_indisponivel:parede,_interna` foi adicionada. "parede" e "interna" são palavras de **ambiente** (qualification field), não marcas — falso positivo gerou ruído no painel do helpdesk.
+
+**Causa raiz:** após search retornar 0, código detecta "termos que não aparecem em nenhum produto do catálogo" e infere que são **marcas não-vendidas**. Heurística válida pra catálogos com poucos produtos (`Suvinil` ou `Sherwin Williams` faltando = lead quer marca específica não-vendida). Mas guard era `missingTerms.length <= 2` — 2 palavras genéricas (parede + interna) também passavam. R104 já tentou mitigar com guard, mas guard sozinho não distingue palavras-de-marca de palavras-de-qualificação.
+
+**Correção (R110):** novo arquivo `_shared/qualificationStopWords.ts` exportando `QUALIFICATION_STOP_WORDS` (Set<string>) e helper `filterNonBrandTerms(words)`. Lista contém ambientes (parede/sala/teto/...), cores (branco/preto/...), acabamentos (fosco/brilho/...), tipos (acrilica/esmalte/...) e unidades (m²/litros/...). No `search_products` (Case A linha 1651, Case B linha 1672), aplica `filterNonBrandTerms` ANTES do guard `<=2`. Marcas reais (1-2 palavras desconhecidas) ainda viram `marca_indisponivel`; palavras de qualificação não.
+
+**Validação:** mesma query "sou pintor, preciso tinta acrilica branca pra parede interna" → search retornou 5 produtos + 0 tags falsas. R110 deployed em 2026-05-07.
+
+**Regra 110 (preventiva):**
+- (a) **Heurísticas baseadas em "termo ausente do catálogo"** precisam de **pré-filtro** com lista de palavras inequivocamente não-marca. Sem isso, geram falsos positivos toda vez que cliente escreve frase natural ("vermelha pra cozinha externa").
+- (b) **Stop-words list deve viver fora do código** se possível. Se ficar muito longa (>50 termos por categoria), considerar **lista positiva de marcas** (cadastrar marcas conhecidas no catálogo + comparar com query) — mais escalável, menos manutenção.
+- (c) **Smoke E2E com query natural** após qualquer ajuste em search/qualification. Sessão 1 só passou nesta detecção porque rodou cenário F1 com query rica ("pra parede interna pra obra de 200 metros") — testes unit com query "tinta acrilica" (curta) nunca pegariam o bug.
+
+---
+
 ### R109 — qualificationContext sobrescrito por outras seções (R103 parcial) (2026-05-07)
 
 **O que:** após R103 fix (commit 5fc1038), LLM ainda misturava perguntas em alguns turnos. Cenário B1.2: tags = `[ambiente:interno, lead_score:15, ...]`, próximo field deveria ser `tipo_tinta` (priority 2). LLM perguntou "preferência por marca ou cor?" — pulou tipo_tinta e misturou `marca_preferida` (stage 2) com `cor` (priority 3).

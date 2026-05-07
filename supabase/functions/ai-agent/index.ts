@@ -28,6 +28,7 @@ import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedP
 import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
 import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
 import { isOutsideBusinessHours } from '../_shared/businessHours.ts'
+import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -1648,39 +1649,41 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
                 products = strictFiltered
               } else {
                 // AND removed everything — find which words appear in NO product → those are the missing brand/model terms
-                const missingTerms = queryWords.filter((w: string) =>
+                const missingTermsRaw = queryWords.filter((w: string) =>
                   !products.some((p: any) => {
                     const h = stripAccents(`${p.title} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''}`)
                     return h.includes(w)
                   })
                 )
+                // R110 — filtra stop-words de qualificação ANTES do guard (parede/interna/branca/acrilica
+                // não devem virar marca_indisponivel). Mantém guard <=2 pra marcas compostas (Sherwin Williams).
+                const missingTerms = filterNonBrandTerms(missingTermsRaw)
                 if (missingTerms.length > 0) {
-                  // R104 — só registrar como "brand not found" se 1-2 termos faltam. ≥3 termos
-                  // sugere catálogo raso (várias palavras genéricas como "tinta rosa parede interna"
-                  // viram falsos positivos de marca). Evita tag "marca_indisponivel:rosa,_parede,_interna".
+                  // R104 — só registrar como "brand not found" se 1-2 termos faltam (após R110 filter)
                   if (missingTerms.length <= 2) {
                     brandNotFound = missingTerms.join(', ')
                   }
                   products = []
-                  log.info('Post-search AND filter: terms not in catalog → zero results, skip fuzzy', { missingTerms, brandNotFound, query: searchText })
+                  log.info('Post-search AND filter: terms not in catalog → zero results, skip fuzzy', { missingTermsRaw, missingTerms, brandNotFound, query: searchText })
                 }
                 // else: all words exist somewhere but not together → keep originals (better than 0 for soft match)
               }
             } else if (queryWords.length > 0 && (!products || products.length === 0) && wordByWordBroadProducts !== null) {
               // Case B: primary AND word-by-word both returned 0. Use wordByWordBroadProducts (OR results) to detect missing brand.
-              // R108 — comparação normalizada
-              const missingFromBroad = queryWords.filter((w: string) =>
+              // R108 — comparação normalizada / R110 — stop-words filter
+              const missingFromBroadRaw = queryWords.filter((w: string) =>
                 !wordByWordBroadProducts!.some((p: any) => {
                   const h = stripAccents(`${p.title} ${p.description || ''}`)
                   return h.includes(w)
                 })
               )
+              const missingFromBroad = filterNonBrandTerms(missingFromBroadRaw)
               if (missingFromBroad.length > 0) {
-                // R104 — mesmo guard: ≥3 termos = catálogo raso, não brand
+                // R104 — guard <=2 pra capturar marcas compostas, R110 — após filter de stop-words
                 if (missingFromBroad.length <= 2) {
                   brandNotFound = missingFromBroad.join(', ')
                 }
-                log.info('Post-search brand detection (from broad results): terms not in catalog', { missingFromBroad, brandNotFound, query: searchText })
+                log.info('Post-search brand detection (from broad results): terms not in catalog', { missingFromBroadRaw, missingFromBroad, brandNotFound, query: searchText })
               }
             }
           }
