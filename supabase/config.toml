@@ -110,3 +110,7 @@ verify_jwt = false
 # Cron job (1min) — D30 Fila Inteligente
 [functions.requeue-conversations]
 verify_jwt = false
+
+# Disparado por handoffQueue.assignHandoff() (com service-role no Authorization)
+[functions.notify-vendor-assignment]
+verify_jwt = false

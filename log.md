@@ -9,6 +9,59 @@ type: log
 
 ---
 
+## 2026-05-07 (noite) — Notif handoff por WhatsApp pessoal (MVP F0+F1+F2 — v7.32.0)
+
+> Feature pedida pelo usuário ("vendedor recebe ping no WA pessoal quando lead atribuído"). 3 auditorias críticas do plano antes de codar (cada uma com nota e gaps); 6 ondas de execução; ~3h de trabalho. SHIPPED — pendente apenas re-deploy do ai-agent (HIGH-RISK por regra).
+
+### Decisões fechadas em discussão
+
+1. **Janela WhatsApp 24h** — aceitar limitação (vendedor renova handshake mandando msg pro WhatsApp da empresa). Sem template HSM no MVP. Sistema rastreia + alerta admin/vendor quando expira.
+2. **Instância** — reuso da do helpdesk (1 número só) → exigiu intercept no webhook pra não criar conversa fantasma quando vendedor manda "oi".
+3. **Permissão pra pausar** — super_admin qualquer um, gerente só do mesmo dept (validado no RPC SECURITY DEFINER).
+4. **Botão pausar admin/gestor** — com 5 presets (1h, fim do dia, 3 dias, 7 dias, indefinido) + custom.
+5. **Cap rate limit** — 3 notif/hora por vendedor (filtra `status='sent'`).
+6. **Token handshake** — REMOVIDO (admin já cadastra número, qualquer msg ativa).
+
+### O que foi shipado
+
+**5 migrations aplicadas via MCP supabase-novo:**
+- `20260507151002_notify_vendor_handoff_schema.sql` — 8 cols user_profiles + assigned_at conversations + 2 tabelas novas (instance_settings, notification_log) + RLS + index parcial pro rate limit + CHECK E.164.
+- `20260507151003_notify_vendor_pause_rpc.sql` — RPC pause_user_notifications com guards super_admin/gerente.
+
+**3 edge functions (1 nova + 2 redeployadas):**
+- ✨ `notify-vendor-assignment` (nova) — pipeline 8 guards + UAZAPI send + log com skip_reason.
+- 🔄 `whatsapp-webhook` (redeploy v3) — intercept handshake entre linhas 577-580.
+- 🔄 `assign-handoff` (redeploy) — pega novo handoffQueue.ts com hook fire-and-forget.
+
+**Frontend (6 arquivos novos + 5 modificados):**
+- `UserNotificationPanel.tsx` — cadastro número E.164 com máscara + toggle + 5 estados visuais + modal pausa + reativar.
+- `InstanceNotificationToggle.tsx` — feature flag por instância.
+- `NotificationLogPanel.tsx` — tabela paginada com filtros status/busca.
+- `AdminNotifications.tsx` — página dedicada `/dashboard/admin/notifications`.
+- `VendorNotificationBanner.tsx` — banner contextual no helpdesk (amarelo se <2h, vermelho se expirou).
+- `_shared/sendWhatsApp.ts` — helper `sendUazapiText` reutilizável.
+
+**Smoke tests SQL passaram:** unauthenticated rejeitado, E.164 valida formato, idempotência via UNIQUE upsert mantém mesma row.
+
+### ⚠️ Pendência: re-deploy ai-agent
+
+Regra HIGH-RISK do RULES.md ("nunca tocar ai-agent sem aprovação explícita"). Sem re-deploy, os 6 paths do ai-agent ainda usam handoffQueue.ts antigo em cache → notif só dispara via assign-handoff (cron + manual reassign do gestor). Pra MVP funcional 100%, **usuário precisa autorizar redeploy de ai-agent**.
+
+### Auto-avaliação (regra 13 CLAUDE.md)
+
+- **Conteúdo: 8.5/10** — pipeline robusto, rollback safe, audit trail completo. Faltou polish em business_hours (placeholder hardcoded `true`).
+- **Orquestração: 9/10** — RESEARCH+PLAN+wiki+PRD+log+index alinhados; 3 auditorias antes de codar (gaps reais identificados e corrigidos).
+- **Vault: 9/10** — wiki nova `notif-handoff-vendedor.md` criada, index pendente atualização, log com summary.
+
+### Refs
+
+- Plan: `.planning/phases/notify-vendor-handoff/PLAN.md`
+- Research: `.planning/phases/notify-vendor-handoff/RESEARCH.md`
+- Wiki: `wiki/notif-handoff-vendedor.md`
+- PRD: v7.32.0
+
+---
+
 ## 2026-05-07 (final tarde + noite) — Sessão 4 Sandbox · Onda 2 + R114 SHIPADO (3 partes)
 
 > Sessão 4 = Onda 2 (6 cenários) + fix completo R114 (regex always + LLM gate + CHECK constraint legacy drop). G3 retestado com PASS determinístico + observabilidade. Custo ~R$ 0,60.

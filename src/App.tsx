@@ -32,6 +32,7 @@ const InboxUsersManagement = lazy(() => import("./pages/dashboard/InboxUsersMana
 const AdminPanel = lazy(() => import("./pages/dashboard/AdminPanel"));
 const AdminInboxes = lazy(() => import("./pages/dashboard/AdminInboxes"));
 const AdminUsers = lazy(() => import("./pages/dashboard/AdminUsers"));
+const AdminNotifications = lazy(() => import("./pages/dashboard/AdminNotifications"));
 const AdminDepartments = lazy(() => import("./pages/dashboard/AdminDepartments"));
 const AdminSecrets = lazy(() => import("./pages/dashboard/AdminSecrets"));
 const AdminDocs = lazy(() => import("./pages/dashboard/AdminDocs"));
@@ -233,6 +234,7 @@ const AppRoutes = () => {
         <Route path="admin" element={<AdminRoute><ErrorBoundary section="Administração"><Suspense fallback={<PageLoader />}><AdminPanel /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/inboxes" element={<AdminRoute><ErrorBoundary section="Caixas"><Suspense fallback={<PageLoader />}><AdminInboxes /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/users" element={<AdminRoute><ErrorBoundary section="Equipe"><Suspense fallback={<PageLoader />}><AdminUsers /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="admin/notifications" element={<AdminRoute><ErrorBoundary section="Notificações"><Suspense fallback={<PageLoader />}><AdminNotifications /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/departments" element={<AdminRoute><ErrorBoundary section="Departamentos"><Suspense fallback={<PageLoader />}><AdminDepartments /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/secrets" element={<AdminRoute><ErrorBoundary section="Secrets"><Suspense fallback={<PageLoader />}><AdminSecrets /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/docs" element={<AdminRoute><ErrorBoundary section="Documentação"><Suspense fallback={<PageLoader />}><AdminDocs /></Suspense></ErrorBoundary></AdminRoute>} />

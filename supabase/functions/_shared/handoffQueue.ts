@@ -204,9 +204,11 @@ export async function assignHandoff(
     // R95: setar department_id junto pra que o painel direito do helpdesk
     // mostre o departamento correto (sem isso, fica "Departamento: Nenhum"
     // mesmo com membros do dept atribuídos via fila).
+    // F1.2: registra assigned_at pra que notify-vendor saiba quando o handoff aconteceu.
+    const assignedAtIso = new Date().toISOString()
     const { error: updateErr } = await supabase
       .from('conversations')
-      .update({ assigned_to: pickedUserId, department_id })
+      .update({ assigned_to: pickedUserId, department_id, assigned_at: assignedAtIso })
       .eq('id', conversation_id)
 
     if (updateErr) {
@@ -219,6 +221,32 @@ export async function assignHandoff(
         assigned_user_id: null,
         reason: 'error',
       }
+    }
+
+    // F2.2: dispara notify-vendor-assignment fire-and-forget. Falha não propaga.
+    try {
+      // @ts-ignore -- Deno
+      const baseUrl = (typeof Deno !== 'undefined' ? Deno.env.get('SUPABASE_URL') : null) || ''
+      // @ts-ignore -- Deno
+      const serviceKey = (typeof Deno !== 'undefined' ? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') : null) || ''
+      if (baseUrl && serviceKey) {
+        // Não usa await — fire-and-forget
+        fetch(`${baseUrl}/functions/v1/notify-vendor-assignment`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({
+            conversation_id,
+            assigned_to_id: pickedUserId,
+          }),
+        }).catch((e) => {
+          log.warn('handoffQueue: notify-vendor fetch failed', { error: (e as Error).message })
+        })
+      }
+    } catch (e) {
+      log.warn('handoffQueue: notify-vendor dispatch error', { error: (e as Error).message })
     }
 
     const assigneeName = await lookupAssigneeName(supabase, pickedUserId)

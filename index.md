@@ -1,6 +1,6 @@
 ---
 title: WhatsPRO — Master Index
-updated: 2026-05-05
+updated: 2026-05-07
 type: index
 ---
 
@@ -79,6 +79,7 @@ Sessao inicia → CLAUDE.md (auto, 4KB)
 | [[wiki/sandbox-ia-instancia]] | **Sandbox IA — Instância de teste 558185749970 (2026-05-06):** UAZAPI dedicado pra testes E2E reais sem afetar Eletropiso. Token, IDs, webhook, config (clone Eletropiso 1:1, business_hours NULL = 24/7). |
 | [[wiki/plano-testes-sandbox]] | **Plano de Testes Sandbox — 15 cenários (2026-05-06):** Bloco A smoke (3) + B qualificação R103 (4) + C produtos (3) + D handoff (3) + E edge cases (2). Cada cenário com PASS criteria + métricas reportadas. + 6 specs Onda 5 Playwright. Frase: "executar A1 plano sandbox". |
 | [[wiki/relatorio-testes-sandbox-sessao4]] | **Relatório Sessão 4 — Onda 2 (2026-05-07):** 6 cenários executados (H3/H2/G3/G2/M6/E1). Helpers G/H validados (detectSaleClosed roda em toda msg, detectObjection só em handoff). G3 PARCIAL revelou gap arquitetural R114. 0 fixes shipados. Custo R$ 0,40. |
+| [[wiki/notif-handoff-vendedor]] | **Notif handoff por WhatsApp pessoal MVP (2026-05-07, v7.32.0):** vendedor recebe ping no WA pessoal quando lead atribuído, com nome + última msg + link direto pra conversa. Janela 24h via handshake; 8 guards (skip_disabled/optout/no_number/session_expired/paused/off_hours/queue_paused/rate_limited); pause admin/gestor; auditoria via notification_log. Pendência: re-deploy ai-agent (HIGH-RISK). |
 | [[wiki/migracao-eletropiso-handoff]] | Handoff inicial — decisões + 8 ondas plano. Substituído pela [[wiki/migracao-eletropiso-COMPLETA]] após cutover. |
 | [[wiki/migracao-eletropiso-inventario]] | **Inventário Onda 0 da migração Eletropiso (2026-05-06):** instance_id `r466a98889b5809`, 7 users (todos migram), ~1.900 rows escopadas (1.341 mensagens + 274 validações IA), 4 storage objects, 2 vault secrets, 12 pg_cron jobs (4 com URL hardcoded), 43 edge fns (41 migram), 160 migrations. 4 bloqueios pré-Onda 1 a confirmar com usuário. |
 | [[wiki/arquitetura-docs]] | Arquitetura docs: 4 arquivos raiz |

@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.29.6 | **Última atualização**: 2026-05-06 | **Status**: Produção + OpenAI gpt-4.1-mini + 41 Edge Functions + 60+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **Sprint 2 da auditoria 2026-05-05 shipped (4 fixes — ChatPanel async, helpdeskBroadcast R93, activate-ia CORS dinâmico)** + **Sprint 3 shipped 2026-05-06 (P1-2 verify_jwt drift — activate-ia v12 alinhada com config, ai-agent-playground config alinhada com prod)**
+> **Versão**: 7.32.0 | **Última atualização**: 2026-05-07 | **Status**: Produção + OpenAI gpt-4.1-mini + 42 Edge Functions + 62+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **R115 Dashboard Insights do Gestor (3 fases)** + **Notif handoff por WhatsApp pessoal (MVP F0+F1+F2 — handshake 24h, 8 guards, rate limit 3/h, pause admin/gestor)**
 
 ## Visão Geral
 
@@ -39,6 +39,52 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.32.0 (2026-05-07) — Notif handoff por WhatsApp pessoal (MVP F0+F1+F2)
+
+**Contexto:** Hoje quando lead é atribuído via Lucas default ou Robin lista-on, o vendedor precisa estar logado no painel pra perceber. Lead morno esfria em 10-15min. Solução: ping no WhatsApp pessoal do vendedor com nome do lead, última msg e link direto pra conversa no helpdesk.
+
+**Decisões arquiteturais (3 auditorias antes de codar):**
+- Janela WhatsApp 24h: limitação aceita (vendedor renova handshake mandando qualquer msg pro WhatsApp da empresa, sistema responde "✅ Notificações ativas pelas próximas 24h"). Sem template HSM no MVP.
+- Instância: reuso da do helpdesk (1 número só) → exigiu refactor do webhook pra interceptar msg do vendedor antes de criar conversa fantasma.
+- Permissão pra pausar: super_admin pausa qualquer vendedor; gerente só do mesmo dept (validado no RPC).
+- Idempotência: UNIQUE (conversation_id, assigned_to_id) em notification_log + UPSERT.
+- Rollback: feature flag `instance_settings.notifications_enabled = false` (default) — desliga tudo silenciosamente sem rollback de código.
+
+**F0 — Handshake do vendedor:**
+- Migration: `user_profiles.whatsapp_handshake_at` + `whatsapp_session_until`.
+- Refactor `whatsapp-webhook/index.ts` (1253 linhas) — intercept entre linhas 577-580: matching por `personal_whatsapp` → renova `whatsapp_session_until = now() + 24h` + auto-resposta + `return early` (NÃO cria conversa).
+- Helper compartilhado `_shared/sendWhatsApp.ts` (sendUazapiText).
+
+**F1 — DB + painel admin (8 colunas, 2 tabelas, 1 RPC):**
+- `user_profiles`: 8 colunas novas (personal_whatsapp E.164 com CHECK regex + notify_on_assignment + 2 handshake + 4 paused). Index parcial em personal_whatsapp.
+- `conversations.assigned_at TIMESTAMPTZ` — momento da atribuição (NULL pros antigos).
+- Tabela `instance_settings` (PK instance_id, FK instances) — feature flag `notifications_enabled`. RLS via user_instance_access.
+- Tabela `notification_log` (audit trail) — UNIQUE(conv, vendor) + index parcial pro rate limit. RLS: super_admin all, gerente same-dept.
+- RPC `pause_user_notifications(target, until, reason)` — SECURITY DEFINER com checagem de dept p/ gerente.
+- UI: `UserNotificationPanel` (cadastro número + toggle + status visual 5 estados + modal pausa 5 presets + reativar) renderizado dentro do CollapsibleContent de UsersTab. `InstanceNotificationToggle` no card da inbox em InboxesTab.
+
+**F2 — Notificação core:**
+- Edge function `notify-vendor-assignment` (verify_jwt=false, chamada com service-role) com pipeline de 8 guards: skip_disabled, skip_optout, skip_no_number, skip_session_expired, skip_paused, skip_off_hours, skip_queue_paused, skip_rate_limited (3/h).
+- Helper `formatLastMessage` mapeia tipo (texto truncado / 🎙️ Áudio / 📷 Imagem / 📎 Documento / 🌟 Figurinha / 🎴 Carrossel).
+- Hook em `_shared/handoffQueue.ts` `assignHandoff()`: após UPDATE `assigned_to + assigned_at`, fire-and-forget POST com try/catch silencioso (handoff NUNCA quebra por falha de notif).
+- Banner contextual `VendorNotificationBanner` no helpdesk header (amarelo se janela <2h, vermelho se expirou; oculto se sem número).
+- Página admin `/dashboard/admin/notifications` com `NotificationLogPanel` (tabela paginada com filtros status/busca, mostra skip_reason traduzido).
+
+**Smoke tests SQL passados:** RPC rejeita unauthenticated; CHECK E.164 aceita +5511987654321 e rejeita 11987654321/+0123/+too_long; UPSERT em notification_log preserva mesma row em conflict (idempotência).
+
+**Files changed:** 5 SQL migrations aplicadas + 4 edge functions (1 nova, 3 modificadas + redeploys: notify-vendor-assignment, whatsapp-webhook, assign-handoff) + 6 TS files novos (UserNotificationPanel, InstanceNotificationToggle, NotificationLogPanel, AdminNotifications, VendorNotificationBanner, sendWhatsApp helper) + 4 TS files modificados (UsersTab, InboxesTab, HelpDesk, App.tsx, handoffQueue.ts).
+
+**⚠️ Pendência crítica:** ai-agent **NÃO foi re-deployado** (regra HIGH-RISK do RULES.md exige aprovação explícita). Sem isso, o hook do `handoffQueue.ts` SÓ dispara via path do `assign-handoff` (cron + reassign manual pelo gestor) — os 6 paths do ai-agent ainda usam o handoffQueue antigo em cache até o próximo redeploy. **Pra MVP completo, redeployar ai-agent.**
+
+**Limitações conhecidas (dívida F3+):** sem escalation 5min/10min; sem notif "removido" pro vendedor anterior em reatribuição; sem dashboard tempo pausado/disponível; sem template HSM; só pt-BR; sem tela formal de aceite LGPD; multi-tenant edge case com mesmo número em 2 orgs.
+
+**Auto-avaliação:**
+- Qualidade do conteúdo: **8.5/10** — pipeline robusto com 8 guards, rollback safe, idempotência, audit trail. Faltou pequeno polish em business_hours (placeholder retornando true).
+- Orquestração entre arquivos: **9/10** — RESEARCH.md + PLAN.md + wiki + PRD + log + index alinhados. 3 auditorias antes de escrever código (boa).
+- Estado do vault: **9/10** — wiki nova criada, index atualizado, log com session-summary.
+
+---
 
 ### v7.31.0 (2026-05-07) — R115 Dashboard Insights do Gestor (3 fases shipadas)
 

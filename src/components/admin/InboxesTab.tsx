@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ManageInboxUsersDialog from '@/components/dashboard/ManageInboxUsersDialog';
+import { InstanceNotificationToggle } from '@/components/admin/notification/InstanceNotificationToggle';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -361,6 +362,17 @@ const InboxesTab: React.FC<Props> = ({ onTeamChanged, openCreate, onOpenCreateCh
                       </div>
                       <p className="text-xs text-muted-foreground">
                         Usado quando o handoff não tem perfil ou funil definindo um departamento. Permite a fila inteligente atribuir um atendente automaticamente.
+                      </p>
+                    </div>
+
+                    {/* Notificações WhatsApp por instância */}
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold">Notificações WhatsApp pra vendedores</p>
+                      <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-muted/20 border border-border/30">
+                        <InstanceNotificationToggle instanceId={inbox.instance_id} />
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Quando ativado, vendedores recebem alerta no WhatsApp pessoal sempre que receberem um lead. Cadastre o número do vendedor em <strong>Membros</strong>.
                       </p>
                     </div>
 

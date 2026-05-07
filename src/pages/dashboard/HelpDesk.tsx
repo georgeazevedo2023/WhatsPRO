@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ConversationList } from '@/components/helpdesk/ConversationList';
 import QueuePauseToggle from '@/components/helpdesk/QueuePauseToggle';
+import { VendorNotificationBanner } from '@/components/helpdesk/VendorNotificationBanner';
 import { ChatPanel } from '@/components/helpdesk/ChatPanel';
 import { ContactInfoPanel } from '@/components/helpdesk/ContactInfoPanel';
 import { ManageLabelsDialog } from '@/components/helpdesk/ManageLabelsDialog';
@@ -371,6 +372,11 @@ const HelpDesk = () => {
           <QueuePauseToggle />
         </div>
       )}
+
+      {/* Notif handoff: banner contextual quando janela WhatsApp 24h expirou/vai expirar */}
+      <div className="px-3 pb-2">
+        <VendorNotificationBanner />
+      </div>
 
       {/* Row 2 — escopo tabs full-width, touch target 44px mobile / 36px desktop */}
       <div className="px-3 pb-2">

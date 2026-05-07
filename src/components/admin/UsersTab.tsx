@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import ManageUserInstancesDialog from '@/components/dashboard/ManageUserInstancesDialog';
+import { UserNotificationPanel } from '@/components/admin/notification/UserNotificationPanel';
 import type { Database } from '@/integrations/supabase/types';
 
 type InboxRole = Database['public']['Enums']['inbox_role'];
@@ -62,6 +63,13 @@ interface UserWithRole {
   instances: { id: string; name: string; phone: string | null }[];
   inboxMemberships: { inbox_id: string; inbox_name: string; instance_name: string; role: InboxRole; can_view_all: boolean; can_view_unassigned: boolean; can_view_all_in_dept: boolean }[];
   departments: { id: string; name: string; inbox_name: string; is_default: boolean }[];
+  // Notif WhatsApp (lidos via select * em user_profiles)
+  personal_whatsapp?: string | null;
+  notify_on_assignment?: boolean;
+  whatsapp_handshake_at?: string | null;
+  whatsapp_session_until?: string | null;
+  notifications_paused_until?: string | null;
+  notifications_paused_reason?: string | null;
 }
 
 interface Props {
@@ -680,6 +688,21 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                               );
                             })()}
                           </div>
+
+                          {/* SEÇÃO: Notificações WhatsApp */}
+                          <UserNotificationPanel
+                            user={{
+                              id: u.id,
+                              full_name: u.full_name,
+                              personal_whatsapp: u.personal_whatsapp ?? null,
+                              notify_on_assignment: u.notify_on_assignment ?? true,
+                              whatsapp_handshake_at: u.whatsapp_handshake_at ?? null,
+                              whatsapp_session_until: u.whatsapp_session_until ?? null,
+                              notifications_paused_until: u.notifications_paused_until ?? null,
+                              notifications_paused_reason: u.notifications_paused_reason ?? null,
+                            }}
+                            onUpdated={fetchUsers}
+                          />
 
                           {/* SEÇÃO: Instâncias */}
                           <div className="space-y-2">
