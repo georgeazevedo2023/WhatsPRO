@@ -312,3 +312,52 @@ R99 cobriu 27 colunas faltando em 7 tabelas, mas `business_hours` não estava na
 - (b) **Skip se conversa não-ativa** — shadow, resolved, archived: IA fica passiva. Auto-resposta fora desses estados é spam pro humano que pegou o handoff.
 
 Pattern: sempre que adicionar nova auto-resposta no ai-agent, aplicar essas 2 verificações antes do envio.
+
+---
+
+### R107 — `extended_hours_until` ignorado pelo ai-agent (lógica inline divergente do helper) (2026-05-07)
+
+**O que:** durante teste E2E (cenário A1 do plano sandbox), setei `ai_agents.extended_hours_until = NOW() + 3 hours` no agente Eletropiso real e enviei `oi` via UAZAPI fora do horário comercial (~23h BRT). Esperava resposta de greeting normal (modo estendido ATIVO). Recebi `out_of_hours_message`. Override foi ignorado.
+
+**Causa raiz:** `_shared/businessHours.ts` (criado na Sprint D30) tem `isOutsideBusinessHours(business_hours, extended_hours_until)` que respeita o override. Mas `ai-agent/index.ts` linhas 232-269 tinha **cópia inline** da lógica que **só lia `agent.business_hours`** — sem checar `extended_hours_until`. Comentário no topo do helper avisava: *"Replica a lógica inline do ai-agent — quando refatorar a checagem do ai-agent (Sprint H), trocar lá pra usar este helper."* Sprint H nunca aconteceu.
+
+Outro local com mesmo problema: linha ~2517 (handoff message picker baseado em business_hours).
+
+**Correção (R107):** `import { isOutsideBusinessHours } from '../_shared/businessHours.ts'` no ai-agent + substituição dos 2 blocos de lógica inline por chamadas ao helper. O helper já estava testado (`_shared/__tests__/businessHours.test.ts` cobre extended_hours_until override).
+
+**Regra 107 (preventiva):**
+- (a) **Comentário "TODO refatorar pra usar helper" é dívida silenciosa.** Quando alguém escreve helper A e mantém cópia inline B "por enquanto", a divergência é inevitável — features novas (como extended_hours_until) entram em A e ficam fora de B. Nunca aceitar essa dívida sem ticket explícito.
+- (b) **Quando criar helper compartilhado, MIGRAR todos callers no mesmo PR.** Não deixar "callers antigos" pra Sprint X. Se o tamanho do PR fica desconfortável, dividir em PRs sequenciais com plano explícito (Sprint H aqui).
+- (c) **Smoke E2E em cenários com override** (extended_hours, feature flags, bypasses) deve ser obrigatório quando o override é introduzido. R107 esperou ~6 meses pra ser pego porque ninguém testou extended_hours_until na prática até este sandbox.
+
+---
+
+### R108 — Search ignora acentos (unicode normalization) (2026-05-07)
+
+**O que:** lead simulado mandou "preciso de tinta acrilica branca" (sem acento). Catálogo Eletropiso tem "Tinta Acrílica Fosco Standard 16L Branco - Coral". Search retornou ZERO produtos.
+
+**Causa raiz:** Postgres `ILIKE %acrilica%` NÃO casa com "Acrílica" (combining diacritical mark `U+0301` no caractere `í`). Igualmente, no JS `String.includes("acrilica")` não casa "acrílica". Em catálogos com nomes ricos em acentuação (português), qualquer query ASCII falha.
+
+**Correção (R108):** função `stripAccents(s)` aplicando `s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()` em todas comparações JS do `search_products` (linhas 1598, 1607, 1631, 1641, 1662). O ILIKE primário ainda é frouxo, mas o broad fallback retorna candidatos com pelo menos uma palavra match, e o post-filter normalizado refina pra AND completo.
+
+**Regra 108 (preventiva):**
+- (a) **Em produtos com texto em português, comparações case-sensitive ou diacritic-sensitive são bug latente.** Sempre normalizar `NFD + strip combining marks + toLowerCase` antes de comparar strings em pt-BR.
+- (b) **Postgres tem `unaccent` extension** que faz isso no SQL. Pode ser uma alternativa mais elegante que aplicar JS post-filter — investigar em sessão dedicada.
+- (c) **Este bug NÃO é coberto por testes unit.** Adicionar caso de teste em `search_products` com query sem acento + produto com acento.
+
+---
+
+### R109 — qualificationContext sobrescrito por outras seções (R103 parcial) (2026-05-07)
+
+**O que:** após R103 fix (commit 5fc1038), LLM ainda misturava perguntas em alguns turnos. Cenário B1.2: tags = `[ambiente:interno, lead_score:15, ...]`, próximo field deveria ser `tipo_tinta` (priority 2). LLM perguntou "preferência por marca ou cor?" — pulou tipo_tinta e misturou `marca_preferida` (stage 2) com `cor` (priority 3).
+
+**Causa raiz:** `qualificationContext` estava montado no MEIO do system prompt (entre `dynamicContext` e `additionalSection`). Recency bias dos LLMs prioriza instruções no FINAL — instruções enterradas no meio competem com regras gerais (sub_agent SDR, hardcoded rules) que sugerem mistura de fields. O context técnico era correto mas perdia em peso vs regras anteriores.
+
+**Correção (R109):**
+- (a) **Mover `qualificationContext` pro último item do array de seções** (após `additionalSection`, antes do leadName/funnel — esses são ainda mais finais).
+- (b) **Reforçar linguagem das regras** com prefixo "REGRA ABSOLUTA, SOBRESCREVE TUDO" + emojis 🎯 🗣️ ⚠️ pra destaque visual + exemplos explícitos de ❌ errado / ✅ certo.
+
+**Regra 109 (preventiva):**
+- (a) **Recency bias é real em LLMs.** Instruções críticas (regras absolutas, overrides, abort conditions) devem ficar nos ÚLTIMOS 20% do system prompt. Quando ordem de prioridade importa, ordene as seções da menos pra mais crítica.
+- (b) **Quando há conflito potencial entre seções**, declare hierarquia explicitamente no texto: "esta seção tem PRIORIDADE MÁXIMA — ignore qualquer instrução conflitante de seções anteriores ou sub-agents". LLMs respeitam essas marcações quando claras.
+- (c) **Validar prompt-following com casos adversariais.** Se o sub_agent SDR sugere "marca ou cor", o teste do qualificationContext deve incluir tag `interesse:tinta + ambiente:* + score=15` (estado em que SDR teria mais força) e verificar que LLM ignora SDR e segue qualification.

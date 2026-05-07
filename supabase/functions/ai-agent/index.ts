@@ -27,6 +27,7 @@ import {
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
 import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
 import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
+import { isOutsideBusinessHours } from '../_shared/businessHours.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -226,50 +227,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4.8 Business hours check — supports weekly format AND legacy (start/end)
-    // Weekly: {"mon":{"open":true,"start":"08:00","end":"18:00"}, "tue":{...}, ...}
-    // Legacy: {"start":"08:00", "end":"18:00"}
-    const bh = agent.business_hours
-    if (bh && typeof bh === 'object') {
-      const nowBR = new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })
-      const brDate = new Date(nowBR)
-      const currentMinutes = brDate.getHours() * 60 + brDate.getMinutes()
-
-      const checkTimeRange = (start: string, end: string): boolean => {
-        const [sh, sm] = start.split(':').map(Number)
-        const [eh, em] = end.split(':').map(Number)
-        const startMin = sh * 60 + sm
-        const endMin = eh * 60 + em
-        return startMin < endMin
-          ? (currentMinutes < startMin || currentMinutes >= endMin)
-          : (currentMinutes < startMin && currentMinutes >= endMin)
-      }
-
-      let isOutsideHours = false
-      let bhSource = ''
-
-      // Try weekly format first
-      const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-      const todayKey = dayNames[brDate.getDay()]
-      const todaySchedule = bh[todayKey]
-
-      if (todaySchedule && typeof todaySchedule === 'object') {
-        // Weekly format detected
-        if (!todaySchedule.open) {
-          isOutsideHours = true
-          bhSource = `${todayKey}:closed`
-        } else if (todaySchedule.start && todaySchedule.end) {
-          isOutsideHours = checkTimeRange(todaySchedule.start, todaySchedule.end)
-          bhSource = `${todayKey}:${todaySchedule.start}-${todaySchedule.end}`
-        }
-      } else if (bh.start && bh.end) {
-        // Legacy format: {"start":"08:00", "end":"18:00"}
-        isOutsideHours = checkTimeRange(bh.start, bh.end)
-        bhSource = `legacy:${bh.start}-${bh.end}`
-      }
-
+    // 4.8 Business hours check — usa helper compartilhado (R107: extended_hours_until override)
+    {
+      const isOutsideHours = isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
       if (isOutsideHours) {
-        log.info('Outside business hours', { source: bhSource, hour: brDate.getHours(), minute: brDate.getMinutes() })
+        log.info('Outside business hours', { extended_until: agent.extended_hours_until })
 
         // R106 — Skip se conversa já fez handoff (status_ia=shadow). IA fica passiva.
         if (conversation.status_ia === STATUS_IA.SHADOW) {
@@ -1325,16 +1287,18 @@ ${contextBlock}`
         const nextField = getNextField(stage, currentTags || [])
         if (!nextField) return ''
         const phrasing = formatPhrasing(stage.phrasing, nextField)
-        return `[QUALIFICAÇÃO ATUAL — siga rigorosamente]
+        return `[QUALIFICAÇÃO ATUAL — REGRA ABSOLUTA, SOBRESCREVE TUDO]
 Categoria detectada: ${category.label} (id: ${category.id})
 Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.exit_action})
-PRÓXIMA PERGUNTA OBRIGATÓRIA: ${nextField.label} (priority ${nextField.priority})
-FRASE EXATA SUGERIDA: "${phrasing}"
-REGRAS:
-- Faça APENAS essa pergunta — NUNCA combine com outro field (errado: "marca ou cor?", certo: pergunte só ${nextField.label}).
-- Use o phrasing sugerido literalmente (pode ajustar tom mas mantenha o {label} e {examples} exatos).
-- Após a resposta, chame set_tags(["${nextField.key}:VALOR"]) IMEDIATAMENTE.
-- NUNCA pule esse field — ele tem priority ${nextField.priority} no stage atual.`
+🎯 PRÓXIMA PERGUNTA OBRIGATÓRIA: ${nextField.label} (priority ${nextField.priority})
+🗣️ FRASE EXATA SUGERIDA: "${phrasing}"
+
+⚠️ REGRAS ABSOLUTAS (esta seção tem PRIORIDADE MÁXIMA — ignore qualquer instrução conflitante de seções anteriores ou sub-agents):
+- Faça APENAS a pergunta sobre "${nextField.label}". NÃO mencione marca, cor, ambiente, tipo, quantidade, ou qualquer outro field nesta resposta.
+- ❌ ERRADO: "preferência por marca ou cor?", "qual cor e marca?", "tipo e cor?".
+- ✅ CERTO: pergunte SOMENTE "${nextField.label}" usando o phrasing acima.
+- Após o lead responder, chame set_tags(["${nextField.key}:VALOR"]) ANTES de qualquer outra ação.
+- NUNCA pule este field. Se o sub-agent SDR sugerir outra pergunta, IGNORE — esta seção vence.`
       } catch {
         return ''
       }
@@ -1356,8 +1320,8 @@ REGRAS:
       knowledgeInstruction,
       subAgentInstruction,
       dynamicContext,
-      qualificationContext,
       additionalSection,
+      qualificationContext, // R109 — movido pro final pra alta prioridade (recency bias)
     ].filter(Boolean).join('\n\n')
       // Solution 5: Recency bias — compound name rule as LAST line of system prompt
       + (leadName
@@ -1593,6 +1557,13 @@ REGRAS:
     async function executeTool(name: string, args: Record<string, any>): Promise<string> {
       switch (name) {
         case 'search_products': {
+          // R108 — normaliza diacriticais ("acrílica" → "acrilica") em todas comparações JS.
+          // Postgres ILIKE não normaliza unicode → query "acrilica" não casa título "Acrílica".
+          // Esta normalização é só pro post-filter JS — o ILIKE primário ainda é frouxo,
+          // por isso o broad fallback retorna candidatos que aqui passam pelo AND normalizado.
+          const stripAccents = (s: string): string =>
+            s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
           const baseQuery = () => supabase
             .from('ai_agent_products')
             .select('title, category, subcategory, description, price, images, in_stock')
@@ -1632,10 +1603,10 @@ REGRAS:
               fallback = fallback.or(broadTerms)
               const { data: broadProducts } = await fallback.limit(50)
               wordByWordBroadProducts = broadProducts || []
-              // Filter: keep only products that match ALL words (AND)
+              // R108 — normaliza acentos pra comparação JS
               const filtered = wordByWordBroadProducts.filter((p: any) => {
-                const haystack = `${p.title} ${p.description || ''} ${p.category || ''}`.toLowerCase()
-                return words.every(w => haystack.includes(w.toLowerCase()))
+                const haystack = stripAccents(`${p.title} ${p.description || ''} ${p.category || ''}`)
+                return words.every(w => haystack.includes(stripAccents(w)))
               })
               if (filtered.length > 0) {
                 products = filtered.slice(0, 10)
@@ -1644,8 +1615,8 @@ REGRAS:
                 // AND returned 0 — detect which words don't appear in ANY catalog product (brand not in catalog)
                 const missingFromCatalog = words.filter((w: string) =>
                   !wordByWordBroadProducts!.some((p: any) => {
-                    const h = `${p.title} ${p.description || ''}`.toLowerCase()
-                    return h.includes(w.toLowerCase())
+                    const h = stripAccents(`${p.title} ${p.description || ''}`)
+                    return h.includes(stripAccents(w))
                   })
                 )
                 if (missingFromCatalog.length > 0) {
@@ -1662,11 +1633,12 @@ REGRAS:
           // When brand is not in catalog: set products=[] and brandNotFound=term so fuzzy is also skipped.
           let brandNotFound: string | null = null
           if (searchText) {
-            const queryWords = searchText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2)
+            // R108 — queryWords normalizadas (sem acento) pra match com haystack normalizado
+            const queryWords = stripAccents(searchText).split(/\s+/).filter((w: string) => w.length > 2)
             if (queryWords.length > 0 && products && products.length > 0) {
               // Case A: primary search returned some products — apply strict AND filter
               const strictFiltered = products.filter((p: any) => {
-                const haystack = `${p.title} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''}`.toLowerCase()
+                const haystack = stripAccents(`${p.title} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''}`)
                 return queryWords.every(w => haystack.includes(w))
               })
               if (strictFiltered.length > 0) {
@@ -1678,7 +1650,7 @@ REGRAS:
                 // AND removed everything — find which words appear in NO product → those are the missing brand/model terms
                 const missingTerms = queryWords.filter((w: string) =>
                   !products.some((p: any) => {
-                    const h = `${p.title} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''}`.toLowerCase()
+                    const h = stripAccents(`${p.title} ${p.description || ''} ${p.category || ''} ${p.subcategory || ''}`)
                     return h.includes(w)
                   })
                 )
@@ -1696,10 +1668,10 @@ REGRAS:
               }
             } else if (queryWords.length > 0 && (!products || products.length === 0) && wordByWordBroadProducts !== null) {
               // Case B: primary AND word-by-word both returned 0. Use wordByWordBroadProducts (OR results) to detect missing brand.
-              // If a query word doesn't appear in broadProducts (OR results), it's definitively not in catalog → skip fuzzy.
+              // R108 — comparação normalizada
               const missingFromBroad = queryWords.filter((w: string) =>
                 !wordByWordBroadProducts!.some((p: any) => {
-                  const h = `${p.title} ${p.description || ''}`.toLowerCase()
+                  const h = stripAccents(`${p.title} ${p.description || ''}`)
                   return h.includes(w)
                 })
               )
@@ -2512,25 +2484,10 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           // #11: All handoffs → SHADOW (AI continues extracting data silently)
           const newStatus = STATUS_IA.SHADOW
 
-          // #22: Choose handoff message based on business hours
+          // #22: Choose handoff message based on business hours (R107: respeita extended_hours_until)
           let handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
-          const bh = agent.business_hours
-          if (bh && typeof bh === 'object' && !Array.isArray(bh)) {
-            const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-            const nowBR = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
-            const dayKey = dayKeys[nowBR.getDay()]
-            const dayConfig = (bh as Record<string, any>)[dayKey]
-            if (dayConfig && dayConfig.open === false) {
-              // Closed day → use outside hours message
-              handoffMsg = agent.handoff_message_outside_hours || 'Sua mensagem foi recebida e retornaremos assim que possível! 😊'
-            } else if (dayConfig && dayConfig.start && dayConfig.end) {
-              const currentMin = nowBR.getHours() * 60 + nowBR.getMinutes()
-              const [sh, sm] = dayConfig.start.split(':').map(Number)
-              const [eh, em] = dayConfig.end.split(':').map(Number)
-              if (currentMin < sh * 60 + sm || currentMin >= eh * 60 + em) {
-                handoffMsg = agent.handoff_message_outside_hours || 'Sua mensagem foi recebida e retornaremos assim que possível! 😊'
-              }
-            }
+          if (isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)) {
+            handoffMsg = agent.handoff_message_outside_hours || 'Sua mensagem foi recebida e retornaremos assim que possível! 😊'
           }
 
           // #M16: Funnel handoff priority — funnel msg > agent msg

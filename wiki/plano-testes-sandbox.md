@@ -236,6 +236,7 @@ Sessão 4 (~6h): Onda 5 Playwright → cobertura UI
 
 ## Cross-refs
 
+- [[wiki/plano-testes-sandbox-v2]] — **v2 (blocos F/G/H/J)**: perfil cliente, objeções, venda fechada, métricas
 - [[wiki/sandbox-ia-instancia]] — refs técnicas da instância
 - [[wiki/erros-e-licoes]] — R103, R104, R105, R106
 - [[wiki/playwright-onda1]], [[wiki/playwright-onda2]], [[wiki/playwright-onda3]], [[wiki/playwright-onda4]] — cobertura Playwright atual (120 testes)

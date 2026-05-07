@@ -92,6 +92,7 @@ Se pular, PARE e volte ao passo 1.
 1. **SEMPRE ser critico** — questionar premissas, verificar dados, nao assumir que funciona sem testar
 2. **SEMPRE planejar antes de executar** — criar plano, avaliar paralelizacao com subagentes ([[wiki/protocolo-subagentes]]), obter aprovacao
 3. **SEMPRE auto-avaliar** — dar nota honesta para o proprio trabalho, identificar gaps
+4. **SEMPRE ser didatico** — explicar termos tecnicos em linguagem simples, dar **exemplo concreto de caso de uso** (situacao real do dia-a-dia da Eletropiso/WhatsPRO), evitar jargao seco. Ex: nao basta dizer "handoff" — explicar "quando IA passa a conversa pra um vendedor humano, ex: cliente pediu desconto". Sempre que apresentar opcoes/decisoes, formato: **(a) o que e** → **(b) por que importa** → **(c) caso de uso real** → **(d) recomendacao**
 
 ### Protecao
 4. **NUNCA quebrar codigo em producao** — testar localmente antes de deploy. Se nao tem certeza, perguntar

@@ -9,6 +9,75 @@ type: log
 
 ---
 
+## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-07 madrugada (Sessão 1 Sandbox)
+
+> Continuação direta da sessão anterior. Sandbox NÃO é receptor — é EMISSOR (token UAZAPI da Sandbox manda msgs pro número da Eletropiso real). Webhook de prod (`eletropiso_2026` n8n) processa. Próxima sessão lê este bloco + relatório-testes-sandbox-sessao1.
+
+### O que foi feito (~2h, ~30 msgs E2E)
+
+**Setup correto entendido (depois de 1 ida e volta):**
+- Sandbox `558185749970` (token `9a6ff3f5-...`) ENVIA msgs via UAZAPI `/send/text` se passando por lead
+- Eletropiso real `558181696546` recebe → webhook UAZAPI → n8n `eletropiso_2026` → `whatsapp-webhook` Supabase
+- ai-agent que responde é o de PRODUÇÃO (`174af654-...`), não o Sandbox isolado
+- Para testar fora-de-horário, setei `extended_hours_until = NOW() + 3h` (já restaurado pra NULL no fim)
+
+**Cenários executados:**
+- A1, A2, B1 (4 turnos), D1+G1, D3, H1, F1, C2 = 8 cenários cobertos
+- Conversa de teste: `d317ef4b-6dfb-4944-aa24-af9872630cca` (contact 558185749970 / "Wsmart Digital")
+- Custo total: $0.0536 USD (~R$ 0.29)
+
+**3 fixes shipados:**
+- **R107** — `extended_hours_until` ignorado: `ai-agent/index.ts` tinha lógica inline divergente do helper `_shared/businessHours.ts`. Fix: usar helper. Deployed.
+- **R108** — Search ignora acentos: query "acrilica" não casava "Acrílica". Fix: `stripAccents()` em todas comparações JS do `search_products`. Deployed.
+- **R109** — qualificationContext perdia força: estava no meio do prompt. Fix: mover pro fim + linguagem reforçada (REGRA ABSOLUTA + emojis + exemplos errado/certo). Deployed.
+
+**1 bug pendente (R110):**
+- R104 guard `<=2` ainda gera falsos positivos `marca_indisponivel:parede,_interna` pra palavras comuns
+- Sugestão de fix: guard `<=1` + stop-words filter no search
+
+**Gaps de feature documentados:**
+- G1: tag `objecao:preco` aparece via extração shadow (assíncrona) mas não no momento do handoff
+- H1: detecta `intencao:compra` mas não tag específica `venda:fechada`
+- Inconsistência tag `interesse:tinta` ↔ `interesse:tintas` (singular/plural)
+
+**Coleta de dados validada:**
+- ✅ Nome, profissão (`tipo_cliente:pintor`), notas livres, interesse, especificação, ambiente, cor, quantidade, objeções, intenção compra, produto pesquisado, atribuição (round-robin), department, status
+
+**Comportamentos validados em prod:**
+- Greeting fixed (0 tokens), identificação, qualificação por categoria, search com fuzzy, carrossel UAZAPI, handoff via trigger, status_ia=shadow, R106 cooldown, out-of-scope elegante (regra de ouro "nunca diga não temos")
+
+### Estado de produção AGORA
+
+- Eletropiso real `prfcbfumyrrycsrcrvms` operacional
+- `ai-agent` com 3 fixes (R107+R108+R109) shipped
+- `extended_hours_until` restaurado pra NULL (cleanup)
+- Conversa teste em estado limpo (last cleanup)
+- Working tree dirty: 4 arquivos modificados (ai-agent, businessHours import, plano-testes-v2, erros-licoes, relatorio-sessao1, log atualizado, MEMORY)
+
+### Próximas sessões sugeridas
+
+| Sessão | Cenários |
+|---|---|
+| 2 | B2 (marca explícita), B3 (porta), B4 (default), C1 (produto direto), C3 (excluído) |
+| 3 | F2 (eletricista), F3 (cliente final), G2/G3 (objeções), H2/H3 (venda fechada refinada) |
+| 4 | E1 (out-of-hours real), E2 (áudio), I1-I3 (limites de interação) |
+| 5 (R110) | Fix guard <=1 + stop-words + reteste F1, B1.2 |
+
+### 🚀 FRASE PRA RETOMAR
+
+- **`continuar plano sandbox sessão 2`** — pega B2 em diante
+- **`corrigir R110`** — fix guard + stop-words antes de mais testes
+- **`commit sessão 1`** — commitar 3 fixes + docs
+
+### Auto-avaliação 0-10 da sessão
+
+- **Conteúdo:** 8/10 — 3 bugs reais corrigidos em prod, 8 cenários cobertos com data real, relatório completo. Faltou cobrir B2/B3/B4 e blocos restantes (escopo grande pra 1 sessão).
+- **Orquestração:** 9/10 — relatório-sessao1 + erros-licoes (R107/R108/R109/R110) + log + plano v2 + MEMORY, todos cross-referenciados. R110 fica pendente documentado.
+- **Honestidade:** 10/10 — relatórios mostram FAILs e PARCIAIS, não inflei resultados. R109 não foi reagudo (foi-se sem reteste isolado por foco em coverage).
+- **Estado vault:** 9/10 — pendência de commit, mas tudo documentado em wiki/log.
+
+---
+
 ## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-06 noite
 
 > Sessão limpa pelo usuário. Próxima sessão lê este bloco + MEMORY.md + roadmap + erros-e-licoes pra continuar sem contexto perdido.
