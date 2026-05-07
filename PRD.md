@@ -40,6 +40,49 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.30.1 (2026-05-07) — R114 detectObjection determinístico + LLM gate + CHECK constraint legacy
+
+**Contexto:** Sessão 4 sandbox executou Onda 2 (G2/G3/H2/H3/M6/E1) e descobriu que `detectObjection` (R113.1) só rodava dentro do flow de handoff, enquanto `detectSaleClosed` rodava em toda msg. G3 ("Achei mais barato em outra loja por R$ 80") falhou com tipo errado: LLM tageou `objecao:preco` via `set_tags` em vez de `concorrencia`. Fix em 3 partes.
+
+**Parte 1 — detectObjection roda em toda msg (mirror detectSaleClosed):**
+- `ai-agent/index.ts` ~linha 331: novo bloco idempotente (`!hasObjecaoTag`), insere log `event=objection_detected` com `detection_type` no metadata.
+- Mantém chamadas existentes em handoff (linhas 544/3140) como fallback.
+
+**Parte 2 — Handler set_tags rejeita objecao:* se já existe (LLM gate):**
+- `ai-agent/index.ts` ~linha 2363 logo após `VALID_OBJECOES` check.
+- `mergeTags` é keyed por prefix → LLM substituía o tipo determinístico via `set_tags`. Guard novo bloqueia.
+- `VALID_OBJECOES` recebeu `'concorrencia'` (helper retorna com -encia, set aceitava só `concorrente`).
+
+**Parte 3 — CHECK constraint legacy duplicado em ai_agent_logs:**
+- DB tinha 2 CHECK constraints idênticos: `ai_agent_logs_event_check` (atualizado em migration `20260507143000_r114_ai_agent_logs_event_check.sql`) + `chk_ai_agent_logs_event` (legacy, bloqueando).
+- Migration `20260507144700_r114_drop_legacy_chk_event.sql` dropa o legacy.
+- **Bug herdado de R113.1**: `event=sale_closed_detected` também nunca foi logado (insert silenciosamente falhava — Supabase JS não joga em check violation).
+
+**Validação E2E G3 reteste #4:**
+- Frase: "Achei mais barato em outra loja por R$ 80"
+- Tag final: `objecao:concorrencia` ✅ (regex)
+- Log: `event=objection_detected, detection_type=concorrencia` ✅ (observabilidade)
+- LLM tentou `set_tags(["objecao:preco"])` mas foi rejeitado pelo guard
+- Resposta IA: "Entendo, Wsmart! Temos opções com excelente custo-benefício e você pode parcelar em até 12x no cartão." (negociação esperada, não handoff)
+
+**Outros 5 cenários Onda 2 (PASS antes do fix):**
+- H3 "Combinado, fechei" → `venda:fechada` (detectSaleClosed type=fechado)
+- H2 "Já efetuei o pagamento, segue o comprovante" → `venda:fechada` (type=comprovante)
+- G2 "Vou pensar e te respondo depois" → LLM acertou `objecao:indecisao` (frase unívoca)
+- M6 foto + caption "segue o comprovante" → `venda:fechada` (regex em caption funciona)
+- E1 3 msgs com `thu.open=false` → 1 só `out_of_hours_message` (R105+R106 cooldown 60min)
+
+**Cenários droppados durante auditoria:**
+- M8 (carrossel ≥4): catálogo Eletropiso só tem 3 tintas/categoria max
+- M10 (filtros combinados): duplicação parcial M2+B2 já validados
+- I1-I3 (limites de interação): não roteirizados, sessão de planning separada
+
+**Lições novas (R114):** CHECK constraints duplicados são bug latente → auditar via `pg_constraint`. Supabase JS `await insert(...)` não joga em check violation → checar `.error` em INSERTs críticos. Regex determinístico precisa de proteção contra LLM substituir via tools.
+
+**Próximo:** Onda 3 sandbox (N3 áudio, N7 retention, M4 vision, M5/M9 mídias).
+
+---
+
 ### v7.30.0 (2026-05-07) — R113 sandbox testing infra + R113.1 G1/H1 + R113.2 ai-agent auth fix
 
 **Contexto:** Sessão 3 do plano sandbox-testing pós-migração Eletropiso. Começou pela anomalia 401 da sessão 2 (Task #19), virou 3 fixes profundos em produção. 5 commits, ~4h, validado E2E em msg real via UAZAPI Sandbox → Eletropiso.

@@ -328,6 +328,32 @@ Deno.serve(async (req) => {
       }
     }
 
+    // R114: detect objection signals deterministically on every inbound msg.
+    // Mirrors detectSaleClosed pattern. Pre-fix, detectObjection only ran inside
+    // handoff flow (lines ~544/3140) — when LLM didn't trigger handoff (tries to
+    // negotiate first), regex never executed and LLM picked subtype via set_tags,
+    // erring on ambiguous phrases (e.g. G3 "achei mais barato em outra loja" got
+    // tagged as preco instead of concorrencia). Handoff-path call kept as fallback.
+    {
+      const hasObjecaoTag = (conversation.tags || []).some((t: string) => t.startsWith('objecao:'))
+      const textForDetection = shadow_only ? (vendor_message || '') : incomingText
+      if (!hasObjecaoTag && textForDetection) {
+        const objectionType = detectObjection(textForDetection)
+        if (objectionType) {
+          await supabase.from('conversations').update({
+            tags: mergeTags(conversation.tags || [], { objecao: objectionType }),
+          }).eq('id', conversation_id)
+          conversation.tags = mergeTags(conversation.tags || [], { objecao: objectionType })
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'objection_detected',
+            latency_ms: Date.now() - startTime,
+            metadata: { detection_type: objectionType, incoming_text: textForDetection.substring(0, 200) },
+          })
+          log.info('Objection detected', { type: objectionType, conversation_id })
+        }
+      }
+    }
+
     // 5.4.1 #M16: Early load funnel data (needed for handoff triggers + max_lead_messages before context injection)
     // #M17 F2: Added funnel_prompt, handoff_rule, handoff_department_id, handoff_max_messages for Funis Agênticos
     type FunnelRow = {
@@ -2301,7 +2327,9 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           // service_categories valida sem alterar codigo (ver buildValidTagKeys).
           const VALID_KEYS = buildValidTagKeys(aliasConfig)
           const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
-          const VALID_OBJECOES = new Set(['preco','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro','frete','comparando','sem_urgencia'])
+          // R114 v2: 'concorrencia' (com -encia) sincronizado com objectionDetection.ts.
+          // 'concorrente' mantido por compat retroativa (LLM pode usar qualquer um).
+          const VALID_OBJECOES = new Set(['preco','concorrencia','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro','frete','comparando','sem_urgencia'])
           const aliasMap = new Map<string, string>()
           if (aliasCategory) {
             for (const stage of aliasCategory.stages) {
@@ -2332,6 +2360,12 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             if (!VALID_KEYS.has(key)) { rejected.push(rawTag); log.warn('Tag rejected: invalid key', { rawTag, resolvedKey }); continue }
             if (key === 'motivo' && !VALID_MOTIVOS.has(value)) { rejected.push(rawTag); log.warn('Tag rejected: invalid motivo', { tag }); continue }
             if (key === 'objecao' && !VALID_OBJECOES.has(value)) { rejected.push(rawTag); log.warn('Tag rejected: invalid objecao', { tag }); continue }
+            // R114 v2: regex determinístico (linha ~331) já tagged objecao:* pra essa msg.
+            // LLM erra subtipo em frases ambíguas (G3: "preço" vs "concorrência") — não permitir
+            // sobrescrever via set_tags. Idempotência por mensagem.
+            if (key === 'objecao' && (conversation.tags || []).some((t: string) => t.startsWith('objecao:'))) {
+              rejected.push(rawTag); log.info('Tag rejected: objecao already set deterministically', { rawTag }); continue
+            }
             if (rawKey !== resolvedKey) log.info('Tag aliased', { from: rawTag, to: tag })
             newTags.push(tag)
           }

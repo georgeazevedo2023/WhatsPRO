@@ -9,6 +9,126 @@ type: log
 
 ---
 
+## 2026-05-07 (final tarde + noite) — Sessão 4 Sandbox · Onda 2 + R114 SHIPADO (3 partes)
+
+> Sessão 4 = Onda 2 (6 cenários) + fix completo R114 (regex always + LLM gate + CHECK constraint legacy drop). G3 retestado com PASS determinístico + observabilidade. Custo ~R$ 0,60.
+
+### Onda 2 (executada antes do R114)
+
+| # | Frase | Veredito |
+|---|---|---|
+| H3 | "Combinado, fechei" | ✅ PASS detectSaleClosed |
+| H2 | "Já efetuei o pagamento, segue o comprovante" | ✅ PASS detectSaleClosed |
+| G3 v1 | "Achei mais barato em outra loja por R$ 80" | 🟡 PARCIAL (LLM tagged objecao:preco) |
+| G2 | "Vou pensar e te respondo depois" | ✅ PASS (LLM acertou subtipo) |
+| M6 | foto + "segue o comprovante" | ✅ PASS detectSaleClosed em caption |
+| E1 | 3 msgs fora horário | ✅ PASS R105+R106 cooldown |
+
+### R114 — fix shipado em 3 partes (após investigação metódica)
+
+**Parte 1 — R114 v1 (regex em toda msg):** detectObjection movido pra rodar antes do LLM, mirror do detectSaleClosed. Reteste #1 mostrou que era insuficiente — LLM ainda sobrescrevia via set_tags depois.
+
+**Parte 2 — R114 v2 (LLM gate):** handler set_tags agora rejeita `objecao:*` se conversa já tem essa key. VALID_OBJECOES sincronizado: `concorrencia` (com -encia, helper) adicionado ao set, `concorrente` mantido por compat.
+
+**Parte 3 — CHECK constraint legacy:** investigando ausência do log `objection_detected` descobri 2 constraints idênticas em ai_agent_logs (`ai_agent_logs_event_check` + `chk_ai_agent_logs_event`). Migration anterior atualizou só o primeiro. Drop do legacy. **Bug herdado de R113.1** — `sale_closed_detected` também nunca foi logado por isso.
+
+### Validação E2E G3 reteste #4
+
+- Frase idêntica: "Achei mais barato em outra loja por R$ 80"
+- Tag final: `objecao:concorrencia` ✅ (regex)
+- Log: `event=objection_detected, detection_type=concorrencia` ✅ (observabilidade)
+- LLM tentou `set_tags(["objecao:preco"])` mas foi rejeitado pelo guard
+
+### Lições críticas (R114 derivadas)
+
+1. **CHECK constraints duplicados são bug latente** — auditar via `pg_constraint` periodicamente.
+2. **Supabase JS `await insert(...)` não joga em check violation** — failure silencioso. Sempre checar `.error` em INSERTs críticos OU testar manualmente após mudança de schema.
+3. **Regex determinístico precisa de proteção contra LLM** — `mergeTags` keyed por prefix permite LLM substituir. Guard no boundary do tool resolve.
+4. **G3 v1 PASS observado de fora** mas G3 v4 PASS verificado pela observabilidade. Sem o log, não confirma que o caminho determinístico ativou — só infere.
+
+### Cenários droppados durante auditoria (decisão honrada)
+
+- M8 — catálogo Eletropiso só tem 3 tintas como max categoria (carrossel ≥4 não dispara)
+- M10 — duplicação parcial de M2 + B2 já validados em sessões anteriores
+- I1-I3 — não roteirizados, ficaram pra sessão de planning separada
+
+### Cleanup aplicado
+
+`business_hours.thu.open` setado pra false durante E1, restaurado pra true logo após validação.
+
+### Auto-avaliação sessão 4 — 0-10
+
+- **Conteúdo:** 9/10 — 6 cenários executados + 3 fixes shipados + 2 migrations + observabilidade restaurada
+- **Orquestração:** 9/10 — relatório criado + erros-e-licoes atualizado + log + memory + index sync
+- **Honestidade:** 10/10 — confessei R114 v1 incompleto após reteste #1, investiguei até root cause, não escondi a duplicação de constraints
+- **Tempo:** 6/10 — extra ~1h depois do plano "completar Onda 2" pra fechar R114 inteiro
+- **Estado vault:** 9/10 — tudo sincronizado, frase de retomada concreta abaixo
+
+### 🚀 FRASE PRA RETOMAR
+
+**`executar Onda 3 sandbox`** — N3 áudio (decidir geração PTT) · N7 retention (simular via SQL UPDATE last_message_at) · M4 vision (foto produto concorrente) · M5 áudio em fluxo de compra · M9 imagem 404. Custo: R$1-2, 2-3h.
+
+Alternativas:
+- `roteirizar I1-I3 limites de interação` — sessão de planning, R$ 0
+- `auditar auth inline em outras edge functions` (e2e-test, ai-agent-playground) — preventivo R113.2
+- `auditar duplicate constraints em outras tabelas` — preventivo R114
+
+---
+
+## 2026-05-07 (final tarde) — Sessão 4 Sandbox · Onda 2 (G/H/M/E) — 6 cenários, 1 gap R114 documentado [SUBSTITUÍDA — versão atualizada acima]
+
+> Após sessão 3 (R113.x), executada Onda 2 do plano sandbox: cobertura helpers G/H + cenários complementares. 0 fixes shipados nesta sessão — 1 gap arquitetural identificado e documentado (R114). Custo ~R$ 0,40.
+
+### Cenários executados
+
+| # | Frase | Veredito | Mecanismo |
+|---|---|---|---|
+| H3 | "Combinado, fechei" | ✅ PASS | detectSaleClosed regex (fechado) |
+| H2 | "Já efetuei o pagamento, segue o comprovante" | ✅ PASS | detectSaleClosed regex (comprovante) |
+| G3 | "Achei mais barato em outra loja por R$ 80" | 🟡 PARCIAL | LLM tagged objecao:preco (devia: concorrencia) |
+| G2 | "Vou pensar e te respondo depois" | ✅ PASS (semi) | LLM tagged objecao:indecisao corretamente |
+| M6 | foto + "segue o comprovante" | ✅ PASS | detectSaleClosed regex em caption |
+| E1 | 3 msgs fora horário em ~75s | ✅ PASS | R105+R106: 1 só out_of_hours_message |
+
+### Cenários droppados durante auditoria do plano (decisão honrada antes de executar)
+
+- **M8** — catálogo Eletropiso só tem 3 tintas como max categoria (carrossel ≥4 não dispara)
+- **M10** — duplicação parcial de M2 + B2 já validados em sessões anteriores
+- **I1-I3** — não roteirizados, ficaram pra sessão de planning separada
+
+### Achado arquitetural — R114 (gap detectObjection atrás do gate de handoff)
+
+`detectSaleClosed` roda em toda msg inbound (linha 315 ai-agent/index.ts). `detectObjection` só roda dentro de handoff (linhas 544/3140). Quando handoff não dispara (LLM tenta negociar antes), o regex determinístico nunca executa. LLM substitui via `set_tags` mas erra subtipo em frases ambíguas (G3 "preço" vs "concorrência"). Documentado em `wiki/erros-e-licoes.md` com correção proposta (não shipada).
+
+### Validação comportamental
+
+- LLM acerta subtipo em frases unívocas (G2 indecisão, H/M venda)
+- LLM erra em frases multidimensionais (G3 preço+concorrência)
+- Confirma hipótese: regex determinístico > LLM pra categorias enumeradas
+
+### Cleanup aplicado
+
+`business_hours.thu.open` setado pra false durante E1, restaurado pra true logo após validação. Estado original do Eletropiso preservado.
+
+### Auto-avaliação sessão 4 — 0-10
+
+- **Conteúdo:** 8/10 — 6 cenários executados, 1 gap arquitetural documentado, plano auditado antes de executar
+- **Orquestração:** 9/10 — relatório criado + erros-e-licoes atualizado + log + memory + index sync
+- **Honestidade:** 9/10 — droppei 3 cenários durante auditoria (M8 catálogo insuficiente, M10 duplicado, I1-I3 não roteirizados); marquei G3 como parcial em vez de espremer pra PASS
+- **Tempo:** 8/10 — ~30min execução + ~15min documentação
+- **Estado vault:** 9/10 — tudo sincronizado, frase de retomada concreta abaixo
+
+### 🚀 FRASE PRA RETOMAR
+
+**`shipar fix R114 (mover detectObjection pra rodar em toda msg inbound)`** — fix de ~10 linhas + reteste G3 deve virar PASS determinístico. Tempo: 30min, custo: R$ 0,10.
+
+Alternativas:
+- `executar Onda 3 sandbox` (N3 áudio + N7 retention + M4 vision + M5 + M9) — exige decisões de mídia primeiro (geração PTT, URL fotos)
+- `roteirizar I1-I3 limites de interação` — sessão de planning, R$ 0
+- `auditar auth inline em outras edge functions` (e2e-test, ai-agent-playground) — preventivo R113.2
+
+---
+
 ## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-07 tarde (Sessão 3 Sandbox COMPLETA com R113 + R113.1 + R113.2)
 
 > Sessão 3 = 5 commits, 2 root causes profundas (cron 401 + ai-agent auth inline), G1+H1 validados em prod E2E.

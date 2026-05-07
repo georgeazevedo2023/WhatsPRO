@@ -506,3 +506,39 @@ Como `Deno.env.SUPABASE_ANON_KEY` é o `sb_publishable_*` (formato novo), e o ga
 - (a) **Toda chamada interna entre edge functions deve usar `INTERNAL_FUNCTION_KEY`**, não `SUPABASE_ANON_KEY`. Auditoria recomendada: grep `'SUPABASE_ANON_KEY'` em chamadas `fetch` pra outras edge functions.
 - (b) **Não duplique auth inline.** Se uma função tem `verifyCronOrService`, USE essa função. Auth inline divergente é dívida técnica que quebra silencioso.
 - (c) **Teste E2E real após mudanças de auth.** TypeCheck + tests unitários NÃO pegam regressões de auth — só smoke teste com chamada real (curl ou msg via UAZAPI) confirma.
+
+---
+
+### R114 — `detectObjection` atrás do gate de handoff + LLM sobrescrevia subtipo (2026-05-07, ✅ FIX shipado)
+
+**Sintoma:** Sandbox sessão 4 — frase "Achei mais barato em outra loja por R$ 80" deveria gerar tag `objecao:concorrencia` (regex casa em `objectionDetection.ts` por "outra loja" + "achei...barato em"). Mas o LLM tageou `objecao:preco` via `set_tags`, **sem disparar handoff**.
+
+**Causa raiz:** Diferente do `detectSaleClosed` (linha 315 do `ai-agent/index.ts`, roda em **toda msg inbound** antes de qualquer guard), o `detectObjection` é chamado **apenas dentro do flow de handoff** (linhas 544 e 3140). Quando o LLM identifica objeção mas decide não fazer handoff (ex: tenta negociar com "parcelar 12x"), o regex determinístico **nunca executa**. O LLM tagueia via `set_tags`, mas erra subtipo em frases com 2 dimensões (preço + concorrência).
+
+**Evidência E2E (sandbox sessão 4):**
+- G2 "Vou pensar e te respondo depois" → ✅ LLM acertou `objecao:indecisao` (frase unívoca)
+- G3 "Achei mais barato em outra loja por R$ 80" → 🟡 LLM tageou `objecao:preco` (devia ser `concorrencia`)
+
+**Correção shipada em 3 partes:**
+
+**Parte 1 (R114 v1)** — detectObjection roda em toda msg inbound (mirror do detectSaleClosed). Adicionado novo bloco em `ai-agent/index.ts` ~linha 331, idempotente via `!hasObjecaoTag`. Reteste #1 mostrou que apenas isso NÃO basta: LLM ainda chamava `set_tags(["objecao:preco"])` depois e mergeTags substituía.
+
+**Parte 2 (R114 v2)** — guard no handler `set_tags`: se conversa já tem `objecao:*`, rejeita tags novas com mesma key. Adicionado em `ai-agent/index.ts` linha ~2363 logo após VALID_OBJECOES check. Também sincronizado VALID_OBJECOES com helper: `'concorrencia'` (com -encia) adicionado, `'concorrente'` mantido por compat.
+
+**Parte 3 (CHECK constraint fix)** — investigando ausência de `event='objection_detected'` nos logs descobri 2 CHECK constraints em `ai_agent_logs`:
+- `ai_agent_logs_event_check` (atualizado em migration `20260507143000_r114_ai_agent_logs_event_check`)
+- `chk_ai_agent_logs_event` (legacy duplicado, NÃO foi atualizado — bloqueava insert silenciosamente)
+
+Insert do Supabase JS client retorna `{ data, error }` e não joga em check violation, por isso falhava silencioso. **Bug herdado de R113.1** (`sale_closed_detected` também nunca era logado). Drop do legacy em migration `20260507144700_r114_drop_legacy_chk_event`.
+
+**Validação E2E (sandbox sessão 4 reteste #4):**
+- Frase: "Achei mais barato em outra loja por R$ 80"
+- Tag final: `objecao:concorrencia` ✅ (regex)
+- Log: `event=objection_detected, detection_type=concorrencia` ✅ (observabilidade)
+- LLM tentou `set_tags(["objecao:preco"])` mas foi rejeitado pelo guard
+
+**Regra 114 (preventiva):**
+- Detecção determinística por regex roda **antes E protegida do LLM** quando categoria é enumerada (objecao:*, venda:*).
+- LLM tagging via `set_tags` é OK pra dimensões abstratas (sentimento, urgência), ruim pra subtipos fixos.
+- **CHECK constraints duplicados** em DB são bug latente — auditar via `SELECT conname FROM pg_constraint WHERE conrelid = 'tabela'::regclass AND contype = 'c'` periodicamente.
+- **Insert silenciosamente falhando**: Supabase JS `await insert(...)` não joga em error de constraint — sempre checar `.error` em INSERTs críticos OU testar manualmente após mudança de schema.
