@@ -40,6 +40,39 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.30.0 (2026-05-07) — R113 sandbox testing infra + R113.1 G1/H1 + R113.2 ai-agent auth fix
+
+**Contexto:** Sessão 3 do plano sandbox-testing pós-migração Eletropiso. Começou pela anomalia 401 da sessão 2 (Task #19), virou 3 fixes profundos em produção. 5 commits, ~4h, validado E2E em msg real via UAZAPI Sandbox → Eletropiso.
+
+**R113 (commit 8291a3b) — Crons retornavam 401 por gateway-rewrite do Authorization:**
+- Causa: gateway Supabase reescreve `Bearer sb_publishable_*` em JWT 444-char antes de chegar na função. Comparação string com `Deno.env.SUPABASE_ANON_KEY` (que é publishable) sempre falhava.
+- Afetava em loop: `requeue-conversations` (60s), `aggregate-metrics` (hourly), `process-flow-followups` (hourly), `e2e-automated-tests` (6h). D30 fila inteligente, métricas e follow-ups parados há dias.
+- Fix: vault entry nova `CRON_AUTH_KEY` com mesmo valor de `INTERNAL_FUNCTION_KEY` (token neutro 64-char que gateway NÃO reescreve). 5 crons reschedulados via migration `20260507000001_recreate_handoff_queue_cron.sql`. Patch defensivo em `_shared/auth.ts` aceita 5 formatos de token (defesa contra futuras rotações).
+
+**R113.1 (commit 5cbcb42) — G1 (objecao síncrono) + H1 (venda:fechada determinístico):**
+- G1: `detectObjection()` em `_shared/objectionDetection.ts` (6 tipos: preco/prazo/frete/concorrencia/indecisao/qualidade). Roda no momento do handoff → tag `objecao:TIPO` adicionada síncrona ANTES de `status_ia=SHADOW`. Vendedor que pega handoff vê motivo no painel direito imediatamente (antes vinha só via shadow async).
+- H1: `detectSaleClosed()` em `_shared/saleClosedDetection.ts` (4 tipos: comprovante/pago/pix_solicitado/fechado). Roda em TODA msg incoming (até em shadow). Idempotente (skip se `venda:*` já presente). Tag `venda:fechada` independe de LLM extraction.
+- 14 testes Deno passando. SYNC RULE compliance: `'venda'` adicionado a `BASE_VALID_TAG_KEYS`, badge verde no `ContactInfoPanel.tsx`.
+
+**R113.2 (commit 6518a8b) — ai-agent auth inline ignorava verifyCronOrService:**
+- Causa: `ai-agent/index.ts` linhas 70-73 tinha auth inline próprio que comparava direto com `Deno.env.SUPABASE_ANON_KEY`. Não usava `verifyCronOrService`. Mesmo com R113 patch defensivo, ai-agent continuava 401.
+- Diagnose via `env-diag` function: probava ai-agent com cada token disponível (INTERNAL/ANON/SERVICE) — todos retornaram 401. Confirmou auth inline rejeitando.
+- Fix: substituir auth inline por `verifyCronOrService(req)`. `ai-agent-debounce` agora usa `INTERNAL_FUNCTION_KEY` ao chamar ai-agent (token neutro). `verifyCronOrServiceDiag` helper novo retorna detalhes do mismatch como JSON pra debug futuro sem redeploy.
+- Bug bonus: bloco H1 (`detectSaleClosed`) usava `incomingText` antes da declaração (TDZ ReferenceError) — movido pra depois das empty-text guards.
+
+**Validação E2E em produção real:**
+- Msg "achei muito caro queria desconto" → trigger `desconto` matched + `objecao:preco` síncrono + `ia:shadow`. ✅
+- Msg "pode mandar o pix" (em shadow) → tag `venda:fechada` adicionada. ✅
+- ai_agent_logs metadata contém `{ trigger, objection }` no handoff_trigger event.
+
+**Auditoria:** 14 testes Deno (objection + saleClosed) 100%. ai-agent v22 ACTIVE. ai-agent-debounce v3 ACTIVE. 5 crons retornando 200. Conversa teste `d317ef4b-6dfb` em Eletropiso real.
+
+**Lições documentadas:** `wiki/erros-e-licoes.md` R113 + R113.2 (gateway-rewrite, padrão `INTERNAL_FUNCTION_KEY` pra internal calls, evitar auth inline divergente).
+
+**Próximo (sessão 4):** Onda 2 sandbox completa (E1/M4/M8/M10/G2/G3/H2/H3) + Onda 3 + I1-I3.
+
+---
+
 ### v7.29.6 (2026-05-06) — Sprint 5 (parte código): P2-7, P2-8, P2-10
 
 **Contexto:** parte da Sprint 5 da auditoria 2026-05-05 — só os P2s que ficam no código (vão via repo pra futura migração Eletropiso). Operacionais (P2-2, P2-9) ficam pra setar direto no projeto novo. P2-6 era falso positivo (`flow_followups` já tem RLS ON sem policies = só service_role bypass acessa).
