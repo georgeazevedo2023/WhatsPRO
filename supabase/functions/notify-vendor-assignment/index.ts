@@ -25,6 +25,8 @@ const supabase = createServiceClient()
 interface RequestBody {
   conversation_id: string
   assigned_to_id: string
+  /** Se diferente de assigned_to_id, manda msg de "removido" pro vendor anterior. */
+  previous_assigned_to_id?: string | null
 }
 
 type SkipReason =
@@ -82,15 +84,122 @@ function formatPhoneBR(phone: string | null | undefined): string {
   return phone
 }
 
-function isWithinBusinessHours(rules: Record<string, unknown> | null): boolean {
-  // Se não há regras configuradas, considera 24/7 (não bloqueia).
-  if (!rules || typeof rules !== 'object') return true
-  // Heurística simples — se tiver `enabled: false`, ignora business_hours.
-  if (rules.enabled === false) return true
-  // TODO mais sofisticado quando integrar com helper de business_hours.
-  // Por ora, lê dia da semana atual em pt-BR e checa se há janela aberta.
-  // Falha aberta — retorna true (não bloqueia notif por bug de parsing).
-  return true
+type DayConfig = { open?: boolean; start?: string; end?: string }
+type BusinessHoursMap = Record<'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat', DayConfig>
+
+const DAY_KEYS: Array<keyof BusinessHoursMap> = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
+function parseHm(s: string | undefined): number | null {
+  if (!s || typeof s !== 'string') return null
+  const m = s.match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return null
+  const h = parseInt(m[1], 10)
+  const min = parseInt(m[2], 10)
+  if (isNaN(h) || isNaN(min) || h < 0 || h > 23 || min < 0 || min > 59) return null
+  return h * 60 + min
+}
+
+/**
+ * Retorna true se now() está dentro do business_hours configurado pra agent.
+ * Falha aberta (true) se config inválida — não bloqueia notif por bug de parse.
+ *
+ * Considera `extended_hours_until` (D30 Sprint E): se preenchido e > now,
+ * bypassa o horário comercial (admin estendeu manualmente).
+ */
+function isWithinBusinessHours(
+  bh: unknown,
+  extendedUntil: string | null,
+): boolean {
+  // Extended hours bypass
+  if (extendedUntil) {
+    const t = new Date(extendedUntil).getTime()
+    if (!isNaN(t) && t > Date.now()) return true
+  }
+
+  if (!bh || typeof bh !== 'object') return true // sem config → 24/7
+
+  const map = bh as BusinessHoursMap
+
+  // Now em America/Sao_Paulo
+  const now = new Date()
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const parts = fmt.formatToParts(now)
+  const wd = (parts.find(p => p.type === 'weekday')?.value || '').toLowerCase().slice(0, 3) as keyof BusinessHoursMap
+  const hh = parts.find(p => p.type === 'hour')?.value || '00'
+  const mm = parts.find(p => p.type === 'minute')?.value || '00'
+  const nowMinutes = parseInt(hh, 10) * 60 + parseInt(mm, 10)
+
+  if (!DAY_KEYS.includes(wd)) return true // parse falhou → falha aberta
+
+  const day = map[wd] as DayConfig | undefined
+  if (!day || day.open === false) return false
+
+  const startMin = parseHm(day.start)
+  const endMin = parseHm(day.end)
+  if (startMin == null || endMin == null) return true // config inválida → falha aberta
+
+  // janela normal (start <= end, ex.: 08:00-18:00)
+  if (startMin <= endMin) {
+    return nowMinutes >= startMin && nowMinutes < endMin
+  }
+  // janela atravessa meia-noite (ex.: 22:00-02:00)
+  return nowMinutes >= startMin || nowMinutes < endMin
+}
+
+/**
+ * Notifica vendor anterior que o lead foi reatribuído.
+ * Best-effort — não bloqueia. Respeita só guards essenciais (sem rate limit
+ * porque é msg crítica de feedback, mas respeita session/optout/no_number).
+ */
+async function notifyPreviousAssignee(
+  conversation_id: string,
+  previous_user_id: string,
+  new_user_id: string,
+  log: ReturnType<typeof createLogger>,
+): Promise<void> {
+  const { data: prev } = await supabase
+    .from('user_profiles')
+    .select('full_name, personal_whatsapp, notify_on_assignment, whatsapp_session_until, notifications_paused_until')
+    .eq('id', previous_user_id)
+    .maybeSingle()
+  if (!prev) return
+  if (!prev.notify_on_assignment) return
+  if (!prev.personal_whatsapp) return
+  if (prev.notifications_paused_until && new Date(prev.notifications_paused_until).getTime() > Date.now()) return
+  if (!prev.whatsapp_session_until || new Date(prev.whatsapp_session_until).getTime() < Date.now()) return
+
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('instance_id, contact_name')
+    .eq('id', conversation_id)
+    .maybeSingle()
+  if (!conv?.instance_id) return
+
+  const { data: instance } = await supabase
+    .from('instances').select('token').eq('id', conv.instance_id).maybeSingle()
+  const token = (instance as { token?: string } | null)?.token
+  if (!token) return
+
+  const { data: newVendor } = await supabase
+    .from('user_profiles').select('full_name').eq('id', new_user_id).maybeSingle()
+  const newName = ((newVendor as { full_name?: string | null } | null)?.full_name || '').trim().split(/\s+/)[0] || 'outro membro'
+  const prevFirstName = (prev.full_name || '').trim().split(/\s+/)[0] || 'membro'
+  const leadName = (conv.contact_name as string | null) || 'cliente'
+
+  const text = [
+    `⚠️ Atendimento reatribuído, ${prevFirstName}.`,
+    ``,
+    `O atendimento de ${leadName} foi passado pra ${newName}. Você não precisa mais responder esse lead.`,
+  ].join('\n')
+
+  const result = await sendUazapiText(token, prev.personal_whatsapp, text)
+  log.info('previous_notif', { conversation_id, previous_user_id, ok: result.ok })
 }
 
 async function logSkip(
@@ -133,11 +242,17 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  const { conversation_id, assigned_to_id } = body
+  const { conversation_id, assigned_to_id, previous_assigned_to_id } = body
   if (!conversation_id || !assigned_to_id) {
     return new Response(JSON.stringify({ error: 'missing_params' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
+  }
+
+  // Reatribuição: notificar vendor anterior (best effort, NÃO bloqueia notif principal).
+  if (previous_assigned_to_id && previous_assigned_to_id !== assigned_to_id) {
+    notifyPreviousAssignee(conversation_id, previous_assigned_to_id, assigned_to_id, log)
+      .catch(e => log.warn('previous_notify_failed', { error: (e as Error).message }))
   }
 
   try {
@@ -172,7 +287,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // 3. Carrega instance_settings + token + business_hours
-    const [{ data: settings }, { data: instance }] = await Promise.all([
+    const [{ data: settings }, { data: instance }, { data: agent }] = await Promise.all([
       instanceId ? supabase
         .from('instance_settings')
         .select('notifications_enabled')
@@ -182,6 +297,11 @@ Deno.serve(async (req: Request) => {
         .from('instances')
         .select('id, token, name')
         .eq('id', instanceId)
+        .maybeSingle() : Promise.resolve({ data: null }),
+      instanceId ? supabase
+        .from('ai_agents')
+        .select('business_hours, extended_hours_until')
+        .eq('instance_id', instanceId)
         .maybeSingle() : Promise.resolve({ data: null }),
     ])
 
@@ -238,7 +358,8 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    if (!isWithinBusinessHours(null)) {
+    const agentRow = agent as { business_hours?: unknown; extended_hours_until?: string | null } | null
+    if (!isWithinBusinessHours(agentRow?.business_hours, agentRow?.extended_hours_until ?? null)) {
       await logSkip(conversation_id, assigned_to_id, instanceId, 'skip_off_hours')
       return new Response(JSON.stringify({ ok: true, skipped: 'skip_off_hours' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -300,20 +421,38 @@ Deno.serve(async (req: Request) => {
       ? Math.max(0, Math.round((now - new Date(conv.assigned_at as string).getTime()) / 60000))
       : 0
 
-    // 6. Monta mensagem
+    // Gap D: detecta rajada — se vendor já recebeu outra notif nos últimos 60s,
+    // manda mensagem mais curta pra não soar como spam.
+    const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString()
+    const { count: recentNotifs } = await supabase
+      .from('notification_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('assigned_to_id', assigned_to_id)
+      .eq('status', 'sent')
+      .gte('sent_at', sixtySecondsAgo)
+    const isBurst = (recentNotifs ?? 0) > 0
+
+    // 6. Monta mensagem (formato compacto se burst, completo se primeiro)
     // @ts-ignore -- Deno
     const appUrl = (typeof Deno !== 'undefined' ? Deno.env.get('APP_URL') : null) || 'https://crm.wsmart.com.br'
     const vendorFirstName = (vendor.full_name || '').trim().split(/\s+/)[0] || 'membro'
-    const messageText = [
-      `🔔 Novo atendimento, ${vendorFirstName}!`,
-      ``,
-      `👤 Cliente: ${leadName || 'Sem nome'}`,
-      `📱 WhatsApp: ${formatPhoneBR(leadPhone)}`,
-      `💬 Última msg: ${lastMsgText}`,
-      waitingMinutes > 0 ? `⏰ Aguardando há: ${waitingMinutes} min` : `⏰ Acabou de chegar`,
-      ``,
-      `Atender: ${appUrl}/dashboard/helpdesk?conv=${conversation_id}`,
-    ].join('\n')
+
+    const messageText = isBurst
+      ? [
+          `🔔 +1 atendimento, ${vendorFirstName}`,
+          `👤 ${leadName || 'Sem nome'} — ${formatPhoneBR(leadPhone)}`,
+          `Atender: ${appUrl}/dashboard/helpdesk?conv=${conversation_id}`,
+        ].join('\n')
+      : [
+          `🔔 Novo atendimento, ${vendorFirstName}!`,
+          ``,
+          `👤 Cliente: ${leadName || 'Sem nome'}`,
+          `📱 WhatsApp: ${formatPhoneBR(leadPhone)}`,
+          `💬 Última msg: ${lastMsgText}`,
+          waitingMinutes > 0 ? `⏰ Aguardando há: ${waitingMinutes} min` : `⏰ Acabou de chegar`,
+          ``,
+          `Atender: ${appUrl}/dashboard/helpdesk?conv=${conversation_id}`,
+        ].join('\n')
 
     // 7. Envia
     const sendResult = await sendUazapiText(instanceToken, vendor.personal_whatsapp, messageText)

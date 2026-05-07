@@ -1,6 +1,6 @@
 # WhatsPRO - Product Requirements Document
 
-> **Versão**: 7.32.0 | **Última atualização**: 2026-05-07 | **Status**: Produção + OpenAI gpt-4.1-mini + 42 Edge Functions + 62+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **R115 Dashboard Insights do Gestor (3 fases)** + **Notif handoff por WhatsApp pessoal (MVP F0+F1+F2 — handshake 24h, 8 guards, rate limit 3/h, pause admin/gestor)**
+> **Versão**: 7.32.1 | **Última atualização**: 2026-05-07 | **Status**: Produção + OpenAI gpt-4.1-mini + 42 Edge Functions + 62+ Tabelas + M2 Agent QA Framework + M12 Formulários WhatsApp + M13 Campanhas+Forms+Funil + M14 Bio Link + M15 Integração Funis + M16 Funis Fusão Total + M17 Plataforma Inteligente + M18 Fluxos v3.0 + M19 S1-S5 + S8 + S8.1 + M19 S10 v2 Service Categories Stages+Score + D28 Excluded Products + D29 VALID_KEYS dinâmico + Avatares em Storage + Auditoria Profunda Helpdesk (v7.19.0, nota 7.4/10) + Helpdesk Top Tabs viram ESCOPO + Header mobile-first HIG-compliant + Equipe: gerenciar departamentos inline + redesign expanded view (cards por caixa) + **D30 Fila Inteligente COMPLETA (8/8 sprints A-H)** + **Plano "Free Forever" 4 camadas (cron→n8n + VACUUM + retention 7 policies + snapshot_platform_usage 60% alert + playbook)** + **R115 Dashboard Insights do Gestor (3 fases)** + **Notif handoff por WhatsApp pessoal (MVP F0+F1+F2 — handshake 24h, 8 guards, rate limit 3/h, pause admin/gestor)**
 
 ## Visão Geral
 
@@ -39,6 +39,45 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 ---
 
 ## Changelog
+
+### v7.32.1 (2026-05-07) — Notif handoff: gaps F3+ resolvidos (A/B/C/D + médios E/F/G)
+
+**Contexto:** Logo após shipar v7.32.0, usuário pediu pra mapear e resolver TODOS os gaps documentados como "dívida F3+". Fizemos auditoria final classificando 13 gaps em 3 níveis: críticos (A-D), médios (E-G), dependentes externo (I-M, mantidos como roadmap).
+
+**Críticos resolvidos:**
+
+- **Gap A — `business_hours` real** (era placeholder hardcoded `true`, guard `skip_off_hours` quebrado): implementado helper que lê `ai_agents.business_hours` JSONB + `extended_hours_until` (D30 Sprint E bypass), formata weekday em America/Sao_Paulo, suporta janela atravessando meia-noite, falha aberta em config inválida.
+
+- **Gap B — Reatribuição órfã** (vendor anterior não sabia que perdeu): `notify-vendor-assignment` aceita `previous_assigned_to_id`. Quando diferente do `assigned_to_id`, dispara msg "⚠️ Atendimento reatribuído pra X, você foi liberado" pro vendor anterior (best effort, respeita guards essenciais session/optout/no_number/paused). `handoffQueue.ts` passa `previousAssigneeId` quando há reatribuição real (não em D-β reuse).
+
+- **Gap C — Escalation 5min/10min** (lead morria por silêncio): nova edge function `escalate-stale-handoffs` rodando via pg_cron 1min. Migration: `notification_log.re_pinged_at` + `manager_alerted_at` (sem violar UNIQUE conv,vendor). Lógica: detecta `vendorResponded()` via `conversation_messages.direction='outgoing' AND sender_id=assigned_to`. 5min sem resposta → re-ping ("⏰ Lucas, lead João ainda esperando, atender agora"). 10min → alerta gerente do dept ("🚨 Lead órfão, considere reatribuir"). Tudo respeita session/paused/no_number.
+
+- **Gap D — Batching de rajada**: query em `notification_log` detecta se vendor já recebeu notif sent <60s atrás. Se sim, mensagem fica compacta ("🔔 +1 atendimento, Lucas / 👤 João Silva — atender") em vez do template completo. Reduz spam sem violar idempotência.
+
+**Médios resolvidos (best effort):**
+
+- **Gap E — Custo UAZAPI exibido**: `NotificationLogPanel` mostra card "Custo estimado UAZAPI" baseado em count de notif sent nos últimos 30d × R$ 0,08 (preço conservador UAZAPI plano padrão).
+
+- **Gap F — KPI tempo médio 1ª resposta**: SQL function `kpi_avg_first_response_minutes(_days)` retorna avg/p50/p90 + sample_size. Usado pelo painel admin pra mostrar performance dos vendedores.
+
+- **Gap G — Banner pra vendor sem número**: `VendorNotificationBanner` agora mostra estado `no_number` (banner vermelho "peça ao admin pra cadastrar seu número pessoal pra receber alertas").
+
+**Documentado como roadmap F3+ (dependente externo):**
+
+- **Gap I — Template HSM Meta**: requer aprovação Meta 1-3 dias + custo recorrente ~R$ 0,10-0,30/msg. Decisão produto (não bloqueia MVP).
+- **Gap J — LGPD termo formal**: tela de aceite com timestamp/IP. Decisão jurídica.
+- **Gap K — i18n**: só pt-BR é suficiente p/ escopo BR atual. Refactor grande.
+- **Gap L — Multi-org isolation**: requer `instances.org_id` (refactor estrutural). Edge case raro.
+- **Gap M — Validação periódica de número** (vendedor demitido → número reaproveitado): cron mensal — incremental.
+
+**Files changed:** +1 edge function nova (escalate-stale-handoffs) + 3 redeploys (notify-vendor, assign-handoff, ai-agent) + 3 migrations novas + 3 frontend touches (NotificationLogPanel stats cards, VendorBanner no_number state, helper businessHours).
+
+**Auto-avaliação:**
+- Conteúdo: **9/10** — pipeline completo agora (handshake + 8 guards + escalation + reatribuição + batching). Faltou validação periódica de número (Gap M baixa-prioridade).
+- Orquestração: **9.5/10** — todas as decisões refletidas em código, migrations idempotentes, deploys validados.
+- Vault: **9/10** — wiki + log + PRD atualizados.
+
+---
 
 ### v7.32.0 (2026-05-07) — Notif handoff por WhatsApp pessoal (MVP F0+F1+F2)
 

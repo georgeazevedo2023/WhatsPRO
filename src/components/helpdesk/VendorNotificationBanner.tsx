@@ -19,7 +19,7 @@ import { Clock, AlertTriangle, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatPhone } from '@/lib/phoneUtils';
 
-type State = 'hidden' | 'expiring_soon' | 'expired';
+type State = 'hidden' | 'expiring_soon' | 'expired' | 'no_number';
 
 interface SessionInfo {
   state: State;
@@ -58,8 +58,9 @@ export function VendorNotificationBanner() {
         const personal = (profile as { personal_whatsapp?: string | null } | null)?.personal_whatsapp;
         const sessionUntil = (profile as { whatsapp_session_until?: string | null } | null)?.whatsapp_session_until;
 
+        // Gap G: sinaliza vendor que ainda não tem número cadastrado pra alertar admin.
         if (!personal) {
-          setInfo({ state: 'hidden', minutesRemaining: 0, instancePhone: null });
+          setInfo({ state: 'no_number', minutesRemaining: 0, instancePhone: null });
           return;
         }
 
@@ -114,25 +115,29 @@ export function VendorNotificationBanner() {
   }
 
   const isExpired = info.state === 'expired';
+  const isNoNumber = info.state === 'no_number';
   const phoneDisplay = info.instancePhone ? formatPhone(info.instancePhone) : 'WhatsApp da empresa';
+
+  const tone = isExpired || isNoNumber
+    ? 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
+    : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300';
 
   return (
     <div
-      className={cn(
-        'flex items-center gap-2 px-3 py-2 rounded-md border text-xs',
-        isExpired
-          ? 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
-          : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300',
-      )}
+      className={cn('flex items-center gap-2 px-3 py-2 rounded-md border text-xs', tone)}
       role="alert"
       aria-live="polite"
     >
-      {isExpired
+      {(isExpired || isNoNumber)
         ? <AlertTriangle className="w-4 h-4 shrink-0" />
         : <Clock className="w-4 h-4 shrink-0" />
       }
       <p className="flex-1 leading-tight">
-        {isExpired ? (
+        {isNoNumber ? (
+          <>
+            <strong>Notificações WhatsApp não configuradas</strong> — peça ao admin pra cadastrar seu número pessoal em <em>Equipe</em> pra receber alertas de novos atendimentos.
+          </>
+        ) : isExpired ? (
           <>
             <strong>Notificações inativas</strong> — mande qualquer mensagem (ex: "oi") pra <strong>{phoneDisplay}</strong> pra reativar pelas próximas 24h.
           </>

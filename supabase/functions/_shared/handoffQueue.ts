@@ -224,12 +224,16 @@ export async function assignHandoff(
     }
 
     // F2.2: dispara notify-vendor-assignment fire-and-forget. Falha não propaga.
+    // Gap B: passa previous_assigned_to_id quando há reatribuição real (vendor diferente).
     try {
       // @ts-ignore -- Deno
       const baseUrl = (typeof Deno !== 'undefined' ? Deno.env.get('SUPABASE_URL') : null) || ''
       // @ts-ignore -- Deno
       const serviceKey = (typeof Deno !== 'undefined' ? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') : null) || ''
       if (baseUrl && serviceKey) {
+        const previousIdForNotif = previousAssigneeId && previousAssigneeId !== pickedUserId
+          ? previousAssigneeId
+          : null
         // Não usa await — fire-and-forget
         fetch(`${baseUrl}/functions/v1/notify-vendor-assignment`, {
           method: 'POST',
@@ -240,6 +244,7 @@ export async function assignHandoff(
           body: JSON.stringify({
             conversation_id,
             assigned_to_id: pickedUserId,
+            previous_assigned_to_id: previousIdForNotif,
           }),
         }).catch((e) => {
           log.warn('handoffQueue: notify-vendor fetch failed', { error: (e as Error).message })

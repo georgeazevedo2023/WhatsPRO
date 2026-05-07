@@ -55,6 +55,9 @@ export function NotificationLogPanel() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'sent' | 'error' | 'skipped'>('all');
   const [search, setSearch] = useState('');
 
+  const [stats, setStats] = useState<{ sent_30d: number; estimated_cost_brl: string } | null>(null);
+  const [kpiResponse, setKpiResponse] = useState<{ avg_minutes: number; sample_size: number; p50_minutes: number; p90_minutes: number } | null>(null);
+
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
@@ -69,6 +72,25 @@ export function NotificationLogPanel() {
       const { data, error } = await q;
       if (error) throw error;
       const logs = (data || []) as NotifLogRow[];
+
+      // Stats: count sent nos últimos 30d + custo estimado (Gap E).
+      // Custo conservador R$ 0.08 por msg (UAZAPI plano padrão).
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { count: sent30d } = await supabase
+        .from('notification_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'sent')
+        .gte('sent_at', thirtyDaysAgo);
+      setStats({
+        sent_30d: sent30d ?? 0,
+        estimated_cost_brl: ((sent30d ?? 0) * 0.08).toFixed(2),
+      });
+
+      // KPI primeira resposta (Gap F).
+      try {
+        const { data: kpiData } = await supabase.rpc('kpi_avg_first_response_minutes', { _days: 30 });
+        if (kpiData) setKpiResponse(kpiData as typeof kpiResponse);
+      } catch { /* non-blocking */ }
 
       // Bulk-fetch de vendedor names
       const vendorIds = Array.from(new Set(logs.map(l => l.assigned_to_id)));
@@ -107,6 +129,34 @@ export function NotificationLogPanel() {
 
   return (
     <div className="space-y-4">
+      {/* Stats cards (Gap E + F) */}
+      {(stats || kpiResponse) && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {stats && (
+            <>
+              <div className="rounded-lg border border-border/40 bg-card/40 p-3">
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-semibold">Notif enviadas (30d)</p>
+                <p className="text-2xl font-bold mt-1">{stats.sent_30d}</p>
+              </div>
+              <div className="rounded-lg border border-border/40 bg-card/40 p-3">
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-semibold">Custo estimado UAZAPI</p>
+                <p className="text-2xl font-bold mt-1">R$ {stats.estimated_cost_brl}</p>
+                <p className="text-[10px] text-muted-foreground/70">~R$ 0,08/msg</p>
+              </div>
+            </>
+          )}
+          {kpiResponse && kpiResponse.sample_size > 0 && (
+            <div className="rounded-lg border border-border/40 bg-card/40 p-3">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-semibold">Tempo médio 1ª resposta</p>
+              <p className="text-2xl font-bold mt-1">{kpiResponse.avg_minutes.toFixed(1)} min</p>
+              <p className="text-[10px] text-muted-foreground/70">
+                p50: {kpiResponse.p50_minutes.toFixed(0)}min · p90: {kpiResponse.p90_minutes.toFixed(0)}min · n={kpiResponse.sample_size}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

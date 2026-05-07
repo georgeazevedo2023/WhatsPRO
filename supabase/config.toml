@@ -114,3 +114,7 @@ verify_jwt = false
 # Disparado por handoffQueue.assignHandoff() (com service-role no Authorization)
 [functions.notify-vendor-assignment]
 verify_jwt = false
+
+# Cron 1min — Gap C escalation (re-ping 5min, alerta gerente 10min)
+[functions.escalate-stale-handoffs]
+verify_jwt = false

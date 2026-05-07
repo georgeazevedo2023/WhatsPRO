@@ -84,14 +84,23 @@ WhatsApp Business só permite mensagem livre se contato mandou msg pra empresa n
 | Histórico de envios + skips | Admin → /dashboard/admin/notifications |
 | Banner no helpdesk (vendedor) | Header do helpdesk, abaixo dos filtros |
 
-## Limitações conhecidas (dívida técnica F3+)
+## Gaps resolvidos em v7.32.1 (2026-05-07)
 
-1. Sem escalation de timeout (não re-pinga em 5min, não alerta gerente em 10min).
-2. Sem notif de "reatribuição removida" pro vendedor anterior.
-3. Sem dashboard de tempo Disponível vs Pausado por vendedor (precisa `queue_pause_history` audit).
-4. Multi-tenant: vendedor com mesmo número em 2 orgs = ambos renovam janela ao mesmo tempo (improvável).
-5. Mensagem só em pt-BR.
-6. Sem template HSM Meta — depende 100% de handshake diário.
-7. LGPD: não tem tela formal de aceite com timestamp/IP.
+1. ✅ **Gap A** — `business_hours` real (era placeholder hardcoded `true`).
+2. ✅ **Gap B** — Notif "removido" pro vendor anterior em reatribuição.
+3. ✅ **Gap C** — Escalation 5min/10min via cron `notify-vendor-escalation` + edge function `escalate-stale-handoffs`.
+4. ✅ **Gap D** — Batching de rajada (msg compacta se outra notif <60s atrás).
+5. ✅ **Gap E** — Custo UAZAPI estimado exibido no painel admin (R$ 0,08/msg × count).
+6. ✅ **Gap F** — KPI `kpi_avg_first_response_minutes(days)` (avg/p50/p90 do tempo até 1ª resposta).
+7. ✅ **Gap G** — Banner "no_number" alerta vendedor sem cadastro.
+
+## Roadmap F3+ (dependente de fator externo)
+
+- **Gap I** — Template HSM Meta (aprovação 1-3 dias + custo recorrente ~R$ 0,10-0,30/msg).
+- **Gap J** — LGPD termo formal com timestamp/IP (decisão jurídica + UI nova).
+- **Gap K** — i18n da mensagem (só pt-BR ok p/ escopo BR atual).
+- **Gap L** — Multi-org isolation (precisa `instances.org_id` — refactor estrutural).
+- **Gap M** — Validação periódica de número (cron mensal — vendedor demitido).
+- Dashboard tempo Disponível vs Pausado por vendedor (precisa `queue_pause_history` audit).
 
 Plan completo + decisões em [[../.planning/phases/notify-vendor-handoff/PLAN.md]] e [[../.planning/phases/notify-vendor-handoff/RESEARCH.md]].

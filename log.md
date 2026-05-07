@@ -9,6 +9,50 @@ type: log
 
 ---
 
+## 2026-05-07 (noite, parte 2) — Gaps F3+ resolvidos (v7.32.1)
+
+> Logo após shipar v7.32.0, usuário pediu "mapeie e resolva todos os gaps". Auditoria final classificou 13 gaps em 3 níveis. Resolvi 7 (A-G), documentei 6 como roadmap (I-M + dashboard pause-history) por dependência externa.
+
+### Resolvidos
+
+- **A** business_hours real (era placeholder hardcoded `true` — guard quebrado). Helper TZ-aware America/Sao_Paulo + bypass via extended_hours_until.
+- **B** Reatribuição órfã: vendor anterior recebe "⚠️ atendimento reatribuído pra X" quando assigned_to muda.
+- **C** Escalation cron `notify-vendor-escalation` (1min) + edge `escalate-stale-handoffs`. 5min sem resposta = re-ping. 10min = alerta gerente.
+- **D** Batching rajada: msg compacta se outra notif sent <60s atrás (mesmo vendor).
+- **E** Custo UAZAPI estimado exibido no painel admin (count × R$ 0,08).
+- **F** SQL `kpi_avg_first_response_minutes(days)` (avg/p50/p90).
+- **G** Banner "no_number" pra vendedor sem cadastro.
+
+### Documentados como roadmap F3+ (dependência externa)
+
+- **I** Template HSM Meta (aprovação Meta 1-3 dias + custo).
+- **J** LGPD termo formal com timestamp/IP.
+- **K** i18n (só pt-BR ok pro escopo BR atual).
+- **L** Multi-org isolation (instances.org_id ausente, refactor estrutural).
+- **M** Validação periódica de número (cron mensal incremental).
+- Dashboard tempo Pausado/Disponível por vendedor (precisa queue_pause_history audit).
+
+### Migrations novas
+
+- `20260507151004_notify_vendor_escalation_columns.sql` — re_pinged_at + manager_alerted_at em notification_log.
+- `20260507151005_notify_vendor_kpi_first_response.sql` — SQL function kpi_avg_first_response_minutes.
+- `20260507151006_notify_vendor_cron_escalation.sql` — pg_cron job 1min.
+
+### Edge functions
+
+- ✨ `escalate-stale-handoffs` (nova) — cron worker.
+- 🔄 `notify-vendor-assignment` v3 — Gap A real business_hours + Gap B reattribution + Gap D batching.
+- 🔄 `assign-handoff` v3 — passa previous_assigned_to_id.
+- 🔄 `ai-agent` v25 — pega novo handoffQueue.ts (autorizado pelo usuário).
+
+### Auto-avaliação
+
+- Conteúdo: **9/10** — pipeline completo (handshake + 8 guards + escalation + reattribution + batching + KPI). Falta só Gap M validação periódica.
+- Orquestração: **9.5/10** — todos os deploys validados, migrations idempotentes, cron rodando.
+- Vault: **9/10** — wiki/PRD/log atualizados.
+
+---
+
 ## 2026-05-07 (noite) — Notif handoff por WhatsApp pessoal (MVP F0+F1+F2 — v7.32.0)
 
 > Feature pedida pelo usuário ("vendedor recebe ping no WA pessoal quando lead atribuído"). 3 auditorias críticas do plano antes de codar (cada uma com nota e gaps); 6 ondas de execução; ~3h de trabalho. SHIPPED — pendente apenas re-deploy do ai-agent (HIGH-RISK por regra).
