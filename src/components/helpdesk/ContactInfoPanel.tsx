@@ -69,7 +69,23 @@ export const ContactInfoPanel = ({
 
   // KPI computed values
   const convTags: string[] = (conversation as any).tags ?? [];
-  const kpiMotivo = convTags.find(t => t.startsWith('motivo:'))?.split(':').slice(1).join(':').replace(/_/g, ' ') ?? null;
+  const kpiMotivoRaw = convTags.find(t => t.startsWith('motivo:'))?.split(':').slice(1).join(':') ?? null;
+  const MOTIVO_LABELS: Record<string, string> = {
+    saudacao: 'Saudação',
+    compra: 'Compra',
+    troca: 'Troca',
+    orcamento: 'Orçamento',
+    duvida_tecnica: 'Dúvida técnica',
+    suporte: 'Suporte',
+    financeiro: 'Financeiro',
+    emprego: 'Vaga de emprego',
+    fornecedor: 'Fornecedor',
+    informacao: 'Informação',
+    fora_escopo: 'Fora do escopo',
+  };
+  const kpiMotivo = kpiMotivoRaw
+    ? (MOTIVO_LABELS[kpiMotivoRaw] ?? kpiMotivoRaw.replace(/_/g, ' '))
+    : null;
   const kpiProdutos = convTags.filter(t => t.startsWith('produto:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
   const kpiInteresses = convTags.filter(t => t.startsWith('interesse:')).map(t => t.split(':').slice(1).join(':').replace(/_/g, ' '));
   const kpiItens = [...kpiProdutos, ...kpiInteresses];
@@ -646,6 +662,11 @@ export const ContactInfoPanel = ({
 
             {/* KPIs — grid 2 colunas */}
             <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-border/30">
+              {/* Motivo do contato (compra, orçamento, vaga, fornecedor, etc) */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 px-2 py-1.5" title="Motivo do contato classificado pela IA">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-blue-400/70"><Target className="w-2.5 h-2.5" />Motivo</span>
+                <span className="text-[11px] font-medium text-blue-300 leading-tight truncate" title={kpiMotivo ?? '—'}>{kpiMotivo ?? '—'}</span>
+              </div>
               {/* Produto */}
               <div className="flex flex-col gap-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-1.5">
                 <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-purple-400/70"><ShoppingCart className="w-2.5 h-2.5" />Produto</span>
@@ -657,6 +678,11 @@ export const ContactInfoPanel = ({
               <div className="flex flex-col gap-0.5 rounded-md bg-red-500/10 border border-red-500/20 px-2 py-1.5">
                 <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-red-400/70"><AlertCircle className="w-2.5 h-2.5" />Em falta</span>
                 <span className="text-[11px] font-medium text-red-300 leading-tight truncate" title={kpiProdutoFalta ?? '—'}>{kpiProdutoFalta ?? '—'}</span>
+              </div>
+              {/* Atendido por IA */}
+              <div className="flex flex-col gap-0.5 rounded-md bg-primary/10 border border-primary/20 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-primary/70"><Bot className="w-2.5 h-2.5" />Atendido por IA</span>
+                <span className={`text-[11px] font-medium leading-tight ${kpiAtendidoIA === 'Sim' ? 'text-primary' : kpiAtendidoIA === 'Shadow' ? 'text-yellow-400' : 'text-muted-foreground'}`}>{kpiAtendidoIA}</span>
               </div>
               {/* Primeiro contato — eterno (data de criação do contato) */}
               <div className="flex flex-col gap-0.5 rounded-md bg-slate-500/10 border border-slate-500/20 px-2 py-1.5" title="Primeira vez que este contato falou com a empresa">
@@ -677,11 +703,6 @@ export const ContactInfoPanel = ({
               <div className="flex flex-col gap-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1.5" title="Tempo desde o início da conversa atual até a última mensagem">
                 <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-amber-400/70"><Clock className="w-2.5 h-2.5" />Duração atual</span>
                 <span className="text-[11px] font-medium text-amber-300 leading-tight">{kpiDuracaoAtual}</span>
-              </div>
-              {/* Atendido por IA — ocupa as 2 colunas pra fechar a grid */}
-              <div className="flex flex-col gap-0.5 rounded-md bg-primary/10 border border-primary/20 px-2 py-1.5 col-span-2">
-                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-primary/70"><Bot className="w-2.5 h-2.5" />Atendido por IA</span>
-                <span className={`text-[11px] font-medium leading-tight ${kpiAtendidoIA === 'Sim' ? 'text-primary' : kpiAtendidoIA === 'Shadow' ? 'text-yellow-400' : 'text-muted-foreground'}`}>{kpiAtendidoIA}</span>
               </div>
             </div>
 

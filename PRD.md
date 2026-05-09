@@ -40,6 +40,20 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.32.4 (2026-05-09) — Card MOTIVO no Contexto IA do helpdesk
+
+**Contexto:** Usuário perguntou por que os motivos do contato (compra, cotação, vaga de emprego, fornecedor, etc) não apareciam no painel direito do helpdesk. A taxonomia já existia no AI agent (`saudacao | compra | troca | orcamento | duvida_tecnica | suporte | financeiro | emprego | fornecedor | informacao | fora_escopo` — ver `ai-agent/index.ts:2400`) e a tag `motivo:X` era atribuída corretamente em cada conversa, mas a UI nunca renderizava o valor — `kpiMotivo` em `ContactInfoPanel.tsx` era calculado e descartado (TS warning `ts6133`).
+
+**Fix:**
+
+- Novo card **MOTIVO** (azul, ícone Target) na primeira linha da grid de KPIs do Contexto IA.
+- Mapa `MOTIVO_LABELS` pra humanizar valores: `orcamento`→"Orçamento", `emprego`→"Vaga de emprego", `duvida_tecnica`→"Dúvida técnica", etc.
+- Reorganização da grid: removido `col-span-2` do "Atendido IA", agora ele ocupa só 1 coluna. Total 8 cards em 4 linhas de 2.
+
+**Auto-avaliação:** **9/10** — fix focado, sem novas regras. Nota não é 10 porque a omissão deveria ter sido pega no review do painel original.
+
+---
+
 ### v7.32.3 (2026-05-09) — Polish Helpdesk + Fix crítico notify-vendor-assignment
 
 **Contexto:** Sessão de UX no helpdesk descobriu — durante simulação E2E pedida pelo usuário — que a edge function `notify-vendor-assignment` (shipped na v7.32.0) **nunca havia entregado uma notif em prod** por bug de schema mascarado por `.maybeSingle()`. Bug oculto porque outro guard parava o pipeline antes (`skip_no_number`, já que vendors não tinham número cadastrado).

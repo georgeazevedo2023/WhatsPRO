@@ -9,6 +9,29 @@ type: log
 
 ---
 
+## 2026-05-09 (noite, parte 2) — Card MOTIVO no Contexto IA (v7.32.4)
+
+> Usuário perguntou por que motivos do contato (compra, cotação, vaga de emprego, fornecedor) não apareciam no painel direito do helpdesk.
+
+### Causa raiz
+
+- A variável `kpiMotivo` em `ContactInfoPanel.tsx:72` era calculada a partir da tag `motivo:X` mas **nunca renderizada** na UI (TS warning `ts6133` "declared but never read" denunciava o gap havia tempo).
+- Taxonomia do AI agent (`ai-agent/index.ts:2400`) já cobre todos os casos pedidos: `compra`, `orcamento` (=cotação), `emprego` (=vaga), `fornecedor`, `troca`, `duvida_tecnica`, `suporte`, `financeiro`, `informacao`, `fora_escopo`, `saudacao`. Ou seja: o classificador funciona, só faltava exibir.
+- Conversa do George tinha `motivo:compra` na tag mas o painel não mostrava.
+
+### Fix
+
+- `ContactInfoPanel.tsx`: novo card **MOTIVO** (azul, ícone Target) na primeira linha da grid de KPIs.
+- Adicionado mapa `MOTIVO_LABELS` pra humanizar (`orcamento` → "Orçamento", `emprego` → "Vaga de emprego", `duvida_tecnica` → "Dúvida técnica", etc).
+- Reorganização da grid: removido `col-span-2` do card "Atendido IA" (estava ocupando linha inteira no fim), realocado pra linha 2 do par. Total 8 cards bem distribuídos em 4 linhas de 2.
+
+### Auto-avaliação
+
+**Conteúdo**: 9/10 — fix focado e simples. Nota não é 10 porque o card deveria ter sido entregue na primeira versão do painel (a tag existia desde sempre).
+**Documentação**: 9/10 — log + PRD + commit alinhados.
+
+---
+
 ## 2026-05-09 (noite) — Polish Helpdesk + fix crítico notify-vendor-assignment (v7.32.3)
 
 > Sessão de UX no helpdesk + descoberta e correção de bug de schema na edge function de notif handoff (que NUNCA entregou mensagem em prod por bug silencioso de PostgREST).
