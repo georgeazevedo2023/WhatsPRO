@@ -104,7 +104,7 @@ const QueuePauseToggle = () => {
       ) : (
         <Pause className="w-4 h-4" />
       )}
-      <span className="text-xs font-medium">{isPaused ? 'Pausado' : 'Disponível'}</span>
+      <span className="text-xs font-medium">{isPaused ? 'Pausado' : 'Pausar'}</span>
     </Button>
   );
 };

@@ -40,6 +40,29 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.32.3 (2026-05-09) — Polish Helpdesk + Fix crítico notify-vendor-assignment
+
+**Contexto:** Sessão de UX no helpdesk descobriu — durante simulação E2E pedida pelo usuário — que a edge function `notify-vendor-assignment` (shipped na v7.32.0) **nunca havia entregado uma notif em prod** por bug de schema mascarado por `.maybeSingle()`. Bug oculto porque outro guard parava o pipeline antes (`skip_no_number`, já que vendors não tinham número cadastrado).
+
+**Polish UX:**
+
+- `QueuePauseToggle`: label "Disponível" → "Pausar". Atendente lê o botão como ação, não como estado. Estado pausado segue mostrando "Pausado".
+- `ContactInfoPanel`: KPI **DURAÇÃO ATUAL** tickea em tempo real (intervalo 30s) usando `now − sessionStartIso`. Antes era estático. Em conversas resolvidas, congela em `resolved_at − sessionStart`.
+- `VendorNotificationBanner`: oculto pra `super_admin` e `gerente`. O texto pede "Peça ao admin..." — auto-referente quando admin é quem vê. Esses roles não recebem handoff.
+
+**Fix crítico — notify-vendor-assignment:**
+
+- Select inicial tentava ler colunas inexistentes (`instance_id`, `contact_name`, `contact_phone`) direto em `conversations`. PostgREST devolveu erro de coluna, `.maybeSingle()` engoliu silenciosamente → `data=null` → `skip_reason='conv_not_found'`.
+- Reescrito com embedding PostgREST: `'id, inbox_id, contact_id, assigned_at, contact:contacts(name, phone, jid), inbox:inboxes(instance_id)'`. `instanceId` agora resolvido via `convRow.inbox?.instance_id`. Mesma correção em `notifyPreviousAssignee()`.
+- Validação E2E real: deltas aplicados (Lucas com `personal_whatsapp=+5581993856099`, `notifications_enabled=true`, `extended_hours_until=NOW()+30min`), edge function invocada → `{ ok: true }`, log `status=sent`, mensagem renderizada no WhatsApp com emojis/acentos corretos. Deltas revertidos.
+- Deploy: `supabase functions deploy notify-vendor-assignment` no projeto `prfcbfumyrrycsrcrvms`.
+
+**Aprendizado:** registrado em `wiki/erros-e-licoes.md` — toda edge function que envia mensagem/notif **precisa de validação E2E real** (chamada que force o caminho até `status=sent`). TS-check + unit test não pegam schema mismatch porque PostgREST não tipa selects encadeados.
+
+**Auto-avaliação:** **8.5/10** — fix correto e validado, mas nota não é 10 porque o bug original passou batido por 2 dias antes da descoberta acidental (deveria ter sido coberto por teste E2E na v7.32.0).
+
+---
+
 ### v7.32.2 (2026-05-07) — Refactor: UAZAPI não tem janela 24h (correção de premissa errada)
 
 **Contexto:** Após shipar v7.32.1, usuário reforçou "não trabalhamos com API oficial, usamos UAZAPI". Identificado que toda a lógica de handshake/janela 24h foi implementada incorretamente — essa regra é da WhatsApp Business API oficial (Meta), NÃO do UAZAPI (que usa WhatsApp Web protocol via chip). UAZAPI não tem janela formal — o risco real é banimento de chip por uso abusivo, mitigado pelo rate limit (3/h) + batching + business_hours já existentes.

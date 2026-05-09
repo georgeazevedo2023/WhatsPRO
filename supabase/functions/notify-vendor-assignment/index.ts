@@ -173,13 +173,19 @@ async function notifyPreviousAssignee(
 
   const { data: conv } = await supabase
     .from('conversations')
-    .select('instance_id, contact_name')
+    .select('inbox_id, contact:contacts(name), inbox:inboxes(instance_id)')
     .eq('id', conversation_id)
     .maybeSingle()
-  if (!conv?.instance_id) return
+  const convRow = conv as {
+    inbox_id?: string | null
+    contact?: { name?: string | null } | null
+    inbox?: { instance_id?: string | null } | null
+  } | null
+  const instanceId = convRow?.inbox?.instance_id || null
+  if (!instanceId) return
 
   const { data: instance } = await supabase
-    .from('instances').select('token').eq('id', conv.instance_id).maybeSingle()
+    .from('instances').select('token').eq('id', instanceId).maybeSingle()
   const token = (instance as { token?: string } | null)?.token
   if (!token) return
 
@@ -187,7 +193,7 @@ async function notifyPreviousAssignee(
     .from('user_profiles').select('full_name').eq('id', new_user_id).maybeSingle()
   const newName = ((newVendor as { full_name?: string | null } | null)?.full_name || '').trim().split(/\s+/)[0] || 'outro membro'
   const prevFirstName = (prev.full_name || '').trim().split(/\s+/)[0] || 'membro'
-  const leadName = (conv.contact_name as string | null) || 'cliente'
+  const leadName = convRow?.contact?.name || 'cliente'
 
   const text = [
     `⚠️ Atendimento reatribuído, ${prevFirstName}.`,
@@ -253,10 +259,10 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // 1. Carrega conversation
+    // 1. Carrega conversation (instance_id vem via inbox; contato via JOIN)
     const { data: conv } = await supabase
       .from('conversations')
-      .select('id, instance_id, contact_id, assigned_at, contact_name, contact_phone')
+      .select('id, inbox_id, contact_id, assigned_at, contact:contacts(name, phone, jid), inbox:inboxes(instance_id)')
       .eq('id', conversation_id)
       .maybeSingle()
 
@@ -267,7 +273,15 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    const instanceId = conv.instance_id as string | null
+    const convRow = conv as {
+      id: string
+      inbox_id?: string | null
+      contact_id?: string | null
+      assigned_at?: string | null
+      contact?: { name?: string | null; phone?: string | null; jid?: string | null } | null
+      inbox?: { instance_id?: string | null } | null
+    }
+    const instanceId = convRow.inbox?.instance_id || null
 
     // 2. Carrega vendor
     const { data: vendor } = await supabase
@@ -391,24 +405,15 @@ Deno.serve(async (req: Request) => {
       .limit(1)
       .maybeSingle()
 
-    // 5. Carrega contato (nome, phone) — `conversations` já tem `contact_name` e `contact_phone` em alguns esquemas; senão busca via contact_id.
-    let leadName = (conv.contact_name as string | null) || null
-    let leadPhone = (conv.contact_phone as string | null) || null
-    if ((!leadName || !leadPhone) && conv.contact_id) {
-      const { data: contact } = await supabase
-        .from('contacts')
-        .select('name, phone, jid')
-        .eq('id', conv.contact_id as string)
-        .maybeSingle()
-      if (contact) {
-        leadName = leadName || (contact.name as string) || null
-        leadPhone = leadPhone || (contact.phone as string) || (contact.jid ? String(contact.jid).split('@')[0] : null)
-      }
-    }
+    // 5. Nome/phone do contato (vêm do JOIN no select inicial; fallback via jid)
+    const contactRow = convRow.contact || null
+    const leadName = contactRow?.name || null
+    const leadPhone = contactRow?.phone
+      || (contactRow?.jid ? String(contactRow.jid).split('@')[0] : null)
 
     const lastMsgText = formatLastMessage(lastMsg as { content?: string | null; media_type?: string | null } | null)
-    const waitingMinutes = conv.assigned_at
-      ? Math.max(0, Math.round((now - new Date(conv.assigned_at as string).getTime()) / 60000))
+    const waitingMinutes = convRow.assigned_at
+      ? Math.max(0, Math.round((now - new Date(convRow.assigned_at as string).getTime()) / 60000))
       : 0
 
     // Gap D: detecta rajada — se vendor já recebeu outra notif nos últimos 60s,

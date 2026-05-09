@@ -9,6 +9,36 @@ type: log
 
 ---
 
+## 2026-05-09 (noite) — Polish Helpdesk + fix crítico notify-vendor-assignment (v7.32.3)
+
+> Sessão de UX no helpdesk + descoberta e correção de bug de schema na edge function de notif handoff (que NUNCA entregou mensagem em prod por bug silencioso de PostgREST).
+
+### Polish UX Helpdesk
+
+- **`QueuePauseToggle`**: botão "Disponível" renomeado pra "Pausar". Motivo: usuário (Lucas) lê o label como ação ("vou ao banheiro → clico Pausar"), não como estado. Estado pausado segue mostrando "Pausado".
+- **`ContactInfoPanel`**: KPI **DURAÇÃO ATUAL** agora tickea em tempo real (30s) usando `now − sessionStart`. Antes era estático (`last_message_at − sessionStart`). Se a conversa for resolvida, congela em `resolved_at − sessionStart`.
+- **`VendorNotificationBanner`**: passa a ser oculto pra `super_admin` e `gerente`. Motivo: o texto diz "Peça ao admin..." — auto-referente quando o admin é quem está vendo. Esses roles não recebem handoff da fila, então o número pessoal não é necessário pra eles.
+
+### Fix crítico — notify-vendor-assignment (bug em prod desde shipping da v7.32.0)
+
+- Função selecionava `instance_id, contact_name, contact_phone` direto em `conversations` — colunas que NÃO existem (devem vir via `inboxes` JOIN e `contacts` JOIN, respectivamente).
+- PostgREST devolve erro de coluna inexistente, mas `.maybeSingle()` engole o erro e retorna `data=null`. Resultado: a função sempre retornava `skip_reason='conv_not_found'` silenciosamente, e ninguém percebeu porque até essa sessão nenhum vendor da Eletropiso tinha `personal_whatsapp` preenchido (o pipeline parava antes em `skip_no_number`).
+- **Fix**: trocado o select inicial por embedding PostgREST: `'id, inbox_id, contact_id, assigned_at, contact:contacts(name, phone, jid), inbox:inboxes(instance_id)'`. Mesmo fix aplicado em `notifyPreviousAssignee()`.
+- **Validação E2E real**: aplicados deltas (Lucas com `personal_whatsapp=+5581993856099`, `notifications_enabled=true`, `extended_hours_until=NOW()+30min`), invocada a edge function de fato → retornou `{ ok: true }`, log gravou `status=sent`, mensagem chegou no WhatsApp 5581993856099 com emojis e acentos corretos. Deltas revertidos depois.
+- **Deploy**: feito via `supabase functions deploy notify-vendor-assignment` no projeto `prfcbfumyrrycsrcrvms`.
+
+### Aprendizado registrado
+
+- `wiki/erros-e-licoes.md`: novo item — **PostgREST `.maybeSingle()` mascara erros de coluna inexistente**. Regra: validar pipeline edge function via teste E2E real (com dado válido) antes de considerar shipping concluído. Code review e TS-check não pegam isso porque o cliente Supabase não tipa selects encadeados.
+
+### Auto-avaliação
+
+**Conteúdo**: 9/10 — bug encontrado por sorte (cliente quis simular notif), mas resolvido com fix focado e validação E2E.
+**Orquestração**: 8/10 — log + erros-e-licoes + PRD + commit + deploy alinhados.
+**Estado do vault**: 8/10 — vault atualizado, mas `wiki/notif-handoff*` deveria ter a nota de incidente também (TODO).
+
+---
+
 ## 2026-05-07 (noite, parte 3) — Refactor v7.32.2: corrigir premissa errada UAZAPI
 
 > Usuário sinalizou: "não trabalhamos com API oficial, usamos UAZAPI". Identifiquei que toda a lógica de handshake/janela 24h da v7.32.0/v7.32.1 era cópia da regra da WhatsApp Business API oficial (Meta) — irrelevante pra UAZAPI (proxy WhatsApp Web). Refactor de simplificação: ~80 linhas removidas, 2 colunas vestigiais dropadas.

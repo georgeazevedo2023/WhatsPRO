@@ -11,6 +11,27 @@ updated: 2026-05-07
 
 ---
 
+## ⚠️ PostgREST `.maybeSingle()` mascara erro de coluna inexistente — incidente 2026-05-09
+
+**Erro:** edge function `notify-vendor-assignment` selecionava `instance_id, contact_name, contact_phone` direto em `conversations` — colunas que **não existem** (são acessíveis só via JOIN: `inboxes` para `instance_id`, `contacts` para `name`/`phone`). PostgREST retornou erro, mas `.maybeSingle()` engoliu e devolveu `data=null`. Resultado: a função sempre logava `skip_reason='conv_not_found'` e **nunca chegou a entregar uma notif em prod desde o shipping da v7.32.0**.
+
+**Por que ninguém viu antes:** outro guard parava antes — nenhum vendor da Eletropiso tinha `personal_whatsapp` cadastrado, então o pipeline batia em `skip_no_number` antes de tentar enviar. Bug oculto por seleção dupla de skips silenciosos.
+
+**Como descobri:** usuário pediu pra simular a notif chegando no celular dele. Ao tentar invocar a edge function pelo caminho real, ela retornou `{ ok: true, skipped: 'conv_not_found' }` mesmo com a conversa existindo. Investigação revelou o schema mismatch.
+
+**Fix:** select reescrito com PostgREST embedding:
+```ts
+.select('id, inbox_id, contact_id, assigned_at, contact:contacts(name, phone, jid), inbox:inboxes(instance_id)')
+```
+`instanceId` resolvido via `convRow.inbox?.instance_id`. Mesma correção em `notifyPreviousAssignee()`.
+
+**Regra preventiva:**
+1. **Edge function que envia mensagem/notif PRECISA validação E2E real** — chamar a função com dado válido e verificar entrega (não só TS-check, não só unit test). Code review não pega porque PostgREST não tipa selects encadeados.
+2. **Skip silencioso é dívida técnica disfarçada** — sempre que uma função tem múltiplos `skip_*`, pelo menos um teste E2E deve forçar o caminho de sucesso até `status='sent'`.
+3. **`.maybeSingle()` não substitui validação de schema** — sempre que possível, preferir embedding PostgREST a duplo-fetch (menos colunas inventadas, schema validado em build se houver gen-types).
+
+---
+
 ## ⚠️ UAZAPI ≠ WhatsApp Business API oficial (Meta) — incidente 2026-05-07
 
 **Erro:** ao implementar v7.32.0 (notif handoff), apliquei a **regra de janela 24h** que é da **Business API oficial Meta** ao código que usa **UAZAPI**. UAZAPI é proxy não-oficial sobre WhatsApp Web (chip) — **não tem janela 24h formal**. Resultado: implementei ~80 linhas vestigiais (handshake, auto-resposta, guard `skip_session_expired`, banner amarelo/vermelho, 2 colunas DB) que tive que remover na v7.32.2.

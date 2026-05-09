@@ -16,12 +16,14 @@ import { cn } from '@/lib/utils';
 const DISMISS_KEY_PREFIX = 'wpro_notif_no_number_dismissed_';
 
 export function VendorNotificationBanner() {
-  const { user } = useAuth();
+  const { user, isSuperAdmin, isGerente } = useAuth();
   const [show, setShow] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
+    // Admin/gerente não atendem na fila — banner não se aplica
+    if (isSuperAdmin || isGerente) { setShow(false); return; }
     let alive = true;
 
     (async () => {
@@ -39,7 +41,7 @@ export function VendorNotificationBanner() {
     })();
 
     return () => { alive = false; };
-  }, [user?.id]);
+  }, [user?.id, isSuperAdmin, isGerente]);
 
   if (!user?.id || !show || dismissed) return null;
 

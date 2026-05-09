@@ -100,14 +100,23 @@ export const ContactInfoPanel = ({
     (conversation as any).resolved_at,
   );
   const kpiInicioAtual = useMemo(() => fmtDateTime(sessionStartIso), [sessionStartIso]);
-  // DURAÇÃO ATUAL: last_message − sessionStart (não primeiro contato eterno!)
+  // DURAÇÃO ATUAL: tick em tempo real (now − sessionStart) enquanto a conversa
+  // estiver ativa. Se resolvida, congela em resolved_at − sessionStart.
+  const resolvedAtIso = (conversation as any).resolved_at as string | null | undefined;
+  const isResolved = conversation.status === 'resolvida' && !!resolvedAtIso;
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    if (isResolved || !sessionStartIso) return;
+    const id = setInterval(() => setNowTs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [isResolved, sessionStartIso]);
   const kpiDuracaoAtual = useMemo(() => {
-    if (!sessionStartIso || !conversation.last_message_at) return '—';
+    if (!sessionStartIso) return '—';
     const start = new Date(sessionStartIso).getTime();
-    const end = new Date(conversation.last_message_at as string).getTime();
+    const end = isResolved ? new Date(resolvedAtIso as string).getTime() : nowTs;
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '—';
     return fmtDuration(end - start);
-  }, [sessionStartIso, conversation.last_message_at]);
+  }, [sessionStartIso, isResolved, resolvedAtIso, nowTs]);
   const [manageLabelsOpen, setManageLabelsOpen] = useState(false);
   const [inboxMemberIds, setInboxMemberIds] = useState<string[]>([]);
   const { profiles: agentProfiles } = useUserProfiles({ userIds: inboxMemberIds, enabled: inboxMemberIds.length > 0 });

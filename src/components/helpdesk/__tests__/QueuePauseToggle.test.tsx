@@ -40,14 +40,14 @@ describe('QueuePauseToggle — render', () => {
     });
   });
 
-  it('renderiza Disponivel quando algum dept esta nao-pausado', async () => {
+  it('renderiza Pausar quando algum dept esta nao-pausado', async () => {
     mockEq.mockResolvedValue({
       data: [{ queue_paused: false }, { queue_paused: true }],
       error: null,
     });
     render(<QueuePauseToggle />);
     await waitFor(() => {
-      expect(screen.getByText('Disponível')).toBeInTheDocument();
+      expect(screen.getByText('Pausar')).toBeInTheDocument();
     });
   });
 
@@ -64,14 +64,14 @@ describe('QueuePauseToggle — render', () => {
 });
 
 describe('QueuePauseToggle — toggle (R93 fix)', () => {
-  it('clica em Disponivel -> chama RPC set_my_queue_paused com paused=true', async () => {
+  it('clica em Pausar -> chama RPC set_my_queue_paused com paused=true', async () => {
     mockEq.mockResolvedValue({ data: [{ queue_paused: false }], error: null });
     mockRpc.mockResolvedValue({ data: { rows_affected: 1, paused: true }, error: null });
 
     render(<QueuePauseToggle />);
-    await waitFor(() => expect(screen.getByText('Disponível')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Pausar')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Disponível'));
+    fireEvent.click(screen.getByText('Pausar'));
 
     await waitFor(() => {
       expect(mockRpc).toHaveBeenCalledWith('set_my_queue_paused', {
@@ -104,16 +104,16 @@ describe('QueuePauseToggle — toggle (R93 fix)', () => {
     mockRpc.mockResolvedValue({ data: { rows_affected: 0, paused: true }, error: null });
 
     render(<QueuePauseToggle />);
-    await waitFor(() => expect(screen.getByText('Disponível')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Pausar')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Disponível'));
+    fireEvent.click(screen.getByText('Pausar'));
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalled();
     });
     expect(mockToastSuccess).not.toHaveBeenCalled();
     // State NAO muda quando o UPDATE falha silenciosamente
-    expect(screen.getByText('Disponível')).toBeInTheDocument();
+    expect(screen.getByText('Pausar')).toBeInTheDocument();
   });
 
   it('RPC retorna error -> toast erro com mensagem', async () => {
@@ -121,9 +121,9 @@ describe('QueuePauseToggle — toggle (R93 fix)', () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: 'rpc broken' } });
 
     render(<QueuePauseToggle />);
-    await waitFor(() => expect(screen.getByText('Disponível')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Pausar')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Disponível'));
+    fireEvent.click(screen.getByText('Pausar'));
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith('rpc broken');
@@ -138,9 +138,9 @@ describe('QueuePauseToggle — toggle (R93 fix)', () => {
     });
 
     render(<QueuePauseToggle />);
-    await waitFor(() => expect(screen.getByText('Disponível')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Pausar')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Disponível'));
+    fireEvent.click(screen.getByText('Pausar'));
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith('unauthenticated');
