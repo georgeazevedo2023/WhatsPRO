@@ -273,25 +273,27 @@ Deno.serve(async (req) => {
       return errorResponse(corsHeaders, 'No transcription provider configured', 500)
     }
 
-    // ── Provider chain: Gemini → Groq ────────────────────────────────
+    // ── Provider chain: Groq Whisper (primary) → Gemini (fallback) ───
+    // Groq Whisper-large-v3 é o provider oficial pra transcrição WhatsPRO;
+    // Gemini só entra como fallback se a key Groq falhar.
     let transcription = ''
     let providerUsed = 'none'
 
-    if (GEMINI_API_KEY) {
-      try {
-        transcription = await transcribeWithGemini(audioUrl, GEMINI_API_KEY, callerMimeType)
-        providerUsed = 'gemini'
-      } catch (err) {
-        log.error('Gemini fully failed', { error: (err as Error).message })
-      }
-    }
-
-    if (!transcription && GROQ_API_KEY) {
+    if (GROQ_API_KEY) {
       try {
         transcription = await transcribeWithGroq(audioUrl, GROQ_API_KEY)
         providerUsed = 'groq'
       } catch (err) {
-        log.error('Groq also failed', { error: (err as Error).message })
+        log.error('Groq fully failed', { error: (err as Error).message })
+      }
+    }
+
+    if (!transcription && GEMINI_API_KEY) {
+      try {
+        transcription = await transcribeWithGemini(audioUrl, GEMINI_API_KEY, callerMimeType)
+        providerUsed = 'gemini'
+      } catch (err) {
+        log.error('Gemini fallback failed', { error: (err as Error).message })
       }
     }
 
