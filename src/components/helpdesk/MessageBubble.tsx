@@ -254,18 +254,21 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
         )}
 
         {message.media_type === 'audio' && (
-          <div>
+          <div className="flex flex-col gap-1">
+            <span className={`text-[10px] font-semibold uppercase tracking-wide ${message.direction === 'incoming' ? 'text-foreground/60' : 'text-emerald-50/80'}`}>
+              {message.direction === 'incoming' ? '🎤 Áudio do cliente' : '🎤 Áudio enviado'}
+            </span>
             {mediaUrl ? (
-            <AudioPlayer src={mediaUrl} direction={message.direction} />
+              <AudioPlayer src={mediaUrl} direction={message.direction} />
             ) : (
               <div className="text-xs text-muted-foreground italic py-2">Áudio indisponível</div>
             )}
             {message.transcription ? (
-              <p className="text-[11px] text-muted-foreground italic mt-1 whitespace-pre-wrap">
+              <p className={`text-[11px] italic whitespace-pre-wrap rounded-md px-2 py-1.5 mt-0.5 ${message.direction === 'incoming' ? 'bg-foreground/5 text-foreground/80' : 'bg-emerald-950/30 text-emerald-50/90'}`}>
                 📝 {message.transcription}
               </p>
             ) : message.direction === 'incoming' ? (
-              <div className="flex items-center gap-1.5 mt-1 animate-pulse">
+              <div className="flex items-center gap-1.5 mt-0.5 animate-pulse">
                 <div className="w-3 h-3 rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground animate-spin" />
                 <span className="text-[11px] text-muted-foreground italic">Transcrevendo...</span>
               </div>
@@ -365,12 +368,15 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
                       key={card.id || idx}
                       className="shrink-0 w-48 rounded-lg border border-border bg-muted/30 overflow-hidden"
                     >
-                      {card.image && (
-                        <div className="aspect-[4/3] overflow-hidden">
+                      {card.image && /^https?:\/\//.test(card.image) && (
+                        <div className="aspect-[4/3] overflow-hidden bg-muted/40">
                           <img
                             src={card.image}
                             alt={`Card ${idx + 1}`}
+                            loading="lazy"
+                            decoding="async"
                             className="w-full h-full object-cover"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                           />
                         </div>
                       )}

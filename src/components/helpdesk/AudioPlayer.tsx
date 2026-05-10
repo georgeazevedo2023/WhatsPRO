@@ -125,7 +125,7 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
             'shadow-sm hover:shadow active:scale-95',
             isOutgoing
               ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-              : 'bg-primary text-primary-foreground hover:bg-primary/90',
+              : 'bg-sky-500 text-white hover:bg-sky-600 dark:bg-sky-400 dark:hover:bg-sky-500 dark:text-slate-900',
           )}
         >
           {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
@@ -135,7 +135,7 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
             'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center',
             isOutgoing
               ? 'bg-emerald-100 border-emerald-50 text-emerald-600 dark:bg-emerald-900 dark:border-emerald-950 dark:text-emerald-300'
-              : 'bg-background border-card text-muted-foreground',
+              : 'bg-sky-100 border-sky-50 text-sky-600 dark:bg-sky-900 dark:border-sky-950 dark:text-sky-300',
           )}
           aria-hidden
         >
@@ -155,8 +155,8 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
                   className={cn(
                     'flex-1 rounded-full transition-colors duration-100',
                     filled
-                      ? (isOutgoing ? 'bg-emerald-500' : 'bg-primary')
-                      : (isOutgoing ? 'bg-emerald-500/25' : 'bg-foreground/20'),
+                      ? (isOutgoing ? 'bg-emerald-500' : 'bg-sky-500 dark:bg-sky-400')
+                      : (isOutgoing ? 'bg-emerald-500/25' : 'bg-foreground/30 dark:bg-foreground/40'),
                   )}
                   style={{ height: `${h * 100}%` }}
                 />
@@ -176,23 +176,23 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
         </div>
         <span
           className={cn(
-            'text-[10px] tabular-nums leading-none',
-            isOutgoing ? 'text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground',
+            'text-[10px] tabular-nums leading-none font-medium',
+            isOutgoing ? 'text-emerald-50/90' : 'text-foreground/70',
           )}
         >
           {timeLabel}
         </span>
       </div>
 
-      {/* Speed pill — só destaca quando tocando ou hover */}
+      {/* Speed pill */}
       <button
         onClick={cycleSpeed}
         aria-label={`Velocidade ${playbackRate}x`}
         className={cn(
           'flex-shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 transition-all tabular-nums',
           isPlaying
-            ? (isOutgoing ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground')
-            : 'bg-foreground/10 text-foreground/70 hover:bg-foreground/15',
+            ? (isOutgoing ? 'bg-emerald-500 text-white' : 'bg-sky-500 text-white dark:bg-sky-400 dark:text-slate-900')
+            : (isOutgoing ? 'bg-emerald-500/20 text-emerald-50' : 'bg-foreground/10 text-foreground/70 hover:bg-foreground/15'),
         )}
       >
         {playbackRate}x

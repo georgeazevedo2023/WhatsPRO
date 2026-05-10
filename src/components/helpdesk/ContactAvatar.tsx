@@ -41,7 +41,8 @@ export const ContactAvatar = memo(function ContactAvatar({
         body: { contact_id: contactId },
       });
       const url = (data as { url?: string | null })?.url;
-      if (typeof url === 'string' && url.startsWith('http')) {
+      // Só usa URL fresca que NÃO seja CDN do WhatsApp (essas expiram em ~24h e dão 403)
+      if (typeof url === 'string' && url.startsWith('http') && !isStaleSrc(url)) {
         setRefreshedSrc(url);
         setImgError(false);
       }
