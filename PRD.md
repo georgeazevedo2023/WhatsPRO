@@ -40,6 +40,36 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.32.6 (2026-05-10) — Polish helpdesk: áudios outgoing + player + console
+
+**Contexto:** Após o fix do pipeline de transcrição (v7.32.5), 4 demandas incrementais do usuário durante o teste E2E: (1) player do áudio com pouco contraste, (2) áudio outgoing também precisa transcrever pra extrair métricas de atendimento, (3) console mostrando 2 erros (URL pré-migração + URL relativa em carrossel), (4) UX do player precisava de identificação clara incoming vs outgoing.
+
+**Player redesign (`AudioPlayer.tsx`):**
+
+- Container do player ganhou bg próprio (`bg-emerald-900/55` outgoing, `bg-foreground/5` incoming) com `ring` sutil — fica "card embed" estilo Spotify
+- Outgoing: paleta emerald-200/100 com play button branco + texto emerald-800. Passa WCAG AA contra a bolha verde clara.
+- Incoming: paleta **sky** (não primary verde) — diferenciação visual do outgoing à primeira vista
+- Waveform decorativo: 32 barras com alturas pseudo-aleatórias estáveis por src (memoized)
+- Mic badge decorativo no canto inferior direito do play button
+- Speed pill com 2 estados (idle/playing) e variantes por direction
+- Label "🎤 ÁUDIO DO CLIENTE" / "🎤 ÁUDIO ENVIADO" acima do player
+- Transcrição agora num card estilizado com bg sutil (não mais texto solto)
+
+**Transcrição outgoing (`ChatInput.tsx`):**
+
+- `handleSendAudio` dispara `transcribe-audio` (fire-and-forget) após o INSERT da mensagem outgoing
+- Habilita métricas de atendimento (tempo médio de resposta em texto, análise de sentimento, busca textual em conversas)
+- Spinner "Transcrevendo..." aparece em outgoing também enquanto a edge processa
+
+**Console fixes:**
+
+- `pps.whatsapp.net 403`: `ContactAvatar.triggerRefresh` aceitava qualquer URL retornada por `refresh-avatar`, inclusive CDN do WhatsApp que expira em 24h. Fix: filtrar via `isStaleSrc` antes de setar `refreshedSrc`.
+- `<UUID>.jpg ERR_NAME_NOT_RESOLVED`: 2 causas. (a) Carrossel renderizava `card.image` sem validar protocolo — strings sem `https://` viravam URLs relativas (`localhost:8080/UUID.jpg`). Fix: regex `/^https?:\/\//`. (b) `contacts.profile_pic_url` legacy de pré-migração 2026-05-06 (`euljumeflwtljegknawy.supabase.co`) — DNS não resolve mais. Fix: `isStaleSrc` extrai o ref do projeto da URL e compara com `VITE_SUPABASE_URL` atual; refs diferentes são tratados como stale.
+
+**Auto-avaliação:** **9/10** — fixes focados, validação E2E real (transcrição "Olá, 1, 2, 3, testando o áudio." visível no helpdesk).
+
+---
+
 ### v7.32.5 (2026-05-10) — Fix áudios + transcrição quebrada
 
 **Contexto:** Usuário reportou que áudios outgoing não tocavam no helpdesk (caixas verdes vazias com badge "1x") e áudios incoming ficavam presos em "Transcrevendo...". Investigação revelou 3 bugs encadeados em produção.

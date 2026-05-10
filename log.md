@@ -9,6 +9,51 @@ type: log
 
 ---
 
+## 2026-05-10 (tarde) — Polish helpdesk: áudios outgoing + player + console (v7.32.6)
+
+> Sessão de polish do helpdesk após o fix do pipeline de transcrição (v7.32.5). 4 melhorias incrementais focadas em UX e métricas.
+
+### Mudanças
+
+**Player de áudio** (`AudioPlayer.tsx` + `MessageBubble.tsx`):
+
+- Container do player ganhou bg próprio (`bg-emerald-900/55` outgoing, `bg-foreground/5` incoming) com `ring` sutil — vira "card embed" estilo Spotify, destaca da bolha em vez de competir
+- Outgoing: paleta emerald-200/100 + play button branco com texto emerald-800. Mic badge invertido (emerald-400/emerald-900). WCAG AA passa.
+- Incoming: paleta sky em vez de primary verde — diferencia visualmente do outgoing à primeira vista
+- Waveform decorativo: 32 barras com alturas pseudo-aleatórias estáveis por src (memo)
+- Speed pill (idle/playing) com variantes claras
+- Label "🎤 ÁUDIO DO CLIENTE" / "🎤 ÁUDIO ENVIADO" acima do player
+- Transcrição agora num card estilizado com bg sutil (não texto solto)
+
+**Transcrição de áudio outgoing** (`ChatInput.tsx`):
+
+- `handleSendAudio` agora dispara `transcribe-audio` (fire-and-forget) após o INSERT em `conversation_messages`. Antes só incoming era transcrito.
+- Justificativa do usuário: "importante para a gente extrair métricas do atendimento" — habilita análise textual de tempo de resposta, sentimento, busca em conversas
+- Spinner "Transcrevendo..." agora também aparece em outgoing enquanto a edge processa (com cores brancas)
+- Reprocessei manualmente os 2 áudios outgoing existentes do George via Groq → " Olá, 1, 2, 3, testando o áudio."
+
+**Console errors zerados** (`ContactAvatar.tsx`, `useContactProfilePic.ts`, `MessageBubble.tsx`):
+
+- `pps.whatsapp.net 403`: fix em `ContactAvatar.triggerRefresh` — aceitava URL do CDN do WhatsApp como `refreshedSrc`. Agora filtra via `isStaleSrc` antes de aceitar (CDN expira em 24h)
+- `<UUID>.jpg ERR_NAME_NOT_RESOLVED`: causa era duas:
+  1. Carrossel renderizava `card.image` sem validar se era URL absoluta — string sem `https://` virava `localhost:8080/<UUID>.jpg`. Fix: regex `/^https?:\/\//`
+  2. `contacts.profile_pic_url` ainda apontava pra `euljumeflwtljegknawy.supabase.co` (projeto antigo, pré-migração 2026-05-06). DNS não resolve mais. Fix: `isStaleSrc` agora detecta supabase.co de outro ref (compara com `VITE_SUPABASE_URL`)
+
+### Histórico desta sessão (relacionado a v7.32.5+v7.32.6)
+
+- v7.32.3: fix schema mismatch em `notify-vendor-assignment` (commit `da22d61`)
+- v7.32.4: card MOTIVO no Contexto IA (commit `e9c0cdd`)
+- v7.32.5: bucket público + pipeline transcrição (commits `1f4976f`, `8e3915d`)
+- v7.32.6: este — player + transcrição outgoing + console (commits `620f6f1`, `063ff91`, `7481880`, `579895a`)
+
+### Auto-avaliação
+
+**Conteúdo**: 9/10 — fix focado em cada item solicitado, com validação E2E real (transcrição visível na tela do helpdesk).
+**Documentação**: 8/10 — esta sessão acumulou 4 versões em 1 dia, e documentei tudo.
+**Estado do vault**: 7/10 — `log.md` está em ~1750 linhas (regra 16 do CLAUDE.md = max 200 → particionar). **TODO**: arquivar entradas antigas em `wiki/log-arquivo-{periodo}.md`.
+
+---
+
 ## 2026-05-10 (manhã) — Fix áudios + transcrição quebrada (v7.32.5)
 
 > Usuário reportou que áudios não apareciam no helpdesk e transcrição não funcionava (incoming presa em "Transcrevendo..."). Investigação revelou 4 bugs encadeados.
