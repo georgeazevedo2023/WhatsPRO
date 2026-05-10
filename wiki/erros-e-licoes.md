@@ -1,8 +1,9 @@
 ---
 title: Erros e Lições
-tags: [erros, bugs, licoes, preventivo, retention, cron, storage, db-constraint, controlled-input, uazapi-vs-meta]
+tags: [erros, bugs, licoes, preventivo, retention, cron, storage, db-constraint, controlled-input, uazapi-vs-meta, postgrest, schema-mismatch]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-07
+updated: 2026-05-10
+audited_at: 2026-05-10
 ---
 
 # Erros e Lições
