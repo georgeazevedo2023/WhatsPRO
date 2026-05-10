@@ -255,7 +255,7 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
 
         {message.media_type === 'audio' && (
           <div className="flex flex-col gap-1">
-            <span className={`text-[10px] font-semibold uppercase tracking-wide ${message.direction === 'incoming' ? 'text-foreground/60' : 'text-white/85'}`}>
+            <span className={`text-[10px] font-semibold uppercase tracking-wide ${message.direction === 'incoming' ? 'text-foreground/60' : 'text-emerald-50'}`}>
               {message.direction === 'incoming' ? '🎤 Áudio do cliente' : '🎤 Áudio enviado'}
             </span>
             {mediaUrl ? (
@@ -267,12 +267,12 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
               <p className={`text-[11px] italic whitespace-pre-wrap rounded-md px-2 py-1.5 mt-0.5 ${message.direction === 'incoming' ? 'bg-foreground/5 text-foreground/80' : 'bg-emerald-950/30 text-emerald-50/90'}`}>
                 📝 {message.transcription}
               </p>
-            ) : message.direction === 'incoming' ? (
-              <div className="flex items-center gap-1.5 mt-0.5 animate-pulse">
-                <div className="w-3 h-3 rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground animate-spin" />
-                <span className="text-[11px] text-muted-foreground italic">Transcrevendo...</span>
+            ) : (
+              <div className={`flex items-center gap-1.5 mt-0.5 animate-pulse ${message.direction === 'incoming' ? '' : ''}`}>
+                <div className={`w-3 h-3 rounded-full border-2 animate-spin ${message.direction === 'incoming' ? 'border-muted-foreground/40 border-t-muted-foreground' : 'border-white/40 border-t-white'}`} />
+                <span className={`text-[11px] italic ${message.direction === 'incoming' ? 'text-muted-foreground' : 'text-white/85'}`}>Transcrevendo...</span>
               </div>
-            ) : null}
+            )}
           </div>
         )}
         {message.media_type === 'video' && mediaUrl && (

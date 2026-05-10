@@ -286,6 +286,18 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
 
       await autoAssignAgent();
       await fireOutgoingWebhook({ message_type: 'audio', content: null, media_url: audioPublicUrl });
+
+      // Transcrição do áudio enviado (fire-and-forget) — útil pra métricas
+      // de atendimento + busca textual. Edge function aceita user JWT.
+      supabase.functions.invoke('transcribe-audio', {
+        body: {
+          messageId: insertedMsg.id,
+          audioUrl: audioPublicUrl,
+          mimeType: blob.type || 'audio/webm',
+          conversationId: conversation.id,
+        },
+      }).catch((err) => console.warn('[outgoing-audio-transcribe]', err));
+
       onMessageSent();
     } catch (err) {
       handleError(err, 'Erro ao enviar áudio', 'Send audio error');

@@ -110,7 +110,12 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
   return (
     <div
       className={cn(
-        'group/audio flex items-center gap-2.5 min-w-[240px] w-full max-w-[320px] py-1',
+        'group/audio flex items-center gap-2.5 min-w-[240px] w-full max-w-[320px] rounded-xl px-2.5 py-2',
+        // Container com tinta escura cria contraste forte sobre a bolha
+        // (verde ou cinza) — funciona como "card" embed do player.
+        isOutgoing
+          ? 'bg-emerald-900/55 ring-1 ring-emerald-950/40'
+          : 'bg-foreground/5 ring-1 ring-foreground/10',
       )}
     >
       <audio ref={audioRef} src={src} preload="metadata" />
@@ -124,8 +129,7 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
             'w-11 h-11 rounded-full flex items-center justify-center transition-all',
             'active:scale-95',
             isOutgoing
-              // Branco translúcido com glass effect contra a bolha verde
-              ? 'bg-white text-emerald-700 hover:bg-white/95 shadow-lg shadow-emerald-900/20 ring-1 ring-emerald-900/10'
+              ? 'bg-white text-emerald-800 hover:bg-white/95 shadow-md shadow-black/30'
               : 'bg-sky-500 text-white hover:bg-sky-600 shadow-md dark:bg-sky-400 dark:hover:bg-sky-500 dark:text-slate-900',
           )}
         >
@@ -135,7 +139,7 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
           className={cn(
             'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shadow-sm',
             isOutgoing
-              ? 'bg-emerald-700 border-white text-white'
+              ? 'bg-emerald-400 border-emerald-900 text-emerald-950'
               : 'bg-sky-100 border-sky-50 text-sky-600 dark:bg-sky-900 dark:border-sky-950 dark:text-sky-300',
           )}
           aria-hidden
@@ -156,8 +160,8 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
                   className={cn(
                     'flex-1 rounded-full transition-colors duration-100',
                     filled
-                      ? (isOutgoing ? 'bg-white shadow-sm shadow-white/30' : 'bg-sky-500 dark:bg-sky-400')
-                      : (isOutgoing ? 'bg-white/30' : 'bg-foreground/30 dark:bg-foreground/40'),
+                      ? (isOutgoing ? 'bg-emerald-200' : 'bg-sky-500 dark:bg-sky-400')
+                      : (isOutgoing ? 'bg-emerald-200/30' : 'bg-foreground/25 dark:bg-foreground/35'),
                   )}
                   style={{ height: `${h * 100}%` }}
                 />
@@ -177,8 +181,8 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
         </div>
         <span
           className={cn(
-            'text-[10px] tabular-nums leading-none font-medium',
-            isOutgoing ? 'text-white/85' : 'text-foreground/70',
+            'text-[10px] tabular-nums leading-none font-semibold',
+            isOutgoing ? 'text-emerald-100' : 'text-foreground/70',
           )}
         >
           {timeLabel}
@@ -190,10 +194,10 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
         onClick={cycleSpeed}
         aria-label={`Velocidade ${playbackRate}x`}
         className={cn(
-          'flex-shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 transition-all tabular-nums',
+          'flex-shrink-0 text-[10px] font-bold rounded-full px-2 py-0.5 transition-all tabular-nums',
           isPlaying
-            ? (isOutgoing ? 'bg-white text-emerald-700 shadow-sm' : 'bg-sky-500 text-white dark:bg-sky-400 dark:text-slate-900')
-            : (isOutgoing ? 'bg-white/20 text-white/90 hover:bg-white/30 ring-1 ring-white/20' : 'bg-foreground/10 text-foreground/70 hover:bg-foreground/15'),
+            ? (isOutgoing ? 'bg-white text-emerald-800 shadow-sm' : 'bg-sky-500 text-white dark:bg-sky-400 dark:text-slate-900')
+            : (isOutgoing ? 'bg-emerald-200/15 text-emerald-100 hover:bg-emerald-200/25 ring-1 ring-emerald-200/25' : 'bg-foreground/10 text-foreground/70 hover:bg-foreground/15'),
         )}
       >
         {playbackRate}x
