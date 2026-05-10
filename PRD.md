@@ -40,6 +40,32 @@ React Frontend ──> Supabase Client (DB, Auth, Realtime, Storage)
 
 ## Changelog
 
+### v7.32.5 (2026-05-10) — Fix áudios + transcrição quebrada
+
+**Contexto:** Usuário reportou que áudios outgoing não tocavam no helpdesk (caixas verdes vazias com badge "1x") e áudios incoming ficavam presos em "Transcrevendo...". Investigação revelou 3 bugs encadeados em produção.
+
+**Bugs:**
+
+1. **Bucket `audio-messages` privado** mas o sistema gera URLs `/object/public/...` (formato exclusivo de bucket público). Migration original (`20260320011313`) define `public: true` mas o estado divergiu em algum ponto. Mesmo problema em `helpdesk-media`.
+2. **Webhook insere `max_retries`** em `job_queue` cujo schema usa `max_attempts`. INSERT falha silenciosamente (erro logado em error-level, ignorado).
+3. **RPCs `claim_jobs` e `complete_job` ausentes** no DB. Mesmo se o INSERT funcionasse, o cron nunca processaria — pipeline inteiro de jobs parado.
+
+**Fix:**
+
+- `UPDATE storage.buckets SET public=true` em `audio-messages` e `helpdesk-media`. Validado via curl HEAD.
+- `whatsapp-webhook/index.ts:1057-1075` reescrito: ao invés de inserir job em `job_queue` (cadeia quebrada), chama a edge `transcribe-audio` direto via `backgroundFetch`. Elimina dependência da fila + RPCs ausentes.
+- Deploy: `whatsapp-webhook` deployado em `prfcbfumyrrycsrcrvms`.
+
+**Pendência:** chamada manual a `transcribe-audio` retorna `{ ok: false, error: 'All transcription providers failed' }` — Gemini key existe nas envs (não retornou "No provider configured") mas falha em runtime. Possíveis causas: key inválida, modelo `gemini-2.0-flash` deprecated, cota esgotada. **Usuário precisa verificar `GEMINI_API_KEY` no Dashboard** (Settings → Edge Functions → Secrets).
+
+**Histórico:** áudios incoming foram transcritos normalmente até 25/03/2026 (16/16). A partir de 28/03 a maioria começou a falhar. Há um corte temporal claro — provavelmente coincide com mudança que introduziu o `max_retries` errado.
+
+**Aprendizado:** registrado em `wiki/erros-e-licoes.md` — schema mismatch silencioso #2 (companion ao bug `notify-vendor-assignment` da v7.32.3). Lição reforçada: **todo INSERT/UPDATE em tabela crítica precisa validação E2E real verificando `error === null`**.
+
+**Auto-avaliação:** **7/10** — fixei 2/3 bugs; o 3º depende do usuário. Nota baixa porque a degradação passou ~6 semanas em prod sem alarme.
+
+---
+
 ### v7.32.4 (2026-05-09) — Card MOTIVO no Contexto IA do helpdesk
 
 **Contexto:** Usuário perguntou por que os motivos do contato (compra, cotação, vaga de emprego, fornecedor, etc) não apareciam no painel direito do helpdesk. A taxonomia já existia no AI agent (`saudacao | compra | troca | orcamento | duvida_tecnica | suporte | financeiro | emprego | fornecedor | informacao | fora_escopo` — ver `ai-agent/index.ts:2400`) e a tag `motivo:X` era atribuída corretamente em cada conversa, mas a UI nunca renderizava o valor — `kpiMotivo` em `ContactInfoPanel.tsx` era calculado e descartado (TS warning `ts6133`).

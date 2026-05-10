@@ -9,6 +9,49 @@ type: log
 
 ---
 
+## 2026-05-10 (manhã) — Fix áudios + transcrição quebrada (v7.32.5)
+
+> Usuário reportou que áudios não apareciam no helpdesk e transcrição não funcionava (incoming presa em "Transcrevendo..."). Investigação revelou 4 bugs encadeados.
+
+### Bugs encontrados
+
+1. **Bucket `audio-messages` privado** mas o código gera URL `/object/public/...` (formato que só funciona em bucket público). Mesma coisa pra `helpdesk-media`. **Causa**: estado do DB divergiu da migration `20260320011313_create_storage_buckets.sql` (que define `public=true`). Fix: `UPDATE storage.buckets SET public=true WHERE name IN ('audio-messages','helpdesk-media')`.
+
+2. **Webhook insere `max_retries`** em `job_queue`, mas o schema da tabela usa `max_attempts`. INSERT falha silenciosamente (`jobErr.message='column max_retries does not exist'`), erro logado em info-level e ignorado. Resultado: nenhum job de transcrição é enfileirado.
+
+3. **RPCs `claim_jobs` e `complete_job` não existem** no DB. O `process-jobs/index.ts` chama essas RPCs em loop — todas falham. Mesmo se o INSERT do (2) funcionasse, o cron nunca processaria. Pipeline inteiro de jobs está quebrado para todos os tipos (`lead_auto_add`, `profile_pic_fetch`, `transcribe_audio`).
+
+4. **Diagnóstico inferido**: chamada manual a `transcribe-audio` retorna `{ ok: false, error: 'All transcription providers failed' }`. A key existe (não retornou "No provider configured") mas Gemini falha em runtime — possivelmente key inválida, modelo deprecated (`gemini-2.0-flash`), ou cota esgotada. **Pendente verificação do usuário** nas envs do projeto novo (`prfcbfumyrrycsrcrvms`).
+
+### Histórico
+
+Query no DB: dia 25/03 todos os 16 áudios incoming foram transcritos com sucesso. A partir de 28/03 a maioria começou a falhar. Há um corte temporal claro — provavelmente coincide com migração de projeto ou mudança de schema que introduziu o `max_retries` errado.
+
+### Fix aplicado
+
+- `UPDATE storage.buckets SET public=true` em `audio-messages` e `helpdesk-media`. Validado via `curl HEAD` (HTTP 200, Content-Type correto).
+- `whatsapp-webhook/index.ts:1057-1075` reescrito: ao invés de inserir job em `job_queue` (cadeia quebrada), chama a edge `transcribe-audio` diretamente via `backgroundFetch` (`EdgeRuntime.waitUntil`). Elimina dependência de `claim_jobs`/`complete_job`/coluna `max_attempts`.
+- Deploy via CLI (`whatsapp-webhook` no projeto `prfcbfumyrrycsrcrvms`).
+
+### O que ainda falta
+
+- **Áudios outgoing**: ✅ funcionando (bucket público).
+- **Áudios incoming novos**: pipeline restaurado — chega no `transcribe-audio`. **Mas** o erro 500 da função permanece até resolver Gemini key.
+- **Áudios antigos sem transcrição** (12 no DB): ficam órfãos. Após resolver a key, pode-se rodar um script pra reprocessar.
+
+### Lições registradas
+
+`wiki/erros-e-licoes.md`:
+- Schema mismatch silencioso #2: `max_retries` vs `max_attempts` em INSERT (mesmo padrão do bug do `notify-vendor-assignment`). Lição reforçada: **todo INSERT/UPDATE numa tabela com schema crítico precisa ser validado E2E logo após a primeira chamada real, não só pelo TS**.
+- RPCs faltando em DB sem alerta: chamadas a `supabase.rpc('X')` para função inexistente retornam `{data:null, error}` — se o caller não verifica `error`, segue silencioso. Cron jobs nunca executaram.
+
+### Auto-avaliação
+
+**Conteúdo**: 7/10 — descobri 3 bugs encadeados em prod e fixei 2; o 3º (Gemini key) depende de info do usuário. A nota não é maior porque o fix foi descoberto por sorte (cliente reportou); deveria ter sido pego em monitoring.
+**Documentação**: 9/10 — log + erros + PRD alinhados.
+
+---
+
 ## 2026-05-09 (noite, parte 2) — Card MOTIVO no Contexto IA (v7.32.4)
 
 > Usuário perguntou por que motivos do contato (compra, cotação, vaga de emprego, fornecedor) não apareciam no painel direito do helpdesk.

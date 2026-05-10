@@ -1054,24 +1054,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Enqueue audio transcription via job_queue (D-01: primary mechanism, not fallback)
+    // Trigger audio transcription directly (no fila — claim_jobs/complete_job RPCs
+    // don't exist in this project + INSERT em job_queue caía silencioso por col
+    // inexistente max_retries vs schema max_attempts). Direct call elimina a cadeia.
     if (mediaType === 'audio' && mediaUrl && insertedMsg && direction === 'incoming') {
-      log.info('Enqueueing audio transcription job', { messageId: insertedMsg.id })
-      const { error: jobErr } = await supabase.from('job_queue').insert({
-        job_type: 'transcribe_audio',
-        payload: {
+      log.info('Triggering audio transcription (direct call)', { messageId: insertedMsg.id })
+      const SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/transcribe-audio`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SVC_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           messageId: insertedMsg.id,
           audioUrl: mediaUrl,
           mimeType: mediaMimetype || null,
           conversationId: conversation.id,
-        },
-        status: 'pending',
-        attempts: 0,
-        max_retries: 1,
-      })
-      if (jobErr) {
-        log.error('Failed to enqueue transcription job', { error: jobErr.message })
-      }
+        }),
+      }).catch((err: Error) => log.error('transcribe-audio direct call failed', { error: err.message })))
     }
 
     // Mark pending follow-ups as "replied" when lead sends a message (fire-and-forget)

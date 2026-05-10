@@ -11,6 +11,23 @@ updated: 2026-05-07
 
 ---
 
+## ⚠️ Schema mismatch em INSERT silencioso (v2): `max_retries` vs `max_attempts` — incidente 2026-05-10
+
+**Erro:** `whatsapp-webhook/index.ts` inseria `max_retries: 1` em `job_queue`, mas o schema usa `max_attempts`. INSERT falha com `column max_retries does not exist`. Erro foi para `log.error('Failed to enqueue transcription job')` mas como o pipeline não tinha alarmes, ninguém viu. Resultado: **transcrição de áudio quebrada por ~6 semanas** (corte temporal: 28/03/2026 em diante).
+
+**Como descobri:** usuário reportou áudios incoming presos em "Transcrevendo...". Query `SELECT * FROM job_queue WHERE job_type='transcribe_audio'` retornou vazio. Tentativa de inserir manualmente expôs a coluna inexistente.
+
+**Como agravou:** As RPCs `claim_jobs` e `complete_job` chamadas pelo `process-jobs/index.ts` também não existem no DB. Mesmo que o INSERT do webhook funcionasse, o cron nunca processaria. Pipeline inteiro de jobs (`lead_auto_add`, `profile_pic_fetch`, `transcribe_audio`) está parado em prod.
+
+**Fix:** removida a fila pra esse caso — webhook chama `transcribe-audio` direto via `backgroundFetch`. Dependência de `job_queue`/`claim_jobs`/`complete_job` eliminada para o caso de áudio.
+
+**Regra preventiva (reforço da lição anterior):**
+1. **Todo edge function que insere em tabela com schema crítico precisa de teste E2E real** que valide `error === null` no retorno do `.insert()`. TS-check não pega — `supabase-js` aceita qualquer objeto em `insert(payload)`.
+2. **Pipelines com chain de RPCs precisam de health-check** que valida em runtime: `claim_jobs` existe? `complete_job` existe? Falha de RPC retorna `{data:null,error:{...}}` mas se o caller não checa, segue mudo.
+3. **Quando suspeitar do pipeline**: queries diretas no DB (`SELECT count(*) GROUP BY status`) revelam silêncio melhor que logs.
+
+---
+
 ## ⚠️ PostgREST `.maybeSingle()` mascara erro de coluna inexistente — incidente 2026-05-09
 
 **Erro:** edge function `notify-vendor-assignment` selecionava `instance_id, contact_name, contact_phone` direto em `conversations` — colunas que **não existem** (são acessíveis só via JOIN: `inboxes` para `instance_id`, `contacts` para `name`/`phone`). PostgREST retornou erro, mas `.maybeSingle()` engoliu e devolveu `data=null`. Resultado: a função sempre logava `skip_reason='conv_not_found'` e **nunca chegou a entregar uma notif em prod desde o shipping da v7.32.0**.
