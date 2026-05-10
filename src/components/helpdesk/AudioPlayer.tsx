@@ -1,5 +1,5 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
-import { Play, Pause } from 'lucide-react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { Play, Pause, Mic } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface AudioPlayerProps {
@@ -15,6 +15,19 @@ const formatTime = (seconds: number) => {
 };
 
 const SPEEDS = [1, 1.5, 2];
+const WAVEFORM_BARS = 32;
+
+// Pseudo-random heights per src — estável (memo) pra cada áudio render igual
+const buildHeights = (seed: string): number[] => {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  const heights: number[] = [];
+  for (let i = 0; i < WAVEFORM_BARS; i++) {
+    h = (h * 1103515245 + 12345) & 0x7fffffff;
+    heights.push(0.35 + (h / 0x7fffffff) * 0.65);
+  }
+  return heights;
+};
 
 export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -25,6 +38,7 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
   const [loadError, setLoadError] = useState(false);
 
   const isOutgoing = direction === 'outgoing';
+  const heights = useMemo(() => buildHeights(src), [src]);
 
   const togglePlay = useCallback(async () => {
     const audio = audioRef.current;
@@ -88,30 +102,67 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
   }
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const filledBars = Math.round((progress / 100) * WAVEFORM_BARS);
+  const timeLabel = isPlaying || currentTime > 0
+    ? formatTime(currentTime)
+    : formatTime(duration);
 
   return (
-    <div className="flex items-center gap-2 min-w-[220px] w-full max-w-[320px] py-1">
+    <div
+      className={cn(
+        'group/audio flex items-center gap-2.5 min-w-[240px] w-full max-w-[320px] py-1',
+      )}
+    >
       <audio ref={audioRef} src={src} preload="metadata" />
 
-      <button
-        onClick={togglePlay}
-        aria-label={isPlaying ? 'Pausar áudio' : 'Reproduzir áudio'}
-        className={cn(
-          'flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors',
-          isOutgoing
-            ? 'bg-primary/20 hover:bg-primary/30 text-primary'
-            : 'bg-primary/20 hover:bg-primary/30 text-primary'
-        )}
-      >
-        {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
-      </button>
+      {/* Play/pause + mic decorativo */}
+      <div className="relative flex-shrink-0">
+        <button
+          onClick={togglePlay}
+          aria-label={isPlaying ? 'Pausar áudio' : 'Reproduzir áudio'}
+          className={cn(
+            'w-10 h-10 rounded-full flex items-center justify-center transition-all',
+            'shadow-sm hover:shadow active:scale-95',
+            isOutgoing
+              ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90',
+          )}
+        >
+          {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
+        </button>
+        <span
+          className={cn(
+            'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center',
+            isOutgoing
+              ? 'bg-emerald-100 border-emerald-50 text-emerald-600 dark:bg-emerald-900 dark:border-emerald-950 dark:text-emerald-300'
+              : 'bg-background border-card text-muted-foreground',
+          )}
+          aria-hidden
+        >
+          <Mic className="h-2 w-2" />
+        </span>
+      </div>
 
-      <div className="flex-1 flex flex-col gap-0.5 min-w-0">
-        <div className="relative h-1.5 rounded-full bg-muted-foreground/20 overflow-hidden">
-          <div
-            className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-100 bg-primary"
-            style={{ width: `${progress}%` }}
-          />
+      {/* Waveform + tempo */}
+      <div className="flex-1 flex flex-col gap-1 min-w-0">
+        <div className="relative h-7 flex items-center">
+          <div className="flex items-center gap-[2px] w-full h-full">
+            {heights.map((h, i) => {
+              const filled = i < filledBars;
+              return (
+                <span
+                  key={i}
+                  className={cn(
+                    'flex-1 rounded-full transition-colors duration-100',
+                    filled
+                      ? (isOutgoing ? 'bg-emerald-500' : 'bg-primary')
+                      : (isOutgoing ? 'bg-emerald-500/25' : 'bg-foreground/20'),
+                  )}
+                  style={{ height: `${h * 100}%` }}
+                />
+              );
+            })}
+          </div>
           <input
             type="range"
             min={0}
@@ -123,16 +174,26 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
             aria-label="Posição do áudio"
           />
         </div>
-        <div className="flex justify-between text-[10px] text-muted-foreground">
-          <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration)}</span>
-        </div>
+        <span
+          className={cn(
+            'text-[10px] tabular-nums leading-none',
+            isOutgoing ? 'text-emerald-700 dark:text-emerald-300' : 'text-muted-foreground',
+          )}
+        >
+          {timeLabel}
+        </span>
       </div>
 
+      {/* Speed pill — só destaca quando tocando ou hover */}
       <button
         onClick={cycleSpeed}
         aria-label={`Velocidade ${playbackRate}x`}
-        className="flex-shrink-0 text-[10px] font-bold rounded-md px-1.5 py-0.5 transition-colors bg-primary/15 hover:bg-primary/25 text-primary"
+        className={cn(
+          'flex-shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 transition-all tabular-nums',
+          isPlaying
+            ? (isOutgoing ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground')
+            : 'bg-foreground/10 text-foreground/70 hover:bg-foreground/15',
+        )}
       >
         {playbackRate}x
       </button>
