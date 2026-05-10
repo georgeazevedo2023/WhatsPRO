@@ -121,20 +121,21 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
           onClick={togglePlay}
           aria-label={isPlaying ? 'Pausar áudio' : 'Reproduzir áudio'}
           className={cn(
-            'w-10 h-10 rounded-full flex items-center justify-center transition-all',
-            'shadow-sm hover:shadow active:scale-95',
+            'w-11 h-11 rounded-full flex items-center justify-center transition-all',
+            'active:scale-95',
             isOutgoing
-              ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-              : 'bg-sky-500 text-white hover:bg-sky-600 dark:bg-sky-400 dark:hover:bg-sky-500 dark:text-slate-900',
+              // Branco translúcido com glass effect contra a bolha verde
+              ? 'bg-white text-emerald-700 hover:bg-white/95 shadow-lg shadow-emerald-900/20 ring-1 ring-emerald-900/10'
+              : 'bg-sky-500 text-white hover:bg-sky-600 shadow-md dark:bg-sky-400 dark:hover:bg-sky-500 dark:text-slate-900',
           )}
         >
-          {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
+          {isPlaying ? <Pause className="h-4 w-4" fill="currentColor" /> : <Play className="h-4 w-4 ml-0.5" fill="currentColor" />}
         </button>
         <span
           className={cn(
-            'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center',
+            'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shadow-sm',
             isOutgoing
-              ? 'bg-emerald-100 border-emerald-50 text-emerald-600 dark:bg-emerald-900 dark:border-emerald-950 dark:text-emerald-300'
+              ? 'bg-emerald-700 border-white text-white'
               : 'bg-sky-100 border-sky-50 text-sky-600 dark:bg-sky-900 dark:border-sky-950 dark:text-sky-300',
           )}
           aria-hidden
@@ -155,8 +156,8 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
                   className={cn(
                     'flex-1 rounded-full transition-colors duration-100',
                     filled
-                      ? (isOutgoing ? 'bg-emerald-500' : 'bg-sky-500 dark:bg-sky-400')
-                      : (isOutgoing ? 'bg-emerald-500/25' : 'bg-foreground/30 dark:bg-foreground/40'),
+                      ? (isOutgoing ? 'bg-white shadow-sm shadow-white/30' : 'bg-sky-500 dark:bg-sky-400')
+                      : (isOutgoing ? 'bg-white/30' : 'bg-foreground/30 dark:bg-foreground/40'),
                   )}
                   style={{ height: `${h * 100}%` }}
                 />
@@ -177,7 +178,7 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
         <span
           className={cn(
             'text-[10px] tabular-nums leading-none font-medium',
-            isOutgoing ? 'text-emerald-50/90' : 'text-foreground/70',
+            isOutgoing ? 'text-white/85' : 'text-foreground/70',
           )}
         >
           {timeLabel}
@@ -191,8 +192,8 @@ export const AudioPlayer = ({ src, direction }: AudioPlayerProps) => {
         className={cn(
           'flex-shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 transition-all tabular-nums',
           isPlaying
-            ? (isOutgoing ? 'bg-emerald-500 text-white' : 'bg-sky-500 text-white dark:bg-sky-400 dark:text-slate-900')
-            : (isOutgoing ? 'bg-emerald-500/20 text-emerald-50' : 'bg-foreground/10 text-foreground/70 hover:bg-foreground/15'),
+            ? (isOutgoing ? 'bg-white text-emerald-700 shadow-sm' : 'bg-sky-500 text-white dark:bg-sky-400 dark:text-slate-900')
+            : (isOutgoing ? 'bg-white/20 text-white/90 hover:bg-white/30 ring-1 ring-white/20' : 'bg-foreground/10 text-foreground/70 hover:bg-foreground/15'),
         )}
       >
         {playbackRate}x

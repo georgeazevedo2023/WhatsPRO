@@ -1,8 +1,22 @@
 import { useState, useEffect } from 'react';
 
-/** WhatsApp CDN URLs expire regularly — treat as stale to avoid 403 console errors */
+// URL do projeto Supabase atual (refs como `prfcbfumyrrycsrcrvms`).
+const CURRENT_SUPABASE_REF =
+  (import.meta.env.VITE_SUPABASE_URL || '').match(/\/\/([^.]+)\./)?.[1] || '';
+
+/**
+ * URL "stale" (não pode ser usada): URLs do CDN do WhatsApp (expiram em ~24h
+ * e dão 403) ou URLs de Supabase de OUTRO projeto (legacy de migração — após
+ * trocar `prfcbfumy...` o `profile_pic_url` velho aponta pra URL morta que
+ * só dá ERR_NAME_NOT_RESOLVED).
+ */
 function isStaleWhatsAppUrl(url: string | null | undefined): boolean {
-  return !!url && url.includes('pps.whatsapp.net');
+  if (!url) return false;
+  if (url.includes('pps.whatsapp.net')) return true;
+  // Supabase storage de outro projeto?
+  const m = url.match(/https?:\/\/([^.]+)\.supabase\.co/);
+  if (m && CURRENT_SUPABASE_REF && m[1] !== CURRENT_SUPABASE_REF) return true;
+  return false;
 }
 
 /**

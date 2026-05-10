@@ -255,7 +255,7 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
 
         {message.media_type === 'audio' && (
           <div className="flex flex-col gap-1">
-            <span className={`text-[10px] font-semibold uppercase tracking-wide ${message.direction === 'incoming' ? 'text-foreground/60' : 'text-emerald-50/80'}`}>
+            <span className={`text-[10px] font-semibold uppercase tracking-wide ${message.direction === 'incoming' ? 'text-foreground/60' : 'text-white/85'}`}>
               {message.direction === 'incoming' ? '🎤 Áudio do cliente' : '🎤 Áudio enviado'}
             </span>
             {mediaUrl ? (

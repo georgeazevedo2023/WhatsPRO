@@ -11,10 +11,19 @@ interface ContactAvatarProps {
   contactId?: string | null;
 }
 
-// URLs assinadas do CDN do WhatsApp expiram em ~24h. Pular renderização
-// evita o GET 403 que polui o console — o fallback (iniciais) já é exibido.
+// Ref do projeto Supabase atual (ex: `prfcbfumyrrycsrcrvms`).
+const CURRENT_SUPABASE_REF =
+  (import.meta.env.VITE_SUPABASE_URL || '').match(/\/\/([^.]+)\./)?.[1] || '';
+
+// URLs assinadas do CDN do WhatsApp expiram em ~24h. URLs de Supabase de
+// projeto antigo (pós-migração) também — DNS ERR_NAME_NOT_RESOLVED. Pular
+// renderização evita poluir o console; iniciais cobrem o caso.
 function isStaleSrc(src: string | null | undefined): boolean {
-  return !!src && src.includes('pps.whatsapp.net');
+  if (!src) return false;
+  if (src.includes('pps.whatsapp.net')) return true;
+  const m = src.match(/https?:\/\/([^.]+)\.supabase\.co/);
+  if (m && CURRENT_SUPABASE_REF && m[1] !== CURRENT_SUPABASE_REF) return true;
+  return false;
 }
 
 // Cache em memória de contact_ids já tentados nesta sessão — evita
