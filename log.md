@@ -9,6 +9,62 @@ type: log
 
 ---
 
+## 2026-05-11 (manhã) — Refatoração arquitetural da documentação (hard limit 300 linhas)
+
+> Pedido explícito do usuário: "um arquivo .md nunca pode passar de 300 linhas; CLAUDE.md deve ser orquestrador". Executei 5 fases de refatoração + healthcheck.
+
+### Resultado
+
+**Antes:** 7 arquivos ofensores. **Depois:** 0 ofensores. Vault saudável.
+
+| Métrica | Antes | Depois |
+|---|---|---|
+| `PRD.md` | 4383 lin | **67 lin** (só ponteiros) |
+| `CHANGELOG.md` | — | **228 lin** (raiz, releases ~14d) |
+| `wiki/erros-e-licoes.md` | 596 lin | **71 lin** (top-3 + índice) |
+| `CLAUDE.md` | 126 lin | **181 lin** (orquestrador c/ tabela de roteamento) |
+| Arquivos `.md` totais > 300 lin | 7 | **0** |
+
+### Mudanças por fase
+
+**Fase 1 — PRD.md particionado (4383 → 67):**
+- `CHANGELOG.md` raiz (228 lin) com releases v7.32.x
+- `wiki/changelog/2026-05-part1.md` (267) + `-part2a` + `-part2b` para v7.21-v7.31
+- `wiki/changelog/2026-04-part1` + `-part2a` + `-part2b` para v7.0-v7.20
+- `wiki/changelog/2026-pre-04-part1` + `-part2` + `-part3a` + `-part3b` para v1.x-v6.4
+- `wiki/modulos.md` (219) — split de "Módulos e Funcionalidades"
+- `wiki/infraestrutura.md` (75) — split de "Infraestrutura"
+- `wiki/roadmap/planejado-resumo.md` + 8 arquivos de detalhe (M10-M13, R18-R30)
+
+**Fase 2 — erros-e-licoes particionado (596 → 71):**
+- `wiki/erros/regras-preventivas.md` (116) — tabela das ~30 regras
+- `wiki/erros/historico-2026-05-part1.md` (227) + `-part2.md` (220) — R91-R114
+- `wiki/erros-e-licoes.md` enxuto: top-3 lições recentes + índice
+
+**Fase 3 — CLAUDE.md como orquestrador (126 → 181):**
+- Nova tabela "Roteamento por contexto da tarefa" (12 cenários → arquivos a ler)
+- Diagrama da estrutura completa do vault
+- Regra explícita "hard limit 300 linhas"
+- Healthcheck script citado
+
+**Fase 4 — Logs históricos particionados:**
+- `wiki/log-arquivo-2026-pre-05-08.md` (1693) → 7 partes (249, 160, 264, 283, 281, 299, 219)
+- `wiki/log-arquivo-2026-04-04-a-09.md` (755) → 3 partes (265, 227, 282)
+- `wiki/historico-planos/plano-enquetes-polls.md` (932) → 5 partes
+- `wiki/historico-planos/plano-s10*.md` (502) → 2 partes
+- `wiki/historico-planos/plano-s11*.md` (469) → 2 partes
+
+**Fase 5 — Healthcheck:**
+- `scripts/check-md-length.sh` lista ofensores
+- Modo `--strict` retorna exit 1 (pode entrar em pre-commit hook futuro)
+- Executado: **0 ofensores**
+
+### Auto-avaliação
+
+**Manutenção arquitetural**: 9/10 — cumpriu hard limit literalmente, criou orquestrador funcional, healthcheck rodável. Nota não é 10 porque (a) o split mecânico em "partN" não preserva contexto narrativo perfeito (algumas seções ficaram cortadas no meio), (b) o `index.md` agora tem links muito longos numa célula só pra cumprir limite (visualmente menos elegante mas funcional).
+
+---
+
 ## 2026-05-10 (final tarde) — Manutenção da documentação
 
 > Pedido explícito do usuário após avaliação do estado do vault (nota 8/10): particionar log.md, criar wiki/audio-pipeline, padronizar `audited_at`.

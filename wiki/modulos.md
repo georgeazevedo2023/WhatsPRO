@@ -1,173 +1,219 @@
 ---
-title: Módulos
-tags: [modulos, features, helpdesk, crm, leads, broadcast, funis, fluxos, metricas, gestor, assistente, db-monitoring]
-sources: [CLAUDE.md, PRD.md, docs/CONTEXTO_PROJETO.md]
-updated: 2026-04-27
+title: Módulos e Funcionalidades
+type: modulos
+updated: 2026-05-11
+audited_at: 2026-05-11
 ---
 
-# Módulos
+# Módulos e Funcionalidades
 
-## M1 — WhatsApp (Instâncias & Grupos) ✅
-- Multi-instância, QR code, sincronização UAZAPI
-- Controle de acesso por instância
-- Envio de mensagens/mídia para grupos
+> Tabela de tasks shipadas (T-codes) por módulo. Atualizar quando feature nova de um módulo for shipada. Para changelog cronológico veja [[CHANGELOG]].
 
-## M2 — Helpdesk ✅
-- Chat real-time com Supabase Realtime
-- Labels, assignments, departamentos
-- Bulk actions (ler, resolver, arquivar)
-- Quick reply templates ("/" prefix)
-- Typing indicator, date dividers
-- Paginação: últimas 50 msgs + "Load older"
 
-## M3 — Broadcast ✅
-- Texto, mídia, carrossel para grupos e leads
-- Agendamento de mensagens
+### M1 - WhatsApp (Instâncias & Grupos) ✅
 
-## M4 — Leads (M11) ✅
-- Lead cards, timeline, conversation modal
-- Block IA, clear context, quick IA toggle
-- CSV import, lead auto-creation from forms
-- contact_id FK para kanban
+**Páginas**: `/dashboard/instances`, `/dashboard/instances/:id`, `/dashboard/instances/:id/groups/:gid`
 
-## M5 — CRM Kanban ✅
-- Boards customizáveis com campos custom
-- Integração com leads (contact_id FK)
-- TicketResolutionDrawer (4 categorias, move card, tags)
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T1.1 Criar instância via QR code | ✅ | Scan QR, auto-salva token e ID |
+| T1.2 Listar instâncias com status | ✅ | Status real-time (connected/disconnected), polling 30s |
+| T1.3 Sincronizar instâncias UAZAPI | ✅ | Dialog de sync manual com diff |
+| T1.4 Desconectar/excluir instância | ✅ | Soft delete (disable) ou hard delete (UAZAPI + DB) |
+| T1.5 Listar grupos da instância | ✅ | Cache local, busca com filtro |
+| T1.6 Enviar mensagem a grupo | ✅ | Texto, mídia, carrossel |
+| T1.7 Enviar mídia a grupo | ✅ | Imagem, vídeo, áudio, documento com caption |
+| T1.8 Histórico de conexão | ✅ | Logs de eventos (connect, disconnect, status change) |
+| T1.9 Controle de acesso por instância | ✅ | `user_instance_access` com FK para auth.users |
 
-## M6 — Catálogo ✅
-- Quick Product Import (URL → scrape → auto-fill)
-- Busca fuzzy (pg_trgm, word-level similarity)
-- Search pipeline: ILIKE → word-by-word → fuzzy → post-filter AND
+**Edge Functions**: `uazapi-proxy`
+**Tabelas**: `instances`, `user_instance_access`, `instance_connection_logs`
+**Componentes**: `Instances.tsx`, `InstanceDetails.tsx`, `InstanceOverview`, `InstanceGroups`, `InstanceHistory`, `InstanceStats`
+**Hooks**: `useInstances`, `useInstanceGroups`, `useQrConnect`
 
-## M7 — Campanhas UTM ✅
-- Links, QR codes, métricas, AI contextual
-- Landing page com countdown + captura client-side
-- Clone, starts_at, attribution guards
-- landing_mode: 'redirect' ou 'form'
+---
 
-## M8 — Relatórios ✅
-- Dashboard de inteligência/analytics
-- Agent performance (ranking, resolution rate, response time)
+### M2 - Helpdesk (Atendimento) ✅
 
-## M9 — Agendamentos ✅
-- Mensagens agendadas/recorrentes
-- Templates de mensagem
+**Páginas**: `/dashboard/helpdesk`
 
-## M10 — AI Agent ✅
-- Ver [[wiki/ai-agent]] para detalhes completos
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T2.1 Receber mensagens via webhook | ✅ | UAZAPI → webhook → conversations/messages |
+| T2.2 Listar conversas com filtros | ✅ | Status, label, departamento, atribuição, prioridade, busca |
+| T2.3 Chat em tempo real | ✅ | Broadcast channel para new-message e assigned-agent |
+| T2.4 Enviar mensagens outgoing | ✅ | Texto, mídia, áudio gravado |
+| T2.5 Notas privadas | ✅ | direction='private_note', visíveis só para agentes |
+| T2.6 Labels por inbox | ✅ | CRUD labels, aplicar/remover em conversas, filtrar |
+| T2.7 Departamentos | ✅ | CRUD departamentos, atribuir agentes, filtrar conversas |
+| T2.8 Atribuir agentes | ✅ | Assign/reassign com broadcast realtime |
+| T2.9 Status da conversa | ✅ | aberta/pendente/resolvida com tabs visuais |
+| T2.10 Prioridade | ✅ | alta/media/baixa com filtro e ordenação |
+| T2.11 Resumo IA (auto) | ✅ | Groq Llama, trigger ao resolver, cache 60 dias |
+| T2.12 Resumo IA (manual) | ✅ | Botão para resumir conversa a qualquer momento |
+| T2.13 Transcrição de áudio | ✅ | Groq Whisper, automático via broadcast |
+| T2.14 Status IA (ligada/desligada) | ✅ | Controle por conversa, sync via webhook externo |
+| T2.15 Paginação/scroll infinito | ✅ | 200 conversas por página, load more |
+| T2.16 Busca em mensagens | ✅ | Debounce 500ms, busca em conversation_messages |
+| T2.17 Painel de contato | ✅ | Info do contato, labels, departamento, agente |
+| T2.18 Layout responsivo mobile | ✅ | 3 views: list/chat/info com navegação mobile |
+| T2.19 Webhooks de saída | ✅ | Outgoing webhook configurável por inbox |
+| T2.20 Foto de perfil via UAZAPI | ✅ | Busca automática via /contact/getProfilePic no webhook + painel |
+| T2.21 Avatar no header do chat | ✅ | Foto do contato 32px ao lado do nome, fallback para ícone |
+| T2.22 Divider de não lidos | ✅ | "Novas mensagens" divider entre lidas e não lidas |
+| T2.23 Som de notificação | ✅ | Beep ao receber mensagem com janela fora de foco |
+| T2.24 Drag-and-drop de arquivos | ✅ | Arrastar arquivo sobre chat para enviar imagem/documento |
+| T2.25 Info de início da conversa | ✅ | "Conversa iniciada em DD/MM/YYYY às HH:mm" acima das mensagens |
+| T2.26 Broadcast de status change | ✅ | Mudança de status sincronizada em tempo real entre agentes |
+| T2.27 Stale fetch guard | ✅ | Troca rápida de conversa não mostra mensagens da conversa anterior |
+| T2.28 Confirmação delete notas | ✅ | AlertDialog antes de excluir nota privada |
 
-## M11 — Leads Database ✅
-- Ver M4 acima
+**Edge Functions**: `whatsapp-webhook`, `sync-conversations`, `auto-summarize`, `summarize-conversation`, `transcribe-audio`, `activate-ia`, `fire-outgoing-webhook`
+**Tabelas**: `inboxes`, `inbox_users`, `conversations`, `conversation_messages`, `contacts`, `labels`, `conversation_labels`, `departments`, `department_members`
+**Componentes**: `ChatPanel`, `ChatInput`, `ConversationList`, `ConversationItem`, `ContactInfoPanel`, `MessageBubble`, `AudioPlayer`, `LabelPicker`, `ManageLabelsDialog`, `NotesPanel`, `ConversationStatusSelect`, `ContactAvatar`
+**Hooks**: `useHelpdeskInboxes`, `useHelpdeskConversations`, `useHelpdeskFilters`, `useInboxes`, `useDepartments`, `useSendFile`, `useAudioRecorder`, `useSignedUrl`, `useContactProfilePic`, `useToggleLabel`
+**Utilities**: `helpdeskBroadcast.ts` (broadcastNewMessage, broadcastAssignedAgent, broadcastStatusChanged, assignAgent)
 
-## M12 — WhatsApp Forms ✅
-- Trigger via FORM:<slug>
-- Validações: CPF, email, CEP, scale, select, yes_no, signature
-- Max 3 retries por campo
-- Webhook externo POST ao completar
-- 12 templates built-in
+---
 
-## M14 — Bio Link ✅
+### M3 - Broadcast (Disparador) ✅
 
-- Página pública Linktree-style com slug único (bio-public edge fn sem JWT)
-- 3 templates visuais: simples, shopping, negocio
-- 5 tipos de botão: url, whatsapp, form, social, catalog
-- Agendamento de botões (starts_at / ends_at)
-- Botão tipo catálogo puxa produtos do `ai_agent_products`
-- Opções visuais: fonte, espaçamento, capa
-- Captação de leads: formulário inline configurável → contact + lead_profile
-- Injeção de `<bio_context>` no AI Agent quando lead vem do Bio Link
-- Analytics por página/botão em `bio_analytics`
+**Páginas**: `/dashboard/broadcast`, `/dashboard/broadcast/history`, `/dashboard/broadcast/leads`
 
-## M13 — Campanhas + Formulários + Funil Conversacional ✅
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T3.1 Broadcast para grupos | ✅ | Multi-select grupos, texto/mídia/carrossel |
+| T3.2 Broadcast para leads | ✅ | Selecionar database, verificar números, enviar |
+| T3.3 Progresso em tempo real | ✅ | Modal com contadores success/failed, pause/resume/cancel |
+| T3.4 Delay aleatório | ✅ | none/5-10s/10-20s entre envios |
+| T3.5 Excluir admins | ✅ | Filtrar admins dos participantes |
+| T3.6 Histórico de broadcasts | ✅ | Filtros por data, status, tipo, instância |
+| T3.7 Reenviar broadcast | ✅ | Resend com reconfiguração |
+| T3.8 Carrossel interativo | ✅ | Cards com imagem, texto, botões (REPLY/URL/CALL/COPY) |
+| T3.9 Base de leads | ✅ | CRUD databases, import CSV/paste/grupos/manual |
+| T3.10 Verificação de números | ✅ | WhatsApp check via UAZAPI, status verified/invalid |
+| T3.11 Templates de mensagem | ✅ | CRUD templates texto/mídia/carrossel |
+| T3.12 Sanitização CSV | ✅ | Limite 10MB, max 50k linhas, proteção contra injection |
+| T3.13 Limites de segurança | ✅ | Max 500 phones, 50 groups, 10 carousel cards, 12MB áudio |
 
-- Landing page rica com countdown + captura client-side
-- landing_mode: 'redirect' (countdown→wa.me) ou 'form' (formulário na landing)
-- Form na landing page com validações (CPF checksum, email, phone, CEP)
-- Auto-criação de lead no submit (FIELD_MAP → lead_profiles)
-- Auto-tag de conversa: `formulario:SLUG` + `origem:formulario`
-- AI Agent form context: detecta tag `formulario:SLUG`, injeta dados no prompt
-- LeadFormsSection: componente no LeadDetail com formulários respondidos
-- form-public edge function: GET (sem JWT) + POST → contact + lead_profile + form_submission + kanban card
-- Attribution guards: webhook checa status='active' + expires_at antes de tagar
+**Edge Functions**: `uazapi-proxy` (send-message, send-media, send-carousel, check-numbers)
+**Tabelas**: `broadcast_logs`, `lead_databases`, `lead_database_entries`, `message_templates`
+**Componentes**: `BroadcastHistory`, `BroadcastLogCard`, `BroadcastHistoryFilters`, `BroadcastDeleteDialogs`, `HistoryMessagePreview`, `BroadcastMessageForm`, `BroadcastProgressModal`, `CarouselEditor`, `GroupSelector`, `LeadList`, `LeadMessageForm`, `ContactsStep`, `MessageStep`, `TemplateSelector`
+**Hooks**: `useBroadcastSend`, `useLeadsBroadcaster`, `useMessageTemplates`
 
-## M15 — Integração de Funis (Bio + Campanhas + Forms) ✅
+---
 
-- Bio Link cria leads reais (contact + lead_profile com origin='bio')
-- Tags unificadas: `origem:bio`, `bio_page:SLUG` em todos os sistemas
-- AI Agent recebe `<bio_context>` quando lead vem do Bio Link
-- leadHelper.ts compartilhado (elimina FIELD_MAP duplicado)
-- Badge de origem colorido no LeadDetail (Bio/Campanha/Formulário)
-- Timeline de jornada do lead (bio → form → conversa → kanban)
-- Forms mostra "Usado em" (quais campanhas/bios usam cada form)
-- Campaign Detail mostra leads convertidos
+### M4 - CRM Kanban ✅
 
-## M16 — Funis: Fusao Total (Campanhas + Bio Link + Formularios) ✅
+**Páginas**: `/dashboard/crm`, `/dashboard/crm/:boardId`
 
-- Tabela `funnels` orquestra utm_campaigns + bio_pages + whatsapp_forms + kanban_boards via FK
-- Sidebar unificada: 3 itens separados → 1 "Funis" com sub-items
-- Wizard 4 passos: Tipo → Detalhes → Canais → Resumo — auto-cria todos os recursos em 1 clique
-- 7 tipos: sorteio, captacao, venda, vaga, lancamento, evento, atendimento
-- AI Agent: `<funnel_context>` injection + handoff priority funil > agente + max_messages do funil
-- Tag `funil:SLUG` propagada automaticamente por form-public, bio-public, whatsapp-webhook
-- FunnelDetail: KPIs + kanban visual + 3 tabs (Canais, Formulario, Config)
-- LeadFunnelCard: card no LeadDetail mostrando funil ativo + etapa + dias
-- FunnelConversionChart: grafico horizontal Visitas→Capturas→Leads→Conversoes no Dashboard
-- KPI "Funis Ativos" no DashboardHome + filtro por funil na Intelligence
-- ImportExistingDialog: vincular recursos existentes a funis
-- OriginBadge suporta 'funil' (laranja)
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T4.1 CRUD boards | ✅ | Criar, editar, duplicar, excluir quadros |
+| T4.2 Visibilidade (shared/private) | ✅ | Boards compartilhados ou privados |
+| T4.3 Colunas com drag-drop | ✅ | Reordenar, colorir, criar/excluir |
+| T4.4 Cards com drag-drop | ✅ | Mover entre colunas, reordenar |
+| T4.5 Campos customizados | ✅ | text, currency, date, select, entity_select |
+| T4.6 Entidades customizadas | ✅ | Enums personalizados com valores |
+| T4.7 Automação por coluna | ✅ | Mensagem automática ao mover card |
+| T4.8 Membros do board | ✅ | Roles editor/viewer |
+| T4.9 Filtro por responsável | ✅ | Chips com avatar, aria-pressed |
+| T4.10 Busca de cards | ✅ | Por título, tags, responsável |
+| T4.11 Contagem otimizada | ✅ | RPC `get_kanban_board_counts` (1 query vs N+1) |
 
-## M17 — Plataforma Inteligente ✅ COMPLETO (F1-F5 shipped 2026-04-08 a 2026-04-09)
+**Tabelas**: `kanban_boards`, `kanban_columns`, `kanban_cards`, `kanban_card_data`, `kanban_fields`, `kanban_entities`, `kanban_entity_values`, `kanban_board_members`
+**Componentes**: `KanbanCRM`, `KanbanBoard`, `KanbanColumn`, `KanbanCardItem`, `CardDetailSheet`, `EditBoardDialog`, `CreateBoardDialog`, `BoardCard`, `DynamicFormField`, `ColumnsTab`, `FieldsTab`, `EntitiesTab`, `AccessTab`
 
-> Plano: [[wiki/historico-planos/plano-enquetes-polls]] | UAZAPI: [[wiki/uazapi-polls-interativos]]
+---
 
-| Fase | Entrega |
-|------|---------|
-| F1 — Motor de Automação | `automation_rules` + `automationEngine.ts` (7 gatilhos, 4 condições, 6 ações), Tab "Automações" no FunnelDetail, form-bot dispara `form_completed` |
-| F2 — Funis Agênticos | `funnel_prompt`, `handoff_rule`, `handoff_department_id`, `handoff_max_messages` em funnels; `<funnel_instructions>` no prompt; Tab "Agente IA" no FunnelDetail |
-| F3 — Perfis & Integração | `agent_profiles` (prompt+handoff reutilizável), `funnels.profile_id` FK, ProfilesConfig substitui SubAgentsConfig, profileData > funnelData > agent (D10), sub-agents deprecados |
-| F4 — Enquetes Nativas | `poll_messages`/`poll_responses`, action `send-poll` no uazapi-proxy, tool `send_poll` (9ª tool), webhook `poll_update`, broadcast tab "Enquete", helpdesk render `media_type=poll` |
-| F5 — NPS + Métricas | 5 campos NPS em ai_agents, `is_nps` flag, `notifications` table, PollConfigSection, PollMetricsCard + PollNpsChart, `triggerNpsIfEnabled()`, TicketResolutionDrawer agenda NPS, nota ruim notifica gerentes |
+### M5 - Admin & Usuários ✅
 
-**Decisões D1-D10:** ver [[wiki/historico-planos/plano-enquetes-polls]] e [[wiki/decisoes-chave]] (D10 = Agent Profiles)
+**Páginas**: `/dashboard/admin`, `/dashboard/users`, `/dashboard/settings`
 
-## M18 — Fluxos v3.0 ✅ COMPLETO (2026-04-12, 12 sprints em 4 camadas)
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T5.1 CRUD usuários | ✅ | Criar, editar, excluir via edge functions |
+| T5.2 Roles (super_admin/gerente/user) | ✅ | Atribuição de papel por usuário |
+| T5.3 CRUD inboxes | ✅ | Criar, editar, excluir (RPC `delete_inbox`) |
+| T5.4 Membros de inbox | ✅ | Atribuir users com roles (admin/gestor/agente) |
+| T5.5 Departamentos por inbox | ✅ | CRUD com default department |
+| T5.6 Acesso a instâncias | ✅ | Atribuir instâncias por usuário |
+| T5.7 Webhooks por inbox | ✅ | Configurar webhook entrada (n8n) e saída |
+| T5.8 Secrets/configurações | ✅ | Gerenciar API keys e secrets do sistema |
+| T5.9 Documentação in-app | ✅ | PRDs embutidos na aba Docs |
+| T5.10 Equipe unificada | ✅ | Cards expandíveis com inbox memberships inline (merge UsersTab+TeamTab) |
+| T5.11 Endpoint do sistema copiável | ✅ | URL do whatsapp-webhook auto-gerada na config de inbox |
+| T5.12 Docs completos (11/11 módulos) | ✅ | Agendamentos e Dashboard/Analytics documentados |
+| T5.13 Backup de variáveis de ambiente | ✅ | Exporta system_settings + template .env |
 
-> Orquestrador conversacional unificado. Detalhes: [[wiki/casos-de-uso/fluxos-detalhado]] | [[wiki/fluxos-visao-arquitetura]] | [[wiki/fluxos-roadmap-sprints]]
+**Edge Functions**: `admin-create-user`, `admin-update-user`, `admin-delete-user`
+**Tabelas**: `user_profiles`, `user_roles`, `user_instance_access`, `system_settings`
+**Componentes**: `AdminPanel`, `InboxesTab`, `UsersTab` (unificado), `SecretsTab`, `DocumentationTab`, `BackupModule`
 
-| Camada | Sprints | Entregas-chave |
-|--------|---------|----------------|
-| **Infra** (S1-S3) | 14 tabelas (`flow_definitions`, `flow_steps`, `flow_triggers`, `flow_states`, `flow_events`, `lead_short_memory`, `lead_long_memory`, `flow_step_executions`, `guided_sessions`, `flow_report_shares`, `flow_followups`); feature flag `USE_ORCHESTRATOR` + `instances.use_orchestrator`; FlowsPage, FlowWizard, FlowTemplatesPage, FlowDetail |
-| **Engine** (S4-S6) | Flow Triggers (keyword/tag/form/bio/utm/api/schedule); Memory Service (short TTL 1h + long); Greeting (4 casos), Qualification (16 tipos campo, smart_fill) |
-| **Intelligence** (S7-S9) | Intent Detector 3 camadas (L1 normalização BR ~5ms, L2 fuzzy+Soundex ~12ms, L3 LLM ~200ms); Sales Subagent (busca 3 camadas + carousel); Support Subagent (word overlap); Validator 10 checks 0 tokens; Shadow Mode |
-| **Completion** (S10-S12) | Survey (UAZAPI /send/menu); Followup (cron `process-flow-followups`); Handoff (briefing 3 níveis); Templates instaláveis (`install_flow_template`); Conversa Guiada (`guided-flow-builder`); FlowEditor 6 tabs; FlowMetricsPanel; Rollback automático 3-falhas-5min |
+---
 
-## M19 — Plataforma de Métricas & IA Conversacional + DB Monitoring (em andamento)
+### M6 - Inteligência & Analytics ✅
 
-> Detalhes completos em [[wiki/roadmap]] e [[wiki/metricas-plano-implementacao]]. Resumo:
+**Páginas**: `/dashboard/intelligence`, `/dashboard` (home)
 
-| Sprint | Status | Entrega |
-|--------|--------|---------|
-| S1 Shadow Inteligente | ✅ 2026-04-13 | Shadow bilateral + tags expandidas |
-| S2 Armazenamento & Agregação | ✅ 2026-04-13 | 5 views SQL + `aggregate-metrics` + cron diário + `lead_score_history` + `conversion_funnel_events` |
-| S3 Dashboard do Gestor | ✅ 2026-04-13 | `/gestao` (ManagerDashboard) + KPIs + comparativo IA vs vendedor |
-| S4 Fichas Individuais | ✅ 2026-04-13 | 4 fichas (`/gestao/vendedor/:id`, `/agente`, `/transbordo`, `/origem`) + Metas Configuráveis (`instance_goals`) |
-| S5 IA Conversacional | ✅ 2026-04-13 | Widget Ctrl+J + `/assistant` + `assistant-chat` (20 intents) + `assistant_sessions/messages` |
-| S6 NPS Automático | — | `npsDispatcher`, vínculo vendedor, `v_nps_by_seller` |
-| S7 Alertas Proativos | — | `process-alerts`, NotificationBell, 6 tipos |
-| S8 DB Monitoring & Auto-Cleanup | ✅ 2026-04-25 | 3 camadas: `DbSizeCard` (Camada 1), `db_alert_state` + cron (Camada 2), `db_retention_policies` + `apply_retention_policy` + UI `/admin/retention` (Camada 3). D22-D25, R74. |
-| S8.1 DB Backup JSONL | ✅ 2026-04-25 | Bucket privado `db-backups` + 2 edge fns + 2 crons. Policy `conversation_messages` 120d com backup gzipado. R75-R77. |
-| S9 Hardening RLS Helpdesk | — | Estender `can_view_conversation` para enforçar `can_view_unassigned` e `can_view_all_in_dept` (R73) |
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T6.1 KPIs (conversas, resolução, tempo) | ✅ | Cards com contadores animados |
+| T6.2 Gráficos de tendência | ✅ | Conversas ao longo do tempo, taxa de resolução |
+| T6.3 Top motivos de contato | ✅ | Agrupamento IA dos motivos, gráfico barras |
+| T6.4 Filtros (inbox, período, dept) | ✅ | Filtros com estado vazio/loading |
+| T6.5 Dashboard home | ✅ | Métricas consolidadas, cards de instância |
+| T6.6 Heatmap de horários | ✅ | Atividade por dia da semana e hora |
 
-**Detalhes:** [[wiki/casos-de-uso/db-retention-detalhado]] (S8/S8.1) | [[wiki/metricas-plano-implementacao]] (plano completo)
+**Edge Functions**: `analyze-summaries`, `group-reasons`
+**Componentes**: `Intelligence`, `IntelligenceKPICards`, `IntelligenceCharts`, `IntelligenceFilters`, `DashboardHome`, `DashboardCharts`, `HelpdeskMetricsCharts`, `BusinessHoursChart`, `TopContactReasons`
 
-## Links
+---
 
-- [[wiki/ai-agent]] — Agente IA em profundidade
-- [[wiki/roadmap]] — Status e próximos módulos
-- [[wiki/historico-planos/plano-enquetes-polls]] — Plano de enquetes (sprints, tasks, schema)
-- [[wiki/uazapi-polls-interativos]] — UAZAPI mensagens interativas
-- [[wiki/casos-de-uso/fluxos-detalhado]] — M18 casos de uso completos
-- [[wiki/fluxos-visao-arquitetura]] — Arquitetura e templates de fluxos
-- [[wiki/casos-de-uso/db-retention-detalhado]] — M19 S8/S8.1 DB monitoring & cleanup
-- [[wiki/metricas-plano-implementacao]] — M19 plano completo
+### M7 - Relatórios de Turno ✅
+
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T7.1 Configurar relatório por inbox | ✅ | Destinatário, horário, habilitar/desabilitar |
+| T7.2 Envio automático diário | ✅ | Cron via edge function |
+| T7.3 Conteúdo IA formatado | ✅ | Groq Llama formata KPIs em WhatsApp style |
+| T7.4 Logs de envio | ✅ | Histórico com status e conteúdo |
+
+**Edge Functions**: `send-shift-report`
+**Tabelas**: `shift_report_configs`, `shift_report_logs`
+
+---
+
+### M8 - Agendamentos & Templates ✅
+
+**Páginas**: `/dashboard/scheduled`
+
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T8.1 Agendar mensagem única | ✅ | Data/hora específica |
+| T8.2 Mensagens recorrentes | ✅ | Diário, semanal (dias), mensal, customizado |
+| T8.3 Delay aleatório | ✅ | 5-10s ou 10-20s |
+| T8.4 Excluir admins | ✅ | Enviar apenas para membros regulares |
+| T8.5 CRUD templates | ✅ | Texto, mídia, carrossel com categorias |
+| T8.6 Logs de execução | ✅ | Success/failed por execução |
+
+**Edge Functions**: `process-scheduled-messages`
+**Tabelas**: `scheduled_messages`, `scheduled_message_logs`, `message_templates`
+
+---
+
+### M9 - Backup & Manutenção ✅
+
+| Task | Status | Descrição |
+|------|--------|-----------|
+| T9.1 Backup de tabelas | ✅ | Export JSON de todas as tabelas principais |
+| T9.2 Restaurar dados | ✅ | Import JSON com merge |
+| T9.3 Cleanup de mídia antiga | ✅ | Auto-delete arquivos > 30 dias |
+| T9.4 Listar usuários auth | ✅ | Via admin API |
+
+**Edge Functions**: `database-backup`, `cleanup-old-media`
+**Componentes**: `BackupModule`
+
+---
+
+
