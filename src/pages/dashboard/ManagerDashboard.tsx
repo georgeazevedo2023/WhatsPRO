@@ -1,5 +1,7 @@
-// M19 S3: Dashboard do Gestor
+// Dashboard do Gestor — unificado (Fase 1: 2026-05-11)
 // Rota: /dashboard/gestao (CrmRoute — super_admin + gerente)
+// Consolida Métricas + Insights + horário/motivos em scroll único.
+// Sandbox IA escondida via instances.is_sandbox (filtrada em useManagerInstances).
 import { useState, useEffect } from 'react';
 import { LineChart, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,23 +10,37 @@ import ManagerFilters, { type ManagerFiltersState } from '@/components/manager/M
 import ManagerKPICards from '@/components/manager/ManagerKPICards';
 import LeadsByOriginChart from '@/components/manager/LeadsByOriginChart';
 import LeadsTrendChart from '@/components/manager/LeadsTrendChart';
+import LeadsNewVsReturningChart from '@/components/manager/LeadsNewVsReturningChart';
 import SellerRankingChart from '@/components/manager/SellerRankingChart';
 import ManagerConversionFunnel from '@/components/manager/ManagerConversionFunnel';
 import IAvsVendorComparison from '@/components/manager/IAvsVendorComparison';
+import ResponseTimeCard from '@/components/manager/ResponseTimeCard';
+import AbandonedConversationsList from '@/components/manager/AbandonedConversationsList';
+import DemandVsCoverageChart from '@/components/manager/DemandVsCoverageChart';
+import ConversionByOriginCard from '@/components/manager/ConversionByOriginCard';
+import BusinessHoursChart from '@/components/dashboard/BusinessHoursChart';
+import TopContactReasons from '@/components/dashboard/TopContactReasons';
 import LazySection from '@/components/dashboard/LazySection';
 import GoalProgressBar from '@/components/gestao/GoalProgressBar';
 import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import DbSizeCard from '@/components/manager/DbSizeCard';
 import InsightsTab from '@/components/manager/insights/InsightsTab';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useManagerMetrics } from '@/hooks/useManagerMetrics';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
 import { useInstanceGoals } from '@/hooks/useInstanceGoals';
+import { useLeadsNewVsReturning } from '@/hooks/useLeadsNewVsReturning';
+import { useManagerAdvancedMetrics } from '@/hooks/useManagerAdvancedMetrics';
 import { useAuth } from '@/contexts/AuthContext';
+
+const ABANDONED_THRESHOLD_HOURS = 24;
 
 export default function ManagerDashboard() {
   const { isSuperAdmin } = useAuth();
-  const { data: instances = [] } = useManagerInstances();
+  // Sandbox IA fica disponível só para super_admin (toggle abaixo).
+  const [showSandbox, setShowSandbox] = useState(false);
+  const { data: instances = [] } = useManagerInstances({
+    includeSandbox: isSuperAdmin && showSandbox,
+  });
 
   const [filters, setFilters] = useState<ManagerFiltersState>({
     instanceId: null,
@@ -47,6 +63,17 @@ export default function ManagerDashboard() {
     filters.periodDays
   );
 
+  const { data: newVsReturning, isLoading: loadingNewRet } = useLeadsNewVsReturning(
+    effectiveInstanceId,
+    filters.periodDays,
+  );
+
+  const { data: advanced, isLoading: loadingAdvanced } = useManagerAdvancedMetrics(
+    effectiveInstanceId,
+    filters.periodDays,
+    ABANDONED_THRESHOLD_HOURS,
+  );
+
   const { data: goals = [] } = useInstanceGoals(effectiveInstanceId);
   const [goalsOpen, setGoalsOpen] = useState(false);
 
@@ -66,11 +93,24 @@ export default function ManagerDashboard() {
           <div>
             <h1 className="text-xl font-display font-bold">Dashboard do Gestor</h1>
             <p className="text-xs text-muted-foreground">
-              Métricas agregadas — alimentadas pelo shadow bilateral (cron hourly)
+              Visão consolidada do atendimento, IA e comercial
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {isSuperAdmin && (
+            <Button
+              variant={showSandbox ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowSandbox((v) => !v)}
+              className="gap-2"
+              title="Mostrar instâncias de sandbox (super_admin)"
+            >
+              <span className="text-[10px] font-mono">
+                {showSandbox ? 'Sandbox: ON' : 'Sandbox: OFF'}
+              </span>
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -103,7 +143,7 @@ export default function ManagerDashboard() {
         />
       )}
 
-      {/* DB Size Card — apenas super_admin (M19 S8 Camada 1) */}
+      {/* DB Size Card — apenas super_admin */}
       {isSuperAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <DbSizeCard />
@@ -127,84 +167,132 @@ export default function ManagerDashboard() {
       )}
 
       {effectiveInstanceId && (
-        <Tabs defaultValue="metricas" className="w-full">
-          <TabsList className="mb-2">
-            <TabsTrigger value="metricas">Métricas</TabsTrigger>
-            <TabsTrigger value="insights">Insights</TabsTrigger>
-          </TabsList>
+        <div className="flex flex-col gap-6">
+          {/* ── ZONA 1: PULSO ── KPIs principais ───────────────────────── */}
+          <section className="flex flex-col gap-3">
+            <header className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold">Pulso do período</h2>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                últimos {filters.periodDays} dias
+              </span>
+            </header>
+            {isLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-24 rounded-xl" />
+                ))}
+              </div>
+            ) : metrics ? (
+              <ManagerKPICards kpis={metrics.kpis} periodDays={filters.periodDays} />
+            ) : null}
 
-          <TabsContent value="insights" className="flex flex-col gap-4">
-            <InsightsTab instanceId={effectiveInstanceId} periodDays={filters.periodDays} />
-          </TabsContent>
+            {/* F2: Tempo de resposta — KPI horizontal, ocupa toda a linha */}
+            <ResponseTimeCard data={advanced?.responseTime} isLoading={loadingAdvanced} />
 
-          <TabsContent value="metricas" className="flex flex-col gap-4">
-          {/* KPI Cards */}
-          {isLoading ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-24 rounded-xl" />
-              ))}
+            {/* Metas — exibidas apenas quando há meta definida */}
+            {goals.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl border bg-card">
+                <GoalProgressBar
+                  label="Taxa de Conversão"
+                  current={metrics?.kpis.conversionRate ?? 0}
+                  target={goals.find((g) => g.metricKey === 'conversion_rate')?.targetValue ?? 0}
+                  unit="%"
+                />
+                <GoalProgressBar
+                  label="NPS Médio"
+                  current={metrics?.kpis.npsAvg ?? 0}
+                  target={goals.find((g) => g.metricKey === 'nps_avg')?.targetValue ?? 0}
+                />
+                <GoalProgressBar
+                  label="Taxa de Transbordo"
+                  current={metrics?.kpis.handoffRate ?? 0}
+                  target={goals.find((g) => g.metricKey === 'handoff_rate')?.targetValue ?? 0}
+                  unit="%"
+                />
+                <GoalProgressBar
+                  label="Custo IA"
+                  current={metrics?.kpis.iaCostUsd ?? 0}
+                  target={goals.find((g) => g.metricKey === 'ia_cost_usd')?.targetValue ?? 0}
+                  unit=" USD"
+                  invertColors
+                />
+              </div>
+            )}
+          </section>
+
+          {/* ── ZONA 2: TENDÊNCIA & VOLUME ─────────────────────────────── */}
+          <section className="flex flex-col gap-3">
+            <header className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold">Tendência & volume</h2>
+              <span className="text-[10px] text-muted-foreground">novos vs recorrentes — quem está voltando</span>
+            </header>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LazySection height="260px">
+                <LeadsNewVsReturningChart data={newVsReturning} isLoading={loadingNewRet} />
+              </LazySection>
+              <LazySection height="260px">
+                {metrics ? <LeadsTrendChart data={metrics.trend} /> : <Skeleton className="h-64 rounded-xl" />}
+              </LazySection>
             </div>
-          ) : metrics ? (
-            <ManagerKPICards kpis={metrics.kpis} periodDays={filters.periodDays} />
-          ) : null}
-
-          {/* Metas — exibidas apenas quando há meta definida (GoalProgressBar retorna null se target=0) */}
-          {goals.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-xl border bg-card">
-              <GoalProgressBar
-                label="Taxa de Conversão"
-                current={metrics?.kpis.conversionRate ?? 0}
-                target={goals.find((g) => g.metricKey === 'conversion_rate')?.targetValue ?? 0}
-                unit="%"
-              />
-              <GoalProgressBar
-                label="NPS Médio"
-                current={metrics?.kpis.npsAvg ?? 0}
-                target={goals.find((g) => g.metricKey === 'nps_avg')?.targetValue ?? 0}
-              />
-              <GoalProgressBar
-                label="Taxa de Transbordo"
-                current={metrics?.kpis.handoffRate ?? 0}
-                target={goals.find((g) => g.metricKey === 'handoff_rate')?.targetValue ?? 0}
-                unit="%"
-              />
-              <GoalProgressBar
-                label="Custo IA"
-                current={metrics?.kpis.iaCostUsd ?? 0}
-                target={goals.find((g) => g.metricKey === 'ia_cost_usd')?.targetValue ?? 0}
-                unit=" USD"
-                invertColors
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LazySection height="260px">
+                {metrics ? <LeadsByOriginChart data={metrics.leadsByOrigin} /> : <Skeleton className="h-64 rounded-xl" />}
+              </LazySection>
+              <LazySection height="260px">
+                <BusinessHoursChart inboxId={null} periodDays={filters.periodDays} />
+              </LazySection>
             </div>
-          )}
+          </section>
 
-          {/* Linha 1: Tendência + Origem */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* ── ZONA 3: ATENDIMENTO ───────────────────────────────────── */}
+          <section className="flex flex-col gap-3">
+            <header className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold">Atendimento</h2>
+              <span className="text-[10px] text-muted-foreground">o que está chegando e quem está respondendo</span>
+            </header>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LazySection height="260px">
+                <AbandonedConversationsList
+                  data={advanced?.abandoned}
+                  isLoading={loadingAdvanced}
+                  thresholdHours={ABANDONED_THRESHOLD_HOURS}
+                />
+              </LazySection>
+              <LazySection height="260px">
+                <DemandVsCoverageChart data={advanced?.hours} isLoading={loadingAdvanced} />
+              </LazySection>
+            </div>
             <LazySection height="260px">
-              {metrics ? <LeadsTrendChart data={metrics.trend} /> : <Skeleton className="h-64 rounded-xl" />}
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-muted-foreground">Principais motivos de contato</h3>
+                <TopContactReasons instanceId={effectiveInstanceId} inboxId={null} periodDays={filters.periodDays} />
+              </div>
             </LazySection>
-            <LazySection height="260px">
-              {metrics ? <LeadsByOriginChart data={metrics.leadsByOrigin} /> : <Skeleton className="h-64 rounded-xl" />}
+            <LazySection height="340px">
+              {metrics ? <SellerRankingChart sellers={metrics.sellers} /> : <Skeleton className="h-80 rounded-xl" />}
             </LazySection>
-          </div>
+          </section>
 
-          {/* Linha 2: Funil + IA vs Vendedor */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <LazySection height="260px">
-              {metrics ? <ManagerConversionFunnel data={metrics.funnel} /> : <Skeleton className="h-64 rounded-xl" />}
-            </LazySection>
+          {/* ── ZONA 4: IA & COMERCIAL ───────────────────────────────── */}
+          <section className="flex flex-col gap-3">
+            <header className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold">IA & comercial</h2>
+              <span className="text-[10px] text-muted-foreground">conversão, custo, qualidade do funil</span>
+            </header>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LazySection height="260px">
+                {metrics ? <ManagerConversionFunnel data={metrics.funnel} /> : <Skeleton className="h-64 rounded-xl" />}
+              </LazySection>
+              <LazySection height="260px">
+                <ConversionByOriginCard data={advanced?.conversionByOrigin} isLoading={loadingAdvanced} />
+              </LazySection>
+            </div>
             <LazySection height="260px">
               {metrics ? <IAvsVendorComparison data={metrics.iaVsVendor} /> : <Skeleton className="h-64 rounded-xl" />}
             </LazySection>
-          </div>
-
-          {/* Linha 3: Ranking Vendedores */}
-          <LazySection height="340px">
-            {metrics ? <SellerRankingChart sellers={metrics.sellers} /> : <Skeleton className="h-80 rounded-xl" />}
-          </LazySection>
-          </TabsContent>
-        </Tabs>
+            <InsightsTab instanceId={effectiveInstanceId} periodDays={filters.periodDays} />
+          </section>
+        </div>
       )}
     </div>
   );

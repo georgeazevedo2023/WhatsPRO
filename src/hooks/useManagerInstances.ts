@@ -3,16 +3,26 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
-export function useManagerInstances() {
+interface UseManagerInstancesOptions {
+  includeSandbox?: boolean;
+}
+
+export function useManagerInstances({ includeSandbox = false }: UseManagerInstancesOptions = {}) {
   return useQuery({
-    queryKey: ['manager-instances'],
+    queryKey: ['manager-instances', includeSandbox],
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from('instances')
-        .select('id, name, status')
+        .select('id, name, status, is_sandbox')
         .eq('disabled', false)
         .order('name');
-      return (data || []) as { id: string; name: string; status: string }[];
+
+      if (!includeSandbox) {
+        query = query.eq('is_sandbox', false);
+      }
+
+      const { data } = await query;
+      return (data || []) as { id: string; name: string; status: string; is_sandbox: boolean }[];
     },
     staleTime: 300_000,
   });

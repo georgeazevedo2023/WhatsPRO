@@ -2974,6 +2974,7 @@ export type Database = {
           created_at: string
           disabled: boolean
           id: string
+          is_sandbox: boolean
           name: string
           owner_jid: string | null
           profile_pic_url: string | null
@@ -2987,6 +2988,7 @@ export type Database = {
           created_at?: string
           disabled?: boolean
           id: string
+          is_sandbox?: boolean
           name: string
           owner_jid?: string | null
           profile_pic_url?: string | null
@@ -3000,6 +3002,7 @@ export type Database = {
           created_at?: string
           disabled?: boolean
           id?: string
+          is_sandbox?: boolean
           name?: string
           owner_jid?: string | null
           profile_pic_url?: string | null
@@ -5485,6 +5488,38 @@ export type Database = {
       get_funnel_lead_count: {
         Args: { p_funnel_slug: string }
         Returns: number
+      }
+      get_leads_new_vs_returning: {
+        Args: { p_instance_id: string; p_start: string; p_end: string }
+        Returns: { day: string; novos: number; recorrentes: number }[]
+      }
+      get_response_time_percentiles: {
+        Args: { p_instance_id: string; p_start: string; p_end: string }
+        Returns: { p50_seconds: number; p95_seconds: number; sample_size: number }[]
+      }
+      get_abandoned_conversations: {
+        Args: { p_instance_id: string; p_hours_threshold?: number }
+        Returns: {
+          conversation_id: string
+          contact_id: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          last_incoming_at: string
+          hours_waiting: number
+        }[]
+      }
+      get_demand_vs_coverage_by_hour: {
+        Args: { p_instance_id: string; p_start: string; p_end: string }
+        Returns: { hour: number; demand: number; coverage: number }[]
+      }
+      get_conversion_by_origin: {
+        Args: { p_instance_id: string; p_start: string; p_end: string }
+        Returns: {
+          origin: string
+          total_leads: number
+          fechadas: number
+          conversion_pct: number
+        }[]
       }
       get_inbox_role: {
         Args: { _inbox_id: string; _user_id: string }

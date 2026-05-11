@@ -13,6 +13,63 @@ audited_at: 2026-05-11
 
 ---
 
+### v7.34.0 (2026-05-11) — Dashboard do Gestor: métricas avançadas (Fase 2)
+
+**Contexto:** Fase 1 (v7.33.0) unificou as superfícies. Fase 2 adiciona as 4 métricas que o gestor precisa pra agir, não só ver: quanto a equipe demora, quem ficou pendurado, em que horário a casa some, qual canal converte.
+
+**DB — 4 RPCs novas (migration `rpc_manager_phase2_advanced_metrics`):**
+
+- `get_response_time_percentiles(instance, start, end)` — P50/P95 em segundos do tempo entre a 1ª msg incoming e a 1ª outgoing de cada conversa no período. Validada Eletropiso 30d: P50 = 23s, P95 = 89s, n = 11.
+- `get_abandoned_conversations(instance, hours_threshold default 24)` — última msg da conversa é incoming + mais antiga que threshold. Retorna contato + horas esperando. Validada: 6 conversas abandonadas, max 1132h (~47 dias).
+- `get_demand_vs_coverage_by_hour(instance, start, end)` — buckets 0-23 (TZ `America/Sao_Paulo`) com `demand` (incoming) e `coverage` (outgoing). Identifica gap de cobertura.
+- `get_conversion_by_origin(instance, start, end)` — por `v_lead_metrics.origin`, total de leads × leads com tag `venda:fechada` × taxa %. Tags em jsonb, suporta `?` operator E array contains.
+
+Todas `STABLE SECURITY INVOKER`, grant `authenticated`, search_path locked. types.ts atualizado com as 4 assinaturas.
+
+**Frontend:**
+
+- `useManagerAdvancedMetrics(instanceId, periodDays, abandonedHoursThreshold)` — `Promise.all` das 4 RPCs, retorna `{responseTime, abandoned, hours, conversionByOrigin}` com normalização Number().
+- `ResponseTimeCard` — 2 colunas (P50 + P95) com `fmt()` adaptativo (s/m/h) e `tone()` por faixa (verde <1min, âmbar <30min, vermelho ≥30min).
+- `AbandonedConversationsList` — lista top 8 com link direto pra conversa no helpdesk, badge de severidade por tempo (<48h amber, <168h orange, >7d red). Empty state celebra equipe em dia.
+- `DemandVsCoverageChart` — ComposedChart recharts: barras rosé pra demanda (lead) + linha sky pra cobertura (casa) + badges destacando hora-pico de cada série.
+- `ConversionByOriginCard` — tabela compacta `Origem | Leads | Fechadas | Conv.%` com `tone()` por taxa.
+- `ManagerDashboard.tsx` integra os 4 componentes nas zonas:
+  - **Zona 1** (Pulso) ganha `ResponseTimeCard` abaixo dos KPIs.
+  - **Zona 3** (Atendimento) ganha grid 2×1 com `AbandonedConversationsList` + `DemandVsCoverageChart` no topo.
+  - **Zona 4** (IA & Comercial) substitui o lado direito do funil por `ConversionByOriginCard`; `IAvsVendorComparison` ganha linha própria abaixo.
+
+**Verificação:** `tsc --noEmit` = 0 erros. HMR sem warnings. Console limpo no redirect `/login`. RPCs validadas com dados reais Eletropiso.
+
+---
+
+### v7.33.0 (2026-05-11) — Dashboard do Gestor unificado (Fase 1)
+
+**Contexto:** gestor tinha 3 superfícies separadas (`/dashboard` "Olá George" + `/dashboard/gestao` Métricas + Insights) e Sandbox IA poluía métricas de produção (11.955 participantes da sandbox somavam com Eletropiso). Faltava segmentação leads novos vs recorrentes.
+
+**DB:**
+- Migration `add_is_sandbox_to_instances`: coluna `is_sandbox boolean NOT NULL DEFAULT false` em `instances` + índice parcial. Sandbox IA (`rb84e079eeab167`) marcada.
+- RPC `get_leads_new_vs_returning(p_instance_id, p_start, p_end)`: série diária. Novo = primeira conversa do contato (`MIN(conversations.created_at)` por inbox da instância) caiu no período. Recorrente = contato existia antes do período e voltou. `SECURITY INVOKER`, grant para `authenticated`.
+
+**Frontend:**
+- `useManagerInstances({ includeSandbox })` (default `false`) — exclui sandbox do dropdown.
+- `useLeadsNewVsReturning` — chama RPC, preenche dias zerados, retorna `{series, totals}`.
+- `LeadsNewVsReturningChart` — área empilhada (recharts) verde/roxo + badges com totais no header.
+- `ManagerDashboard.tsx` **reescrito sem abas**, 4 zonas em scroll único:
+  1. **Pulso do período** — KPIs (6 cards) + barras de meta opcionais.
+  2. **Tendência & volume** — Novos/Recorrentes + Tendência + Origem + Horário das Conversas (absorvido do DashboardHome).
+  3. **Atendimento** — Principais motivos de contato (absorvido) + Ranking vendedores.
+  4. **IA & comercial** — Funil + IA vs Vendedor + InsightsTab inteiro (13 widgets de vendas/produtos/marcas/objeções).
+- Toggle **"Sandbox: ON/OFF"** no header — só pro super_admin; gerente nunca vê.
+- `types.ts` ganha `is_sandbox` em `instances.Row/Insert/Update` + assinatura da RPC.
+
+**Acesso:** rota `/dashboard/gestao` já guardada por `CrmRoute` (super_admin OU gerente). Gerente loga → cai direto no unificado. Nenhuma guard alterada.
+
+**Não inclui (Fase 2):** tempo 1ª resposta P50/P95, conversas abandonadas 24h, gap cobertura, conversão por origem.
+
+**Verificação:** `tsc --noEmit` = 0 erros, HMR sem warnings, console limpo no `/login` (redirect). RPC validada: Eletropiso 30d retornou 6 novos + 5 recorrentes (bate com 11 contatos distintos da query de sanidade).
+
+---
+
 ### v7.32.6 (2026-05-10) — Polish helpdesk: áudios outgoing + player + console
 
 **Contexto:** Após o fix do pipeline de transcrição (v7.32.5), 4 demandas incrementais do usuário durante o teste E2E: (1) player do áudio com pouco contraste, (2) áudio outgoing também precisa transcrever pra extrair métricas de atendimento, (3) console mostrando 2 erros (URL pré-migração + URL relativa em carrossel), (4) UX do player precisava de identificação clara incoming vs outgoing.
