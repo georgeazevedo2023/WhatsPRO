@@ -5521,6 +5521,29 @@ export type Database = {
           conversion_pct: number
         }[]
       }
+      get_unanswered_first_messages: {
+        Args: { p_instance_id: string; p_days_lookback?: number }
+        Returns: {
+          conversation_id: string
+          contact_id: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          first_incoming_at: string
+          hours_waiting: number
+        }[]
+      }
+      get_active_quotes: {
+        Args: { p_instance_id: string }
+        Returns: {
+          conversation_id: string
+          contact_id: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          assigned_to: string | null
+          last_message_at: string
+          hours_since_last_msg: number
+        }[]
+      }
       get_inbox_role: {
         Args: { _inbox_id: string; _user_id: string }
         Returns: Database["public"]["Enums"]["inbox_role"]

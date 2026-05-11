@@ -79,13 +79,6 @@ export default function IAvsVendorComparison({ data }: Props) {
           vendorValue={formatMinutes(data.vendorAvgResolutionMin)}
         />
         <CompareRow
-          label="Custo/conv."
-          iaValue={
-            iaTotal > 0 ? `$${(data.iaCostUsd / iaTotal).toFixed(5)}` : '$0'
-          }
-          vendorValue="—"
-        />
-        <CompareRow
           label="Handoffs"
           iaValue={data.iaHandoffs.toLocaleString('pt-BR')}
           vendorValue={

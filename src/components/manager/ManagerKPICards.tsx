@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import StatsCard from '@/components/dashboard/StatsCard';
-import { Users, TrendingUp, ArrowRightLeft, Star, DollarSign, Activity } from 'lucide-react';
+import { Users, TrendingUp, ArrowRightLeft, Star, Activity } from 'lucide-react';
 import type { ManagerKPIs } from '@/hooks/useManagerMetrics';
 
 interface ManagerKPICardsProps {
@@ -9,7 +9,7 @@ interface ManagerKPICardsProps {
 }
 
 const ManagerKPICards = ({ kpis, periodDays }: ManagerKPICardsProps) => (
-  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
     <StatsCard
       title="Leads Novos"
       value={kpis.newLeads.toLocaleString('pt-BR')}
@@ -33,12 +33,6 @@ const ManagerKPICards = ({ kpis, periodDays }: ManagerKPICardsProps) => (
       value={kpis.npsAvg > 0 ? kpis.npsAvg.toFixed(1) : '—'}
       icon={Star}
       description="satisfação (1–5)"
-    />
-    <StatsCard
-      title="Custo IA"
-      value={kpis.iaCostUsd > 0 ? `$${kpis.iaCostUsd.toFixed(4)}` : '$0'}
-      icon={DollarSign}
-      description="estimado gpt-4.1-mini"
     />
     <StatsCard
       title="Score Médio"

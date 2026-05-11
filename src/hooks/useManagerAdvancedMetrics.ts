@@ -33,11 +33,32 @@ export interface ConversionByOrigin {
   conversionPct: number;
 }
 
+export interface UnansweredLead {
+  conversationId: string;
+  contactId: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  firstIncomingAt: string;
+  hoursWaiting: number;
+}
+
+export interface ActiveQuote {
+  conversationId: string;
+  contactId: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  assignedTo: string | null;
+  lastMessageAt: string;
+  hoursSinceLastMsg: number;
+}
+
 export interface ManagerAdvancedMetrics {
   responseTime: ResponseTimePercentiles;
   abandoned: AbandonedConversation[];
   hours: HourBucket[];
   conversionByOrigin: ConversionByOrigin[];
+  unanswered: UnansweredLead[];
+  activeQuotes: ActiveQuote[];
 }
 
 export function useManagerAdvancedMetrics(
@@ -55,7 +76,7 @@ export function useManagerAdvancedMetrics(
       const start = startOfDay(subDays(now, periodDays - 1)).toISOString();
       const end = new Date(now.getTime() + 1000).toISOString();
 
-      const [rtRes, abRes, hrRes, coRes] = await Promise.all([
+      const [rtRes, abRes, hrRes, coRes, unRes, qtRes] = await Promise.all([
         supabase.rpc('get_response_time_percentiles', {
           p_instance_id: instanceId,
           p_start: start,
@@ -75,6 +96,11 @@ export function useManagerAdvancedMetrics(
           p_start: start,
           p_end: end,
         }),
+        supabase.rpc('get_unanswered_first_messages', {
+          p_instance_id: instanceId,
+          p_days_lookback: periodDays,
+        }),
+        supabase.rpc('get_active_quotes', { p_instance_id: instanceId }),
       ]);
 
       const rtRow = rtRes.data?.[0];
@@ -106,7 +132,26 @@ export function useManagerAdvancedMetrics(
         conversionPct: Number(r.conversion_pct),
       }));
 
-      return { responseTime, abandoned, hours, conversionByOrigin };
+      const unanswered: UnansweredLead[] = (unRes.data || []).map((r) => ({
+        conversationId: r.conversation_id,
+        contactId: r.contact_id,
+        contactName: r.contact_name,
+        contactPhone: r.contact_phone,
+        firstIncomingAt: r.first_incoming_at,
+        hoursWaiting: Number(r.hours_waiting),
+      }));
+
+      const activeQuotes: ActiveQuote[] = (qtRes.data || []).map((r) => ({
+        conversationId: r.conversation_id,
+        contactId: r.contact_id,
+        contactName: r.contact_name,
+        contactPhone: r.contact_phone,
+        assignedTo: r.assigned_to,
+        lastMessageAt: r.last_message_at,
+        hoursSinceLastMsg: Number(r.hours_since_last_msg),
+      }));
+
+      return { responseTime, abandoned, hours, conversionByOrigin, unanswered, activeQuotes };
     },
   });
 }
