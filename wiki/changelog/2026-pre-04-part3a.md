@@ -1,6 +1,7 @@
 ---
 title: Changelog — Pré 2026-04 — parte 3
 type: changelog-archive
+description: v3.0.0 a v3.3.0 (2026-03-23 a 03-25): Auditoria + 30 correções + Carousel AI + Shadow Mode + SDR
 updated: 2026-05-11
 ---
 

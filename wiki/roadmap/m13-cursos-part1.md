@@ -1,6 +1,7 @@
 ---
 title: Roadmap — M13 Cursos & Membership (parte 1)
 type: roadmap-detail
+description: M13 Cursos & Membership (parte 1) — T13.1 CRUD + T13.2 Enrollment + T13.3 Completions + T13.4 Drip + T13.5 Notificações
 updated: 2026-05-11
 ---
 

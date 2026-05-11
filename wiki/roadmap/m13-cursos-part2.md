@@ -1,6 +1,7 @@
 ---
 title: Roadmap — M13 Cursos & Membership (parte 2)
 type: roadmap-detail
+description: M13 Cursos & Membership (parte 2) — T13.6 Certificado + T13.7 Área Membros + T13.8 Quizzes + T13.9 Comunidade + T13.10 Gamificação
 updated: 2026-05-11
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: Plano Enquetes/Polls (parte 2)
 type: plano-historico
+description: M17 Enquetes/Polls (parte 2) — mapa de uso (onde enquetes entram)
 updated: 2026-05-11
 ---
 

@@ -3,6 +3,7 @@ title: Deploy Checklist
 tags: [deploy, checklist, producao]
 sources: [CLAUDE.md, wiki/erros-e-licoes.md]
 updated: 2026-04-05
+audited_at: 2026-05-11
 ---
 
 # Deploy Checklist

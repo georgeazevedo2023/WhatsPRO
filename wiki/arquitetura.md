@@ -3,6 +3,7 @@ title: Arquitetura Tecnica
 tags: [arquitetura, stack, supabase, edge-functions, automacao, perfis, fluxos, metricas]
 sources: [CLAUDE.md, docs/CONTEXTO_PROJETO.md]
 updated: 2026-04-27
+audited_at: 2026-05-11
 ---
 
 # Arquitetura Tecnica

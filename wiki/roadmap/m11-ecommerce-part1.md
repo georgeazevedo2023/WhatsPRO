@@ -1,6 +1,7 @@
 ---
 title: Roadmap — M11 E-commerce (parte 1)
 type: roadmap-detail
+description: M11 E-commerce (parte 1) — T11.1 Produtos + T11.2 Coleções + T11.3 Catálogo + T11.4 Pedidos + T11.5 Checkout
 updated: 2026-05-11
 ---
 

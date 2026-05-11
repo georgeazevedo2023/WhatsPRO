@@ -1,6 +1,7 @@
 ---
 title: Log Arquivo Pré 2026-05-08 (parte 1)
 type: log-archive
+description: 2026-05-07 noite (v7.32.0-v7.32.2 notif handoff + UAZAPI refactor)
 updated: 2026-05-11
 ---
 

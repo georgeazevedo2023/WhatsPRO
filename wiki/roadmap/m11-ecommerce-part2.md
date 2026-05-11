@@ -1,6 +1,7 @@
 ---
 title: Roadmap — M11 E-commerce (parte 2)
 type: roadmap-detail
+description: M11 E-commerce (parte 2) — T11.6 Fulfillment + T11.7 Invoices + T11.8 Estoque + T11.9 Relatórios + T11.10 Cupons + T11.11 Carrinho + T11.12 Catálogo Web
 updated: 2026-05-11
 ---
 

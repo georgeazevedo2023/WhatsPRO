@@ -1,6 +1,7 @@
 ---
 title: Log Arquivo 2026-04-04 a 09 (parte 1)
 type: log-archive
+description: 2026-04-09 + 2026-04-08 (M17 F1-F5 ship: Motor + Funis Agênticos + NPS)
 updated: 2026-05-11
 ---
 

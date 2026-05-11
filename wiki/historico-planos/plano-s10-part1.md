@@ -1,6 +1,7 @@
 ---
 title: Plano S10 Templates/Survey/Followup/Handoff (parte 1)
 type: plano-historico
+description: S10 Templates/Survey/Followup/Handoff (parte 1) — migration + types + survey + followup
 updated: 2026-05-11
 ---
 

@@ -3,6 +3,7 @@ title: Protocolo de Subagentes (Paralelização de Tarefas)
 tags: [protocolo, subagentes, paralelizacao, planejamento]
 sources: [RULES.md (extraído 2026-04-26)]
 updated: 2026-04-26
+audited_at: 2026-05-11
 ---
 
 # Protocolo de Subagentes — Paralelização de Tarefas

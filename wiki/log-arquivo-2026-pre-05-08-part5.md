@@ -1,6 +1,7 @@
 ---
 title: Log Arquivo Pré 2026-05-08 (parte 5)
 type: log-archive
+description: 2026-05-06 tarde + manhã — Playwright Ondas 1-4 (120 testes) + R101/R102 hotfixes
 updated: 2026-05-11
 ---
 

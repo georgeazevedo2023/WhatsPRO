@@ -1,6 +1,7 @@
 ---
 title: Histórico de Erros — 2026-05 (parte 2, R108-R114)
 type: erros-historico
+description: Incidentes R108 a R114 (2026-05-07): unicode normalization, fuzzy filters, qualificação context, cron 401, detectObjection
 updated: 2026-05-11
 ---
 

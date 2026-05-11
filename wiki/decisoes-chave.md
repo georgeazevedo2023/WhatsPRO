@@ -3,6 +3,7 @@ title: Decisões-Chave
 tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
 updated: 2026-05-04
+audited_at: 2026-05-11
 ---
 
 # Decisões-Chave

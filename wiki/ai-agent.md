@@ -3,6 +3,7 @@ title: AI Agent (M10)
 tags: [ai-agent, openai, sdr, handoff, validator, tts, shadow, profiles, polls, service-categories, excluded-products]
 sources: [CLAUDE.md, supabase/functions/ai-agent/]
 updated: 2026-04-30
+audited_at: 2026-05-11
 ---
 
 # AI Agent (M10)

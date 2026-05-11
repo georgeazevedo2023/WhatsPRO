@@ -1,6 +1,7 @@
 ---
 title: Log Arquivo Pré 2026-05-08 (parte 3)
 type: log-archive
+description: 2026-05-07 — Sessão 3 Sandbox + R113 cron 401 fix
 updated: 2026-05-11
 ---
 

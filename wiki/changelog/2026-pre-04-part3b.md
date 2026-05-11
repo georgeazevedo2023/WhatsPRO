@@ -1,6 +1,7 @@
 ---
 title: Changelog — Pré 2026-04 — parte 3b
 type: changelog-archive
+description: v1.8.0 a v2.9.0 (2026-03-21 a 03-23): Estudo UAZAPI + M10/M11 leads + Sprint 3-5 + Auditoria 30 sugestões
 updated: 2026-05-11
 ---
 

@@ -3,6 +3,7 @@ title: Deploy & Infraestrutura
 tags: [deploy, docker, ci-cd, producao]
 sources: [CLAUDE.md]
 updated: 2026-04-05
+audited_at: 2026-05-11
 ---
 
 # Deploy & Infraestrutura

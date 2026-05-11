@@ -1,6 +1,7 @@
 ---
 title: Plano Enquetes/Polls (parte 4)
 type: plano-historico
+description: M17 Enquetes/Polls (parte 4) — schema banco + fases e tasks
 updated: 2026-05-11
 ---
 

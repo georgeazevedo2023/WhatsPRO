@@ -69,17 +69,48 @@ type: log
 - **`log.md` particionado**: 232 → ~80 linhas. Entradas de 2026-05-09 e 2026-05-10 movidas pra [[wiki/log-arquivo-2026-05-09-a-10]].
 - **`index.md` reorganizado**: 217 linhas em seções claras (Operacional / Produto / Módulos / Histórico) — eliminada poluição de links arquivados na seção ativa.
 
+### Polish MÉDIA/BAIXA (mesma sessão, fechado o ciclo)
+
+- **`description:` no frontmatter de 37 partN opacos** — cada parte tem 1 linha descritiva (período coberto + features). Logs históricos, changelog, erros, planos, roadmap módulos. Tabela em `log.md` agora mostra "Parte | Conteúdo" navegável.
+- **`audited_at: 2026-05-11` em 12 wikis principais** — `ai-agent`, `arquitetura`, `audio-pipeline`, `banco-de-dados`, `decisoes-chave`, `deploy`, `deploy-checklist`, `erros-e-licoes`, `infraestrutura`, `modulos`, `protocolo-subagentes`, `roadmap`.
+- **GitHub Actions workflow** `.github/workflows/vault-healthcheck.yml` — roda `check-md-length.sh --strict` em push pra `master` e em PRs que mexam em `*.md`. Bloqueia merge se violação. Defesa em profundidade junto com pre-commit hook local.
+- **Slash command `/doc-check`** em `.claude/commands/doc-check.md` — audit interativo 3 dimensões: hard limit + staleness (`audited_at` >60d) + órfãs (sem wikilink apontando). Suporta auto-fix opcional após confirmação.
+- **`wiki/casos-de-uso/` validado** — 31 arquivos, todos ≤200 lin. Nenhum precisa particionar.
+- **CLAUDE.md atualizado** com referências ao hook, workflow e `/doc-check`.
+
+### Auto-avaliação final
+
+**Documentação**: **9.5/10** — hard limit cumprido + orquestrador funcional + 3 camadas anti-regressão (pre-commit + GHA + /doc-check) + descrições navegáveis + audited_at em 12 wikis. Falta só (a) GHA validado em PR real, (b) sweep audited_at no resto das wikis conforme forem revisadas (orgânico).
+
 ---
 
 ## Sessões anteriores (arquivadas)
 
 > Log mantém só sessões dos últimos ~3 dias. Histórico:
 >
-> - [[wiki/log-arquivo-2026-05-09-a-10]] — 2026-05-09 a 10 (v7.32.3 → v7.32.6 + manutenção doc)
-> - [[wiki/log-arquivo-2026-pre-05-08-part1]] · [[wiki/log-arquivo-2026-pre-05-08-part2]] · [[wiki/log-arquivo-2026-pre-05-08-part3]] · [[wiki/log-arquivo-2026-pre-05-08-part4]] · [[wiki/log-arquivo-2026-pre-05-08-part5]] · [[wiki/log-arquivo-2026-pre-05-08-part6]] · [[wiki/log-arquivo-2026-pre-05-08-part7]] — 2026-05-05 (tarde) a 2026-05-07 (7 partes)
-> - [[wiki/log-arquivo-2026-05-05-r93-r96-manha]] · [[wiki/log-arquivo-2026-05-05-d30-defg-e]] · [[wiki/log-arquivo-2026-05-04-d30-abc]] · [[wiki/log-arquivo-2026-05-04-admin]] — 2026-05-04 a 05 (manhã)
-> - [[wiki/log-arquivo-2026-05-02-a-03-helpdesk]] — Auditoria Helpdesk + UI
-> - [[wiki/log-arquivo-2026-04-30-d28-d29-avatares]] · [[wiki/log-arquivo-2026-04-29-eletropiso]] — Final abril
-> - [[wiki/log-arquivo-2026-04-27-a-28-m19-s10]] · [[wiki/handoff-2026-04-27]] — Auditoria geral + S10
-> - [[wiki/log-arquivo-2026-04-25-s8-helpdesk]] · [[wiki/log-arquivo-2026-04-14-helpdesk-audit]] · [[wiki/log-arquivo-2026-04-13-m19-s1s2]] · [[wiki/log-arquivo-2026-04-12-fixes-kpi-s12]] — Meio abril
-> - [[wiki/log-arquivo-2026-04-04-a-09-part1]] · [[wiki/log-arquivo-2026-04-04-a-09-part2]] · [[wiki/log-arquivo-2026-04-04-a-09-part3]] — Início abril (3 partes)
+| Arquivo | Conteúdo |
+|---------|----------|
+| [[wiki/log-arquivo-2026-05-09-a-10]] | 2026-05-09 a 10: v7.32.3 → v7.32.6 + manutenção doc |
+| [[wiki/log-arquivo-2026-pre-05-08-part1]] | 2026-05-07 noite (v7.32.0-v7.32.2 notif handoff + UAZAPI refactor) |
+| [[wiki/log-arquivo-2026-pre-05-08-part2]] | 2026-05-07 final tarde — Sessão 4 Sandbox · Onda 2 (G/H/M/E) |
+| [[wiki/log-arquivo-2026-pre-05-08-part3]] | 2026-05-07 — Sessão 3 Sandbox + R113 cron 401 fix |
+| [[wiki/log-arquivo-2026-pre-05-08-part4]] | 2026-05-06 noite — auditoria AI Agent R103/R104/R105 + projeto antigo PAUSADO |
+| [[wiki/log-arquivo-2026-pre-05-08-part5]] | 2026-05-06 tarde + manhã — Playwright Ondas 1-4 (120 testes) + R101/R102 |
+| [[wiki/log-arquivo-2026-pre-05-08-part6]] | 2026-05-06 madrugada — CUTOVER LIVE Eletropiso + Ondas 4-7 + hotfixes |
+| [[wiki/log-arquivo-2026-pre-05-08-part7]] | 2026-05-05 noite — Auditoria projeto 5 ondas + Sprint 3 P1-2 |
+| [[wiki/log-arquivo-2026-05-05-r93-r96-manha]] | 2026-05-05 manhã — R93/R94/R95 + Free Forever + Sprint H D30 |
+| [[wiki/log-arquivo-2026-05-05-d30-defg-e]] | 2026-05-04/05 — D30 Sprints D+F+G+E (Admin/Helpdesk UI + Tests + Modo Estendido) |
+| [[wiki/log-arquivo-2026-05-04-d30-abc]] | 2026-05-04 — D30 Sprints A+B+C (DB + Backend + Cron) |
+| [[wiki/log-arquivo-2026-05-04-admin]] | 2026-05-04 — Auditoria Admin + R90 hotfix user_roles UNIQUE |
+| [[wiki/log-arquivo-2026-05-02-a-03-helpdesk]] | 2026-05-02 + 03 — Auditoria Helpdesk + UI mobile-first |
+| [[wiki/log-arquivo-2026-04-30-d28-d29-avatares]] | 2026-04-30 — D28/D29 + Avatares Storage + R85-R88 |
+| [[wiki/log-arquivo-2026-04-29-eletropiso]] | 2026-04-29 — Sprint Eletropiso 23 categorias + 7 fixes ai-agent |
+| [[wiki/log-arquivo-2026-04-27-a-28-m19-s10]] | 2026-04-27/28 — M19-S10 v1+v2+v3 + Deploy 16 commits |
+| [[wiki/handoff-2026-04-27]] | 2026-04-27 — Handoff geral + M19-S10 v2 Service Categories |
+| [[wiki/log-arquivo-2026-04-25-s8-helpdesk]] | 2026-04-25 — Helpdesk inbox + M19 S8 + S8.1 |
+| [[wiki/log-arquivo-2026-04-14-helpdesk-audit]] | 2026-04-14 — Helpdesk audit 10 fixes |
+| [[wiki/log-arquivo-2026-04-13-m19-s1s2]] | 2026-04-13 — M19 S1+S2: Shadow + Agregação + Deploy |
+| [[wiki/log-arquivo-2026-04-12-fixes-kpi-s12]] | 2026-04-12 — KPI fixes + S12 + orchestrator |
+| [[wiki/log-arquivo-2026-04-04-a-09-part1]] | 2026-04-09 + 08 — M17 F1-F5 ship (Motor + Funis Agênticos + NPS) |
+| [[wiki/log-arquivo-2026-04-04-a-09-part2]] | 2026-04-08 + 07 + 06 — M16 Funis + M15 F1+F2 + bio link fixes |
+| [[wiki/log-arquivo-2026-04-04-a-09-part3]] | 2026-04-06 + 05 + 08 — M14 Bio Link + M13 Campanhas/Forms + M12 Forms |

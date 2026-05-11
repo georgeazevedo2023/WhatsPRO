@@ -3,6 +3,7 @@ title: Banco de Dados
 tags: [supabase, banco-de-dados, rls, migrations, schema]
 sources: [supabase/migrations, ARCHITECTURE.md, PRD.md]
 updated: 2026-04-27
+audited_at: 2026-05-11
 ---
 
 # Banco de Dados

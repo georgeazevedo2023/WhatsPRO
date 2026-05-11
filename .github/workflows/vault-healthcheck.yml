@@ -1,0 +1,19 @@
+name: Vault Healthcheck
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '**/*.md'
+      - 'scripts/check-md-length.sh'
+  pull_request:
+    paths:
+      - '**/*.md'
+
+jobs:
+  check-md-length:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check no .md file exceeds 300 lines
+        run: bash scripts/check-md-length.sh --strict

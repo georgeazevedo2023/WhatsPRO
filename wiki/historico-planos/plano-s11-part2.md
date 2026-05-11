@@ -1,6 +1,7 @@
 ---
 title: Plano S11 Conversa Guiada FlowEditor (parte 2)
 type: plano-historico
+description: S11 Conversa Guiada FlowEditor (parte 2) — hook + 8 tipos step + FlowStepsPanel + FlowIntelPanel
 updated: 2026-05-11
 ---
 

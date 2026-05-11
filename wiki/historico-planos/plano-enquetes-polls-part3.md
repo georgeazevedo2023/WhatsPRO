@@ -1,6 +1,7 @@
 ---
 title: Plano Enquetes/Polls (parte 3)
 type: plano-historico
+description: M17 Enquetes/Polls (parte 3) — configuração no Admin
 updated: 2026-05-11
 ---
 

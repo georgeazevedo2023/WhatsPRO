@@ -1,6 +1,7 @@
 ---
 title: Plano Enquetes/Polls (parte 1)
 type: plano-historico
+description: M17 Enquetes/Polls (parte 1) — decisões + especificação técnica
 updated: 2026-05-11
 ---
 

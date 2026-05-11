@@ -1,6 +1,7 @@
 ---
 title: Plano Enquetes/Polls (parte 5)
 type: plano-historico
+description: M17 Enquetes/Polls (parte 5) — SYNC RULE + riscos + arquivos
 updated: 2026-05-11
 ---
 

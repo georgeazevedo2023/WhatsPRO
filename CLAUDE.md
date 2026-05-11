@@ -173,9 +173,13 @@ Se pular, PARE e volte ao passo 1.
 
 ## 🔍 Healthcheck
 
-Script `scripts/check-md-length.sh` lista todos `.md` > 300 linhas. Rodar antes de fechar sessão.
+- `bash scripts/check-md-length.sh` — lista `.md` > 300 linhas
+- Pre-commit hook bloqueia commit que viole o limite (instalar 1x via `bash scripts/install-hooks.sh`)
+- GitHub Actions roda o mesmo check em PRs (`.github/workflows/vault-healthcheck.yml`)
+- `/doc-check` — slash command com audit completo (limite + staleness + órfãs)
 
 ## Skills/Commands
 
 - `/prd` → `PRD.md` (índice)
 - `/uazapi` → `.claude/commands/uazapi.md` (referência API)
+- `/doc-check` → `.claude/commands/doc-check.md` (vault healthcheck)

@@ -1,6 +1,7 @@
 ---
 title: Histórico de Erros — 2026-05 (parte 1, R91-R107)
 type: erros-historico
+description: Incidentes R91 a R107 (2026-05-04 a 2026-05-06): cron round-robin, vault sync, RLS, schema mismatches
 updated: 2026-05-11
 ---
 

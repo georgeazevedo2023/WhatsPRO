@@ -1,6 +1,7 @@
 ---
 title: Log Arquivo Pré 2026-05-08 (parte 6)
 type: log-archive
+description: 2026-05-06 madrugada — CUTOVER LIVE Eletropiso + Ondas 4-7 + hotfixes pós-cutover
 updated: 2026-05-11
 ---
 

@@ -3,6 +3,7 @@ title: Roadmap
 tags: [roadmap, milestones, fases, status, m19-s10, eletropiso, d28-excluded-products, helpdesk-escopo-tabs]
 sources: [.planning/ROADMAP.md (deprecated), .planning/STATE.md (deprecated), CLAUDE.md, PRD.md]
 updated: 2026-05-07
+audited_at: 2026-05-11
 ---
 
 # Roadmap

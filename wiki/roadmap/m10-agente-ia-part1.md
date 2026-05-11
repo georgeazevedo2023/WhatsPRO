@@ -1,6 +1,7 @@
 ---
 title: Roadmap — M10 Agente de IA (parte 1)
 type: roadmap-detail
+description: M10 Agente IA (parte 1) — T10.1 Builder Visual + T10.2 Templates + T10.3 Branching + T10.4 Triggers + T10.5 Variáveis + T10.6 A/B Testing
 updated: 2026-05-11
 ---
 

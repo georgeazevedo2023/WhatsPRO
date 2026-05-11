@@ -1,6 +1,7 @@
 ---
 title: Log Arquivo 2026-04-04 a 09 (parte 2)
 type: log-archive
+description: 2026-04-08 + 2026-04-07 + 2026-04-06 — M16 Funis shipped + M15 F1+F2 + bio link fixes
 updated: 2026-05-11
 ---
 

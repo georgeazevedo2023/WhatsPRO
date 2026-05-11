@@ -1,6 +1,7 @@
 ---
 title: Roadmap — M10 Agente de IA (parte 2)
 type: roadmap-detail
+description: M10 Agente IA (parte 2) — T10.7 Métricas + T10.8 CRM Kanban + T10.9 Pause/Resume + T10.10 Fallback + T10.11 Delay + T10.12 Ações
 updated: 2026-05-11
 ---
 

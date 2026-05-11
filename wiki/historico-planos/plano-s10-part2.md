@@ -1,6 +1,7 @@
 ---
 title: Plano S10 Templates/Survey/Followup/Handoff (parte 2)
 type: plano-historico
+description: S10 Templates/Survey/Followup/Handoff (parte 2) — handoff + cron + 4 templates + frontend
 updated: 2026-05-11
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: Plano S11 Conversa Guiada FlowEditor (parte 1)
 type: plano-historico
+description: S11 Conversa Guiada FlowEditor (parte 1) — migration + types backend + edge function + types frontend
 updated: 2026-05-11
 ---
 
