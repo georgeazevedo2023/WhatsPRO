@@ -8,6 +8,24 @@ audited_at: 2026-05-11
 
 # Decisões-Chave
 
+## D31 — Hard limit 300 linhas em todo arquivo `.md` (2026-05-11)
+
+> Padrão adotado pra prevenir documentação inflada.
+
+- **Todo arquivo `.md` ativo**: máximo 300 linhas. Particionar imediatamente ao chegar perto.
+- **CLAUDE.md = orquestrador puro**: só ponteiros, tabela de roteamento por contexto da tarefa
+- **PRD.md = índice**: aponta pra `CHANGELOG.md`, `wiki/modulos`, `wiki/infraestrutura`, `wiki/roadmap/`
+- **Arquivos históricos** (changelog/, log-arquivo-*, historico-planos/): split em `partN` com `description:` no frontmatter
+- **Exceções**: `.claude/commands/*.md`, `dist/`, `public/docs/`, `docs/`
+
+**Defesa em profundidade:**
+1. `scripts/check-md-length.sh` — healthcheck manual
+2. Pre-commit hook (via `scripts/install-hooks.sh`) — bloqueia commit local
+3. `.github/workflows/vault-healthcheck.yml` — bloqueia merge em PR
+4. `/doc-check` slash command — audit interativo
+
+**Convenções de frontmatter:** `audited_at: YYYY-MM-DD` (revisão real) + `description:` (em partN).
+
 ## Regras de Integridade
 
 - NUNCA reportar dados falsos ou inconsistentes
