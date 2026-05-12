@@ -13,6 +13,23 @@ audited_at: 2026-05-11
 
 ---
 
+### v7.35.2 (2026-05-12) — Retention 24h dos logs do Supabase (-30 MB)
+
+**Problema:** banco em 52 MB no DbSizeCard, mas só 5 MB era produto. 30 MB (55%) eram **logs internos do Supabase** que crescem sem cleanup automático:
+- `net._http_response`: 21 MB (~3 MB/hora — toda chamada HTTP feita por `pg_net`).
+- `cron.job_run_details`: 8 MB (~2.300 registros/dia — toda execução de pg_cron).
+
+**Limpeza imediata:** `TRUNCATE` nas duas tabelas → banco 52→23 MB.
+
+**Migration `cron_retention_system_logs_24h`:**
+- Função `public.purge_system_logs_older_than_24h()` `SECURITY DEFINER` — apaga registros com timestamp <24h em ambas tabelas e retorna `jsonb` com contagens.
+- Job `pg_cron` `purge_system_logs_24h` schedule `0 * * * *` (top of every hour).
+- Bloco `DO` antes do schedule remove versão antiga se existir (reaplicação idempotente).
+
+**Resultado:** banco fica estável em ~23 MB. Nenhum impacto operacional — esses logs não são usados pelo produto.
+
+---
+
 ### v7.35.1 (2026-05-12) — Dashboard do Gestor: botão limpar pendências
 
 **Demanda:** gestor precisa tirar itens irrelevantes (spam tipo "Zig Online", testes) das listas de pendência sem mexer no helpdesk em si.

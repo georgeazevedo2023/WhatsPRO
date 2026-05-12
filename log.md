@@ -9,6 +9,20 @@ type: log
 
 ---
 
+## 2026-05-12 — Retention 24h em logs do Supabase (v7.35.2)
+
+**Investigação iniciada pelo gestor:** "52 MB? o que está ocupando?". Análise revelou que 30 MB (55%) eram logs internos sem valor operacional:
+- `net._http_response` (pg_net HTTP log) = 21 MB, cresce ~3 MB/hora.
+- `cron.job_run_details` (pg_cron) = 8 MB, ~2.300 rows/dia.
+
+**Ação imediata:** TRUNCATE nas duas → banco 52→23 MB.
+
+**Permanente:** migration `cron_retention_system_logs_24h` cria função `purge_system_logs_older_than_24h()` (SECURITY DEFINER, retorna jsonb com contagens) + job pg_cron `purge_system_logs_24h` schedule `0 * * * *`. Bloco DO antes do schedule garante reaplicação idempotente (unschedule anterior se existir).
+
+Smoke test: função roda OK, job ativo no `cron.job`.
+
+---
+
 ## 2026-05-12 — Dashboard do Gestor: botão limpar pendências (v7.35.1)
 
 **Pedido:** gestor precisa remover spam/teste das listas (ex: "Zig Online" não é negócio).
