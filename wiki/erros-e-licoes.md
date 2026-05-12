@@ -2,8 +2,8 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-11
-audited_at: 2026-05-11
+updated: 2026-05-12
+audited_at: 2026-05-12
 ---
 
 # Erros e Lições
@@ -16,6 +16,23 @@ audited_at: 2026-05-11
 - **Tabela de regras preventivas** (~30 regras): [[wiki/erros/regras-preventivas]]
 - **Histórico detalhado** (R91-R114): [[wiki/erros/historico-2026-05-part1]] · [[wiki/erros/historico-2026-05-part2]]
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
+
+---
+
+## ⚠️ Tipo de parâmetro de RPC divergente da coluna real (uuid vs text) — incidente 2026-05-12
+
+**Erro:** RPC `append_ai_debounce_message` declarava `p_instance_id uuid`. Mas `ai_debounce_queue.instance_id` é `text` (porque `instances.id` é `text` — IDs UAZAPI tipo `r466a98889b5809` não são UUID). Toda chamada explodia com `ERROR 22P02: invalid input syntax for type uuid: "r466a98889b5809"`. **Pipeline inteiro do AI Agent ficou quebrado** por dias até alguém perceber.
+
+**Como descobri:** gestor mandou áudio no WhatsApp e a IA não respondeu. Investigação: msg criada ✓, transcrita ✓, mas `ai_debounce_queue` sem entry nova e `ai_agent_logs` zero em 24h. Suspeita do tipo confirmada chamando a RPC manualmente via SQL.
+
+**Como ficou invisível:** o erro foi silenciado por **três camadas de fire-and-forget**: (1) `whatsapp-webhook` → `transcribe-audio` (background), (2) `transcribe-audio` → `ai-agent-debounce` (background), (3) `ai-agent-debounce` → `supabase.rpc(...)` sem `.throw()`. Toda camada engole erro pra não quebrar o flow do webhook. Erro só apareceria nos logs internos da edge fn — que ninguém olhava.
+
+**Fix:** migration `20260512011546_fix_append_ai_debounce_message_instance_id_text` faz DROP da assinatura antiga + CREATE com `p_instance_id text`. E2E validado em produção (áudio teste respondeu em ~32s).
+
+**Regras preventivas:**
+1. **Quando criar/alterar RPC, o tipo do parâmetro DEVE bater com a coluna real**. Não confiar em "uuid é universal" — IDs externos (UAZAPI, Stripe, etc) chegam como `text`. Confirmar via `\d tabela` ou `information_schema.columns`.
+2. **Pipelines fire-and-forget de várias camadas precisam de teste E2E periódico** que valide o resultado final (msg outgoing aparece?). TS-check não pega; logs internos da edge fn não escalam pra alarme.
+3. **Para diagnosticar pipeline silenciosamente quebrado**: começar pela tabela final (a fila não recebe?) e voltar caminhando. Reproduzir chamada da RPC isoladamente via SQL revela o erro real escondido.
 
 ---
 
