@@ -13,6 +13,24 @@ audited_at: 2026-05-11
 
 ---
 
+### v7.35.3 (2026-05-12) — Fix: RPC do debounce do AI Agent quebrada por tipo errado
+
+**Sintoma:** áudio do lead chegava, era transcrito, mas IA nunca respondia. `ai_debounce_queue` ficava parada. `ai_agent_logs` vazio.
+
+**Causa raiz:** `append_ai_debounce_message` declarava `p_instance_id uuid`. Mas:
+- `ai_debounce_queue.instance_id` é `text` (correto).
+- `instances.id` é `text` (IDs UAZAPI tipo `r466a98889b5809` não são UUIDs).
+
+Toda chamada da RPC explodia com `ERROR 22P02: invalid input syntax for type uuid: "r466a98889b5809"`. Como o `ai-agent-debounce` (edge fn) chama via `supabase.rpc(...)` em fire-and-forget e o `whatsapp-webhook` chama o debounce também em fire-and-forget, **o erro era silenciado em duas camadas**.
+
+**Fix:** migration `fix_append_ai_debounce_message_instance_id_text` faz DROP da assinatura antiga (uuid, uuid, ...) e recria com `p_instance_id text`. Comportamento da função idêntico — só o tipo do parâmetro mudou. Grant restaurado.
+
+**Smoke test:** rodou a RPC com instance real `r466a98889b5809` + conversa real → retornou linha esperada. Cleanup: marcou row de smoke como processed e zerou messages.
+
+**Verificação E2E pendente:** o lead precisa mandar uma mensagem nova no WhatsApp do Eletropiso. Pipeline esperado: webhook → INSERT msg → transcribe-audio (se áudio) → ai-agent-debounce → append na fila (agora OK) → timer 10s → ai-agent → resposta.
+
+---
+
 ### v7.35.2 (2026-05-12) — Retention 24h dos logs do Supabase (-30 MB)
 
 **Problema:** banco em 52 MB no DbSizeCard, mas só 5 MB era produto. 30 MB (55%) eram **logs internos do Supabase** que crescem sem cleanup automático:

@@ -9,6 +9,24 @@ type: log
 
 ---
 
+## 2026-05-12 — Fix RPC append_ai_debounce_message (v7.35.3) ⚠️ bug crítico de prod
+
+**Investigação iniciada pelo gestor:** "pq o agente ia não respondeu meu áudio?".
+
+**Diagnóstico:**
+- Mensagem incoming OK, transcrição OK (Groq fez), mas `ai_debounce_queue` sem entry nova e `ai_agent_logs` zerado em 24h.
+- Webhook pula áudio de propósito ("Skip audio messages — transcribe-audio will trigger"). transcribe-audio chama ai-agent-debounce. ai-agent-debounce chama RPC `append_ai_debounce_message`.
+- RPC declarada com `p_instance_id uuid`. Instâncias UAZAPI usam `text` (`r466a98889b5809`). Erro `22P02: invalid input syntax for type uuid` silenciado por 2 camadas de fire-and-forget.
+- Reproduzi o erro chamando a RPC manualmente.
+
+**Fix:** migration `fix_append_ai_debounce_message_instance_id_text` (DROP + CREATE com tipo correto). Smoke test rodou com instance/conv real.
+
+**Pendente:** validação E2E (user precisa mandar msg nova no WhatsApp Eletropiso pra confirmar IA responde).
+
+**Lição:** bugs em fire-and-forget de duas camadas viram invisíveis se a função interna estoura. Defesa: `ai-agent-debounce` deveria logar `error` da chamada RPC, não engolir.
+
+---
+
 ## 2026-05-12 — Retention 24h em logs do Supabase (v7.35.2)
 
 **Investigação iniciada pelo gestor:** "52 MB? o que está ocupando?". Análise revelou que 30 MB (55%) eram logs internos sem valor operacional:
