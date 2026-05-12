@@ -13,6 +13,28 @@ audited_at: 2026-05-11
 
 ---
 
+### v7.35.1 (2026-05-12) — Dashboard do Gestor: botão limpar pendências
+
+**Demanda:** gestor precisa tirar itens irrelevantes (spam tipo "Zig Online", testes) das listas de pendência sem mexer no helpdesk em si.
+
+**DB:**
+- Migration `rpc_dispense_dashboard_conversation` cria 2 RPCs `SECURITY DEFINER`:
+  - `dispense_conversation_from_dashboard(conversation_id)` — append tag `dashboard:dispensed` (preserva resto do array via `DISTINCT unnest`, segue regra `NEVER empty tags`).
+  - `restore_conversation_to_dashboard(conversation_id)` — `array_remove` da mesma tag.
+- As 3 RPCs de pendência (`get_unanswered_first_messages`, `get_abandoned_conversations`, `get_active_quotes`) ganham `AND NOT ('dashboard:dispensed' = ANY(c.tags))`.
+
+**Frontend:**
+- `PendingConversationsCard` ganha botão **X** ao lado do link externo em cada item — tooltip "Remover da lista (spam, teste, já resolvida)".
+- Toast com botão **"Desfazer"** (Sonner action) chama `restore_conversation_to_dashboard` e re-invalida queries.
+- Toast verde no sucesso, vermelho em erro. Estados isolados por item.
+- `useQueryClient().invalidateQueries({ queryKey: ['manager-advanced'] })` força re-fetch das 3 RPCs após dispense/undo.
+
+**Não afeta:** helpdesk segue mostrando a conversa normalmente. Conversa não é arquivada nem alterada operacionalmente — só ganha tag de UI.
+
+**Verificação:** smoke test SQL completo (dispense → tag aparece → query filtra → restore → tag removida). `tsc --noEmit` = 0. Console limpo.
+
+---
+
 ### v7.35.0 (2026-05-11) — Dashboard do Gestor: pivô comercial (Fase 3)
 
 **Contexto:** gestor pediu para ver foco comercial em vez de custo IA. Demandas: tirar custos, adicionar lista de leads sem 1ª resposta, cotações em andamento, top objeções e motivos de conversa em destaque.

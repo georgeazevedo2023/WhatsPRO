@@ -1,11 +1,14 @@
 // Dashboard do Gestor F3: card genérico de lista de conversas pendentes
 // Reaproveitado por "sem resposta há +N h", "sem 1ª resposta ao lead",
-// "cotações em andamento".
+// "cotações em andamento". Suporta dispensar item (tag dashboard:dispensed).
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { ExternalLink, type LucideIcon } from 'lucide-react';
+import { ExternalLink, X, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 export interface PendingItem {
   conversationId: string;
@@ -52,6 +55,36 @@ export default function PendingConversationsCard({
   emptyMessage = 'Nada pendente. Bom trabalho.',
   hideWaitingBadge = false,
 }: Props) {
+  const queryClient = useQueryClient();
+
+  async function handleDispense(item: PendingItem) {
+    const display = item.contactName || item.contactPhone || 'conversa';
+    const { error } = await supabase.rpc('dispense_conversation_from_dashboard', {
+      p_conversation_id: item.conversationId,
+    });
+    if (error) {
+      toast.error(`Não consegui dispensar ${display}. Tenta de novo?`);
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ['manager-advanced'] });
+    toast.success(`${display} removida da lista`, {
+      action: {
+        label: 'Desfazer',
+        onClick: async () => {
+          const { error: undoErr } = await supabase.rpc('restore_conversation_to_dashboard', {
+            p_conversation_id: item.conversationId,
+          });
+          if (undoErr) {
+            toast.error('Não consegui desfazer');
+            return;
+          }
+          queryClient.invalidateQueries({ queryKey: ['manager-advanced'] });
+          toast.success(`${display} de volta à lista`);
+        },
+      },
+    });
+  }
+
   if (isLoading) return <Skeleton className="h-64 rounded-xl" />;
 
   const items = (data ?? []).slice(0, topN);
@@ -95,7 +128,7 @@ export default function PendingConversationsCard({
                     {item.contactPhone || '—'}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   {!hideWaitingBadge && typeof item.hoursWaiting === 'number' && (
                     <Badge variant="outline" className={`text-[10px] ${severityTone(item.hoursWaiting)}`}>
                       {fmtWait(item.hoursWaiting)}
@@ -103,11 +136,20 @@ export default function PendingConversationsCard({
                   )}
                   <Link
                     to={`/dashboard/helpdesk?conversation=${item.conversationId}`}
-                    className="text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted/60"
                     aria-label="Abrir conversa"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleDispense(item)}
+                    className="text-muted-foreground/60 hover:text-rose-500 p-1 rounded-md hover:bg-rose-500/10 transition-colors"
+                    aria-label="Remover da lista (spam, teste, já resolvida)"
+                    title="Remover da lista (spam, teste, já resolvida)"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </li>
             ))}

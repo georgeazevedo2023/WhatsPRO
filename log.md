@@ -9,6 +9,16 @@ type: log
 
 ---
 
+## 2026-05-12 — Dashboard do Gestor: botão limpar pendências (v7.35.1)
+
+**Pedido:** gestor precisa remover spam/teste das listas (ex: "Zig Online" não é negócio).
+
+**Entregue:** tag `dashboard:dispensed` aplicada via 2 RPCs SECURITY DEFINER (`dispense_conversation_from_dashboard` / `restore_conversation_to_dashboard`). Append preserva tags existentes via DISTINCT unnest. As 3 RPCs de pendência filtram OUT a tag. UI: botão X ao lado do link externo + toast Sonner com action "Desfazer".
+
+Não arquiva a conversa (helpdesk segue mostrando). Smoke test SQL completo OK. `tsc --noEmit` = 0.
+
+---
+
 ## 2026-05-11 (madrugada) — Dashboard do Gestor: pivô comercial (Fase 3)
 
 **Demanda do gestor após ver as Fases 1+2:** tirar custos, mostrar leads sem 1ª resposta, cotações em andamento, objeções e motivos de conversa em destaque.

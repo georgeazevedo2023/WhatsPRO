@@ -5544,6 +5544,14 @@ export type Database = {
           hours_since_last_msg: number
         }[]
       }
+      dispense_conversation_from_dashboard: {
+        Args: { p_conversation_id: string }
+        Returns: void
+      }
+      restore_conversation_to_dashboard: {
+        Args: { p_conversation_id: string }
+        Returns: void
+      }
       get_inbox_role: {
         Args: { _inbox_id: string; _user_id: string }
         Returns: Database["public"]["Enums"]["inbox_role"]
