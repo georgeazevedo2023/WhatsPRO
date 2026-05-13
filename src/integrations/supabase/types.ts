@@ -441,6 +441,7 @@ export type Database = {
           max_tokens: number
           model: string
           name: string
+          notify_outside_hours_on_handoff: boolean
           openai_api_key: string | null
           out_of_hours_message: string | null
           personality: string | null
@@ -501,6 +502,7 @@ export type Database = {
           max_tokens?: number
           model?: string
           name?: string
+          notify_outside_hours_on_handoff?: boolean
           openai_api_key?: string | null
           out_of_hours_message?: string | null
           personality?: string | null
@@ -561,6 +563,7 @@ export type Database = {
           max_tokens?: number
           model?: string
           name?: string
+          notify_outside_hours_on_handoff?: boolean
           openai_api_key?: string | null
           out_of_hours_message?: string | null
           personality?: string | null

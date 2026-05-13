@@ -29,6 +29,7 @@ import {
   getExitAction,
   buildValidTagKeys,
 } from '../_shared/serviceCategories.ts'
+import { autoExtractFields, flattenCategoryFields } from '../_shared/fieldAutoExtractor.ts'
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
 import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
 import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
@@ -222,6 +223,11 @@ Deno.serve(async (req) => {
     }
 
     /** Broadcast event to helpdesk (fire-and-forget, uses SERVICE_ROLE) */
+    // 2026-05-13: ID de botão de carrossel SEM acentos pra evitar mojibake quando
+    // UAZAPI/Baileys serializa em UTF-8/Latin-1 e devolve no click via buttonOrListid.
+    // O lead vê o `text` do botão (com acento), só o `id` interno fica ASCII.
+    const safeBtnId = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+
     const broadcastEvent = (payload: Record<string, any>) => {
       for (const topic of ['helpdesk-realtime', 'helpdesk-conversations']) {
         fetchFireAndForget(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
@@ -232,58 +238,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4.8 Business hours check — usa helper compartilhado (R107: extended_hours_until override)
-    {
-      const isOutsideHours = isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      if (isOutsideHours) {
-        log.info('Outside business hours', { extended_until: agent.extended_hours_until })
-
-        // R106 — Skip se conversa já fez handoff (status_ia=shadow). IA fica passiva.
-        if (conversation.status_ia === STATUS_IA.SHADOW) {
-          log.info('Skipping out-of-hours msg — conversation in shadow (handoff done)', { conversation_id })
-          return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'outside_business_hours_but_shadow' }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          })
-        }
-
-        // R106 — Cooldown: se já enviamos out_of_hours_message nos últimos 60min nesta
-        // conversa, NÃO repetir. Lead manda 5 msgs fora de horário → recebe 1 só.
-        if (agent.out_of_hours_message) {
-          const cooldownMs = 60 * 60 * 1000
-          const cooldownIso = new Date(Date.now() - cooldownMs).toISOString()
-          const { data: recentOof } = await supabase
-            .from('conversation_messages')
-            .select('id')
-            .eq('conversation_id', conversation_id)
-            .eq('direction', 'outgoing')
-            .eq('content', agent.out_of_hours_message)
-            .gte('created_at', cooldownIso)
-            .limit(1)
-            .maybeSingle()
-
-          if (recentOof) {
-            log.info('Skipping out-of-hours msg — already sent within 60min', { conversation_id })
-            return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'outside_business_hours_cooldown' }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            })
-          }
-
-          await sendTextMsg(agent.out_of_hours_message)
-          await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing', content: agent.out_of_hours_message,
-            media_type: 'text', external_id: `ai_oof_${Date.now()}`,
-          })
-          await supabase.from('conversations').update({
-            last_message_at: new Date().toISOString(),
-            last_message: agent.out_of_hours_message.substring(0, 200),
-          }).eq('id', conversation_id)
-          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.out_of_hours_message, media_type: 'text' })
-        }
-        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'outside_business_hours' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-    }
+    // 4.8 Business hours — 2026-05-13: agente atende SEMPRE em qualquer horário.
+    // A janela só é consultada no handoff (ver handoff_to_human abaixo) para escolher
+    // entre handoff_message e handoff_message_outside_hours quando
+    // notify_outside_hours_on_handoff = true. Toggle OFF = atendentes 24/7,
+    // transbordo sempre usa handoff_message normal.
 
     sendPresence('composing')
 
@@ -306,6 +265,133 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'no_vendor_message' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    // 2026-05-13 — Handler determinístico de button reply de carrossel (Bug 7).
+    //
+    // Detecta padrão "Eu quero! (Produto X)" no incomingText (que pode ter múltiplos
+    // cliques + texto livre se o debounce concatenou turnos).
+    //
+    // Casos:
+    //   só "Eu quero! (X)"                              → upsell prompt (1 item)
+    //   "Eu quero! (X)\nEu quero! (Y)"                  → upsell prompt (2 itens)
+    //   "Eu quero! (X)\nobrigado, é só isso"            → handoff direto formal
+    //   "obrigado..." com tag aguardando_upsell        → handoff direto formal
+    {
+      const tagsArr = (conversation.tags || []) as string[]
+      const isAwaitingUpsell = tagsArr.includes('aguardando_upsell:true')
+
+      // matchAll de "Eu quero! (Produto)" — flag 'g' obrigatória, sem ancoragem
+      const buttonReplyGlobal = /(Eu quero!?|Mais informa[çc][õo]es)\s*\(([^)]+)\)/gi
+      const matches = Array.from(incomingText.matchAll(buttonReplyGlobal))
+      const productsClicked = matches
+        .filter((m) => /eu quero/i.test(m[1]))
+        .map((m) => m[2].trim())
+
+      // Normaliza texto livre (sem os "Eu quero! (X)") pra detectar closing
+      const freeText = incomingText.replace(buttonReplyGlobal, ' ')
+      const lowerFree = freeText.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+      const hasClosing = /\b(nao quero mais|sem mais|s[oó]\s*isso|e\s*s[oó]\s*isso|so\s*isso|nada mais|finaliz[ae]r|pode finalizar|obrigad[oa]|valeu|encerrar|fechad[oa]|tudo certo|por enquanto)\b/i.test(lowerFree)
+      const explicitNo = /^\s*(nao|n)\b/i.test(lowerFree.trim())
+
+      const hasClicks = productsClicked.length > 0
+      const triggerHandler = (hasClicks || isAwaitingUpsell) && !shadow_only
+
+      if (triggerHandler) {
+        // Acumula produtos de tags + novos cliques (deduplicado)
+        const existing = tagsArr
+          .filter((t) => t.startsWith('produto_escolhido:'))
+          .map((t) => t.slice('produto_escolhido:'.length))
+        const allProds: string[] = []
+        for (const p of [...existing, ...productsClicked]) {
+          if (!allProds.includes(p)) allProds.push(p)
+        }
+
+        const shouldClose = (isAwaitingUpsell && (hasClosing || explicitNo)) || (hasClicks && hasClosing)
+
+        if (shouldClose && allProds.length > 0) {
+          // Handoff formal com lista de produtos
+          const notifyOutside = agent.notify_outside_hours_on_handoff !== false
+          const outsideHours = notifyOutside && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+          const listaProds = allProds.length === 1
+            ? allProds[0]
+            : allProds.slice(0, -1).join(', ') + ' e ' + allProds.slice(-1)
+          const baseClose = outsideHours
+            ? 'Nosso consultor de vendas dará prosseguimento ao seu atendimento assim que estivermos disponíveis. Foi um prazer atender! 😊'
+            : 'Vou conectar você com nosso consultor de vendas para finalizar. Em instantes você terá retorno. Foi um prazer atender! 😊'
+          const handoffMsg = `Perfeito! Anotei seu pedido (${listaProds}). ${baseClose}`
+
+          await sendTextMsg(handoffMsg)
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'outgoing', content: handoffMsg, media_type: 'text',
+            external_id: `ai_upsell_close_${Date.now()}`,
+          })
+
+          const cleanedTags = tagsArr.filter((t) => t !== 'aguardando_upsell:true' && !t.startsWith('produto_escolhido:'))
+          const finalTags = [
+            ...cleanedTags,
+            ...allProds.map((p) => `produto_escolhido:${p}`),
+          ]
+          await supabase.from('conversations').update({
+            tags: mergeTags(finalTags, { venda: 'fechada', ia: STATUS_IA.SHADOW }),
+            status_ia: STATUS_IA.SHADOW,
+            last_message_at: new Date().toISOString(),
+            last_message: handoffMsg.substring(0, 200),
+          }).eq('id', conversation_id)
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsg, media_type: 'text' })
+
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'upsell_closed_handoff',
+            latency_ms: Date.now() - startTime,
+            metadata: { produtos: allProds, outside_hours: outsideHours, incoming_preview: incomingText.substring(0, 200) },
+          })
+          return new Response(JSON.stringify({ ok: true, handled: 'upsell_closed' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        if (hasClicks) {
+          // Pergunta upsell com lista atual
+          const upsellMsg = allProds.length === 1
+            ? `Perfeito! Anotei seu interesse em *${allProds[0]}*. 😊\n\nDeseja mais algum item, ou podemos finalizar seu pedido?`
+            : `Perfeito! Anotei seu interesse em:\n${allProds.map((p) => `• ${p}`).join('\n')}\n\nDeseja mais algum item, ou podemos finalizar seu pedido?`
+
+          await sendTextMsg(upsellMsg)
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'outgoing', content: upsellMsg, media_type: 'text',
+            external_id: `ai_upsell_${Date.now()}`,
+          })
+
+          const newTags = [
+            ...tagsArr.filter((t) => !t.startsWith('produto_escolhido:') && t !== 'aguardando_upsell:true'),
+            ...allProds.map((p) => `produto_escolhido:${p}`),
+            'aguardando_upsell:true',
+            'venda:intencao_confirmada',
+          ]
+          await supabase.from('conversations').update({
+            tags: newTags,
+            last_message_at: new Date().toISOString(),
+            last_message: upsellMsg.substring(0, 200),
+          }).eq('id', conversation_id)
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: upsellMsg, media_type: 'text' })
+
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'upsell_prompt_sent',
+            latency_ms: Date.now() - startTime,
+            metadata: { produtos: allProds, total_items: allProds.length },
+          })
+          return new Response(JSON.stringify({ ok: true, handled: 'button_reply_upsell' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+
+        // isAwaitingUpsell mas sem clicks nem closing — lead pediu novo item livre.
+        // Remove tag e deixa fluxo normal continuar (LLM busca).
+        await supabase.from('conversations').update({
+          tags: tagsArr.filter((t) => t !== 'aguardando_upsell:true'),
+        }).eq('id', conversation_id)
+        conversation.tags = tagsArr.filter((t) => t !== 'aguardando_upsell:true')
+      }
     }
 
     // R113.1 H1: detect sale-closed signals once incomingText is computed.
@@ -1383,7 +1469,8 @@ ${contextBlock}`
 - NUNCA invente produtos, preços ou informações que não vieram das ferramentas.
 - Quando resultados de ferramenta são marcados com [INTERNO], NUNCA repita o conteúdo ao lead.
 - LEIA TODA a mensagem antes de responder. Se o lead enviou múltiplas linhas (ex: "Preciso de tinta\\nParede externa"), responda considerando TUDO — não pergunte algo que ele já informou.
-- NUNCA repita uma pergunta que o lead já respondeu no histórico. Leia as mensagens anteriores antes de qualificar.
+- NUNCA repita uma pergunta que o lead já respondeu no histórico. Leia as mensagens anteriores antes de qualificar. EXEMPLO REAL DE FALHA: lead disse "Tem tinta acrílica fosco?" no T1 → IA depois perguntou "qual tipo? (acrílica, esmalte, epóxi)" e "qual acabamento? (fosco, acetinado)" — ERRADO, lead JÁ disse acrílica E fosco na T1. CERTO: antes de fazer QUALQUER pergunta, escaneie todo o histórico do lead e pule fields que ele já mencionou — chame set_tags PRIMEIRO pra registrar o que ele já disse, DEPOIS gere a próxima pergunta.
+- NUNCA ECOAR/CONFIRMAR/PARAFRASEAR a resposta do lead antes de fazer a próxima pergunta. PROIBIDO começar respostas com "Anotado", "Entendi", "Perfeito", "Certo", "Ok", "Show", "Beleza" seguidos de repetição do que o lead disse. Vá DIRETO à próxima pergunta. EXEMPLO ERRADO: "Anotado, ambiente interno para o quarto da sua filha. Você tem preferência por marca?". EXEMPLO CERTO: "Você tem preferência por alguma marca?". Confirmação só é aceita em fechamento de pedido (ex: "Confirma a Tinta Coral 18L por R$427?"), nunca durante qualificação.
 - SENTIMENTO NEGATIVO: quando o lead expressar frustração, irritação ou reclamação, SEMPRE responda com empatia PRIMEIRO (peça desculpas, valide o sentimento) e DEPOIS transfira. NUNCA transfira friamente sem reconhecer a frustração. Exemplo: "Peço desculpas pela experiência, [nome]. Vou te conectar com nosso consultor agora mesmo para resolver isso."
 - PERGUNTAS SOBRE PAGAMENTO NÃO SÃO HANDOFF: quando o lead perguntar sobre desconto, PIX, parcelamento, boleto ou cartão — RESPONDA usando as informações de business_info. NUNCA chame handoff_to_human para essas perguntas. O lead está qualificado e interessado — transferir agora PERDE a venda.
 - INFORMAÇÕES NÃO CADASTRADAS = HANDOFF: se o lead perguntar sobre um tema que NÃO aparece nas "Informações da Empresa" acima, diga "Vou verificar essa informação com nosso consultor" e faça handoff_to_human. NUNCA invente dados que não foram cadastrados pelo admin.
@@ -1433,7 +1520,56 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
         return ''
       }
     }
+    // 2026-05-13 — Auto-extração de fields proativa (Bug 4).
+    // O LLM tipicamente esquece de chamar set_tags na 1ª resposta, fazendo o
+    // qualificationContext perguntar campos já claros na mensagem do lead
+    // (ex: "Tem tinta acrílica fosco?" → IA pergunta "qual tipo?" depois).
+    // Aqui pré-populamos as tags determinísticamente cruzando o texto com os
+    // examples do schema service_categories da categoria detectada.
+    try {
+      const interesseTagPre = (conversation.tags || []).find((t: string) => typeof t === 'string' && t.startsWith('interesse:'))
+      if (interesseTagPre && incomingText.trim()) {
+        const interesseValue = interesseTagPre.split(':')[1] || ''
+        const cfgPre = getCategoriesOrDefault(agent)
+        const categoryPre = matchCategory(interesseValue, cfgPre)
+        if (categoryPre) {
+          const allFields = flattenCategoryFields(categoryPre.stages)
+          const existingKeys = new Set<string>()
+          for (const t of conversation.tags || []) {
+            if (typeof t !== 'string') continue
+            const idx = t.indexOf(':')
+            if (idx > 0) existingKeys.add(t.slice(0, idx))
+          }
+          const extracted = autoExtractFields(incomingText, allFields, existingKeys)
+          if (extracted.length > 0) {
+            const newTags = extracted.map((ef) => `${ef.key}:${ef.value}`)
+            const mergedTags = [...(conversation.tags || []), ...newTags]
+            // Persiste para o próximo turno + atualiza objeto local pra buildQualificationContext usar
+            conversation.tags = mergedTags
+            await supabase.from('conversations').update({ tags: mergedTags }).eq('id', conversation_id)
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'auto_field_extracted',
+              latency_ms: 0,
+              metadata: { extracted, new_tags: newTags, incoming_preview: incomingText.substring(0, 120) },
+            })
+            log.info('Auto-extracted fields from incoming text', { extracted, newTags })
+          }
+        }
+      }
+    } catch (err) {
+      log.error('Auto-field extraction failed (non-fatal)', { error: (err as Error).message })
+    }
+
     const qualificationContext = buildQualificationContext(conversation.tags || [], agent)
+
+    // 2026-05-13: hint contextual de "fora do horário" quando toggle de aviso está ON.
+    // Evita o LLM prometer retorno imediato ("te ligo em 5min") fora do expediente.
+    const outsideHoursContext = (
+      agent.notify_outside_hours_on_handoff !== false &&
+      isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+    )
+      ? `⏰ CONTEXTO TEMPORAL: o atendimento humano está atualmente FORA DO HORÁRIO COMERCIAL. Continue qualificando o lead normalmente, mas NUNCA prometa retorno imediato, ligação agora ou resposta de vendedor "em alguns minutos". A mensagem de transbordo será enviada automaticamente quando você acionar handoff_to_human.`
+      : ''
 
     const systemPrompt = [
       identitySection,
@@ -1451,6 +1587,7 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
       subAgentInstruction,
       dynamicContext,
       additionalSection,
+      outsideHoursContext,
       qualificationContext, // R109 — movido pro final pra alta prioridade (recency bias)
     ].filter(Boolean).join('\n\n')
       // Solution 5: Recency bias — compound name rule as LAST line of system prompt
@@ -1993,8 +2130,8 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
               text: copies[idx] || `${cleanProductTitle(p.title)}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
               image: img,
               buttons: [
-                { id: `${p.title}_${idx}`, text: btn1Text, type: 'REPLY' },
-                ...(btn2Text ? [{ id: `info_${p.title}_${idx}`, text: btn2Text, type: 'REPLY' }] : []),
+                { id: safeBtnId(`${p.title}_${idx}`), text: btn1Text, type: 'REPLY' },
+                ...(btn2Text ? [{ id: safeBtnId(`info_${p.title}_${idx}`), text: btn2Text, type: 'REPLY' }] : []),
               ],
             }))
             log.info('Auto-carousel: single product multi-photo', { title: p.title, photoCount: photos.length })
@@ -2085,8 +2222,8 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
               text: `${cleanProductTitle(p.title)}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
               image: p.images[0],
               buttons: [
-                { id: p.title, text: mpBtn1, type: 'REPLY' },
-                ...(mpBtn2 ? [{ id: `info_${p.title}`, text: mpBtn2, type: 'REPLY' }] : []),
+                { id: safeBtnId(p.title), text: mpBtn1, type: 'REPLY' },
+                ...(mpBtn2 ? [{ id: safeBtnId(`info_${p.title}`), text: mpBtn2, type: 'REPLY' }] : []),
               ],
             }))
 
@@ -2223,8 +2360,8 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
               text: copies[idx] || `${p.title}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
               image: img,
               buttons: [
-                { id: `${p.title}_${idx}`, text: scBtn1, type: 'REPLY' },
-                ...(scBtn2 ? [{ id: `info_${p.title}_${idx}`, text: scBtn2, type: 'REPLY' }] : []),
+                { id: safeBtnId(`${p.title}_${idx}`), text: scBtn1, type: 'REPLY' },
+                ...(scBtn2 ? [{ id: safeBtnId(`info_${p.title}_${idx}`), text: scBtn2, type: 'REPLY' }] : []),
               ],
             }))
             log.info('Multi-photo carousel', { title: p.title, photoCount: photos.length })
@@ -2233,8 +2370,8 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
               text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
               image: p.images[0],
               buttons: [
-                { id: p.title, text: scBtn1, type: 'REPLY' },
-                ...(scBtn2 ? [{ id: `info_${p.title}`, text: scBtn2, type: 'REPLY' }] : []),
+                { id: safeBtnId(p.title), text: scBtn1, type: 'REPLY' },
+                ...(scBtn2 ? [{ id: safeBtnId(`info_${p.title}`), text: scBtn2, type: 'REPLY' }] : []),
               ],
             }))
           }
@@ -2639,17 +2776,20 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           const newStatus = STATUS_IA.SHADOW
 
           // #22: Choose handoff message based on business hours (R107: respeita extended_hours_until)
+          // 2026-05-13: toggle notify_outside_hours_on_handoff (default true) decide se há aviso.
+          // OFF = atendentes 24/7, sempre handoff_message normal.
           let handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
-          if (isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)) {
-            handoffMsg = agent.handoff_message_outside_hours || 'Sua mensagem foi recebida e retornaremos assim que possível! 😊'
+          const notifyOutside = agent.notify_outside_hours_on_handoff !== false
+          const outsideHours = notifyOutside && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+          if (outsideHours) {
+            handoffMsg = agent.handoff_message_outside_hours || 'No momento estamos fora do horário de atendimento, mas assim que disponível nosso consultor de vendas vai dar prosseguimento ao seu atendimento. Deseja algo mais? 😊'
           }
 
           // #M16: Funnel handoff priority — funnel msg > agent msg
           if (funnelData) {
-            const isOutsideHours = handoffMsg !== (agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.')
-            if (isOutsideHours && funnelData.handoff_message_outside_hours) {
+            if (outsideHours && funnelData.handoff_message_outside_hours) {
               handoffMsg = funnelData.handoff_message_outside_hours
-            } else if (!isOutsideHours && funnelData.handoff_message) {
+            } else if (!outsideHours && funnelData.handoff_message) {
               handoffMsg = funnelData.handoff_message
             }
           }

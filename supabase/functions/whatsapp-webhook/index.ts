@@ -599,12 +599,63 @@ Deno.serve(async (req) => {
     if (!content && typeof message.content === 'string') {
       content = message.content
     }
-    // Capture button reply clicks (carousel "Gostei" / quick reply)
-    if (!content && message.selectedButtonId) {
-      content = message.selectedButtonText || message.selectedButtonId || ''
-    }
-    if (!content && message.listResponse?.id) {
-      content = message.listResponse.title || message.listResponse.id || ''
+    // Capture button reply clicks — UAZAPI normaliza para `buttonOrListid` (doc OpenAPI Message schema:
+    // "ID do botão ou item de lista selecionado"). Esse é o campo CANÔNICO da UAZAPI v2.
+    // Mantemos as variantes Baileys/legacy abaixo como fallback defensivo.
+    if (!content) {
+      const tryButtonReply = (txt: string | undefined | null, id: string | undefined | null): string => {
+        const t = (txt || '').trim()
+        const i = (id || '').trim()
+        if (t && i && t !== i) return `${t} (${i})`
+        return t || i || ''
+      }
+
+      // V0 (CANÔNICO UAZAPI v2): buttonOrListid + opcionalmente convertOptions com display text
+      if (message.buttonOrListid) {
+        let displayText = ''
+        // convertOptions pode conter o texto exibido do botão escolhido (JSON-serializado conforme doc)
+        if (typeof message.convertOptions === 'string' && message.convertOptions.trim().startsWith('{')) {
+          try {
+            const co = JSON.parse(message.convertOptions)
+            displayText = co.displayText || co.selectedDisplayText || co.text || co.title || ''
+          } catch { /* convertOptions não-JSON, ignora */ }
+        }
+        content = tryButtonReply(displayText, message.buttonOrListid)
+      }
+      // V1: selectedButtonId / selectedButtonText (legacy UAZAPI)
+      if (!content && (message.selectedButtonId || message.selectedButtonText)) {
+        content = tryButtonReply(message.selectedButtonText || message.selectedDisplayText, message.selectedButtonId)
+      }
+      // V2: buttonsResponseMessage.selectedButtonId + selectedDisplayText (Baileys)
+      if (!content && message.buttonsResponseMessage) {
+        const br = message.buttonsResponseMessage
+        content = tryButtonReply(br.selectedDisplayText || br.selectedButtonText, br.selectedButtonId || br.selectedId)
+      }
+      // V3: templateButtonReplyMessage (Baileys carousel)
+      if (!content && message.templateButtonReplyMessage) {
+        const tbr = message.templateButtonReplyMessage
+        content = tryButtonReply(tbr.selectedDisplayText, tbr.selectedId)
+      }
+      // V4: interactiveResponseMessage.nativeFlowResponseMessage (Baileys native flow)
+      if (!content && message.interactiveResponseMessage) {
+        const ir = message.interactiveResponseMessage
+        const nfrm = ir.nativeFlowResponseMessage
+        if (nfrm) {
+          try {
+            const params = typeof nfrm.paramsJson === 'string' ? JSON.parse(nfrm.paramsJson) : (nfrm.paramsJson || nfrm.params)
+            if (params) {
+              content = tryButtonReply(params.display_text || params.title || params.text || params.name, params.id || nfrm.name)
+            }
+          } catch { /* paramsJson malformado, ignora */ }
+        }
+        if (!content) {
+          content = tryButtonReply(ir.body?.text || ir.title, ir.id)
+        }
+      }
+      // V5: legacy listResponse
+      if (!content && message.listResponse?.id) {
+        content = tryButtonReply(message.listResponse.title, message.listResponse.id)
+      }
     }
     // Agent output: content can be { text: "..." }
     if (!content && typeof message.content === 'object' && message.content?.text) {

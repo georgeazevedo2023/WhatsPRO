@@ -2,8 +2,8 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-12
-audited_at: 2026-05-12
+updated: 2026-05-13
+audited_at: 2026-05-13
 ---
 
 # Erros e Lições
@@ -16,6 +16,73 @@ audited_at: 2026-05-12
 - **Tabela de regras preventivas** (~30 regras): [[wiki/erros/regras-preventivas]]
 - **Histórico detalhado** (R91-R114): [[wiki/erros/historico-2026-05-part1]] · [[wiki/erros/historico-2026-05-part2]]
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
+
+---
+
+## ⚠️ LLM ignora dados óbvios na 1ª msg quando qualificationContext já tem próxima pergunta — incidente 2026-05-13
+
+**Erro:** Lead disse *"Tem tinta acrílica fosco?"* — trazia tipo + acabamento. IA mesmo assim perguntou *"qual tipo de tinta?"* 5 turnos depois. Tags da conversa após o teste mostraram que LLM só populou `tipo_tinta:acrílica` no T9 (atrasado) e nunca populou `acabamento:fosco`.
+
+**Causa raiz:** problema de **timing** entre engine determinística (`service_categories` → `qualificationContext`) e LLM:
+1. Lead manda msg
+2. Sistema computa `qualificationContext` baseado em tags atuais → "Próxima pergunta: tipo_tinta"
+3. LLM lê esse context e obedece (a seção tem priority MÁXIMA)
+4. LLM não chamou `set_tags` ANTES, então engine acha que `tipo_tinta` está vazio
+5. Pergunta redundante
+
+A regra hardcoded *"NUNCA repita pergunta já respondida"* existia mas é mais fraca que o context computado.
+
+**Fix:** defesa em código — auto-extrator (`_shared/fieldAutoExtractor.ts`) scaneia `incomingText` cruzando com `examples` dos fields da categoria detectada ANTES de `buildQualificationContext`. Word boundary + acento normalizado + detecção de negação. Pré-popula `conversation.tags`. Reforço de prompt fica como cinto+suspensório.
+
+**Regras preventivas:**
+1. **Prompt instructions não substituem lógica determinística.** Quando o sistema computa "próxima ação" a partir de estado (tags, score, etc.), o LLM vai obedecer mesmo se houver regra em texto dizendo o contrário. Solução: garantir que o ESTADO esteja correto antes do compute — extrair dados do input ANTES de gerar context, não esperando o LLM fazer.
+2. **Defesa em camada para fluxos críticos.** Qualificação que perde lead = perda de venda. Reforço de prompt + extração em código + validação manual no log. Cada camada cobre buracos da anterior.
+3. **`ai_agent_logs.event` deve registrar passos intermediários**, não só `response_sent`. Sem ver `auto_field_extracted` ou `set_tags_called`, debug do "por que LLM perguntou X?" fica cego.
+
+---
+
+## ⚠️ UAZAPI button reply: campo CANÔNICO é `message.buttonOrListid` (não os 8 formatos Baileys) — descoberta 2026-05-13
+
+**Erro inicial:** quando o lead clicou em "Eu quero!" do carrossel, `conversation_messages.content` ficou vazio e a IA não respondeu (`ai-agent/index.ts:253` faz early-return em `no_text`). Eu chutei adicionando 8 variantes baseadas em Baileys/whatsmeow (`buttonsResponseMessage`, `templateButtonReplyMessage`, `interactiveResponseMessage.nativeFlowResponseMessage`, etc.) — **nenhuma funcionou**.
+
+**Descoberta real:** UAZAPI v2 **desfaz o aninhamento Baileys** antes de mandar o webhook. Tudo vira:
+- `message.buttonOrListid` — id do botão ou item de lista selecionado (campo único pra ambos)
+- `message.convertOptions` — JSON-serializado com `displayText` quando aplicável
+- `message.messageType` — informativo (`"buttonsResponseMessage"`, etc.)
+
+Fonte: OpenAPI spec oficial em `https://docs.uazapi.com/openapi-bundled.json`, schema `components.schemas.Message`.
+
+**Como achei:** WebFetch falhou (SPA). Playwright + `performance.getEntriesByType('resource')` listou todos os recursos carregados pela doc → achei `openapi-bundled.json` → baixei via curl → grep no schema `Message` → campo `buttonOrListid`.
+
+**Validação:** POST simulado direto no webhook com `{message:{buttonOrListid:"X",convertOptions:"{...}"}}` gravou content corretamente no primeiro try.
+
+**Regras preventivas:**
+1. **Antes de adivinhar formato externo, procure spec oficial.** Doc SPA não é acessível via WebFetch — use Playwright + `performance.getEntriesByType` pra achar o JSON real subjacente. Vale também pra Stripe, Twilio, Slack, etc.
+2. **APIs que rodam sobre Baileys/whatsmeow não necessariamente expõem a estrutura Baileys**. Muitas normalizam pra um payload flat. Testar com fixture conhecido antes de codar fallbacks.
+3. **Cada deploy de webhook em prod sem teste prévio é roleta**. Antes deste fix, fiz 2 deploys do whatsapp-webhook que não resolveram nada porque eu não tinha provado o payload. Custo: 2 deploys HIGH RISK + perda de confiança do gestor.
+
+---
+
+## ⚠️ LLM ignora dados óbvios na 1ª msg quando qualificationContext já tem próxima pergunta — incidente 2026-05-13
+
+**Erro:** lead clicou em "Eu quero!" num botão REPLY de carrossel. Helpdesk gravou mensagem incoming com `content=""`. Ai-agent fez early-return em `ai-agent/index.ts:253` (`if (!incomingText.trim()) return 'no_text'`). **IA parou de responder, lead esfriou, venda perdida.**
+
+**Causa raiz:** `whatsapp-webhook/index.ts` só extraía `message.selectedButtonId` e `message.listResponse.id`. Mas UAZAPI/Baileys mandam o clique em payloads diferentes dependendo do tipo:
+- Botão antigo: `selectedButtonId` / `selectedButtonText`
+- Quick reply v2: `buttonsResponseMessage.selectedDisplayText`
+- Carrossel template: `templateButtonReplyMessage.selectedId` + `selectedDisplayText`
+- Native flow (carrossel moderno): `interactiveResponseMessage.nativeFlowResponseMessage.paramsJson` (JSON aninhado)
+- Baileys puro: `buttonReply.id` + `displayText`
+- Lista: `listResponseMessage.singleSelectReply.selectedRowId`
+
+**Fix:** webhook agora tenta TODAS as 8 variantes em ordem. Pra carrossel, grava `content = "${displayText} (${id})"` (ex: `"Eu quero! (Tinta Acrílica Fosco 16L)"`) pra LLM saber QUAL produto.
+
+**Como descobri:** gestor testou E2E em sandbox e reportou que IA parou após clique no botão. SQL mostrou row com content vazio. Code search no webhook expôs o caminho único de extração.
+
+**Regras preventivas:**
+1. **Webhook que processa payload externo (UAZAPI, Stripe, etc): NUNCA confiar em 1-2 nomes de campo**. Plataformas que rodam sobre Baileys/WhatsApp Cloud têm 5+ formatos por feature. Capturar TODAS as variantes conhecidas, com fallback em cascata.
+2. **Mensagem de botão DEVE preservar contexto** (id do produto, valor da opção). Gravar só "Eu quero!" perde a referência. Formato: `"${displayText} (${id})"`.
+3. **Toda extração de content do webhook deve ter teste E2E real** com clique em botão — não basta cobrir só text/audio/image.
 
 ---
 

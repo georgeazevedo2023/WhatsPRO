@@ -3,8 +3,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { Timer, Sparkles, RotateCcw } from 'lucide-react';
+import { Timer, Sparkles, RotateCcw, Info } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export interface DaySchedule {
   open: boolean;
@@ -89,15 +89,15 @@ export function normalizeBusinessHours(value: unknown): WeeklyHours | null {
 interface BusinessHoursEditorProps {
   value: unknown; // null | legacy | weekly
   onChange: (newValue: WeeklyHours | null) => void;
-  outOfHoursMessage: string;
-  onOutOfHoursMessageChange: (text: string) => void;
+  notifyOutsideHoursOnHandoff: boolean;
+  onNotifyOutsideHoursOnHandoffChange: (enabled: boolean) => void;
 }
 
 export function BusinessHoursEditor({
   value,
   onChange,
-  outOfHoursMessage,
-  onOutOfHoursMessageChange,
+  notifyOutsideHoursOnHandoff,
+  onNotifyOutsideHoursOnHandoffChange,
 }: BusinessHoursEditorProps) {
   const weekly = normalizeBusinessHours(value);
   const enabled = weekly !== null;
@@ -147,7 +147,7 @@ export function BusinessHoursEditor({
           Horário Comercial
         </CardTitle>
         <CardDescription>
-          Defina quando a IA atende. Fora do horário, ela envia uma mensagem padrão e não responde.
+          Define quando há atendentes humanos disponíveis. A IA atende leads 24/7 — o horário só decide a mensagem de transbordo.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -157,8 +157,8 @@ export function BusinessHoursEditor({
             <Label className="text-sm font-medium">Ativar horário comercial</Label>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               {enabled
-                ? 'IA respeita os horários abaixo. Fora deles, envia mensagem padrão.'
-                : 'IA atende 24 horas por dia, todos os dias.'}
+                ? 'A IA usa o horário abaixo só para decidir a mensagem de transbordo.'
+                : 'Sem janela definida — todo transbordo usa a mensagem padrão.'}
             </p>
           </div>
           <Switch
@@ -167,6 +167,38 @@ export function BusinessHoursEditor({
             aria-label="Ativar horário comercial"
           />
         </div>
+
+        {/* Toggle: avisar no transbordo fora do horário */}
+        {enabled && (
+          <div className="flex items-center justify-between p-3 rounded-md border bg-muted/20">
+            <div className="pr-3">
+              <div className="flex items-center gap-1.5">
+                <Label className="text-sm font-medium">Avisar lead no transbordo fora do horário</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs">
+                      <strong>Ligado:</strong> atendentes só dentro do horário. No transbordo fora do horário, o lead recebe o aviso configurado em "Mensagem fora do horário comercial".<br/><br/>
+                      <strong>Desligado:</strong> atendentes 24/7. O transbordo sempre usa a mensagem normal, sem aviso de horário.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {notifyOutsideHoursOnHandoff
+                  ? 'Atendentes só dentro do horário comercial. Fora dele, o lead é avisado no transbordo.'
+                  : 'Atendentes 24/7 — transbordo direto sem aviso, em qualquer horário.'}
+              </p>
+            </div>
+            <Switch
+              checked={notifyOutsideHoursOnHandoff}
+              onCheckedChange={onNotifyOutsideHoursOnHandoffChange}
+              aria-label="Avisar lead no transbordo fora do horário"
+            />
+          </div>
+        )}
 
         {/* Weekly grid — só aparece quando ativado */}
         {enabled && weekly && (
@@ -245,18 +277,11 @@ export function BusinessHoursEditor({
               </p>
             )}
 
-            {/* Mensagem fora do horário */}
-            <div className="space-y-1.5">
-              <Label className="text-xs">Mensagem fora do horário</Label>
-              <Textarea
-                value={outOfHoursMessage || ''}
-                onChange={(e) => onOutOfHoursMessageChange(e.target.value)}
-                placeholder="Estamos fora do horário de atendimento. Retornaremos em breve!"
-                className="min-h-[60px] resize-none"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Enviada ao lead quando ele manda mensagem fora do horário comercial. Se ficar vazia, a IA não envia nada (cliente fica sem resposta).
-              </p>
+            {/* Aviso: onde fica a mensagem usada */}
+            <div className="text-[11px] text-muted-foreground border-l-2 border-primary/40 pl-2 py-0.5">
+              {notifyOutsideHoursOnHandoff
+                ? <>A mensagem usada fora do horário é configurada acima em <strong>Mensagem de Transbordo → "Mensagem fora do horário comercial"</strong>.</>
+                : <>Atendentes 24/7 — o transbordo sempre usa a <strong>"Mensagem de Transbordo"</strong> normal, mesmo fora do horário.</>}
             </div>
           </>
         )}

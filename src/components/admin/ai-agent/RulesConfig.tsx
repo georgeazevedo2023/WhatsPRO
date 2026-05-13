@@ -185,8 +185,8 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
       <BusinessHoursEditor
         value={config.business_hours}
         onChange={(newValue) => onChange({ business_hours: newValue })}
-        outOfHoursMessage={config.out_of_hours_message || ''}
-        onOutOfHoursMessageChange={(text) => onChange({ out_of_hours_message: text })}
+        notifyOutsideHoursOnHandoff={config.notify_outside_hours_on_handoff ?? true}
+        onNotifyOutsideHoursOnHandoffChange={(enabled) => onChange({ notify_outside_hours_on_handoff: enabled })}
       />
 
       <ExtendedHoursConfig

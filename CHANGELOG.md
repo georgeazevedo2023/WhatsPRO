@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-05-11
-audited_at: 2026-05-11
+updated: 2026-05-13
+audited_at: 2026-05-13
 ---
 
 # Changelog
@@ -13,21 +13,150 @@ audited_at: 2026-05-11
 
 ---
 
-### v7.35.3 (2026-05-12) — Fix: RPC do debounce do AI Agent quebrada por tipo errado
+### v7.36.4 (2026-05-13) — Fluxo upsell determinístico pós button reply + encoding fix
 
-**Sintoma:** áudio do lead chegava, era transcrito, mas IA nunca respondia. `ai_debounce_queue` ficava parada. `ai_agent_logs` vazio.
+**Bug 6 — encoding "Tinta Acr�lica":** o `id` do botão do carrossel ia com acento. UAZAPI/Baileys serializa entre UTF-8/Latin-1 → mojibake ao retornar via `buttonOrListid`.
+**Fix:** helper `safeBtnId(s)` aplica `stripAccents` em todos os 4 lugares onde o id é montado (`ai-agent/index.ts:1959+`). Lead ainda vê o `text` original (com acento) na UI do botão.
 
-**Causa raiz:** `append_ai_debounce_message` declarava `p_instance_id uuid`. Mas:
-- `ai_debounce_queue.instance_id` é `text` (correto).
-- `instances.id` é `text` (IDs UAZAPI tipo `r466a98889b5809` não são UUIDs).
+**Bug 7 — IA fazia nova busca em vez de fechar pedido:** quando lead clicava "Eu quero!" do carrossel, o LLM via "Tinta Acrílica Eggshell..." na mensagem e disparava `search_products` de novo, enviando outro carrossel inválido. Comportamento esperado: confirmar item, perguntar upsell, fazer handoff quando lead fechasse.
+**Fix:** handler determinístico em `ai-agent/index.ts:269+` ANTES da chamada LLM:
+- Detecta padrão `(Eu quero!|Mais informações) (Produto X)` com `matchAll` (suporta múltiplos cliques em 1 turno)
+- Acumula `produto_escolhido:X` em `conversation.tags`
+- Envia mensagem de upsell formal+simpática com lista de produtos
+- Quando lead responde com closing (`obrigado/é só isso/finalizar/nada mais/...`), faz handoff direto com mensagem formal listando produtos
+- Quando lead responde com novo item (descrição livre), limpa tag `aguardando_upsell:true` e deixa LLM rodar normalmente
 
-Toda chamada da RPC explodia com `ERROR 22P02: invalid input syntax for type uuid: "r466a98889b5809"`. Como o `ai-agent-debounce` (edge fn) chama via `supabase.rpc(...)` em fire-and-forget e o `whatsapp-webhook` chama o debounce também em fire-and-forget, **o erro era silenciado em duas camadas**.
+**Defaults Eletropiso atualizados** (SQL):
+- `handoff_message`: *"Perfeito! Vou conectar você com nosso consultor de vendas para finalizar seu pedido. Em instantes você terá retorno. Foi um prazer atender! 😊"*
+- `handoff_message_outside_hours`: *"Perfeito! Anotei seu pedido. Nosso consultor de vendas dará prosseguimento ao seu atendimento assim que estivermos disponíveis. Foi um prazer atender! 😊"*
 
-**Fix:** migration `fix_append_ai_debounce_message_instance_id_text` faz DROP da assinatura antiga (uuid, uuid, ...) e recria com `p_instance_id text`. Comportamento da função idêntico — só o tipo do parâmetro mudou. Grant restaurado.
+**Validação E2E:** simulação via POST direto no webhook com 2 cliques + closing ("obrigado, é só isso"). IA respondeu corretamente em todos os 3 turnos. Dados de teste limpos do DB após validação.
 
-**Smoke test:** rodou a RPC com instance real `r466a98889b5809` + conversa real → retornou linha esperada. Cleanup: marcou row de smoke como processed e zerou messages.
+**Logs novos em `ai_agent_logs`:** `upsell_prompt_sent`, `upsell_closed_handoff` (com metadata.produtos[]).
 
-**Verificação E2E pendente:** o lead precisa mandar uma mensagem nova no WhatsApp do Eletropiso. Pipeline esperado: webhook → INSERT msg → transcribe-audio (se áudio) → ai-agent-debounce → append na fila (agora OK) → timer 10s → ai-agent → resposta.
+**Arquivos:**
+- `supabase/functions/ai-agent/index.ts` — helper `safeBtnId` + handler upsell determinístico
+- DB — UPDATE de `handoff_message` e `handoff_message_outside_hours` da Eletropiso
+
+**Deploy:** `ai-agent` v32 via MCP.
+
+---
+
+### v7.36.3 (2026-05-13) — Button reply capturado via campo canônico UAZAPI
+
+**Fix definitivo do Bug 3** descoberto pelo gestor durante teste sandbox: as 8 variantes Baileys/legacy adicionadas em v7.36.1 não capturavam button reply de carrossel porque UAZAPI v2 **normaliza tudo para um único campo**: `message.buttonOrListid`.
+
+**Descoberta:** OpenAPI spec da UAZAPI v2 (`docs.uazapi.com/openapi-bundled.json`, schema `Message`):
+> `buttonOrListid`: "ID do botão ou item de lista selecionado"
+> `convertOptions`: "Conversão de opções da mensagem, lista, enquete e botões"
+
+UAZAPI já desfaz o aninhamento do Baileys e devolve um campo flat. As variantes Baileys (`buttonsResponseMessage`, `templateButtonReplyMessage`, `interactiveResponseMessage`) que adicionei antes eram irrelevantes — UAZAPI nunca manda nesse formato. Mantidas como fallback defensivo.
+
+**Validação:** POST simulado direto no webhook com payload UAZAPI v2 (`buttonOrListid` + `convertOptions`) gravou `content = "Eu quero! (Tinta Acrílica Eggshell Premium 18L Branco Neve Sol E Chuva - Coral)"` na primeira tentativa.
+
+**Arquivos:**
+- `supabase/functions/whatsapp-webhook/index.ts` — variante V0 prioritária `buttonOrListid` + parse de `convertOptions` (JSON-serializado) pra `displayText`. Debug log temporário removido.
+
+**Deploy:** `whatsapp-webhook` v7 via MCP.
+
+**Lição:** [[wiki/erros-e-licoes]] — atualizada com "UAZAPI normaliza Baileys → buttonOrListid" como causa raiz real.
+
+---
+
+### v7.36.2 (2026-05-13) — Auto-extração de fields + carrossel bonito
+
+**Bug 4 (qualificação):** IA repetia perguntas que o lead já havia respondido na 1ª mensagem.
+- Lead: *"Tem tinta acrílica fosco?"* (trazia `tipo_tinta=acrílica` + `acabamento=fosco`)
+- IA depois perguntou *"qual tipo de tinta? (acrílica, esmalte, epóxi)"* — violação direta de regra hardcoded `1339`.
+- **Causa:** LLM nunca chamava `set_tags` na 1ª resposta — o `qualificationContext` computava "próxima pergunta = X" antes do LLM extrair os fields. Problema de **timing**, não de prompt.
+- **Fix (defesa em camada):**
+  - **Código:** novo `_shared/fieldAutoExtractor.ts` scaneia `incomingText` cruzando com `examples` dos fields da categoria detectada. Word boundary + normalização de acento + detecção de negação ("não", "sem", "exceto" + até 4 palavras). Pré-popula `conversation.tags` ANTES de `buildQualificationContext`.
+  - **Prompt:** reforço em `hardcodedRules` com exemplo concreto da falha do George.
+- **Defesa em profundidade:** mesmo se LLM ignorar a regra, o código já preencheu. 20 testes vitest cobrem positivos, negação, word boundary, falso positivo, fields numéricos pulados.
+
+**Bug 5 (UI):** carrossel do helpdesk com botões "Eu quero!" / "Mais informações" exibidos como texto cinza minúsculo.
+- **Fix:** botões agora têm fundo colorido por tipo — verde (REPLY), azul (URL), âmbar (CALL) — com ícone CornerDownLeft. Card maior (w-52), shadow leve, layout flex pra botões ficarem sempre no rodapé.
+
+**Arquivos:**
+- `supabase/functions/_shared/fieldAutoExtractor.ts` (novo)
+- `supabase/functions/_shared/__tests__/fieldAutoExtractor.test.ts` (novo, 20 testes)
+- `supabase/functions/ai-agent/index.ts` — import + bloco auto-extract antes de qualificationContext + reforço hardcodedRules
+- `src/components/helpdesk/MessageBubble.tsx` — estilo carrossel + CornerDownLeft
+
+**Deploys:** `ai-agent` v30 via MCP. Frontend: refresh.
+
+**Logging:** novo evento `auto_field_extracted` em `ai_agent_logs` com payload do que foi extraído — debugável via SQL.
+
+**Limites do MVP:**
+- Fields numéricos (quantidade, voltagem, bitola, etc.) **não** são auto-extraídos — requerem regex específica que entenda unidades.
+- Detecção de interesse (criação da tag `interesse:tinta`) continua dependendo do LLM/search_products — auto-extract só roda quando categoria já está identificada.
+
+**Validação E2E:** pendente — gestor refazendo teste de tinta.
+
+---
+
+### v7.36.1 (2026-05-13) — Carrossel: botões + button-reply + anti-eco
+
+**3 fixes E2E descobertos no teste sandbox de tinta:**
+
+1. **🐛 IA parava após clique em botão REPLY do carrossel** (crítico — perda de venda).
+   - Webhook gravava `content=""` porque só extraía `selectedButtonId` (formato legacy UAZAPI).
+   - Ai-agent fazia early-return em `index.ts:253` por `no_text`.
+   - **Fix:** webhook agora tenta 8 variantes UAZAPI/Baileys: `selectedButtonId`, `buttonsResponseMessage`, `templateButtonReplyMessage`, `interactiveResponseMessage.nativeFlowResponseMessage`, `buttonReply`, `selectedId/selectedDisplayText`, `listResponseMessage`, `listResponse`. Grava como `"${displayText} (${id})"` pra LLM saber QUAL produto o lead escolheu.
+
+2. **🎨 Helpdesk não mostrava botões do carrossel** (UX admin).
+   - `MessageBubble.tsx:396` lia `btn.label`, mas ai-agent salva `btn.text`.
+   - **Fix:** `btn.label || btn.text` + tipo TS atualizado.
+
+3. **💬 IA ecoava resposta do lead antes de perguntar** ("Anotado, ambiente interno para o quarto da sua filha. Você tem preferência por marca?").
+   - Sem regra explícita anti-eco no `hardcodedRules`.
+   - **Fix:** nova regra absoluta proíbe "Anotado/Entendi/Perfeito/Certo/Ok/Show/Beleza" + parafrasear. Confirmação só em fechamento de pedido.
+
+**Arquivos:**
+- `supabase/functions/whatsapp-webhook/index.ts` — 8 variantes de button reply
+- `supabase/functions/ai-agent/index.ts:1339` — regra anti-eco em `hardcodedRules`
+- `src/components/helpdesk/MessageBubble.tsx:396` — `btn.label || btn.text`
+
+**Deploys:** `whatsapp-webhook` (versão 6) + `ai-agent` (versão 29). Frontend: refresh.
+
+**Validação E2E:** pendente — gestor testando agora no sandbox.
+
+---
+
+### v7.36.0 (2026-05-13) — AI Agent atende 24/7 + toggle "Avisar fora do horário"
+
+**Mudança de comportamento:** AI Agent **deixa de silenciar fora do horário comercial**. O agente qualifica leads em qualquer dia/hora; o horário só decide a mensagem usada no momento do transbordo.
+
+**Novo toggle por agente** (`ai_agents.notify_outside_hours_on_handoff`, default `true`):
+- **ON (default)** — atendentes só dentro do horário. Transbordo fora do horário envia `handoff_message_outside_hours` ("estamos fora do horário, consultor dará continuidade quando voltar").
+- **OFF** — atendentes 24/7. Transbordo sempre usa `handoff_message` normal, sem aviso de horário.
+
+**Migração silenciosa:** todos os tenants sobem com toggle ON (comportamento novo = desejável na maioria dos casos). Quem tinha atendentes 24/7 só precisa desligar o toggle uma vez no admin (`/dashboard/ai-agent → Segurança → Horário Comercial`).
+
+**Texto default atualizado** para `handoff_message_outside_hours`: *"No momento estamos fora do horário de atendimento, mas assim que disponível nosso consultor de vendas vai dar prosseguimento ao seu atendimento. Deseja algo mais? 😊"* (aplicado só em configs novas).
+
+**Campos**:
+- ➕ `ai_agents.notify_outside_hours_on_handoff` (boolean, NOT NULL, default true)
+- 🔇 `ai_agents.out_of_hours_message` — coluna preservada, deixou de ser lida pelo backend e removida do admin UI.
+
+**Modo Estendido (D30 Sprint E)** inalterado — funciona como antes, com a nova lógica respeitando `extended_hours_until`.
+
+**Hint LLM:** quando lead chega fora do horário com toggle ON, system prompt injeta contexto pra IA não prometer retorno imediato ("te ligo em 5min").
+
+**Arquivos:**
+- DB migration `add_notify_outside_hours_on_handoff`
+- `src/integrations/supabase/types.ts`
+- `src/components/admin/ai-agent/BusinessHoursEditor.tsx` — Switch + tooltip
+- `src/components/admin/ai-agent/RulesConfig.tsx` — props novas
+- `src/components/admin/AIAgentTab.tsx` — ALLOWED_FIELDS
+- `supabase/functions/ai-agent/index.ts` — bloco skip removido + handoff respeita toggle + hint contextual
+- Testes: 4 novos em `BusinessHoursEditor.test.tsx` (13/13 ✓)
+
+---
+
+### v7.35.3 (2026-05-12) — Fix: RPC `append_ai_debounce_message` quebrada por tipo errado
+
+RPC declarava `p_instance_id uuid`, mas `instances.id` é `text` (IDs UAZAPI tipo `r466a98889b5809` não são UUID). Toda chamada explodia com `22P02 invalid input syntax for type uuid`. Erro silenciado em 3 camadas de fire-and-forget. Migration `fix_append_ai_debounce_message_instance_id_text` faz DROP + recria com tipo correto. Smoke test OK; pipeline destravado. Lição em [[wiki/erros-e-licoes]].
 
 ---
 

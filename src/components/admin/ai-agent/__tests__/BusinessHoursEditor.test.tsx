@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { normalizeBusinessHours, PRESET_COMERCIO_PADRAO } from '../BusinessHoursEditor';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { normalizeBusinessHours, PRESET_COMERCIO_PADRAO, BusinessHoursEditor } from '../BusinessHoursEditor';
 
 describe('normalizeBusinessHours', () => {
   it('returns null for null/undefined', () => {
@@ -59,6 +60,58 @@ describe('normalizeBusinessHours', () => {
     };
     const result = normalizeBusinessHours(config);
     expect(result!.sun.open).toBe(false);
+  });
+});
+
+describe('BusinessHoursEditor — toggle notify_outside_hours_on_handoff', () => {
+  it('toggle aparece quando horário comercial ativado', () => {
+    render(
+      <BusinessHoursEditor
+        value={PRESET_COMERCIO_PADRAO}
+        onChange={() => {}}
+        notifyOutsideHoursOnHandoff={true}
+        onNotifyOutsideHoursOnHandoffChange={() => {}}
+      />
+    );
+    expect(screen.getByLabelText('Avisar lead no transbordo fora do horário')).toBeTruthy();
+  });
+
+  it('toggle some quando horário comercial desligado', () => {
+    render(
+      <BusinessHoursEditor
+        value={null}
+        onChange={() => {}}
+        notifyOutsideHoursOnHandoff={true}
+        onNotifyOutsideHoursOnHandoffChange={() => {}}
+      />
+    );
+    expect(screen.queryByLabelText('Avisar lead no transbordo fora do horário')).toBeNull();
+  });
+
+  it('clicar no toggle chama onNotifyOutsideHoursOnHandoffChange com novo valor', () => {
+    const onChange = vi.fn();
+    render(
+      <BusinessHoursEditor
+        value={PRESET_COMERCIO_PADRAO}
+        onChange={() => {}}
+        notifyOutsideHoursOnHandoff={true}
+        onNotifyOutsideHoursOnHandoffChange={onChange}
+      />
+    );
+    fireEvent.click(screen.getByLabelText('Avisar lead no transbordo fora do horário'));
+    expect(onChange).toHaveBeenCalledWith(false);
+  });
+
+  it('mostra texto "Atendentes 24/7" quando toggle OFF', () => {
+    render(
+      <BusinessHoursEditor
+        value={PRESET_COMERCIO_PADRAO}
+        onChange={() => {}}
+        notifyOutsideHoursOnHandoff={false}
+        onNotifyOutsideHoursOnHandoffChange={() => {}}
+      />
+    );
+    expect(screen.getAllByText(/Atendentes 24\/7/).length).toBeGreaterThan(0);
   });
 });
 

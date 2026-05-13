@@ -86,6 +86,8 @@ const ALLOWED_FIELDS = [
   'excluded_products',
   // D30 Sprint E: Modo Estendido — admin estende expediente comercial pontualmente
   'extended_hours_until',
+  // 2026-05-13: toggle que controla a msg de transbordo fora do horário
+  'notify_outside_hours_on_handoff',
 ];
 
 export default function AIAgentTab() {

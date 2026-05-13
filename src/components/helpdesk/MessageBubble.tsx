@@ -1,7 +1,7 @@
 import { useState, useMemo, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { formatBR } from '@/lib/dateUtils';
-import { ImageIcon, ExternalLink, FileText, Download, Loader2, LayoutGrid, BarChart3, Link, Phone, MessageSquare, User, ChevronRight, UserPlus, Copy, Reply } from 'lucide-react';
+import { ImageIcon, ExternalLink, FileText, Download, Loader2, LayoutGrid, BarChart3, Link, Phone, MessageSquare, User, ChevronRight, UserPlus, Copy, Reply, CornerDownLeft } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import { supabase } from '@/integrations/supabase/client';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -37,7 +37,7 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
           id?: string;
           text?: string;
           image?: string;
-          buttons?: Array<{ type: string; label: string; value?: string }>;
+          buttons?: Array<{ type: string; label?: string; text?: string; id?: string; value?: string }>;
         }>;
       };
     } catch {
@@ -362,11 +362,11 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
             )}
             {carouselData.cards && carouselData.cards.length > 0 && (
               <ScrollArea className="w-full">
-                <div className="flex gap-2 pb-2">
+                <div className="flex gap-3 pb-2">
                   {carouselData.cards.map((card, idx) => (
                     <div
                       key={card.id || idx}
-                      className="shrink-0 w-48 rounded-lg border border-border bg-muted/30 overflow-hidden"
+                      className="shrink-0 w-52 rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden flex flex-col"
                     >
                       {card.image && /^https?:\/\//.test(card.image) && (
                         <div className="aspect-[4/3] overflow-hidden bg-muted/40">
@@ -381,21 +381,31 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
                         </div>
                       )}
                       {card.text && (
-                        <p className="text-xs p-2 whitespace-pre-wrap break-words">{card.text}</p>
+                        <p className="text-xs leading-snug px-3 pt-2.5 pb-1 whitespace-pre-wrap break-words font-medium text-foreground">{card.text}</p>
                       )}
                       {card.buttons && card.buttons.length > 0 && (
-                        <div className="px-2 pb-2 space-y-1">
-                          {card.buttons.map((btn, bIdx) => (
-                            <div
-                              key={bIdx}
-                              className="flex items-center gap-1 text-[10px] text-primary truncate"
-                            >
-                              {btn.type === 'URL' && <Link className="h-3 w-3 shrink-0" />}
-                              {btn.type === 'CALL' && <Phone className="h-3 w-3 shrink-0" />}
-                              {btn.type === 'REPLY' && <MessageSquare className="h-3 w-3 shrink-0" />}
-                              <span className="truncate">{btn.label}</span>
-                            </div>
-                          ))}
+                        <div className="mt-auto px-2 pt-1.5 pb-2 space-y-1 border-t border-border/40">
+                          {card.buttons.map((btn, bIdx) => {
+                            const label = btn.label || btn.text || ''
+                            const isUrl = btn.type === 'URL'
+                            const isCall = btn.type === 'CALL'
+                            return (
+                              <div
+                                key={bIdx}
+                                className={cn(
+                                  'flex items-center justify-center gap-1.5 text-[11px] font-medium rounded-md py-1.5 px-2 transition-colors',
+                                  isUrl && 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20',
+                                  isCall && 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20',
+                                  !isUrl && !isCall && 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20',
+                                )}
+                              >
+                                {isUrl && <Link className="h-3 w-3 shrink-0" />}
+                                {isCall && <Phone className="h-3 w-3 shrink-0" />}
+                                {!isUrl && !isCall && <CornerDownLeft className="h-3 w-3 shrink-0" />}
+                                <span className="truncate">{label}</span>
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                     </div>

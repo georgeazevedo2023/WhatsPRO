@@ -9,6 +9,91 @@ type: log
 
 ---
 
+## 2026-05-13 (madrugada++) — Upsell determinístico + encoding (v7.36.4) + 4 bugs novos descobertos
+
+### Bug 6 + Bug 7 (resolvidos, ver `CHANGELOG v7.36.4`)
+Encoding do id de botão → `safeBtnId`. Handler upsell determinístico em `ai-agent/index.ts:269+` com `matchAll`. Defaults Eletropiso atualizados via SQL. Validado E2E via POST simulado (2 cliques + closing). Deploy ai-agent v32.
+
+### Bugs 8-11 DESCOBERTOS na simulação "produto fora do catálogo" — PENDENTES
+Simulei lead pedindo furadeira + chuveiro elétrico (categorias configuradas, sem produtos no catálogo). Quatro problemas:
+
+- **Bug 8** (alto): `search_products` retorna produtos de **categoria diferente** quando não acha na específica. Lead pediu chuveiro → carrossel de tinta apareceu. Falta filtrar por `interesse:` detectado.
+- **Bug 9** (alto): IA "alucinou" descrição misturando furadeira + tinta na mesma resposta. Consequência do bug 8 + LLM tentando juntar contexto.
+- **Bug 10** (médio): Greeting inicial regrediu — só "Em que posso te ajudar?" sem "Olá!".
+- **Bug 11** (médio): Em meio da qualificação, IA mandou resposta genérica "Para entender melhor suas necessidades..." — perdeu o fio do diálogo.
+
+Fluxo bom (handoff_to_human disparou no final), fluxo intermediário ruim (carrosséis fora de contexto, alucinação de produtos misturados).
+
+**Próxima sessão:** atacar bugs 8-11. Estimativa: ~45 min total (search_products filter + auto-tag validação + tests + re-simulação E2E).
+
+**Frase de retomada:** *"fix bugs 8-11 search categoria 2026-05-14"*
+
+---
+
+## 2026-05-13 (madrugada+) — Bug 3 fixado de vez via `buttonOrListid` (v7.36.3)
+
+Continuação do Bug 3 que ainda persistia depois das 8 variantes da v7.36.1. Gestor disse "audite e teste com Playwright". Eu fiz:
+
+1. WebFetch na doc UAZAPI falhou (SPA, só title).
+2. Playwright navegou em `docs.uazapi.com` → `performance.getEntriesByType('resource')` listou `/openapi-bundled.json`.
+3. curl baixou; grep no schema `Message` → campo **`buttonOrListid`** (canônico UAZAPI v2). Ainda `convertOptions` (JSON com displayText).
+4. Webhook ajustado pra capturar `buttonOrListid` em V0 (prioritário) + parse de `convertOptions`. Debug log removido.
+5. Validação via **POST simulado direto** no webhook (sem precisar do user clicar): `content` gravou `"Eu quero! (Tinta Acrílica Eggshell Premium 18L Branco Neve Sol E Chuva - Coral)"` no first try. Mensagem-teste deletada do DB pra não poluir histórico.
+6. Deploy `whatsapp-webhook` v7.
+
+**Lição (nova entrada em [[wiki/erros-e-licoes]]):** APIs sobre Baileys normalizam pra payload flat — testar com spec oficial antes de chutar fallbacks. Web SPA → Playwright + performance.getEntriesByType pra achar JSON real.
+
+**Próximo handoff:** "validar button reply real 2026-05-13"
+
+---
+
+## 2026-05-13 (noite) — Auto-extração de fields + carrossel bonito (v7.36.2)
+
+### Bug 4 — IA pergunta o que lead já disse na 1ª msg
+- Lead: "Tem tinta acrílica fosco?" → IA depois pediu tipo+acabamento (violação regra 1339)
+- Confirmado por SQL: `conversations.tags` só tinha `interesse:tinta`+`ambiente:interno`+`tipo_tinta:acrílica` (tarde, T9) — faltou `acabamento:fosco`, e tipo_tinta veio tarde demais
+- Diagnóstico: **timing**. LLM não chamava set_tags antes do qualificationContext computar próxima pergunta.
+- **Fix:** defesa em código — `_shared/fieldAutoExtractor.ts` scaneia `incomingText` cruzando com `examples` dos fields. Pré-popula tags ANTES de `buildQualificationContext`. Log em `ai_agent_logs.event='auto_field_extracted'`.
+- **Plus:** reforço de prompt em hardcodedRules com exemplo concreto.
+
+### Bug 5 — Carrossel feio no helpdesk
+- Fix CSS: botões com fundo colorido (verde REPLY, azul URL, âmbar CALL), CornerDownLeft, card maior w-52, shadow.
+
+### Testes
+- 20 vitest novos em `fieldAutoExtractor.test.ts` — cobrem parseExamples, word boundary, acentos, negação (até 4 palavras entre gatilho e match), fields numéricos pulados, alreadySetKeys honrado, flattenCategoryFields.
+- tsc 0 erros.
+
+### Deploys
+- `ai-agent` v30 via MCP (HIGH RISK, aprovado pelo gestor)
+- Frontend: refresh
+
+### Validação
+- ❌ E2E **pendente** — gestor precisa refazer "Tem tinta acrílica fosco?" pra confirmar que IA pula tipo + acabamento
+
+### Lição registrada
+[[wiki/erros-e-licoes]] — entrada nova "Timing entre LLM e qualificationContext: extração proativa requer defesa em código, não só prompt"
+
+### Próximo handoff
+Frase: **"validação auto-extract field 2026-05-13"**
+
+---
+
+## 2026-05-13 (tarde) — Carrossel: botões + button-reply + anti-eco (v7.36.1)
+
+3 bugs E2E: (1) Bug 3 IA parava após clique no carrossel — webhook tentou 8 variantes Baileys (não funcionou, ver v7.36.3 abaixo pra fix definitivo); (2) Bug 2A helpdesk não exibia botões — `MessageBubble:396` lê `btn.label || btn.text`; (3) Bug 1 anti-eco — nova regra hardcoded em `ai-agent:1339`. Deploys: webhook v6, ai-agent v29. Detalhe completo em `CHANGELOG v7.36.1`.
+
+---
+
+## 2026-05-13 — Agente atende 24/7 + toggle "Avisar fora do horário" (v7.36.0)
+
+Removido o skip out-of-hours em `ai-agent/index.ts:235-286`. Novo campo `ai_agents.notify_outside_hours_on_handoff` (default true): ON → atendentes só no horário, transbordo fora usa `handoff_message_outside_hours`; OFF → atendentes 24/7. Modo Estendido (D30) inalterado. `out_of_hours_message` virou legado.
+
+SYNC RULE 8 locais cumprida (DB, types, admin UI `BusinessHoursEditor` + Switch tooltip, ALLOWED_FIELDS, backend, prompt hint fora-do-horário, defaults, vault). Vitest 13/13. tsc 0. Detalhe completo em `CHANGELOG v7.36.0` + `wiki/decisoes-chave.md` (D32).
+
+Deploy `ai-agent` v29 via MCP. Frase de retomada: **"deploy notify_outside_hours_on_handoff 2026-05-13"**
+
+---
+
 ## 🎯 HANDOFF DE FIM DE SESSÃO — 2026-05-12
 
 > **Frase pra retomar na próxima sessão:**

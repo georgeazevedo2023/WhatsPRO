@@ -1,12 +1,29 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors]
+tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, d32, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors, business-hours]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-04
-audited_at: 2026-05-11
+updated: 2026-05-13
+audited_at: 2026-05-13
 ---
 
 # Decisões-Chave
+
+## D32 — AI Agent atende 24/7; toggle "Avisar fora do horário" no handoff (2026-05-13)
+
+> Padrão atual: agente nunca silencia por horário. A janela `business_hours` só decide qual mensagem usar no transbordo.
+
+- **Removido** o curto-circuito que silenciava a IA fora do horário (ex-bloco `4.8 Business hours check`).
+- **Novo campo** `ai_agents.notify_outside_hours_on_handoff` (boolean, NOT NULL, default `true`).
+  - `true` → atendentes só dentro do horário; transbordo fora do horário usa `handoff_message_outside_hours`.
+  - `false` → atendentes 24/7; transbordo sempre usa `handoff_message`, sem aviso de horário.
+- **Modo Estendido (D30 Sprint E)** inalterado; quando ativo, `isOutsideBusinessHours` retorna `false` → transbordo usa msg normal mesmo com toggle ON.
+- **`out_of_hours_message`** virou legado (coluna preservada, não mais lida no backend nem mostrada no admin UI).
+- **Hint LLM** dinâmico: quando lead chega fora do horário com toggle ON, system prompt ganha *"⏰ não prometa retorno imediato — handoff fará o aviso."*
+- **Default novo** para `handoff_message_outside_hours`: *"No momento estamos fora do horário de atendimento, mas assim que disponível nosso consultor de vendas vai dar prosseguimento ao seu atendimento. Deseja algo mais? 😊"*
+
+**Por quê:** comportamento anterior matava qualificação — lead chegava 21h, recebia "estamos fechados" e sumia. Com o novo, agente qualifica completamente (produto, ambiente, marca, cor) e só anuncia o horário no transbordo, quando não tem mais o que perguntar antes do humano.
+
+**Quem é afetado:** todos os tenants — default ON aplica novo comportamento. Quem mantinha atendentes 24/7 só desliga o toggle no admin (`/dashboard/ai-agent → Segurança → Horário Comercial`).
 
 ## D31 — Hard limit 300 linhas em todo arquivo `.md` (2026-05-11)
 
