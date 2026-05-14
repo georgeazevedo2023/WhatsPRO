@@ -2,8 +2,8 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-13
-audited_at: 2026-05-13
+updated: 2026-05-14
+audited_at: 2026-05-14
 ---
 
 # Erros e Lições
@@ -16,6 +16,29 @@ audited_at: 2026-05-13
 - **Tabela de regras preventivas** (~30 regras): [[wiki/erros/regras-preventivas]]
 - **Histórico detalhado** (R91-R114): [[wiki/erros/historico-2026-05-part1]] · [[wiki/erros/historico-2026-05-part2]]
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
+
+---
+
+## ⚠️ Fuzzy pg_trgm + LLM tag inválida = cross-category leak + fallback genérico — incidente 2026-05-14
+
+**Erro 1 (Bug 8):** lead pediu "chuveiro elétrico" → `search_products` retornou carrossel de **tinta**. `pg_trgm` fuzzy (threshold 0.3) casa "chuv" contra "Sol e Chuva" tinta acrílica, bypassando o filtro de categoria. Auto-tag pós-search ainda **sobrescrevia silente** `interesse:chuveiros_eletricos` por `interesse:tintas` via `mergeTags` (replace-by-key).
+
+**Erro 2 (Bug 11):** quando search falhava, IA respondia genérico "Para te ajudar melhor, me conta detalhes do chuveiro? **(exemplos: sala, cozinha, quarto ou banheiro)**". Examples não fazem sentido pra chuveiro — eram um **exemplo literal hardcoded** dentro da instrução `phrasingDiscipline` em `ai-agent/index.ts:1797`. LLM copiava o exemplo como se fossem os exemplos reais a usar, independente de categoria.
+
+**Erro 3 (Bug bonus 12):** LLM crava `interesse:hidraulica` pra chuveiro elétrico (categoria inexistente nas 23 da Eletropiso). `matchCategory('hidraulica', config)` retorna null → caía no `default` category com pergunta genérica.
+
+**Fix (v7.36.6):**
+1. Helper novo `filterProductsByExpectedCategory(products, expectedCategory)` aplicado 2x (antes E depois do fuzzy).
+2. `expectedCategory` via fallback chain `args.category → interesse: tag → searchText` — robusto mesmo quando LLM crava interesse inválido.
+3. Auto-tag `interesse:` agora **NUNCA sobrescreve** valor existente (só preenche se vazio).
+4. `phrasingDiscipline` sem exemplos literais cross-category — referência abstrata em vez disso.
+5. `buildEnrichmentInstructions` ganha mesma fallback chain pra category.
+
+**Regras preventivas:**
+1. **Fuzzy/trigram match NUNCA pode rodar sem post-filter de categoria semântica.** Trigram casa "chuv" em "chuva" (tinta) ↔ "chuveiro" (produto totalmente diferente). Defesa: derivar categoria esperada de múltiplas fontes (arg explícito + tag + texto) e filtrar resultado.
+2. **Auto-tag baseado em produto retornado NUNCA pode sobrescrever tag setada antes.** `mergeTags` faz replace-by-key. Use `if (!existingTag)` guard.
+3. **Instruções pro LLM nunca devem ter exemplos literais cross-domain.** Se você precisa mostrar formato, use placeholder abstrato (`<exemplos do field>`). LLM copia exemplos literais regardless de contexto.
+4. **set_tags com value não-validado = bomba relógio silenciosa.** Hoje `interesse:` aceita qualquer string. Tracked como backlog: validar `interesse:` ∈ `category.id` antes de aceitar. Mitigação atual: fallback chain pra categoria.
 
 ---
 

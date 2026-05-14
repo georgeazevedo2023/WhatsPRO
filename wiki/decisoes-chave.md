@@ -1,12 +1,31 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, d32, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors, business-hours]
+tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, d32, d33, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors, business-hours, cross-category]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-13
-audited_at: 2026-05-13
+updated: 2026-05-14
+audited_at: 2026-05-14
 ---
 
 # Decisões-Chave
+
+## D33 — Search products SEMPRE filtra por categoria esperada (2026-05-14)
+
+> Padrão atual: nenhum produto retornado pelo `search_products` pode escapar do filtro de categoria semântica. Defesa contra fuzzy `pg_trgm` que casa trigrams entre categorias não relacionadas.
+
+- **Helper canônico:** `filterProductsByExpectedCategory(products, expectedCategory)` em `_shared/serviceCategories.ts`. Aplica regex `category.interesse_match` contra `product.category + subcategory + title` normalizado (sem acento, lower-case).
+- **`expectedCategory`** derivada via fallback chain (priority order):
+  1. `args.category` (LLM passou explícito no tool call)
+  2. Tag `interesse:` da conversa
+  3. `searchText` via `matchCategory` (regex contra o próprio query do LLM)
+  
+  Se nenhuma fonte casar → `expectedCategory=null` → filtro vira no-op (preserva comportamento de quem não tem categoria configurada).
+- **Aplicado 2x** no handler `search_products`: depois do primary ILIKE/.or, e depois do fuzzy fallback. Fuzzy é o pior offender (trigram threshold 0.3 casa "chuv" em "Sol e Chuva" tinta quando lead pediu chuveiro).
+- **Auto-tag pós-search NUNCA sobrescreve** `interesse:` existente. Auto-tag só preenche se vazio. Antes do v7.36.6, `mergeTags` substituía silente — cross-category contaminava o tag correto da conversa.
+- **`buildEnrichmentInstructions`** ganha a mesma chain pra `category` quando search falha → enrichment usa stage fields da categoria certa em vez de cair no `default`.
+
+**Por quê:** simulação prod 2026-05-13 ("produto fora do catálogo") provou que sem post-filter, lead que pedia chuveiro recebia carrossel de tinta (fuzzy match em "Sol e Chuva"). Auto-tag escondia o problema sobrescrevendo `interesse:chuveiros_eletricos` por `interesse:tintas`. Lição em [[wiki/erros-e-licoes]] (entrada 2026-05-14).
+
+**Backlog tracked:** **Bug 12** — LLM crava `interesse:` com valor fora das category IDs (`interesse:hidraulica` quando agente tem categorias `chuveiros|canos|etc`). Hoje mitigado pelo fallback chain. Fix completo seria validar `interesse:VALUE` ∈ `service_categories.categories[].id` no handler `set_tags`. Frase de retomada: *"continuar bug 12 LLM interesse invalido 2026-05-15"*.
 
 ## D32 — AI Agent atende 24/7; toggle "Avisar fora do horário" no handoff (2026-05-13)
 
