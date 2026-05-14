@@ -55,7 +55,11 @@ function broadcastQueueUpdate(payload: Record<string, unknown>) {
   }
 }
 
-/** Notifica gestores (super_admin) — sino. Falha silente. */
+/** Notifica gestores (super_admin) — sino. Falha silente.
+ *  2026-05-14: dedup idempotente — se já há uma notification do mesmo tipo +
+ *  conversa nas últimas 6h, NÃO cria outra. Bloqueia explosão (136k notifs/9h
+ *  no incidente do sandbox).
+ */
 async function notifyGestores(
   supabase: SupabaseClient,
   type: string,
@@ -64,6 +68,20 @@ async function notifyGestores(
   metadata: Record<string, unknown>,
 ) {
   try {
+    const convId = (metadata as Record<string, string>)?.conversation_id
+    if (convId) {
+      const sinceIso = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+      const { data: existing } = await supabase
+        .from('notifications')
+        .select('id')
+        .eq('type', type)
+        .filter('metadata->>conversation_id', 'eq', convId)
+        .gte('created_at', sinceIso)
+        .limit(1)
+        .maybeSingle()
+      if (existing) return  // dedup: já tem alerta recente pra essa conversa
+    }
+
     const { data: gestores } = await supabase
       .from('user_roles')
       .select('user_id')

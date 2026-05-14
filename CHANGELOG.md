@@ -13,6 +13,38 @@ audited_at: 2026-05-13
 
 ---
 
+### v7.36.5 (2026-05-14) — Fix do loop de fila + retention de notifications (banco 116→35 MB)
+
+**Incidente:** banco saltou de ~50 MB → 116 MB em 9h. Causa: 1 conversa sandbox com 22.682 `handoff_queue_events` ativos (cada ciclo do cron `requeue-conversations` criava event novo sem fechar o anterior quando a conversa ficava "presa" pausada fora do horário e era reativada via reset `status_ia=active`). Cada full_rotation gerava 6 notifications (1 por gestor/atendente) → 136.521 notifications acumuladas em 9h. Tabelas inchadas: `notifications` 60 MB, `handoff_queue_events` 22 MB.
+
+**Fix em 3 camadas:**
+
+1. **DB Constraint (defesa física):** `EXCLUDE USING gist (conversation_id WITH =) WHERE (status='active')` na tabela `handoff_queue_events`. Postgres recusa 2+ events ativos na mesma conversa. Migration `d30_one_active_event_per_conversation`. Requer `btree_gist`.
+
+2. **Código idempotente (`_shared/handoffQueue.ts`):** antes do INSERT, `assignHandoff` checa se já há event active na conversa — se sim, **atualiza** o existente (assigned_user_id + expires_at + paused_at=null) em vez de criar. Evita falha do constraint e preserva continuidade.
+
+3. **Dedup de alertas (`requeue-conversations/index.ts`):** `notifyGestores` agora não cria notification do mesmo tipo+conversa se já há uma <6h. Bloqueia spam do sino.
+
+**Retention nova:** migration `notifications_retention_policy` cria `purge_notifications_older()` SECURITY DEFINER + pg_cron job `purge_notifications_hourly` (`5 * * * *`):
+- `handoff_queue_full_rotation`: TTL 6h (alerta operacional transitório)
+- Notifications lidas: 7d
+- Notifications não-lidas: 30d
+
+Smoke test OK. Cron ativo em prod (jobid 36).
+
+**Limpeza imediata aplicada:** DELETE 68.892 events zumbis + 136.519 notifications + VACUUM FULL nas duas tabelas. **DB voltou de 116 MB → 35 MB.**
+
+**Lição registrada** em [[wiki/erros-e-licoes]]: "feature que insere com base em estado externo (reset de `status_ia`) precisa de constraint DB-level + handler idempotente. Confiar só na lógica de aplicação leva a explosão silenciosa."
+
+**Arquivos:**
+- 2 migrations DB (constraint + retention)
+- `supabase/functions/_shared/handoffQueue.ts` (idempotência)
+- `supabase/functions/requeue-conversations/index.ts` (dedup notifyGestores)
+
+**Deploys:** `requeue-conversations` + `ai-agent` + `assign-handoff` (todos usam `handoffQueue.ts`).
+
+---
+
 ### v7.36.4 (2026-05-13) — Fluxo upsell determinístico pós button reply + encoding fix
 
 **Bug 6 — encoding "Tinta Acr�lica":** o `id` do botão do carrossel ia com acento. UAZAPI/Baileys serializa entre UTF-8/Latin-1 → mojibake ao retornar via `buttonOrListid`.
@@ -162,40 +194,13 @@ RPC declarava `p_instance_id uuid`, mas `instances.id` é `text` (IDs UAZAPI tip
 
 ### v7.35.2 (2026-05-12) — Retention 24h dos logs do Supabase (-30 MB)
 
-**Problema:** banco em 52 MB no DbSizeCard, mas só 5 MB era produto. 30 MB (55%) eram **logs internos do Supabase** que crescem sem cleanup automático:
-- `net._http_response`: 21 MB (~3 MB/hora — toda chamada HTTP feita por `pg_net`).
-- `cron.job_run_details`: 8 MB (~2.300 registros/dia — toda execução de pg_cron).
-
-**Limpeza imediata:** `TRUNCATE` nas duas tabelas → banco 52→23 MB.
-
-**Migration `cron_retention_system_logs_24h`:**
-- Função `public.purge_system_logs_older_than_24h()` `SECURITY DEFINER` — apaga registros com timestamp <24h em ambas tabelas e retorna `jsonb` com contagens.
-- Job `pg_cron` `purge_system_logs_24h` schedule `0 * * * *` (top of every hour).
-- Bloco `DO` antes do schedule remove versão antiga se existir (reaplicação idempotente).
-
-**Resultado:** banco fica estável em ~23 MB. Nenhum impacto operacional — esses logs não são usados pelo produto.
+Logs internos do Supabase (`net._http_response` 21 MB + `cron.job_run_details` 8 MB) cresciam sem cleanup. `TRUNCATE` + função `purge_system_logs_older_than_24h()` SECURITY DEFINER + pg_cron `0 * * * *`. Banco 52→23 MB estável.
 
 ---
 
 ### v7.35.1 (2026-05-12) — Dashboard do Gestor: botão limpar pendências
 
-**Demanda:** gestor precisa tirar itens irrelevantes (spam tipo "Zig Online", testes) das listas de pendência sem mexer no helpdesk em si.
-
-**DB:**
-- Migration `rpc_dispense_dashboard_conversation` cria 2 RPCs `SECURITY DEFINER`:
-  - `dispense_conversation_from_dashboard(conversation_id)` — append tag `dashboard:dispensed` (preserva resto do array via `DISTINCT unnest`, segue regra `NEVER empty tags`).
-  - `restore_conversation_to_dashboard(conversation_id)` — `array_remove` da mesma tag.
-- As 3 RPCs de pendência (`get_unanswered_first_messages`, `get_abandoned_conversations`, `get_active_quotes`) ganham `AND NOT ('dashboard:dispensed' = ANY(c.tags))`.
-
-**Frontend:**
-- `PendingConversationsCard` ganha botão **X** ao lado do link externo em cada item — tooltip "Remover da lista (spam, teste, já resolvida)".
-- Toast com botão **"Desfazer"** (Sonner action) chama `restore_conversation_to_dashboard` e re-invalida queries.
-- Toast verde no sucesso, vermelho em erro. Estados isolados por item.
-- `useQueryClient().invalidateQueries({ queryKey: ['manager-advanced'] })` força re-fetch das 3 RPCs após dispense/undo.
-
-**Não afeta:** helpdesk segue mostrando a conversa normalmente. Conversa não é arquivada nem alterada operacionalmente — só ganha tag de UI.
-
-**Verificação:** smoke test SQL completo (dispense → tag aparece → query filtra → restore → tag removida). `tsc --noEmit` = 0. Console limpo.
+2 RPCs `SECURITY DEFINER` (`dispense_conversation_from_dashboard` / `restore_…`) tag `dashboard:dispensed`. 3 RPCs de pendência filtram esta tag. `PendingConversationsCard` ganha botão X com toast "Desfazer". Helpdesk inalterado. Detalhe em commit `fda01ea`.
 
 ---
 

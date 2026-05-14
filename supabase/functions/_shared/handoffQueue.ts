@@ -182,23 +182,58 @@ export async function assignHandoff(
     // Cria evento da fila + atualiza conversation.assigned_to
     const expiresAt = new Date(Date.now() + timeoutMinutes * 60 * 1000).toISOString()
 
-    const { data: event, error: insertErr } = await supabase
-      .from('handoff_queue_events')
-      .insert({
-        conversation_id,
-        department_id,
-        previous_assignee_id: previousAssigneeId,
-        assigned_user_id: pickedUserId,
-        expires_at: expiresAt,
-        status: 'active',
-        rotation_number: 0,
-      })
-      .select('id')
-      .single()
+    // 2026-05-14 — Defesa contra loop: se já existe event active na conversa
+    // (constraint EXCLUDE handoff_queue_events_one_active_per_conv), reusa em
+    // vez de tentar inserir e ficar em erro. Caller que chama em sequência
+    // (ex: ai-agent após reset de status_ia) não duplica fila.
+    let event: { id: string } | null = null
+    {
+      const { data: existingActive } = await supabase
+        .from('handoff_queue_events')
+        .select('id, assigned_user_id, expires_at')
+        .eq('conversation_id', conversation_id)
+        .eq('status', 'active')
+        .maybeSingle()
 
-    if (insertErr) {
-      // Não bloquear — log e segue tentando UPDATE assigned_to
-      log.warn('handoffQueue: failed to insert queue event', { error: insertErr.message })
+      if (existingActive) {
+        // Atualiza o existente: novo atendente + reset do expires_at
+        const { data: updated, error: updErr } = await supabase
+          .from('handoff_queue_events')
+          .update({
+            assigned_user_id: pickedUserId,
+            previous_assignee_id: previousAssigneeId,
+            expires_at: expiresAt,
+            paused_at: null,
+            out_of_hours_msg_sent: false,
+          })
+          .eq('id', existingActive.id)
+          .select('id')
+          .single()
+        if (updErr) {
+          log.warn('handoffQueue: failed to update existing active event', { error: updErr.message, event_id: existingActive.id })
+        } else {
+          event = updated
+        }
+      } else {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('handoff_queue_events')
+          .insert({
+            conversation_id,
+            department_id,
+            previous_assignee_id: previousAssigneeId,
+            assigned_user_id: pickedUserId,
+            expires_at: expiresAt,
+            status: 'active',
+            rotation_number: 0,
+          })
+          .select('id')
+          .single()
+        if (insertErr) {
+          log.warn('handoffQueue: failed to insert queue event', { error: insertErr.message })
+        } else {
+          event = inserted
+        }
+      }
     }
 
     // R95: setar department_id junto pra que o painel direito do helpdesk

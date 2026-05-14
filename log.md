@@ -9,6 +9,24 @@ type: log
 
 ---
 
+## 2026-05-14 — Fix loop de fila + retention notifications (v7.36.5, banco 116 MB → 35 MB)
+
+Gestor reparou que banco saltou de ~50→116 MB em 9h via Dashboard do Gestor. Investigação: 22.682 `handoff_queue_events.status='active'` numa única conversa sandbox + 136.521 `notifications` tipo `handoff_queue_full_rotation` acumuladas em 9h. Causa: cron criava events em loop quando eu fazia reset `status_ia='active'` pra refazer testes; sem constraint DB-level, acumulou silente.
+
+**Fix 3 camadas (todas em prod):**
+1. Migration `d30_one_active_event_per_conversation`: EXCLUDE constraint (1 active/conv) + `btree_gist`.
+2. `_shared/handoffQueue.ts`: `assignHandoff` agora reusa event ativo (UPDATE) em vez de INSERT duplicado.
+3. `requeue-conversations/index.ts`: `notifyGestores` dedup por (tipo, conversa) <6h.
+4. Migration `notifications_retention_policy`: cron horário `purge_notifications_hourly` (full_rotation 6h, lidas 7d, não-lidas 30d). Jobid 36 ativo.
+
+**Cleanup:** DELETE events + notifs zumbis + VACUUM FULL nas duas tabelas. Banco voltou pra 35 MB.
+
+**Deploys:** `requeue-conversations` + `ai-agent` + `assign-handoff`. Lição em [[wiki/erros-e-licoes]].
+
+**Próximo handoff:** *"feature retention check 2026-05-15"* — auditar TODAS as tabelas de evento (`ai_agent_logs`, `automation_events`, `audit_logs`) buscando outras sem retention.
+
+---
+
 ## 2026-05-13 (madrugada++) — Upsell determinístico + encoding (v7.36.4) + 4 bugs novos descobertos
 
 ### Bug 6 + Bug 7 (resolvidos, ver `CHANGELOG v7.36.4`)
