@@ -502,6 +502,44 @@ export function extractInteresseFromTags(tags: string[] | null | undefined): str
   return found.slice('interesse:'.length).trim()
 }
 
+/**
+ * Bug 8 — Filtra produtos mantendo apenas os que casam com a `interesse_match`
+ * regex da categoria esperada. Usado para evitar cross-category leak:
+ * fuzzy/AND-fallback do search_products as vezes retorna produto de categoria
+ * errada (ex: "chuveiro" -> "Sol e Chuva" tinta via trigram match).
+ *
+ * Compara contra category + subcategory + title (sem acentos, lower-case).
+ * Se expectedCategory for null OU regex invalido OU products vazio: no-op.
+ */
+export function filterProductsByExpectedCategory<T extends {
+  title?: string | null
+  category?: string | null
+  subcategory?: string | null
+}>(
+  products: T[] | null | undefined,
+  expectedCategory: ServiceCategory | null | undefined,
+): T[] {
+  if (!Array.isArray(products) || products.length === 0) return products ?? []
+  if (!expectedCategory) return products
+
+  let re: RegExp
+  try {
+    re = new RegExp(expectedCategory.interesse_match, 'i')
+  } catch {
+    return products
+  }
+
+  const stripAccents = (s: string): string =>
+    s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+  return products.filter((p) => {
+    const haystack = stripAccents(
+      `${p.category || ''} ${p.subcategory || ''} ${p.title || ''}`,
+    )
+    return re.test(haystack)
+  })
+}
+
 // =============================================================================
 // VALID_KEYS dinamico (R84) — set_tags handler whitelist
 //

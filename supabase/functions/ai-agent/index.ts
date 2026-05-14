@@ -28,6 +28,7 @@ import {
   calculateScoreDelta,
   getExitAction,
   buildValidTagKeys,
+  filterProductsByExpectedCategory,
 } from '../_shared/serviceCategories.ts'
 import { autoExtractFields, flattenCategoryFields } from '../_shared/fieldAutoExtractor.ts'
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
@@ -1736,12 +1737,20 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
     // 13.5 Enrichment helpers — contextual questions + qualification chain builder
     // M19-S10 v2: stages + score progressivo via agent.service_categories (helper _shared/serviceCategories.ts)
     function buildEnrichmentInstructions(
-      currentTags: string[], step: number, maxSteps: number, brandNotFound: string | null, agentCfg: any
+      currentTags: string[], step: number, maxSteps: number, brandNotFound: string | null, agentCfg: any, searchTextFallback?: string
     ): string {
       const has = (key: string) => currentTags.some(t => t.startsWith(`${key}:`))
       const interesse = extractInteresseFromTags(currentTags)
       const config = getCategoriesOrDefault(agentCfg)
-      const category = matchCategory(interesse, config)
+
+      // Bug 11/12 — se interesse: tag nao casar (ex: LLM cravou valor fora do
+      // config), tentar derivar via produto: tag e searchText antes de cair no default.
+      // Isso evita perguntas genericas (default category) quando temos contexto.
+      const produtoTag = currentTags.find(t => t.startsWith('produto:'))?.slice('produto:'.length).replace(/_/g, ' ') || ''
+      const category =
+        matchCategory(interesse, config) ||
+        matchCategory(produtoTag, config) ||
+        matchCategory(searchTextFallback || '', config)
       const fallback = config.default
 
       // Stage atual baseado no lead_score (tag lead_score:N)
@@ -1789,11 +1798,12 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
       // Contexto de stage para o LLM (interno, não vai pro lead) — ajuda LLM a entender em que ponto está
       const stageContext = ` Stage atual: "${currentStage.label}" (score ${score}/${currentStage.max_score}, exit_action=${currentStage.exit_action}).`
 
-      // Reforço de fidelidade ao phrasing: o LLM tende a reformular livremente os exemplos
-      // (ex: "interno, externo, garagem" em vez do "sala, cozinha, quarto ou banheiro" cadastrado).
-      // Esta instrução força uso literal dos examples do field e proíbe reformulação.
+      // Bug 11 — Reforço de fidelidade ao phrasing.
+      // Versao antiga usava exemplo literal "sala, cozinha, quarto ou banheiro" que o
+      // LLM copiava como se fossem os exemplos reais a usar (Bug 11). Trocado por
+      // referencia abstrata pra evitar leak de exemplos de uma categoria em outra.
       const phrasingDiscipline = stageFields.length > 0
-        ? ` REGRA DE FIDELIDADE: use EXATAMENTE os exemplos sugeridos entre parênteses do field — NUNCA invente outros exemplos. Se o field tem examples="sala, cozinha, quarto ou banheiro", a frase DEVE conter esse texto literal entre parênteses.`
+        ? ` REGRA DE FIDELIDADE: use EXATAMENTE os exemplos cadastrados nos parênteses das sugestões acima — NUNCA invente outros exemplos, NUNCA misture exemplos entre categorias. Se a sugestão acima diz "marca (Lorenzetti, Hydra)", sua frase DEVE conter "(Lorenzetti, Hydra)" literal.`
         : ''
 
       return `AÇÃO: faça UMA pergunta de enriquecimento para coletar mais dados para o vendedor.${stageContext} ${suggestionText}${urgency} NÃO diga que o produto não foi encontrado.${exampleSentence}${phrasingDiscipline} Salve a resposta do lead com set_tags (chaves PERMITIDAS para esta categoria: ${uniqueKeys.join(', ')}). NÃO use chaves fora desta lista. PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei".`
@@ -1844,6 +1854,15 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
           // Build search: try exact phrase first, then word-by-word fallback
           const searchText = args.query || ''
           const categoryText = args.category || ''
+
+          // Bug 8 — Categoria esperada: deriva da arg category, da tag interesse: ja setada,
+          // ou via matchCategory contra o query text. Usado para filtrar produtos
+          // cross-category (ex: fuzzy "chuveiro" -> "Sol e Chuva" tinta).
+          const v2ConfigForFilter = getCategoriesOrDefault(agent)
+          const expectedCategory =
+            matchCategory(categoryText, v2ConfigForFilter) ||
+            matchCategory(extractInteresseFromTags(conversation.tags || []), v2ConfigForFilter) ||
+            matchCategory(searchText, v2ConfigForFilter)
 
           if (searchText) {
             const safeSearch = escapeLike(searchText)
@@ -1954,6 +1973,27 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
             }
           }
 
+          // Bug 8 — Filter cross-category leak ANTES do fuzzy.
+          // Primary search (.or chain) e o broad-fallback as vezes pegam produtos
+          // de categoria errada via match em description. Ex: lead pediu "chuveiro",
+          // tinta cuja description menciona "resistente a chuva" passa o ILIKE.
+          // Aplica regex da categoria esperada -> drop cross-category.
+          if (expectedCategory && products && products.length > 0) {
+            const filtered = filterProductsByExpectedCategory(products, expectedCategory)
+            if (filtered.length < products.length) {
+              log.info('Bug 8 pre-fuzzy filter: cross-category dropped', {
+                expectedCategory: expectedCategory.id,
+                before: products.length,
+                after: filtered.length,
+                droppedSample: products
+                  .filter((p: any) => !filtered.includes(p))
+                  .slice(0, 2)
+                  .map((p: any) => ({ title: p.title, category: p.category })),
+              })
+            }
+            products = filtered
+          }
+
           // #6: Fallback 2 — fuzzy search (pg_trgm word-level) for typos like "cooral" → "coral"
           // Skip fuzzy when brand was explicitly detected as NOT in catalog — fuzzy would return wrong-brand products
           if ((!products || products.length === 0) && searchText && !brandNotFound) {
@@ -1976,6 +2016,30 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
               } else {
                 log.info('search_products fuzzy fallback: results filtered out by price/category', { countRaw: fuzzyProducts.length, args, query: searchText })
               }
+            }
+          }
+
+          // Bug 8 — Filter cross-category DEPOIS do fuzzy.
+          // pg_trgm RPC e o pior offender: bypassa todos os filtros e casa "chuv"
+          // contra "Sol e Chuva" (tinta). Aplica regex da categoria esperada.
+          // Se zerar -> products=[] e pipeline cai em handoff/enrichment com brand_not_found.
+          if (expectedCategory && products && products.length > 0) {
+            const filteredCat = filterProductsByExpectedCategory(products, expectedCategory)
+            if (filteredCat.length === 0) {
+              log.info('Bug 8 post-fuzzy filter: ALL results in wrong category -> empty', {
+                expectedCategory: expectedCategory.id,
+                droppedCount: products.length,
+                droppedSample: products.slice(0, 2).map((p: any) => ({ title: p.title, category: p.category })),
+                query: searchText,
+              })
+              products = []
+            } else if (filteredCat.length < products.length) {
+              log.info('Bug 8 post-fuzzy filter: dropped cross-category subset', {
+                expectedCategory: expectedCategory.id,
+                before: products.length,
+                after: filteredCat.length,
+              })
+              products = filteredCat
             }
           }
 
@@ -2038,7 +2102,7 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
                 if (t.startsWith('produto:')) chainParts.push(t.split(':')[1].replace(/_/g, ' '))
               }
               const chainStr = chainParts.length > 0 ? ` Qualificação até agora: ${chainParts.join(' > ')}.` : ''
-              const instructions = buildEnrichmentInstructions(conversation.tags || [], newEnrichCount, maxEnrichment, brandNotFound, agent)
+              const instructions = buildEnrichmentInstructions(conversation.tags || [], newEnrichCount, maxEnrichment, brandNotFound, agent, searchText)
 
               log.info('search_products: enrichment phase', { query: searchText, enrichStep: newEnrichCount, maxEnrichment, brandNotFound })
 
@@ -2096,8 +2160,12 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
           }
 
           // #25: Auto-extract category tag from found products (interesse:CATEGORY)
+          // Bug 8 fix: NUNCA sobrescreve interesse: ja existente. Se o lead disse
+          // "chuveiro" e taggeamos chuveiros_eletricos, um search posterior que
+          // retorne tinta (cross-category nao filtrado) NAO deve virar interesse:tintas.
           const firstCategory = products[0]?.category
-          if (firstCategory) {
+          const existingInteresseTag = (conversation.tags || []).find((t: string) => t.startsWith('interesse:'))
+          if (firstCategory && !existingInteresseTag) {
             const catTag = firstCategory.toLowerCase().replace(/\s+/g, '_')
             const autoTags: Record<string, string> = { interesse: catTag }
             if (searchText) autoTags.produto = searchText.toLowerCase().replace(/\s+/g, '_')
@@ -2105,6 +2173,14 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
               tags: mergeTags(conversation.tags || [], autoTags),
             }).eq('id', conversation_id)
             log.info('Auto-tagged from search results', { interesse: catTag, produto: autoTags.produto })
+          } else if (firstCategory && existingInteresseTag) {
+            // Apenas auto-taggea produto, preserva interesse: existente
+            if (searchText) {
+              await supabase.from('conversations').update({
+                tags: mergeTags(conversation.tags || [], { produto: searchText.toLowerCase().replace(/\s+/g, '_') }),
+              }).eq('id', conversation_id)
+            }
+            log.info('Auto-tag interesse: skipped (already set)', { existing: existingInteresseTag, productCategory: firstCategory })
           }
 
           // Auto-send media/carousel when products have images

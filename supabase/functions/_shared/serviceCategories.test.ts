@@ -11,6 +11,7 @@ import {
   getQualificationFields,
   formatPhrasing,
   extractInteresseFromTags,
+  filterProductsByExpectedCategory,
   buildValidTagKeys,
   BASE_VALID_TAG_KEYS,
   type ServiceCategoriesConfig,
@@ -765,5 +766,107 @@ describe('buildValidTagKeys', () => {
     // base sempre presente
     expect(keys.has('lead_score')).toBe(true)
     expect(keys.has('qualif_stage')).toBe(true)
+  })
+})
+
+// =============================================================================
+// Bug 8 — filterProductsByExpectedCategory
+// =============================================================================
+describe('filterProductsByExpectedCategory (Bug 8)', () => {
+  const tintaProduct = { title: 'Tinta Acrílica Eggshell Premium 18L Branco Neve Sol E Chuva', category: 'tintas', subcategory: 'acrilica' }
+  const tintaProduct2 = { title: 'Esmalte Sintético Brilhante', category: 'tintas', subcategory: 'esmalte' }
+  const chuveiroProduct = { title: 'Chuveiro Elétrico Lorenzetti Maxi 220V', category: 'chuveiros_eletricos', subcategory: 'eletronico' }
+  const tintas = DEFAULT_SERVICE_CATEGORIES_V2.categories.find(c => c.id === 'tintas')!
+  const chuveiros: ServiceCategory = {
+    id: 'chuveiros_eletricos',
+    label: 'Chuveiros Elétricos',
+    interesse_match: 'chuveiro|ducha|aquecedor',
+    stages: tintas.stages,
+  }
+
+  it('Bug 8 core — chuveiro fuzzy match a "Sol e Chuva" tinta e descartado quando categoria esperada eh chuveiros', () => {
+    const fuzzyResults = [tintaProduct, tintaProduct2]
+    const filtered = filterProductsByExpectedCategory(fuzzyResults, chuveiros)
+    expect(filtered).toEqual([])
+  })
+
+  it('mantem produtos da categoria correta', () => {
+    const results = [tintaProduct, tintaProduct2]
+    const filtered = filterProductsByExpectedCategory(results, tintas)
+    expect(filtered).toHaveLength(2)
+  })
+
+  it('mistura — mantem so produtos da categoria esperada', () => {
+    const results = [tintaProduct, chuveiroProduct]
+    expect(filterProductsByExpectedCategory(results, tintas)).toEqual([tintaProduct])
+    expect(filterProductsByExpectedCategory(results, chuveiros)).toEqual([chuveiroProduct])
+  })
+
+  it('expectedCategory null/undefined — no-op (retorna array original)', () => {
+    const results = [tintaProduct, chuveiroProduct]
+    expect(filterProductsByExpectedCategory(results, null)).toEqual(results)
+    expect(filterProductsByExpectedCategory(results, undefined)).toEqual(results)
+  })
+
+  it('products vazio/null/undefined — retorna array vazio', () => {
+    expect(filterProductsByExpectedCategory([], tintas)).toEqual([])
+    expect(filterProductsByExpectedCategory(null as any, tintas)).toEqual([])
+    expect(filterProductsByExpectedCategory(undefined as any, tintas)).toEqual([])
+  })
+
+  it('normaliza acentos — "acrílica" no produto casa "acrilica" no regex', () => {
+    const cat: ServiceCategory = {
+      id: 'test',
+      label: 'Test',
+      interesse_match: 'acrilica',
+      stages: tintas.stages,
+    }
+    const result = filterProductsByExpectedCategory([tintaProduct], cat)
+    expect(result).toEqual([tintaProduct])
+  })
+
+  it('regex invalido — no-op (retorna originais, nao crasha)', () => {
+    const bad: ServiceCategory = {
+      id: 'bad',
+      label: 'Bad',
+      interesse_match: '[unclosed',
+      stages: tintas.stages,
+    }
+    const results = [tintaProduct, chuveiroProduct]
+    expect(filterProductsByExpectedCategory(results, bad)).toEqual(results)
+  })
+
+  it('Bug 8 cenario real Eletropiso — lead pediu chuveiro, fuzzy retornou tinta + 1 esmalte com chuva no nome', () => {
+    const fuzzyJunk = [
+      { title: 'Tinta Acrílica Sol e Chuva 18L', category: 'tintas', subcategory: 'externa' },
+      { title: 'Esmalte para Áreas com Chuva', category: 'tintas', subcategory: 'esmalte' },
+    ]
+    expect(filterProductsByExpectedCategory(fuzzyJunk, chuveiros)).toEqual([])
+  })
+
+  it('produto com title contendo nome da categoria mas categoria diferente — drop', () => {
+    // Edge: produto chamado "Pintura para chuveiro" mas categoria=tintas. Title mention nao prevalece se category nao casa.
+    // Atualmente o regex roda contra category+subcategory+title — se title mencionar "chuveiro", PASSA.
+    // Este teste documenta comportamento atual: matchroda em todo o texto concat. Se for problema, refinar.
+    const cat: ServiceCategory = {
+      id: 'chuveiros',
+      label: 'Chuveiros',
+      interesse_match: 'chuveiro',
+      stages: tintas.stages,
+    }
+    const ambiguous = { title: 'Tinta Especial para Box de Chuveiro', category: 'tintas', subcategory: 'box' }
+    // Comportamento atual: title menciona "chuveiro" -> passa (false positive aceitavel: produto realmente relacionado)
+    expect(filterProductsByExpectedCategory([ambiguous], cat)).toEqual([ambiguous])
+  })
+
+  it('produto sem campos opcionais — usa "" e tenta match', () => {
+    const cat: ServiceCategory = {
+      id: 'x',
+      label: 'X',
+      interesse_match: 'tinta',
+      stages: tintas.stages,
+    }
+    expect(filterProductsByExpectedCategory([{ title: 'Tinta Coral', category: null, subcategory: null }], cat)).toHaveLength(1)
+    expect(filterProductsByExpectedCategory([{ title: 'Esmalte', category: null, subcategory: null }], cat)).toEqual([])
   })
 })

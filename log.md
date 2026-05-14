@@ -9,6 +9,22 @@ type: log
 
 ---
 
+## 2026-05-14 (manhã) — Fix bugs 8+11 AI Agent: cross-category leak + fallback genérico (v7.36.6)
+
+Bugs 8-11 descobertos em 2026-05-13 madrugada++ ("produto fora do catálogo"). Diagnóstico + fix + 2 E2E prod via webhook POST.
+
+- **Bug 8** (cross-category leak): fuzzy `pg_trgm` retornava "Sol e Chuva" tinta pra query "chuveiro". Auto-tag sobrescrevia `interesse:` silente via `mergeTags`.
+- **Bug 11** (fallback genérico): `phrasingDiscipline` em `ai-agent/index.ts:1797` tinha exemplo literal hardcoded "sala, cozinha, quarto ou banheiro" — LLM copiava como exemplos reais.
+- **Bug 12 bonus** (não fixado, tracked): LLM crava `interesse:hidraulica` pra chuveiro (categoria inexistente). Mitigado pelo fallback chain.
+
+**Fix shipado:** helper `filterProductsByExpectedCategory` + chain `args.category → interesse tag → searchText`. Filtro 2x no `search_products`. Guard contra overwrite. `buildEnrichmentInstructions` com fallback chain pra category.
+
+**Validação E2E Eletropiso:** Lead 1 (4 turns) qualificação coerente. Lead 2 (1 turn direto) — antes: "(exemplos: sala, cozinha, quarto ou banheiro)" → agora: "Pra te ajudar com o chuveiro certo, qual o tipo você prefere?". Bug 9 (alucinação) sumiu junto. Bug 10 (Olá!) não reproduziu.
+
+tsc=0. Vitest 109/109. Detalhe completo `CHANGELOG v7.36.6`. Frase de retomada: *"continuar bug 12 LLM interesse invalido 2026-05-15"*.
+
+---
+
 ## 2026-05-14 — Fix loop de fila + retention notifications (v7.36.5, banco 116 MB → 35 MB)
 
 Gestor reparou que banco saltou de ~50→116 MB em 9h via Dashboard do Gestor. Investigação: 22.682 `handoff_queue_events.status='active'` numa única conversa sandbox + 136.521 `notifications` tipo `handoff_queue_full_rotation` acumuladas em 9h. Causa: cron criava events em loop quando eu fazia reset `status_ia='active'` pra refazer testes; sem constraint DB-level, acumulou silente.
@@ -206,58 +222,9 @@ Não arquiva a conversa (helpdesk segue mostrando). Smoke test SQL completo OK. 
 
 ---
 
-## 2026-05-11 (madrugada) — Dashboard do Gestor: pivô comercial (Fase 3)
+## 2026-05-11 — Dashboard do Gestor 3 fases (arquivado)
 
-**Demanda do gestor após ver as Fases 1+2:** tirar custos, mostrar leads sem 1ª resposta, cotações em andamento, objeções e motivos de conversa em destaque.
-
-**Entregue:**
-- 2 RPCs novas: `get_unanswered_first_messages` (lead nunca respondido — ZERO outgoing), `get_active_quotes` (tag `motivo:orcamento` sem `venda:fechada`/`perdida`). Eletropiso 30d: 1 lead sem 1ª resposta há 716h; 0 cotações ativas.
-- Hook estendido (`useManagerAdvancedMetrics` agora dispara 6 RPCs em paralelo).
-- Componente genérico `PendingConversationsCard` substituindo `AbandonedConversationsList` (removido — código órfão).
-- Zona 3 reorganizada em 3 linhas: pendências críticas 3 cols + análise objeções/motivos + equipe (demand×coverage + ranking).
-- Card `Custo IA` removido dos KPIs (grid agora 5 cols), `Custo/conv.` removido do IA vs Vendedor, meta `Custo IA` removida.
-
-**Push Fases 1+2:** commit `66d2461` no master. Fase 3 ainda local.
-
-**Versão:** v7.35.0. `tsc --noEmit` = 0. Console limpo.
-
-**Sinal de produto:** "1 lead sem 1ª resposta há 30 dias" + "0 cotações tagueadas" + "0 vendas tagueadas" — fluxo de tagueamento e/ou disciplina de resposta tem buracos visíveis.
-
----
-
-## 2026-05-11 (noite) — Dashboard do Gestor: métricas avançadas (Fase 2)
-
-**Entregue logo após Fase 1, mesma sessão.** 4 RPCs (`get_response_time_percentiles`, `get_abandoned_conversations`, `get_demand_vs_coverage_by_hour`, `get_conversion_by_origin`) + hook `useManagerAdvancedMetrics` (Promise.all) + 4 componentes (`ResponseTimeCard`, `AbandonedConversationsList`, `DemandVsCoverageChart`, `ConversionByOriginCard`) integrados às Zonas 1/3/4 do `ManagerDashboard`.
-
-**Dados reais Eletropiso 30d:** P50 1ª resposta = 23s, P95 = 89s (n=11). 6 conversas abandonadas (max 47 dias). Origem "direto" 7 leads, 0 fechadas (tag `venda:fechada` não está sendo aplicada — sinal pro time comercial).
-
-**Versão:** v7.34.0. `tsc --noEmit` = 0. Console limpo.
-
-**Próximo (Fase 3 backlog):** drill-down ao clicar em qualquer card, comparação período-vs-período, alertas configuráveis (P95 > X → notify), export CSV.
-
-**Nota:** 9.5/10 — escopo cumprido na exata medida pedida pelo usuário sem inflação, sem regressão, validação manual ainda pendente (autenticação Playwright fora de escopo).
-
----
-
-## 2026-05-11 (tarde) — Dashboard do Gestor unificado (Fase 1)
-
-**Demanda do usuário:** unificar os 3 dashboards (Olá George + Gestor/Métricas + Gestor/Insights) num único pro gerente, esconder Sandbox IA, adicionar leads novos vs recorrentes. Confirmar acesso como gerente.
-
-**Plano aprovado (Opção C):** mantém `/dashboard` multi-tenant pro super_admin; unifica `/dashboard/gestao` em 4 zonas (Pulso / Tendência / Atendimento / IA-Comercial) pro gerente. Schema change `is_sandbox`. Definição lead novo = primeira conversa no período. Fase 1 entrega core; métricas avançadas vão pra Fase 2.
-
-**Entregue:**
-- Migration `add_is_sandbox_to_instances` (coluna + índice parcial); Sandbox IA marcada.
-- RPC `get_leads_new_vs_returning(p_instance_id, p_start, p_end)` retorna série diária novos/recorrentes via `MIN(created_at)` por contact_id × `last_message_at` no período. Validada: Eletropiso 30d = 6 novos + 5 recorrentes (11 contatos distintos).
-- `useManagerInstances({ includeSandbox })` — default `false`, gerente nunca vê sandbox.
-- `useLeadsNewVsReturning` (preenche dias zerados) + `LeadsNewVsReturningChart` (área empilhada recharts verde/roxo).
-- `ManagerDashboard.tsx` reescrito **sem abas** — 4 seções em scroll único; absorve `TopContactReasons` e `BusinessHoursChart` do DashboardHome; toggle "Sandbox: ON/OFF" só pro super_admin.
-- `types.ts` atualizado (is_sandbox + RPC). `tsc --noEmit` = 0 erros. HMR sem warnings.
-
-**Confirmação de acesso:** `/dashboard/gestao` já é guardada por `CrmRoute` (super_admin OU gerente). Gerente faz login → cai direto no dashboard unificado. Nenhuma guard alterada.
-
-**Próximo (Fase 2 — não shipado ainda):** tempo 1ª resposta P50/P95, conversas abandonadas 24h, gap de cobertura (hora-pico demanda vs equipe), conversão por origem.
-
-**Nota:** 9/10 — entrega cirúrgica, sem regressão; ponto a melhorar = não consegui validar visualmente logado (Playwright travou no /login, optei por não autenticar).
+> Movido para [[wiki/log-arquivo-2026-05-11-dashboard]] em 2026-05-14 (hard limit). Inclui Fase 1 (unificado), Fase 2 (métricas avançadas), Fase 3 (pivô comercial).
 
 ---
 
