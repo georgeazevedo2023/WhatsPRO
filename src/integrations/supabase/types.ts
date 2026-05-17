@@ -1247,6 +1247,7 @@ export type Database = {
           last_message_at: string | null
           lead_msg_count: number
           priority: string
+          resolved_at: string | null
           status: string
           status_ia: string | null
           tags: string[] | null
@@ -1267,6 +1268,7 @@ export type Database = {
           last_message_at?: string | null
           lead_msg_count?: number
           priority?: string
+          resolved_at?: string | null
           status?: string
           status_ia?: string | null
           tags?: string[] | null
@@ -1287,6 +1289,7 @@ export type Database = {
           last_message_at?: string | null
           lead_msg_count?: number
           priority?: string
+          resolved_at?: string | null
           status?: string
           status_ia?: string | null
           tags?: string[] | null

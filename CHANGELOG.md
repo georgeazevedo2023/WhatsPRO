@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-05-14
-audited_at: 2026-05-14
+updated: 2026-05-17
+audited_at: 2026-05-17
 ---
 
 # Changelog
@@ -10,6 +10,32 @@ audited_at: 2026-05-14
 > Releases ativas (últimos ~14 dias). Histórico completo em [[wiki/changelog/]].
 >
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
+
+---
+
+### v7.37.0 (2026-05-17) — D34: Reabertura de conversa resolvida em janela 60d
+
+**Problema:** quando atendente clicava "Finalizar Atendimento" e o lead voltava a falar depois, o webhook criava **conv NOVA** em vez de reusar a anterior. Consequências: (a) Alberto continuava aparentemente "dono" do histórico velho enquanto IA atendia o lead de novo numa conv separada; (b) tags `interesse:tintas`/`motivo:compra` ficavam congeladas na conv velha — IA reiniciava qualificação do zero; (c) métricas do gestor não conseguiam ligar "Alberto resolveu" → "lead voltou 3 dias depois"; (d) greeting "Olá! Bem-vindo a Eletropiso" mesmo conhecendo o lead.
+
+**Solução D34** (3 mudanças em sinergia):
+
+1. **Migration `conversations_add_resolved_at`** — nova coluna `resolved_at TIMESTAMPTZ` + backfill via `updated_at` para rows históricas + index parcial `(contact_id, resolved_at DESC) WHERE status='resolvida'` para query O(log n).
+2. **`TicketResolutionDrawer.handleSubmit`** — passa a setar `resolved_at = new Date().toISOString()` no update de Finalizar.
+3. **`whatsapp-webhook`** (linha 822+) — antes de criar conv nova, busca última `resolvida` do mesmo `inbox+contact`. Função pura `shouldReopenConversation` (em `_shared/conversationReopen.ts`) decide: dentro da janela 60d + não tageada como spam → REABRE a mesma row (`status='aberta'`, `status_ia='ligada'`, `assigned_to=null`, append tag `reaberta:YYYY-MM-DD`, preserva todas tags antigas).
+
+**Comportamento pós-fix:**
+- Alberto desatribui automaticamente ao lead voltar (assigned_to=null) — não recebe duplicado no Minhas.
+- IA reassume com **greeting personalizado** via `returning_greeting_message` (que já existia, dispara via `hasEverInteracted` por conta dos `ai_agent_logs` antigos da mesma conv).
+- Tags preservadas → IA pula qualificação já feita E continua tageando trocas de interesse via `set_tags` normal.
+- Métrica nova: `tags && ARRAY['reaberta:%']` permite ao gestor contar reaberturas no período.
+- Spam continua criando conv nova (não polui métrica de retorno legítimo).
+- Janela > 60d cria conv nova (lead frio merece reset).
+
+**Validação E2E (Eletropiso prod):** Bug11 Test (conv `67bb8561…`) resolvida há 0.05 dias. POST webhook 1: "oi voltei, ainda tem aquele chuveiro?" → reabriu MESMA conv id, assigned_to=null, tags `[motivo:compra, interesse:hidraulica, resultado:perdido, reaberta:2026-05-17]`, IA mandou *"Olá Bug 11 Test! Que bom te ver de novo 😊"* + qualif chuveiro. POST 2: "na verdade desisti do chuveiro. quero uma furadeira pra concreto" → `set_tags` substituiu `interesse:hidraulica` por `interesse:furadeira` (mergeTags por chave) + IA perguntou "220v com fio ou 12v a bateria?" (categoria correta). Playwright confirmou na UI: conv no topo da lista, status "Atendendo", sem atendente atribuído.
+
+**Arquivos:** migration `conversations_add_resolved_at`, `_shared/conversationReopen.ts` (+58), `_shared/conversationReopen.test.ts` (+103, 10 testes), `whatsapp-webhook/index.ts` (+43 / -16), `TicketResolutionDrawer.tsx` (1 linha update), `types.ts` (3 inserções de campo). tsc=0. Vitest novos 10/10.
+
+**Cruza com:** D32 (IA 24/7), D33 (post-filter categoria). Não conflita com D30 (fila volta a ser acionada quando IA atinge handoff trigger na conv reaberta).
 
 ---
 

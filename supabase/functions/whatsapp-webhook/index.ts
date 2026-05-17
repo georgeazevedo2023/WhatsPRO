@@ -1,5 +1,6 @@
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { shouldTriggerAiAgentFromWebhook, shouldTriggerShadowFromWebhook } from '../_shared/aiRuntime.ts'
+import { shouldReopenConversation } from '../_shared/conversationReopen.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { unauthorizedResponse } from '../_shared/auth.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
@@ -834,6 +835,50 @@ Deno.serve(async (req) => {
         .order('created_at', { ascending: false })
         .maybeSingle()
       conversation = foundConv
+    }
+
+    // ── D34: Reabertura de conv resolvida dentro de janela 60d ────────────
+    // Quando nao ha conv aberta/pendente mas existe uma resolvida recente do mesmo
+    // contato, reabrir em vez de criar nova. Preserva tags (interesse/motivo/etc),
+    // limpa assigned_to (atendente anterior solta o lead), volta status_ia=ligada,
+    // e marca a reabertura com tag reaberta:YYYY-MM-DD. Spam NUNCA reabre.
+    // Logica de decisao em _shared/conversationReopen.ts (testavel puro).
+    if (!conversation) {
+      const { data: lastResolved } = await supabase
+        .from('conversations')
+        .select('id, tags, resolved_at')
+        .eq('inbox_id', inbox.id)
+        .eq('contact_id', contact.id)
+        .eq('status', 'resolvida')
+        .order('resolved_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const decision = shouldReopenConversation(lastResolved, new Date())
+      if (decision.reopen && lastResolved) {
+        const { data: reopened } = await supabase
+          .from('conversations')
+          .update({
+            status: 'aberta',
+            status_ia: 'ligada',
+            assigned_to: null,
+            tags: decision.mergedTags,
+            last_message_at: msgTimestamp,
+          })
+          .eq('id', lastResolved.id)
+          .select('id, status_ia')
+          .single()
+        if (reopened) {
+          log.info('Conversation reopened within window', {
+            conversationId: reopened.id,
+            tagsPreserved: (lastResolved.tags || []).length,
+            reopenTag: decision.reopenTag,
+          })
+          conversation = reopened
+        }
+      } else if (lastResolved) {
+        log.info('Skip reopen', { previousId: lastResolved.id, reason: decision.reason })
+      }
     }
 
     if (!conversation) {

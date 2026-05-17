@@ -148,10 +148,12 @@ export function TicketResolutionDrawer({ conversation, onResolved, trigger }: Ti
       for (const t of newTags) tagMap.set(t.split(':')[0], t);
       const mergedTags = Array.from(tagMap.values());
 
-      // 2. Update conversation: status + tags
+      // 2. Update conversation: status + tags + resolved_at
+      // resolved_at marca o ponto de Finalizar — usado por whatsapp-webhook pra
+      // decidir reabrir conv dentro de janela 60d quando lead voltar a falar.
       await supabase
         .from('conversations')
-        .update({ status: 'resolvida', tags: mergedTags })
+        .update({ status: 'resolvida', tags: mergedTags, resolved_at: new Date().toISOString() })
         .eq('id', conversation.id);
 
       // 3. Move kanban card (if exists)

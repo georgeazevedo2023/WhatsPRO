@@ -1,12 +1,38 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, d32, d33, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors, business-hours, cross-category]
+tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, d32, d33, d34, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors, business-hours, cross-category, reabertura-conversa]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-14
-audited_at: 2026-05-14
+updated: 2026-05-17
+audited_at: 2026-05-17
 ---
 
 # Decisões-Chave
+
+## D34 — Reabertura de conversa resolvida em janela 60d (2026-05-17)
+
+> Padrão atual: quando lead volta a falar e existe conv `resolvida` recente do mesmo contato, REABRE a mesma row em vez de criar uma nova. Preserva histórico/tags/métricas; spam continua criando nova.
+
+- **Coluna nova** `conversations.resolved_at TIMESTAMPTZ` (migration `conversations_add_resolved_at`). Setada pelo `TicketResolutionDrawer.handleSubmit` ao Finalizar. Backfill via `updated_at` pra rows históricas. Index parcial `(contact_id, resolved_at DESC) WHERE status='resolvida'`.
+- **Decisão pura** em `_shared/conversationReopen.ts` (`shouldReopenConversation`): se `last_resolved` existe + dentro de 60d + sem tag `resultado:spam` → reabre. Retorna `mergedTags` com `reaberta:YYYY-MM-DD` apendado (idempotente — não duplica se já existe).
+- **Webhook** (`whatsapp-webhook/index.ts:822+`) chama o helper depois do filtro `status IN ('aberta','pendente')`. Quando reabre: `status='aberta'`, `status_ia='ligada'`, `assigned_to=null` (atendente anterior solta o lead), `tags=mergedTags`, `last_message_at=msgTimestamp`.
+- **Greeting personalizado vem de graça**: `hasEverInteracted` em `ai-agent` conta `ai_agent_logs.conversation_id=X` — como a row é a mesma, os logs antigos contam → manda `returning_greeting_message` com `{nome}` do `lead_profiles`.
+- **Set_tags na conv reaberta** continua normal — IA tageia trocas de interesse (ex: `interesse:hidraulica` → `interesse:furadeira` via `mergeTags` por chave).
+
+**Por quê:** comportamento anterior fazia split de conversa (conv nova quando lead voltava) — atendente continuava dono do histórico velho, IA reinventava qualif do zero, métricas do gestor não ligavam ciclos. Sprint Dashboard do Gestor (v7.33–v7.35) pediu métrica de retorno de lead.
+
+**Casos de uso (Eletropiso):**
+1. Lead pediu tinta, vendedor finalizou Perdido, lead volta em 2 dias → REABRE. Tags `interesse:tintas`, `tipo_tinta:acrílica` preservadas. IA pula qualif feita.
+2. Cliente fechou venda (`resultado:venda`) e volta querendo nova compra → REABRE com `reaberta:DATE`. Gestor conta como recorrente via tags.
+3. Spam (`resultado:spam`) que retorna → NÃO reabre, conv nova limpa.
+4. Lead > 60d frio → conv nova (reset).
+
+**Validação E2E (prod, conv Bug11 Test):** POST 1 reabriu mesma conv id, greeting personalizado disparou, tags preservadas + `reaberta:2026-05-17` apendado, Alberto desatribuiu. POST 2 ("desisti do chuveiro, quero furadeira") fez `set_tags` substituir `interesse:hidraulica` por `interesse:furadeira`, pergunta correta da categoria furadeiras enviada. Playwright confirmou na UI.
+
+**SYNC RULE auditada:**
+- Itens 1, 2, 5, 8: cumpridos.
+- Itens 3, 4, 6, 7: N/A (feature transparente, hardcoded 60d, não passa por ai_agents, sem prompt change).
+
+**Cruza com:** D32 (IA 24/7 — agora também rege conv reaberta), D33 (post-filter categoria), D30 (fila volta a ser acionada quando IA atinge handoff trigger na conv reaberta).
 
 ## D33 — Search products SEMPRE filtra por categoria esperada (2026-05-14)
 
