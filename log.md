@@ -9,19 +9,21 @@ type: log
 
 ---
 
-## 🎯 HANDOFF FIM DE SESSÃO — 2026-05-17 (limpeza de conv)
+## 2026-05-17 (madrugada+) — Bug 17 v2 + Bug 24 v5 search_products FIXADOS (v7.37.15)
 
-Sessão de ~12h: **14 releases (v7.37.0→v7.37.14), 12 bugs fixados** (13, 15b, 16, 17, 18, 19, 21, 22, 24 v4, 25, 26 v3, 27). 4 camadas de defesa: Bug 25 bloqueia ID inválido → Bug 26 v3 auto-corrige → Bug 27 seed antes search → Bug 24 v4 handoff direto quando max_score.
+Bug 17 v2: regex multiline expandida cobre olá/oi/bom dia/etc + nome + qualquer linha. Bug 24 v5: mirror v4 handoff, flag pendingExitActionSearch, executeToolSafe inline. E2E PASS: TI Pedro tinta (carrossel, sem "Olá"), TII Sandra 7 turnos (sem "Olá Sandra!", 2 carrosseis, score 80). Screenshot: `wiki/validacoes/bug17_24sp_validados.png`.
 
-**E2E validado:** lampadas, vaso_sanitario, torneiras, cano, chuveiros, portas, ferramentas (trena), cama (excluded), Maria/D34 reabertura.
+---
 
-**Backlog (não bloqueantes):** Bug 17 (LLM recumprimenta), Bug 24 search_products (tinta), Bug 27 minor (score cross-turn).
+## 🎯 HANDOFF FIM DE SESSÃO — 2026-05-17
 
-**Pendências não tocadas:** `config.toml`, `regras-preventivas.md`, `free-forever-playbook.md`, 5 PNGs root (bug11/15b/maria) — limpar ou commitar em sessão futura.
+Sessão ~14h: **15 releases (v7.37.0→v7.37.15), 13 bugs fixados** (13, 15b, 16, 17 v2, 18, 19, 21, 22, 24 v4+v5, 25, 26 v3, 27). E2E validado: tinta, lampadas, vaso, torneiras, cano, chuveiros, portas, trena, cama excluded, Maria/D34.
 
-**Frase de retomada:** *"continuar fix bug 17 recumprimento + bug 24 search_products tinta 2026-05-18"*
+**Backlog:** Bug 27 minor (score cross-turn em disjuntor).
 
-Refs: commits `cb188bb`→`18f8efc`, `wiki/validacoes/`, `wiki/log-arquivo-2026-05-17-tarde-bugs.md`, `wiki/changelog/2026-05-17-v7.37.0-v7.37.5.md`.
+**Pendências:** `config.toml`, `regras-preventivas.md`, `free-forever-playbook.md`, 5 PNGs root.
+
+**Frase de retomada:** *"validar 13 bugs com leads reais 2026-05-18 + revisar score cross-turn"*
 
 ---
 

@@ -13,6 +13,24 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.15 (2026-05-17) — Bug 17 v2 + Bug 24 v5 search_products FIXADOS
+
+User questionou backlog Bug 17 + Bug 24 search_products. Fixei ambos:
+
+**Bug 17 v2 (recumprimento) - strip determinístico:** o strip antigo (linha 3481) só pegava `^(Olá|Oi|Ei|Hey),?\s*NOME`. Expandido pra regex multiline cobrindo `olá|ola|oi+e?|ei|hey|opa|eae|eai|fala|salve|bom dia|boa tarde|boa noite|bem-vindo` + nome opcional + qualquer linha. Limpa espaços/quebras resultantes. Não confia no LLM.
+
+**Bug 24 v5 search_products (mirror do v4 handoff):** flag `pendingExitActionSearch: {query, category}` setada quando `score>=max_score && exit_action=search_products`. Query construída das tags (interesse + tipo_X + cor + ambiente + marca, excluindo meta-keys como motivo/lead_score/ia). Bloco inline pós-merge chama `executeToolSafe('search_products', {query, category})` e injeta resultado no retorno do set_tags pro LLM usar. Log `tool_called source=bug24v5_set_tags_inline`.
+
+**Validação E2E 2 testes (Sandbox UAZAPI → Eletropiso prod, domingo):**
+- TI tinta Pedro: LLM chamou search natural (score 15 < max 40, v5 inline não precisou disparar). Carrossel ok. Sem "Olá Pedro!" ✅
+- TII tinta Sandra (7 turnos): 7 outgoing msgs sem "Olá Sandra!" ✅. 2 carrosseis disparados. Score 80, tags ricas (`interesse:tinta, ambiente:interna, acabamento:fosco, tipo_tinta:acrílica, marca_preferida:Coral, quantidade:5L`).
+
+**Total acumulado sessão hoje: 15 releases (v7.37.0→v7.37.15), 13 bugs fixados.** Só Bug 27 minor (score cross-turn em disjuntor) em backlog.
+
+Screenshot: `wiki/validacoes/bug17_24sp_validados.png`.
+
+---
+
 ### v7.37.11-v7.37.14 (2026-05-17) — Bug 26+27 FIXADOS (4 PASS limpos em 5 testes E2E)
 
 User: "fixar bug 27 e rodar mais 5 testes". Foco em Bug 27 (LLM pula `set_tags interesse` em várias categorias) + Bug 26 (LLM repete `interesse:hidraulica` mesmo após Bug 25 bloquear).

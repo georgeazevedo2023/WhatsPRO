@@ -451,6 +451,7 @@ Deno.serve(async (req) => {
     // e é executado após o load de profile/funnel/runQueueAssignment.
     let pendingSaleClosedHandoff: string | null = null
     let pendingExitActionHandoff: { reason: string; queueMotivo: string } | null = null
+    let pendingExitActionSearch: { query: string; category: string } | null = null
     {
       const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
       const textForDetection = shadow_only ? (vendor_message || '') : incomingText
@@ -2992,6 +2993,30 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
                   }
                 } else if (currentStage.exit_action === 'search_products') {
                   exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO (score ${newScore}/${currentStage.max_score}). AÇÃO: chame search_products AGORA com a query construída a partir das tags coletadas. NÃO faça mais perguntas antes de buscar.`
+                  // Bug 24 v5 search_products (2026-05-17): mirror do handoff inline mas pra
+                  // exit_action=search_products. Constroi query das tags (tipo+cor+marca etc) e
+                  // dispara executeToolSafe('search_products') direto. LLM as vezes ignora a
+                  // exitInstruction (especialmente apos varios turnos de qualif) e continua
+                  // perguntando marca/cor mesmo com score>=max. Backend forca search direto.
+                  if (conversation.status_ia !== STATUS_IA.SHADOW && !pendingExitActionSearch) {
+                    // Construir query: interesse + tags de field NAO-meta (excluir motivo/score/etc)
+                    const META_KEYS = new Set(['motivo','interesse','lead_score','ia','ia_cleared','enrich_count','search_fail','produto','aguardando_upsell','venda','tipo_cliente','marca_citada','objecao','pagamento'])
+                    const queryParts: string[] = []
+                    if (interesse) queryParts.push(interesse)
+                    for (const t of [...(conversation.tags || []), ...newTags]) {
+                      if (typeof t !== 'string') continue
+                      const idx = t.indexOf(':')
+                      if (idx < 0) continue
+                      const k = t.slice(0, idx)
+                      const v = t.slice(idx + 1)
+                      if (META_KEYS.has(k)) continue
+                      if (v && !queryParts.some(p => p.toLowerCase().includes(v.toLowerCase()))) queryParts.push(v)
+                    }
+                    pendingExitActionSearch = {
+                      query: queryParts.join(' ').trim(),
+                      category: interesse || v2Category?.id || '',
+                    }
+                  }
                 } else if (currentStage.exit_action === 'enrichment') {
                   exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO. AÇÃO: continue perguntando para enriquecer dados (próximo stage do funil).`
                 }
@@ -3062,6 +3087,23 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             // Tag pseudo-tool-call pra hadExplicitHandoffInLoop detectar e nao re-enviar
             toolCallsLog.push({ name: 'handoff_to_human', args: { source: 'set_tags_inline_bug24' } })
             return `Handoff automático disparado (stage completo). Sem necessidade de mais ações.`
+          }
+
+          // Bug 24 v5 search_products (2026-05-17): se a flag pendingExitActionSearch foi
+          // setada (exit_action=search_products + score>=max), executar search direto via
+          // executeToolSafe e retornar o resultado para o LLM nao perguntar marca/cor de novo.
+          if (pendingExitActionSearch && conversation.status_ia !== STATUS_IA.SHADOW) {
+            log.info('Bug 24 v5 search_products: disparando search INLINE', pendingExitActionSearch)
+            const searchRes = await executeToolSafe('search_products', {
+              query: pendingExitActionSearch.query,
+              category: pendingExitActionSearch.category,
+            })
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'tool_called',
+              metadata: { tool: 'search_products', source: 'bug24v5_set_tags_inline', query: pendingExitActionSearch.query, category: pendingExitActionSearch.category, result_preview: String(searchRes).substring(0, 200) },
+            })
+            toolCallsLog.push({ name: 'search_products', args: pendingExitActionSearch, result: String(searchRes).substring(0, 200) })
+            return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}\n\n[INTERNO] search_products ja foi chamado automaticamente pelo backend (flag pendingExitActionSearch). Resultado:\n${searchRes}\n\nResponda ao lead usando esse resultado.`
           }
 
           return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}`
@@ -3471,6 +3513,12 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
 
       // Strip greeting repetition from response (if LLM repeats it despite instructions)
+      // Bug 17 fix v2 (2026-05-17): expandido pra cobrir Bom dia / Boa tarde / Boa noite /
+      // Bem-vindo / Bem vinda + com ou sem nome + em qualquer linha (multiline regex). Antes
+      // o regex so' pegava "Olá|Oi|Ei|Hey, NOME" no inicio - missing "Bom dia, Pedro!" e
+      // saudacoes no meio do texto. Em J1 (sessao 10 jornadas) LLM gerou "Olá, Pedro! Voce
+      // tem preferencia..." e o strip nao funcionou - regex antigo pegava mas algumas
+      // variacoes escapavam. Versao nova: regex global multiline cobre quase tudo.
       if (hasInteracted) {
         if (agent.greeting_message) {
           const greetNorm = agent.greeting_message.toLowerCase().trim().replace(/[!?.]/g, '')
@@ -3478,7 +3526,12 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             responseText = responseText.replace(new RegExp(agent.greeting_message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '').trim()
           }
         }
-        responseText = responseText.replace(/^(Olá|Oi|Ei|Hey),?\s*[A-ZÀ-Ú][a-zà-ú]+[!.]?\s*/i, '').trim()
+        // Regex Bug 17 v2: pega saudacao + nome opcional + pontuacao opcional, em qualquer
+        // posicao do texto (multi-line, global). Inclui variacoes com acento ou sem.
+        const greetingPrefixRe = /(?:^|\n)\s*(?:olá|ola|oi+e?|oie?|ei|hey|opa|eae|eai|fala|salve|bom\s+dia|boa\s+tarde|boa\s+noite|bem[\s-]*vind[oa])\b[,!.\s]*(?:[A-ZÀ-Úa-zà-ú][a-zà-ú]{1,})?[!.,]?\s*/gi
+        responseText = responseText.replace(greetingPrefixRe, ' ').trim()
+        // Limpa multiplos espacos/quebras consecutivas resultantes do strip
+        responseText = responseText.replace(/\s+\n/g, '\n').replace(/\n{2,}/g, '\n').replace(/  +/g, ' ').trim()
         if (!responseText) responseText = 'Em que posso te ajudar?'
       }
 
