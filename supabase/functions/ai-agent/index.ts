@@ -450,6 +450,7 @@ Deno.serve(async (req) => {
     // handoff_to_human nem mandava mensagem. Agora o handoff vai pro pendingSaleClosedHandoff
     // e é executado após o load de profile/funnel/runQueueAssignment.
     let pendingSaleClosedHandoff: string | null = null
+    let pendingExitActionHandoff: { reason: string; queueMotivo: string } | null = null
     {
       const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
       const textForDetection = shadow_only ? (vendor_message || '') : incomingText
@@ -1637,6 +1638,12 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
     // o auto-extract roda antes do LLM no mesmo turno), a 1a mensagem do
     // lead — justamente a que mais precisa — ficava sem extracao. Solucao:
     // fallback chain (interesse tag -> incomingText via matchCategoryBySearchText).
+    //
+    // 2026-05-17 (Bug 24): tambem dispara exit_action=handoff direto no codigo quando
+    // o score atinge max_score do stage via auto-extract. Antes, exit_action so
+    // disparava via set_tags handler (linha ~2840) — auto-extract bypassava porque
+    // nao passa pelo handler. Resultado: lead bate qualif completa em deterministic,
+    // LLM no proximo turno nao recebe instrucao "AÇÃO handoff", gera texto vazio.
     try {
       if (incomingText.trim()) {
         const cfgPre = getCategoriesOrDefault(agent)
@@ -1656,27 +1663,79 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
           const extracted = autoExtractFields(incomingText, allFields, existingKeys)
           if (extracted.length > 0) {
             const newTags = extracted.map((ef) => `${ef.key}:${ef.value}`)
-            // Se ainda nao ha interesse: tag, semear baseado na categoria detectada
-            // (caso contrario o LLM podia cravar valor invalido como 'mesa' singular).
             const seedTags: string[] = []
             if (!interesseTagPre) {
               seedTags.push(`interesse:${categoryPre.id}`)
             }
-            const mergedTags = [...(conversation.tags || []), ...seedTags, ...newTags]
-            // Persiste para o próximo turno + atualiza objeto local pra buildQualificationContext usar
+            // Bug 24: calcular score progressivo (mirror set_tags handler ~linha 2810)
+            const scoreDelta = calculateScoreDelta(newTags, categoryPre, cfgPre.default)
+            const scoreTags: string[] = []
+            if (scoreDelta > 0) {
+              const currentScore = getScoreFromTags(conversation.tags || [])
+              const newScore = Math.min(100, currentScore + scoreDelta)
+              scoreTags.push(`lead_score:${newScore}`)
+              const stageAfter = getCurrentStage(newScore, categoryPre, cfgPre.default)
+              if (newScore >= stageAfter.max_score && stageAfter.exit_action === 'handoff' && conversation.status_ia !== STATUS_IA.SHADOW) {
+                const qualSummary = newTags
+                  .filter(t => !t.startsWith('lead_score:') && !t.startsWith('motivo:') && !t.startsWith('interesse:'))
+                  .map(t => t.replace(/_/g, ' '))
+                  .join(', ')
+                pendingExitActionHandoff = {
+                  reason: `${interesseValue || categoryPre.id} > ${qualSummary}`,
+                  queueMotivo: `${categoryPre.label} — ${qualSummary}`,
+                }
+                log.info('Bug 24: exit_action=handoff disparado via auto-extract', { stage: stageAfter.label, newScore, max_score: stageAfter.max_score })
+              }
+            }
+            const mergedTags = [...(conversation.tags || []), ...seedTags, ...newTags, ...scoreTags]
             conversation.tags = mergedTags
             await supabase.from('conversations').update({ tags: mergedTags }).eq('id', conversation_id)
             await supabase.from('ai_agent_logs').insert({
               agent_id, conversation_id, event: 'auto_field_extracted',
               latency_ms: 0,
-              metadata: { extracted, new_tags: newTags, seed_tags: seedTags, category_id: categoryPre.id, resolved_via: interesseTagPre ? 'interesse_tag' : 'search_text', incoming_preview: incomingText.substring(0, 120) },
+              metadata: { extracted, new_tags: newTags, seed_tags: seedTags, score_delta: scoreDelta, category_id: categoryPre.id, resolved_via: interesseTagPre ? 'interesse_tag' : 'search_text', incoming_preview: incomingText.substring(0, 120), pending_exit_handoff: !!pendingExitActionHandoff },
             })
-            log.info('Auto-extracted fields from incoming text', { extracted, newTags, seedTags, categoryId: categoryPre.id })
+            log.info('Auto-extracted fields from incoming text', { extracted, newTags, seedTags, scoreDelta, categoryId: categoryPre.id, pendingExitActionHandoff: !!pendingExitActionHandoff })
           }
         }
       }
     } catch (err) {
       log.error('Auto-field extraction failed (non-fatal)', { error: (err as Error).message })
+    }
+
+    // Bug 24 (2026-05-17): exit_action=handoff disparado via auto-extract.
+    // Posicionado APOS o auto-extract (a flag pendingExitActionHandoff e setada la dentro).
+    // Antes este bloco estava antes do auto-extract — flag sempre vazia, handoff nunca disparava.
+    if (pendingExitActionHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
+      log.info('Bug 24: exit_action=handoff via auto-extract — disparando', pendingExitActionHandoff)
+      const notifyOutsideEA = agent.notify_outside_hours_on_handoff !== false
+      const outsideHoursEA = notifyOutsideEA && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+      const handoffMsgEA = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursEA })
+      const { result: queueResEA, finalMessage: finalMsgEA } = await runQueueAssignment(handoffMsgEA)
+      await sendTextMsg(finalMsgEA)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: finalMsgEA, media_type: 'text',
+      })
+      const eaUpdates: Record<string, unknown> = {
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        lead_msg_count: 0,
+      }
+      if (profileData?.handoff_department_id) {
+        eaUpdates.department_id = profileData.handoff_department_id
+      } else if (funnelData?.handoff_department_id) {
+        eaUpdates.department_id = funnelData.handoff_department_id
+      }
+      await supabase.from('conversations').update(eaUpdates).eq('id', conversation_id)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        latency_ms: Date.now() - startTime,
+        metadata: { reason: 'exit_action_auto_extract', exit_reason: pendingExitActionHandoff.reason, outside_hours: outsideHoursEA, queue: queueResEA },
+      })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMsgEA, media_type: 'text' })
+      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'exit_action_auto_extract', queue: queueResEA }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const qualificationContext = buildQualificationContext(conversation.tags || [], agent)

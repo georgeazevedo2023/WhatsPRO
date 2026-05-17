@@ -13,6 +13,33 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.7 (2026-05-17) — Bug 24: auto-extract bypassava `exit_action` enforcement
+
+User reportou: lead → trena → uso=profissional → **IA parou de responder**. Sem handoff, sem coleta, sem texto. Log `response_sent` com `response_text: ""`.
+
+**Root cause:** o `exit_action` enforcement do R83 (instrução "AÇÃO chame handoff_to_human AGORA" injetada quando score atinge `max_score` do stage) só rodava DENTRO do `set_tags` handler (linha 2846). Mas o **auto-extract (Bug 13 fix da manhã, linha 1640)** pega fields deterministicamente sem passar pelo handler. Categoria `ferramentas_manuais`: T3 auto-tag `tipo_ferramenta:trena` (+15), T4 auto-tag `uso_ferramenta:profissional` (+15 = score 30 = max). Sem enforcement, LLM no T4 ficou sem direção → texto vazio.
+
+**Fix:**
+1. Auto-extract agora calcula `scoreDelta` (`calculateScoreDelta` helper) e adiciona `lead_score:N` à `mergedTags`.
+2. Se `newScore >= stage.max_score && exit_action='handoff'`, seta flag `pendingExitActionHandoff` (mirror do `pendingSaleClosedHandoff` do Bug 18).
+3. **Novo bloco** posicionado IMEDIATAMENTE após o auto-extract dispara o handoff (`pickHandoffMessage` respeita outside_hours, `runQueueAssignment`, broadcast, log `event=implicit_handoff, reason=exit_action_auto_extract`). Return early — LLM nem roda.
+
+**Bug de ordem corrigido na hora:** primeira tentativa posicionou o bloco ANTES do auto-extract (junto do `pendingSaleClosedHandoff`). Flag sempre `null` quando avaliado → handoff nunca disparava. Validação E2E pegou na hora (`pending_exit_handoff: true` no log mas IA continuou respondendo). Mover o bloco pra DEPOIS do auto-extract resolveu.
+
+**Validação E2E (4 turnos, domingo, Eletropiso fechada):**
+- T1-T3: greeting → "Joao, em que posso te ajudar?" → "Pra te ajudar, uso? (profissional ou doméstico)"
+- T4 "profissional" → IA enviou EXATAMENTE `handoff_message_outside_hours` ("Perfeito! Anotei... assim que estivermos disponíveis...") + status_ia=shadow + ia:shadow + lead_score:30 ✅
+
+**Paridade admin UI ↔ código:** `ServiceCategoriesConfig.tsx` (admin) → `ai_agents.service_categories` JSONB → `getCurrentStage`/`matchCategoryBySearchText`/`autoExtractFields` (`_shared/`) → enforcement no `set_tags` handler **e agora também no auto-extract** (Bug 24 fix).
+
+**Regra preventiva:** todo caminho determinístico pré-LLM que persiste tags (auto-extract, regex detectors, futuros) DEVE replicar o pipeline de score + exit_action enforcement. Considerar refactor `applyTagsWithScoreEnforcement()` helper compartilhado pra evitar 3º path bypassar.
+
+**Cruza com:** Bug 13 fix (auto-extract), Bug 18 (pendingSaleClosedHandoff mirror), R83 (exit_action enforcement original 2026-04-29).
+
+Arquivos: `ai-agent/index.ts` (~30+35 linhas). 2 deploys (corrigi bug de ordem). Screenshot: `wiki/validacoes/bug24_validado.png`.
+
+---
+
 ### v7.37.6 (2026-05-17) — Bug 21+22: validator BLOCK ignorava outside_hours + transbordo prematuro
 
 User reportou: lead "boa tarde" → "george" → "voces tem trena?" → IA respondeu *"Perfeito! Vou conectar você com nosso consultor de vendas para finalizar seu pedido. Em instantes você terá retorno."* — handoff prematuro (faltava `uso_ferramenta` da categoria `ferramentas_manuais`) + mensagem regular em domingo (Eletropiso fechada — devia ser `_outside_hours`).
@@ -232,66 +259,12 @@ tsc=0. Vitest 116/116 em serviceCategories. Deploy `ai-agent` em prod (Supabase 
 
 ---
 
-### v7.36.6 (2026-05-14) — Fix bugs 8+11 do AI Agent: cross-category leak + fallback genérico
 
-Bugs descobertos em simulação prod 2026-05-13 ("produto fora do catálogo"). Confirmados E2E + fixados em prod.
+### Releases anteriores (≤v7.36.6)
 
-**Bug 8** (alto): `search_products` retornava produto de categoria errada (lead pedia chuveiro → carrossel de tinta). Root cause: fuzzy `pg_trgm` casa "chuv" em "Sol e Chuva" tinta, bypassando filtros. Auto-tag `interesse:` sobrescrevia o correto silente via `mergeTags`.
-
-**Fix Bug 8:** helper novo `filterProductsByExpectedCategory(products, expectedCategory)` em `_shared/serviceCategories.ts`. `expectedCategory` via fallback chain `args.category → interesse: tag → searchText`. Filtro aplicado 2x: antes E depois do fuzzy. Guard contra overwrite no auto-tag.
-
-**Bug 11** (médio): após search falhar, IA respondia genérico "(exemplos: sala, cozinha, quarto ou banheiro)" mesmo pra chuveiro. Root causes: (a) `buildEnrichmentInstructions:1797` tinha exemplo literal hardcoded que LLM copiava como dado real; (b) quando LLM cravava `interesse:` inválido (ex: `hidraulica` não existe), `matchCategory` caía no `default` category.
-
-**Fix Bug 11:** `phrasingDiscipline` sem exemplos cross-category. Fallback chain `interesse: → produto: → searchText` em `buildEnrichmentInstructions`.
-
-**Bugs 9+10 validados sem fix:** alucinação cross-category (Bug 9) era consequência do Bug 8 — sumiu junto. Greeting "Olá!" (Bug 10) não reproduzível — `agent.greeting_message` intacto.
-
-**Bug bonus tracked:** LLM crava `interesse:hidraulica` pra chuveiro. Mitigado pelo fallback chain. Backlog: validar `interesse:` ∈ category IDs.
-
-**Arquivos:** `_shared/serviceCategories.ts` (+38), `_shared/serviceCategories.test.ts` (+103, 11 testes novos), `ai-agent/index.ts` (+69).
-
-**Validação E2E (Eletropiso prod):** 2 leads via webhook POST. Lead 2 (1 turn "tem chuveiro lorenzetti 220v") — search 0 → "Pra te ajudar com o chuveiro certo, qual o tipo você prefere?" (antes: fallback genérico). Deploy via Supabase CLI. tsc=0. Vitest 109/109.
-
----
-
-### v7.36.5 (2026-05-14) — Fix do loop de fila + retention de notifications (banco 116→35 MB)
-
-**Incidente:** banco saltou de ~50 MB → 116 MB em 9h. Causa: 1 conversa sandbox com 22.682 `handoff_queue_events` ativos (cada ciclo do cron `requeue-conversations` criava event novo sem fechar o anterior quando a conversa ficava "presa" pausada fora do horário e era reativada via reset `status_ia=active`). Cada full_rotation gerava 6 notifications (1 por gestor/atendente) → 136.521 notifications acumuladas em 9h. Tabelas inchadas: `notifications` 60 MB, `handoff_queue_events` 22 MB.
-
-**Fix em 3 camadas:**
-
-1. **DB Constraint (defesa física):** `EXCLUDE USING gist (conversation_id WITH =) WHERE (status='active')` na tabela `handoff_queue_events`. Postgres recusa 2+ events ativos na mesma conversa. Migration `d30_one_active_event_per_conversation`. Requer `btree_gist`.
-
-2. **Código idempotente (`_shared/handoffQueue.ts`):** antes do INSERT, `assignHandoff` checa se já há event active na conversa — se sim, **atualiza** o existente (assigned_user_id + expires_at + paused_at=null) em vez de criar. Evita falha do constraint e preserva continuidade.
-
-3. **Dedup de alertas (`requeue-conversations/index.ts`):** `notifyGestores` agora não cria notification do mesmo tipo+conversa se já há uma <6h. Bloqueia spam do sino.
-
-**Retention nova:** migration `notifications_retention_policy` cria `purge_notifications_older()` SECURITY DEFINER + pg_cron job `purge_notifications_hourly` (`5 * * * *`):
-- `handoff_queue_full_rotation`: TTL 6h (alerta operacional transitório)
-- Notifications lidas: 7d
-- Notifications não-lidas: 30d
-
-Smoke test OK. Cron ativo em prod (jobid 36).
-
-**Limpeza imediata aplicada:** DELETE 68.892 events zumbis + 136.519 notifications + VACUUM FULL nas duas tabelas. **DB voltou de 116 MB → 35 MB.**
-
-**Lição registrada** em [[wiki/erros-e-licoes]]: "feature que insere com base em estado externo (reset de `status_ia`) precisa de constraint DB-level + handler idempotente. Confiar só na lógica de aplicação leva a explosão silenciosa."
-
-**Arquivos:**
-- 2 migrations DB (constraint + retention)
-- `supabase/functions/_shared/handoffQueue.ts` (idempotência)
-- `supabase/functions/requeue-conversations/index.ts` (dedup notifyGestores)
-
-**Deploys:** `requeue-conversations` + `ai-agent` + `assign-handoff` (todos usam `handoffQueue.ts`).
-
----
-
-## Releases anteriores
-
-- [[wiki/changelog/2026-05-part5]] — v7.35.1 a v7.36.4 (2026-05-12 a 13: dashboard pendências, retention logs, RPC uuid, IA 24/7, carrossel, auto-extract, button reply UAZAPI, upsell)
-- [[wiki/changelog/2026-05-part4]] — v7.33.0 a v7.35.0 (Dashboard do Gestor 3 fases)
-- [[wiki/changelog/2026-05-part3]] — v7.32.0 a v7.32.6 (Notif handoff WhatsApp + helpdesk polish + áudios)
-- [[wiki/changelog/2026-05-part2b]] — v7.21.0 a v7.24.0 (D30 Sprints A+B+C+D)
-- [[wiki/changelog/2026-05-part2a]] e [[wiki/changelog/2026-05-part1]] — outras entradas de maio
-- [[wiki/changelog/2026-04-part2b]] e anteriores — abril 2026
-- [[wiki/changelog/2026-pre-04-part3b]] e anteriores — pré-abril
+Arquivadas em [[wiki/changelog/]]:
+- [[wiki/changelog/2026-05-14]] — v7.36.5 (loop fila + retention), v7.36.6 (bugs 8+11)
+- [[wiki/changelog/2026-05-part5]] — v7.36.0-v7.36.4
+- [[wiki/changelog/2026-05-part4]], [[part3]], [[part2b]], [[part2a]], [[part1]]
+- [[wiki/changelog/2026-04-part1]] [[part2a]] [[part2b]]
+- [[wiki/changelog/2026-pre-04-part1]] [[part2]] [[part3a]] [[part3b]]
