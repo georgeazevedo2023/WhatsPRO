@@ -3340,9 +3340,39 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
         log.info('Validator result', { score: validation.score, verdict: validation.verdict, violations: validation.violations.length })
 
         if (validation.verdict === 'BLOCK') {
-          // Critical violation — send handoff instead
-          const handoffMsg = agent.handoff_message || 'Só um instante, vou te encaminhar para nosso consultor de vendas.'
-          // D30: atribui via fila ANTES de enviar
+          // Bug 21+22 (2026-05-17):
+          // - Bug 22: este path era o 4o caminho que ignorava outside_hours (escapou do Bug 16 fix).
+          //   Antes: `agent.handoff_message` direto (sem variante outside). Agora: pickHandoffMessage helper.
+          // - Bug 21: validator BLOCK em qualificacao prematura (lead disse so o produto, faltam fields)
+          //   nao deve transbordar — deve devolver pergunta de qualif. Antes: handoff cego desperdicava lead.
+          //   Guard: se categoria detectada tem PROXIMA PERGUNTA OBRIGATORIA, enviamos a propria qualif msg
+          //   em vez de handoff. Handoff so se nao houver categoria/qualif pendente.
+          const qualifPending = (qualificationContext || '').includes('PRÓXIMA PERGUNTA OBRIGATÓRIA')
+          if (qualifPending) {
+            // Extrair a "FRASE EXATA SUGERIDA" (phrasing do stage) — formato literal do buildQualificationContext.
+            const m = (qualificationContext || '').match(/FRASE EXATA SUGERIDA:\s*"([^"\n]+)"/)
+            const qualifMsg = (m && m[1] && m[1].trim()) || 'Pra te ajudar melhor, me conta um pouco mais sobre o que você precisa?'
+            await sendTextMsg(qualifMsg)
+            await supabase.from('conversation_messages').insert({
+              conversation_id, direction: 'outgoing', content: qualifMsg, media_type: 'text',
+            })
+            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: qualifMsg, media_type: 'text' })
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'response_sent',
+              metadata: { source: 'validator_block_qualif_fallback', validation_score: validation.score, violations: validation.violations, response_text: qualifMsg },
+            })
+            return new Response(JSON.stringify({
+              ok: true, response: qualifMsg, handoff: false, reason: 'validator_block_qualif_fallback',
+              validator: { score: validation.score, violations: validation.violations },
+              tokens: { input: inputTokens, output: outputTokens },
+              latency_ms: Date.now() - startTime,
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          }
+          // Sem qualif pendente — handoff real. Aplicar pickHandoffMessage (Bug 22).
+          const notifyOutsideV = agent.notify_outside_hours_on_handoff !== false
+          const outsideHoursV = notifyOutsideV && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+          const handoffMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursV }) ||
+            'Só um instante, vou te encaminhar para nosso consultor de vendas.'
           const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
           await sendTextMsg(finalMessage)
           await supabase.from('conversation_messages').insert({
@@ -3351,9 +3381,13 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           await supabase.from('conversations').update({
             status_ia: STATUS_IA.SHADOW,
             tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
-            lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
+            lead_msg_count: 0,
           }).eq('id', conversation_id)
           broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'handoff',
+            metadata: { reason: 'validator_block', validation_score: validation.score, violations: validation.violations, outside_hours: outsideHoursV, queue: queueRes },
+          })
           return new Response(JSON.stringify({
             ok: true, response: finalMessage, handoff: true, reason: 'validator_block',
             validator: { score: validation.score, violations: validation.violations },

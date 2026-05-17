@@ -13,6 +13,36 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.6 (2026-05-17) — Bug 21+22: validator BLOCK ignorava outside_hours + transbordo prematuro
+
+User reportou: lead "boa tarde" → "george" → "voces tem trena?" → IA respondeu *"Perfeito! Vou conectar você com nosso consultor de vendas para finalizar seu pedido. Em instantes você terá retorno."* — handoff prematuro (faltava `uso_ferramenta` da categoria `ferramentas_manuais`) + mensagem regular em domingo (Eletropiso fechada — devia ser `_outside_hours`).
+
+**Root cause:** o **validator BLOCK path** (linha antiga 3344) era o 4º caminho de handoff que escapou do fix do Bug 16 v7.37.3. Usava `agent.handoff_message` direto, sem `pickHandoffMessage` helper, sem checar `outside_hours`, e sem log `event=handoff` (invisível em observabilidade). E disparava transbordo mesmo com qualificação incompleta.
+
+**Fix v7.37.6 — validator BLOCK reescrito em 2 frentes:**
+
+1. **Bug 22 (msg correta):** `pickHandoffMessage({agent, profileData, funnelData, outsideHours})` aplicado. Adiciona log `event='handoff', metadata.reason='validator_block', outside_hours, queue` — observabilidade restaurada.
+
+2. **Bug 21 (transbordo prematuro):** guard novo — se `qualificationContext` ainda contém `"PRÓXIMA PERGUNTA OBRIGATÓRIA"` (qualif incompleta), validator BLOCK NÃO transborda. Extrai a `"FRASE EXATA SUGERIDA"` do qualif context via regex e envia ao lead como próxima pergunta. Log `event='response_sent', metadata.source='validator_block_qualif_fallback'`. Handoff só ocorre se NÃO há qualif pendente OU lead pede explicitamente.
+
+**Validação E2E (mesmo cenário do user — Sandbox UAZAPI → Eletropiso prod, domingo fechado):**
+- T1 "oi" → greeting
+- T2 "sou o Joao" → "Joao, em que posso te ajudar hoje?" (Bug 19 ok)
+- T3 "voces tem trena?" → **"Pra te ajudar, uso? (profissional ou doméstico)"** ✅ Bug 21 ok
+- T4 "profissional" → IA pergunta comprimento (LLM improvisou — Bug 23 paralelo)
+- T5 "5 metros, fechar" → IA pergunta tipo de trabalho (enrichment)
+- T6 "quero falar com vendedor agora" → **EXATAMENTE `handoff_message_outside_hours`** ("...assim que estivermos disponíveis...") ✅ Bug 22 ok. `status_ia=shadow`, `ia:shadow` aplicada
+
+**Regra preventiva:** todo path de transbordo (handoff_to_human, auto, deferred, **validator BLOCK**, futuros) DEVE usar `pickHandoffMessage` helper. Buscar `agent.handoff_message ||` periodicamente — qualquer uso direto sem o helper é red flag de 5º caminho.
+
+Arquivos: `ai-agent/index.ts` (~60 linhas no validator BLOCK path). tsc=77 (igual ao pre-fix, zero regressão). Screenshot: `wiki/validacoes/bug21_22_validado.png`.
+
+**Cruza com:** v7.37.3 Bug 16 (fix de 3 paths anteriores), [[wiki/erros-e-licoes#bug-21-22]].
+
+**Backlog Bug 23 (achado durante validação):** LLM em fase de enrichment improvisa pergunta sobre field NÃO cadastrado em `service_categories` (perguntou "comprimento" pra trena, não está no schema). Investigar: *"limitar improvisação LLM em enrichment / schema dinâmico — 2026-05-18"*.
+
+---
+
 ### v7.37.5 (2026-05-17) — Bug 19: anti-hallucination guard para `interesse:CAT`
 
 User mandou print de prod: lead disse "boa tarde" + "George" (só nome). IA respondeu *"George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio."* — chutou "porta" do nada.
