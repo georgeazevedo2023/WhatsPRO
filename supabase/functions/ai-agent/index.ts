@@ -2833,7 +2833,21 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             // pelo menos uma incoming do lead na sessão (ou na msg atual). Se não, REJEITAR + log.
             if (key === 'interesse') {
               const targetCat = matchCategory(value, aliasConfig)
-              if (targetCat && targetCat.interesse_match) {
+              // Bug 25 (2026-05-17): categoria INEXISTENTE no schema (ex: LLM crava
+              // 'interesse:hidraulica' quando so existe 'torneiras'/'canos'/etc).
+              // Antes Bug 19 so bloqueava se a categoria existia e o regex nao batia.
+              // Agora rejeita se a categoria nao existe — evita poluir qualif chain.
+              if (!targetCat) {
+                rejected.push(rawTag)
+                log.warn('Tag rejected: interesse references nonexistent category', { rawTag, value })
+                const { error: logErr25 } = await supabase.from('ai_agent_logs').insert({
+                  agent_id, conversation_id, event: 'interesse_hallucination_blocked',
+                  metadata: { tag: rawTag, category_id: value, reason: 'category_not_in_schema', lead_msg_count: ((conversation as any)?.lead_msg_count ?? 0) },
+                })
+                if (logErr25) log.warn('Bug 25 log insert failed (non-fatal)', { error: logErr25.message })
+                continue
+              }
+              if (targetCat.interesse_match) {
                 try {
                   const reCheck = new RegExp(targetCat.interesse_match, 'i')
                   const allIncoming = (contextMessages || [])
@@ -2846,7 +2860,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
                     log.warn('Tag rejected: interesse hallucinated (no keyword match in lead history)', { rawTag, regex: targetCat.interesse_match })
                     const { error: logErr } = await supabase.from('ai_agent_logs').insert({
                       agent_id, conversation_id, event: 'interesse_hallucination_blocked',
-                      metadata: { tag: rawTag, category_id: value, regex: targetCat.interesse_match, lead_msg_count: ((conversation as any)?.lead_msg_count ?? 0), corpus_preview: corpus.substring(0, 200) },
+                      metadata: { tag: rawTag, category_id: value, regex: targetCat.interesse_match, reason: 'regex_no_match', lead_msg_count: ((conversation as any)?.lead_msg_count ?? 0), corpus_preview: corpus.substring(0, 200) },
                     })
                     if (logErr) log.warn('Bug 19 log insert failed (non-fatal)', { error: logErr.message })
                     continue
@@ -2904,12 +2918,22 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
                   .join(', ')
                 if (currentStage.exit_action === 'handoff') {
                   exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO (score ${newScore}/${currentStage.max_score}). AÇÃO: chame handoff_to_human AGORA com motivo="${interesse || 'qualificacao'} ${qualSummary}". Diga algo como "Vou te conectar com nosso consultor de vendas!" PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei". PROIBIDO fazer mais perguntas — handoff é obrigatório.`
+                  // Bug 24 v2 (2026-05-17): tambem dispara flag pra handoff direto no codigo apos a tool.
+                  // Antes: confiavamos no LLM ler exitInstruction e chamar handoff_to_human. LLM as vezes
+                  // ignora e gera texto vazio (Bug 24 J4 — chuveiro/220v). Solucao: setar flag e o flow
+                  // principal (pos-LLM, antes de retornar) dispara handoff se a flag estiver setada.
+                  if (conversation.status_ia !== STATUS_IA.SHADOW) {
+                    pendingExitActionHandoff = {
+                      reason: `${interesse || currentStage.label} > ${qualSummary}`,
+                      queueMotivo: `${v2Category?.label || currentStage.label} — ${qualSummary}`,
+                    }
+                  }
                 } else if (currentStage.exit_action === 'search_products') {
                   exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO (score ${newScore}/${currentStage.max_score}). AÇÃO: chame search_products AGORA com a query construída a partir das tags coletadas. NÃO faça mais perguntas antes de buscar.`
                 } else if (currentStage.exit_action === 'enrichment') {
                   exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO. AÇÃO: continue perguntando para enriquecer dados (próximo stage do funil).`
                 }
-                log.info('Stage exit triggered', { stage: currentStage.label, score: newScore, max: currentStage.max_score, exit_action: currentStage.exit_action })
+                log.info('Stage exit triggered', { stage: currentStage.label, score: newScore, max: currentStage.max_score, exit_action: currentStage.exit_action, pendingExitActionHandoff: !!pendingExitActionHandoff })
               }
             }
           } catch (scoreErr) {
@@ -2939,6 +2963,43 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           // Update local reference for subsequent tool calls
           const merged = updatedConv?.tags || [...(conversation.tags || []), ...newTags]
           conversation.tags = merged
+
+          // Bug 24 v3 (2026-05-17): se a flag pendingExitActionHandoff foi setada acima
+          // (score atingiu max_score do stage com exit_action=handoff), disparamos handoff
+          // DIRETO AQUI dentro do handler — sem depender de o LLM ler exitInstruction.
+          // Antes (v2): setavamos a flag e o bloco pos-loop disparava. Mas o LLM as vezes
+          // gerava texto vazio E o bloco nao executava (debugado em prod com J4 chuveiro).
+          // Solucao inline mais robusta.
+          if (pendingExitActionHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
+            log.info('Bug 24 v3: exit_action=handoff via set_tags — disparando INLINE', pendingExitActionHandoff)
+            const notifyOutsideE3 = agent.notify_outside_hours_on_handoff !== false
+            const outsideHoursE3 = notifyOutsideE3 && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+            const handoffMsgE3 = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursE3 })
+            const { result: queueResE3, finalMessage: finalMsgE3 } = await runQueueAssignment(handoffMsgE3)
+            await sendTextMsg(finalMsgE3)
+            await supabase.from('conversation_messages').insert({
+              conversation_id, direction: 'outgoing', content: finalMsgE3, media_type: 'text',
+            })
+            const e3Updates: Record<string, unknown> = {
+              status_ia: STATUS_IA.SHADOW,
+              tags: mergeTags(merged, { ia: STATUS_IA.SHADOW }),
+              lead_msg_count: 0,
+            }
+            if (profileData?.handoff_department_id) e3Updates.department_id = profileData.handoff_department_id
+            else if (funnelData?.handoff_department_id) e3Updates.department_id = funnelData.handoff_department_id
+            await supabase.from('conversations').update(e3Updates).eq('id', conversation_id)
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'implicit_handoff',
+              latency_ms: Date.now() - startTime,
+              metadata: { reason: 'exit_action_set_tags_inline', exit_reason: pendingExitActionHandoff.reason, outside_hours: outsideHoursE3, queue: queueResE3 },
+            })
+            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMsgE3, media_type: 'text' })
+            conversation.status_ia = STATUS_IA.SHADOW
+            // Tag pseudo-tool-call pra hadExplicitHandoffInLoop detectar e nao re-enviar
+            toolCallsLog.push({ name: 'handoff_to_human', args: { source: 'set_tags_inline_bug24' } })
+            return `Handoff automático disparado (stage completo). Sem necessidade de mais ações.`
+          }
+
           return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}`
         }
 
@@ -3481,6 +3542,40 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
 
     // #12: If handoff was called, ALWAYS discard LLM text — handoff tool already sent handoff_message
     const hadExplicitHandoffInLoop = toolCallsLog.some(t => t.name === 'handoff_to_human')
+
+    // Bug 24 v2 (2026-05-17): se o set_tags handler completou o stage com exit_action=handoff e o
+    // LLM NAO chamou handoff_to_human (ignorou a exitInstruction), disparamos handoff direto aqui
+    // ANTES de cair no empty-response guard. Caso J4 (chuveiro/220v): set_tags subiu score pra max,
+    // exitInstruction foi gerada, LLM gerou texto vazio = silencio pro lead.
+    if (!hadExplicitHandoffInLoop && pendingExitActionHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
+      log.info('Bug 24 v2: exit_action=handoff via set_tags — LLM ignorou exitInstruction, disparando direto', pendingExitActionHandoff)
+      const notifyOutsideE2 = agent.notify_outside_hours_on_handoff !== false
+      const outsideHoursE2 = notifyOutsideE2 && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+      const handoffMsgE2 = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursE2 })
+      const { result: queueResE2, finalMessage: finalMsgE2 } = await runQueueAssignment(handoffMsgE2)
+      await sendTextMsg(finalMsgE2)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: finalMsgE2, media_type: 'text',
+      })
+      const e2Updates: Record<string, unknown> = {
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        lead_msg_count: 0,
+      }
+      if (profileData?.handoff_department_id) e2Updates.department_id = profileData.handoff_department_id
+      else if (funnelData?.handoff_department_id) e2Updates.department_id = funnelData.handoff_department_id
+      await supabase.from('conversations').update(e2Updates).eq('id', conversation_id)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        latency_ms: Date.now() - startTime,
+        metadata: { reason: 'exit_action_set_tags', exit_reason: pendingExitActionHandoff.reason, outside_hours: outsideHoursE2, queue: queueResE2 },
+      })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMsgE2, media_type: 'text' })
+      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'exit_action_set_tags', queue: queueResE2 }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     if (hadExplicitHandoffInLoop) {
       if (responseText.trim()) {
         log.info('Handoff completed — discarding LLM text', { discarded: responseText.substring(0, 100) })
