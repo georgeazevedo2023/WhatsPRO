@@ -9,6 +9,20 @@ type: log
 
 ---
 
+## 2026-05-17 (fim tarde) — Bug 15b fix: out_of_hours_message nunca enviada (v7.37.2)
+
+User reportou que 2 conversas (George + Bug11 Test) tinham badge "Em fila — Slone/Djavan (pausado)" mas o lead NÃO recebeu a mensagem de fora do horário comercial. Audit revelou que `requeue-conversations/index.ts:101` fazia `.select('id, inbox_id, assigned_to')` sem incluir `contact_id`. No Case B (linha 211), a busca por contato virava `eq('id', '')` silente → UAZAPI nunca chamado → `out_of_hours_msg_sent` permanecia false. Pause funcionava, mas notificação ao lead nunca.
+
+**Fix:** adicionar `contact_id` no select. Deploy `requeue-conversations` via Supabase CLI.
+
+**Validação E2E:** UPDATE manual forçou 2 events de volta ao Case B. Próximo tick (~1min) → 2 INSERTs em `conversation_messages` com `external_id=queue_oof_*` ("Olá! 😊 Estamos fora do nosso horário..."). `out_of_hours_msg_sent=true` em ambos. Playwright confirmou na UI.
+
+**Regra preventiva:** ao usar PostgREST/.select(), sempre incluir TODAS as colunas usadas downstream no mesmo handler. Coluna ausente vira undefined silente, sem erro do supabase-js.
+
+**Frase de retomada:** *"auditar outros .select silentes 2026-05-18"*
+
+---
+
 ## 2026-05-17 (tarde) — Bug 13 fix: auto-extract na 1ª msg + categoria mesas (v7.37.1)
 
 User mandou print do Helpdesk: "perguntei se tinha mesa de plástico e IA voltou a perguntar material". Audit revelou que (a) categoria `mesas` não existia (das 23 da Eletropiso) e (b) auto-extract de fields era cego na 1ª msg do lead porque dependia de `interesse:` tag que só o LLM seta DEPOIS do auto-extract rodar.

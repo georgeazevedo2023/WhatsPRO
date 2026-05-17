@@ -96,9 +96,13 @@ async function notifyGestores(
 
 /** Carrega o agente da inbox da conversa pra checar horário comercial. */
 async function loadAgentForConversation(supabase: SupabaseClient, conversationId: string) {
+  // 2026-05-17 (Bug 15b) — contact_id era omitido aqui, fazendo o Case B
+  // (envio do out_of_hours_message) buscar contato com id vazio e falhar
+  // silenciosamente. Resultado: out_of_hours_msg_sent permanecia false e o
+  // lead nunca era avisado que estava fora do horário.
   const { data: conv } = await supabase
     .from('conversations')
-    .select('id, inbox_id, assigned_to')
+    .select('id, inbox_id, contact_id, assigned_to')
     .eq('id', conversationId)
     .maybeSingle()
   if (!conv) return { conv: null, inbox: null, agent: null, instance: null }
