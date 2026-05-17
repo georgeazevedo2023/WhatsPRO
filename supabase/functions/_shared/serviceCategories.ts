@@ -296,6 +296,38 @@ export function matchCategory(
 }
 
 /**
+ * Como `matchCategory`, mas testa o regex contra o texto da MENSAGEM do lead
+ * (nao contra a tag `interesse:`). Util quando a tag ainda nao foi setada —
+ * ex: na 1a mensagem do lead, antes do LLM chamar set_tags.
+ *
+ * Permite ao auto-extract resolver a categoria diretamente de "tem mesa de
+ * plastico pra cozinha?" -> categoria=mesas (regex `mesa|mesas` casa).
+ *
+ * Mesma protecao contra regex invalido. Texto vazio/null retorna null.
+ */
+export function matchCategoryBySearchText(
+  searchText: string | null | undefined,
+  config: ServiceCategoriesConfig,
+): ServiceCategory | null {
+  if (!searchText) return null
+  const trimmed = String(searchText).trim()
+  if (!trimmed) return null
+
+  for (const cat of config.categories) {
+    let re: RegExp
+    try {
+      re = new RegExp(cat.interesse_match, 'i')
+    } catch {
+      // eslint-disable-next-line no-console
+      console.warn(`[serviceCategories] Regex invalido em categoria "${cat.id}": ${cat.interesse_match}`)
+      continue
+    }
+    if (re.test(trimmed)) return cat
+  }
+  return null
+}
+
+/**
  * Descobre o stage atual com base no score acumulado.
  *
  * - Stages sao ordenados por min_score crescente (input ja deveria estar, mas

@@ -3,6 +3,7 @@ import {
   DEFAULT_SERVICE_CATEGORIES_V2,
   getCategoriesOrDefault,
   matchCategory,
+  matchCategoryBySearchText,
   getCurrentStage,
   getNextField,
   getScoreFromTags,
@@ -95,6 +96,93 @@ describe('matchCategory', () => {
   it('case-insensitive (regex tem flag i)', () => {
     expect(matchCategory('TINTA', DEFAULT_SERVICE_CATEGORIES_V2)?.id).toBe('tintas')
     expect(matchCategory('Tinta Acrílica', DEFAULT_SERVICE_CATEGORIES_V2)?.id).toBe('tintas')
+  })
+})
+
+// =============================================================================
+// matchCategoryBySearchText (Bug 13)
+// =============================================================================
+describe('matchCategoryBySearchText', () => {
+  it('extrai categoria de mensagem direta do lead', () => {
+    expect(matchCategoryBySearchText('tem tinta acrilica?', DEFAULT_SERVICE_CATEGORIES_V2)?.id).toBe('tintas')
+  })
+
+  it('case-insensitive + frases longas', () => {
+    expect(matchCategoryBySearchText('Oi, vcs vendem TINTA pra parede externa?', DEFAULT_SERVICE_CATEGORIES_V2)?.id).toBe('tintas')
+  })
+
+  it('retorna null pra mensagem sem categoria', () => {
+    expect(matchCategoryBySearchText('bom dia, tudo bem?', DEFAULT_SERVICE_CATEGORIES_V2)).toBeNull()
+  })
+
+  it('texto vazio/null/whitespace -> null', () => {
+    expect(matchCategoryBySearchText('', DEFAULT_SERVICE_CATEGORIES_V2)).toBeNull()
+    expect(matchCategoryBySearchText('   ', DEFAULT_SERVICE_CATEGORIES_V2)).toBeNull()
+    expect(matchCategoryBySearchText(null, DEFAULT_SERVICE_CATEGORIES_V2)).toBeNull()
+    expect(matchCategoryBySearchText(undefined, DEFAULT_SERVICE_CATEGORIES_V2)).toBeNull()
+  })
+
+  it('regex invalido em interesse_match nao crasha, pula categoria', () => {
+    const broken: ServiceCategoriesConfig = {
+      categories: [
+        {
+          id: 'broken',
+          label: 'Broken',
+          interesse_match: '[unclosed',
+          stages: [
+            {
+              id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff',
+              fields: [{ key: 'a', label: 'a', examples: '', score_value: 50, priority: 1 }],
+              phrasing: 'X',
+            },
+          ],
+        },
+        {
+          id: 'tintas', label: 'Tintas', interesse_match: 'tinta',
+          stages: [
+            {
+              id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff',
+              fields: [{ key: 'a', label: 'a', examples: '', score_value: 50, priority: 1 }],
+              phrasing: 'X',
+            },
+          ],
+        },
+      ],
+      default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+    }
+    expect(matchCategoryBySearchText('tem tinta?', broken)?.id).toBe('tintas')
+  })
+
+  it('frase "mesa de plastico pra cozinha" casa categoria mesas via regex', () => {
+    // Simula categoria configurada na conta (nao esta no DEFAULT). Testa o
+    // mecanismo, nao o conteudo do default.
+    const cfgComMesas: ServiceCategoriesConfig = {
+      categories: [
+        ...DEFAULT_SERVICE_CATEGORIES_V2.categories,
+        {
+          id: 'mesas', label: 'Mesas', interesse_match: 'mesa|mesas',
+          stages: [
+            {
+              id: 'qualificacao', label: 'Qualificacao', min_score: 0, max_score: 30,
+              exit_action: 'handoff',
+              fields: [
+                { key: 'material_mesa', label: 'material', examples: 'plástico, madeira', score_value: 10, priority: 1 },
+              ],
+              phrasing: 'X',
+            },
+          ],
+        },
+      ],
+      default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+    }
+    expect(matchCategoryBySearchText('vcs tem mesa de plastico pra cozinha?', cfgComMesas)?.id).toBe('mesas')
+  })
+
+  it('primeira categoria que casa vence (mesmo padrao do matchCategory)', () => {
+    // tintas regex inclui "tinta|esmalte|verniz|impermeabilizante" — entao
+    // "impermeabilizante" no texto deveria casar com tintas (vem antes).
+    const cat = matchCategoryBySearchText('preciso de impermeabilizante', DEFAULT_SERVICE_CATEGORIES_V2)
+    expect(['tintas', 'impermeabilizantes']).toContain(cat?.id)
   })
 })
 

@@ -13,6 +13,40 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.1 (2026-05-17) — Bug 13: auto-extract de fields na 1ª msg do lead + categoria mesas
+
+**Problema:** lead George mandou *"vcs tem mesa de plastico pra cozinha?"* na 1ª msg. IA respondeu *"Você tem preferência por algum material, como madeira, plástico ou alumínio?"* — ignorou o "plástico" que o lead já tinha mencionado.
+
+**Causa raiz (auditada):** o auto-extract de fields (`ai-agent/index.ts:1531`) só rodava quando a conversa já tinha tag `interesse:` — projetado pra msgs do meio da conversa (turno 3+). Na 1ª msg, conv ainda não tem `interesse:` porque a tag só é setada pelo LLM DEPOIS do auto-extract rodar (mesma execução). Auto-extract ficava cego pra justamente a 1a msg, que é a que mais traz info.
+
+Pior: além desse bug sistêmico, **categoria `mesas` não existia** nas 23 da Eletropiso → LLM cravava `interesse:mesa` (singular inválido), `matchCategory` retornava null, conversa caía em `default` (3 fields genéricos sem `material`).
+
+**Fix duplo:**
+1. **Categoria `mesas` cadastrada** no `service_categories` do agente Eletropiso (UPDATE SQL, +1 categoria: 23→24). Fields: `material_mesa`, `lugares_mesa`, `ambiente_mesa`. `exit_action=handoff` (D27 — qualif-then-handoff sem catálogo). `interesse_match: 'mesa|mesas'`.
+2. **Helper novo `matchCategoryBySearchText`** em `_shared/serviceCategories.ts` — testa o regex `interesse_match` de cada categoria contra o **texto da mensagem do lead** (não contra a tag). Permite o auto-extract resolver a categoria diretamente do incomingText quando a tag ainda não foi setada.
+3. **Patch em `ai-agent/index.ts:1531`** (HIGH RISK aprovado): fallback chain `matchCategory(interesseValue) || matchCategoryBySearchText(incomingText)`. Quando categoria foi resolvida via searchText (sem tag `interesse:` ainda), o auto-extract também **seeda** `interesse:<categoria.id>` — corrige Bug 12 colateralmente (LLM não consegue mais cravar `interesse:mesa` singular inválido porque o sistema já preencheu com `interesse:mesas` antes).
+
+**Validação E2E (Eletropiso prod, conv 828e45b2…):**
+- POST "vcs tem mesa de plastico pra cozinha?" com conv resetada.
+- Auto-extract via searchText: categoria detectada=`mesas` (resolved_via=`search_text`).
+- Tags pós-auto-extract: `[interesse:mesas, material_mesa:plástico, ambiente_mesa:cozinha]` (seedadas ANTES do LLM rodar).
+- IA respondeu: *"Pra te ajudar com a mesa certa, quantos lugares? (2, 4, 6 ou 8 lugares)"* — pulou material+ambiente (já dito) e foi direto pro field faltante (`lugares_mesa`).
+
+**Casos resolvidos sistemicamente** (toda 1ª msg rica):
+- "Tem tinta acrílica fosco branco?" → seeda interesse:tintas + extrai tipo+acabamento+cor.
+- "Preciso de chuveiro elétrico 220v" → seeda interesse:chuveiros + extrai tipo+voltagem.
+- "Quero furadeira 220v Bosch" → seeda interesse:furadeiras + extrai voltagem+marca.
+
+**Arquivos:** `_shared/serviceCategories.ts` (+30 helper), `_shared/serviceCategories.test.ts` (+87, 7 testes novos), `ai-agent/index.ts` (block reescrito), SQL: 1 categoria cadastrada via service_categories JSONB.
+
+**SYNC RULE:** itens 1 (banco, via UPDATE em JSONB do agente) + 5 (backend) + 8 (docs) cumpridos. 2/3/4/6/7 N/A. Helper testado.
+
+tsc=0. Vitest 116/116 em serviceCategories. Deploy `ai-agent` em prod (Supabase CLI).
+
+**Cruza com:** D27 (handoff-first em catálogo embrionário — mesas usa esse padrão), D33 (filterProductsByExpectedCategory — mesma fallback chain de categoria), Bug 12 (mitigado via seed `interesse:` determinístico antes do LLM).
+
+---
+
 ### v7.37.0 (2026-05-17) — D34: Reabertura de conversa resolvida em janela 60d
 
 **Problema:** quando atendente clicava "Finalizar Atendimento" e o lead voltava a falar depois, o webhook criava **conv NOVA** em vez de reusar a anterior. Consequências: (a) Alberto continuava aparentemente "dono" do histórico velho enquanto IA atendia o lead de novo numa conv separada; (b) tags `interesse:tintas`/`motivo:compra` ficavam congeladas na conv velha — IA reiniciava qualificação do zero; (c) métricas do gestor não conseguiam ligar "Alberto resolveu" → "lead voltou 3 dias depois"; (d) greeting "Olá! Bem-vindo a Eletropiso" mesmo conhecendo o lead.

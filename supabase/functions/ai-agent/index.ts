@@ -19,6 +19,7 @@ import { isTrivialMessage } from '../_shared/aiRuntime.ts'
 import {
   getCategoriesOrDefault,
   matchCategory,
+  matchCategoryBySearchText,
   getQualificationFields,
   formatPhrasing,
   extractInteresseFromTags,
@@ -1527,12 +1528,20 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
     // (ex: "Tem tinta acrílica fosco?" → IA pergunta "qual tipo?" depois).
     // Aqui pré-populamos as tags determinísticamente cruzando o texto com os
     // examples do schema service_categories da categoria detectada.
+    //
+    // 2026-05-17 (Bug 13) — antes do patch, isto so rodava se a conversa ja
+    // tivesse `interesse:` tag. Como o LLM só seta a tag DEPOIS de rodar (e
+    // o auto-extract roda antes do LLM no mesmo turno), a 1a mensagem do
+    // lead — justamente a que mais precisa — ficava sem extracao. Solucao:
+    // fallback chain (interesse tag -> incomingText via matchCategoryBySearchText).
     try {
-      const interesseTagPre = (conversation.tags || []).find((t: string) => typeof t === 'string' && t.startsWith('interesse:'))
-      if (interesseTagPre && incomingText.trim()) {
-        const interesseValue = interesseTagPre.split(':')[1] || ''
+      if (incomingText.trim()) {
         const cfgPre = getCategoriesOrDefault(agent)
-        const categoryPre = matchCategory(interesseValue, cfgPre)
+        const interesseTagPre = (conversation.tags || []).find((t: string) => typeof t === 'string' && t.startsWith('interesse:'))
+        const interesseValue = interesseTagPre ? (interesseTagPre.split(':')[1] || '') : ''
+        const categoryPre =
+          matchCategory(interesseValue, cfgPre) ||
+          matchCategoryBySearchText(incomingText, cfgPre)
         if (categoryPre) {
           const allFields = flattenCategoryFields(categoryPre.stages)
           const existingKeys = new Set<string>()
@@ -1544,16 +1553,22 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
           const extracted = autoExtractFields(incomingText, allFields, existingKeys)
           if (extracted.length > 0) {
             const newTags = extracted.map((ef) => `${ef.key}:${ef.value}`)
-            const mergedTags = [...(conversation.tags || []), ...newTags]
+            // Se ainda nao ha interesse: tag, semear baseado na categoria detectada
+            // (caso contrario o LLM podia cravar valor invalido como 'mesa' singular).
+            const seedTags: string[] = []
+            if (!interesseTagPre) {
+              seedTags.push(`interesse:${categoryPre.id}`)
+            }
+            const mergedTags = [...(conversation.tags || []), ...seedTags, ...newTags]
             // Persiste para o próximo turno + atualiza objeto local pra buildQualificationContext usar
             conversation.tags = mergedTags
             await supabase.from('conversations').update({ tags: mergedTags }).eq('id', conversation_id)
             await supabase.from('ai_agent_logs').insert({
               agent_id, conversation_id, event: 'auto_field_extracted',
               latency_ms: 0,
-              metadata: { extracted, new_tags: newTags, incoming_preview: incomingText.substring(0, 120) },
+              metadata: { extracted, new_tags: newTags, seed_tags: seedTags, category_id: categoryPre.id, resolved_via: interesseTagPre ? 'interesse_tag' : 'search_text', incoming_preview: incomingText.substring(0, 120) },
             })
-            log.info('Auto-extracted fields from incoming text', { extracted, newTags })
+            log.info('Auto-extracted fields from incoming text', { extracted, newTags, seedTags, categoryId: categoryPre.id })
           }
         }
       }
