@@ -733,6 +733,41 @@ Deno.serve(async (req) => {
     const hasInteracted = (recentLogCount || 0) >= 1
     const hasEverInteracted = (totalLogCount || 0) >= 1
 
+    // Bug 28 (2026-05-17): out_of_hours_message na entrada. Quando lead chega FORA do
+    // horario comercial E `out_of_hours_message` esta cadastrada E ainda nao foi enviada,
+    // enviar AGORA antes de qualquer outro fluxo. Antes: so' requeue-conversations (cron)
+    // enviava — e so' quando conv ja' estava em handoff queue. Lead chegando direto fora
+    // do horario nunca recebia o aviso. Posicionado aqui (apos load do agent + checks)
+    // pra rodar em qualquer entrada, nao so' no greeting block.
+    try {
+      const notifyOutsideOnEntry = agent.notify_outside_hours_on_handoff !== false
+      const isOutsideHoursEntry = notifyOutsideOnEntry && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+      const alreadySentOOH = (conversation.tags || []).some((t: string) => typeof t === 'string' && t.startsWith('out_of_hours_sent:'))
+      if (isOutsideHoursEntry && agent.out_of_hours_message && !alreadySentOOH && conversation.status_ia !== STATUS_IA.SHADOW) {
+        await sendTextMsg(agent.out_of_hours_message)
+        await supabase.from('conversation_messages').insert({
+          conversation_id, direction: 'outgoing', content: agent.out_of_hours_message, media_type: 'text',
+          external_id: `ai_ooh_${Date.now()}`,
+        })
+        broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: agent.out_of_hours_message, media_type: 'text' })
+        const oohTag = `out_of_hours_sent:${new Date().toISOString()}`
+        const taggedOOH = [...(conversation.tags || []), oohTag]
+        conversation.tags = taggedOOH
+        await supabase.from('conversations').update({
+          tags: taggedOOH,
+          last_message_at: new Date().toISOString(),
+          last_message: agent.out_of_hours_message.substring(0, 200),
+        }).eq('id', conversation_id)
+        await supabase.from('ai_agent_logs').insert({
+          agent_id, conversation_id, event: 'greeting_sent',
+          metadata: { source: 'bug28_out_of_hours_on_entry', length: agent.out_of_hours_message.length },
+        })
+        log.info('Bug 28: out_of_hours_message enviada na entrada (fora do horario)')
+      }
+    } catch (err) {
+      log.warn('Bug 28 out_of_hours_message check failed (non-fatal)', { error: (err as Error).message })
+    }
+
     // 5.5 Handoff triggers — check ONLY the last message in grouped batch
     // When debounce groups "Aceita pix?\nMe passa o vendedor", the trigger should NOT
     // short-circuit — the LLM needs to answer "Aceita pix?" first, then handoff.
@@ -1406,6 +1441,7 @@ ${contextBlock}`
         latency_ms: Date.now() - startTime,
         metadata: { media_type: greetMediaType },
       })
+
 
       // If the lead's first message is JUST a greeting, stop here and wait for lead to respond.
       // Strategy: remove ALL known greeting tokens from the message. If nothing remains, it's just a greeting.
