@@ -55,6 +55,51 @@ const HANDOFF_PATTERNS = [
 ]
 
 /**
+ * Bug 16b (2026-05-17) — escolha unificada da mensagem de handoff.
+ *
+ * Antes deste helper, 3 paths de handoff (trigger matched, auto-message-limit,
+ * deferred trigger) **não checavam outsideHours** e sempre enviavam
+ * `agent.handoff_message`. Resultado: leads fora do horário recebiam
+ * "Em instantes você terá retorno" quando deveriam receber "assim que
+ * estivermos disponíveis".
+ *
+ * Priority: Profile > Funnel > Agent. Em cada camada, prefere _outside_hours
+ * quando outsideHours=true; faz fallback pra regular se a variante não existir.
+ */
+function pickHandoffMessage(opts: {
+  // deno-lint-ignore no-explicit-any
+  agent: any
+  // deno-lint-ignore no-explicit-any
+  profileData?: any | null
+  // deno-lint-ignore no-explicit-any
+  funnelData?: any | null
+  outsideHours: boolean
+  fallbackRegular?: string
+  fallbackOutside?: string
+}): string {
+  const fallbackRegular = opts.fallbackRegular
+    ?? 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+  const fallbackOutside = opts.fallbackOutside
+    ?? 'No momento estamos fora do horário de atendimento, mas assim que disponível nosso consultor de vendas vai dar prosseguimento ao seu atendimento. Deseja algo mais? 😊'
+
+  const pickFrom = (src: { handoff_message?: string | null; handoff_message_outside_hours?: string | null } | null | undefined): string | null => {
+    if (!src) return null
+    if (opts.outsideHours && src.handoff_message_outside_hours) return src.handoff_message_outside_hours
+    if (!opts.outsideHours && src.handoff_message) return src.handoff_message
+    // se outsideHours=true mas profile/funnel só tem regular, usa o regular (melhor que nada)
+    if (opts.outsideHours && src.handoff_message) return src.handoff_message
+    return null
+  }
+
+  return (
+    pickFrom(opts.profileData)
+    || pickFrom(opts.funnelData)
+    || pickFrom(opts.agent)
+    || (opts.outsideHours ? fallbackOutside : fallbackRegular)
+  )
+}
+
+/**
  * AI Agent - Main Brain (v2 — Sprint 3)
  *
  * Tools: search_products, send_carousel, send_media, handoff_to_human,
@@ -685,10 +730,10 @@ Deno.serve(async (req) => {
         } else {
           // Single message with trigger — immediate handoff (original behavior)
           log.info('Handoff trigger matched', { trigger: matchedTrigger, textPreview: lastMsg.substring(0, 80) })
-          let handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
-          // #M17 F3: Profile > Funnel > Agent handoff message (trigger path)
-          if (profileData?.handoff_message) handoffMsg = profileData.handoff_message
-          else if (funnelData?.handoff_message) handoffMsg = funnelData.handoff_message
+          // Bug 16b: respeitar horário comercial (antes só checava em handoff_to_human tool)
+          const notifyOutsideTrigger = agent.notify_outside_hours_on_handoff !== false
+          const outsideHoursTrigger = notifyOutsideTrigger && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+          let handoffMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursTrigger })
 
           // Check if recent messages show frustration — send empathy before handoff
           // BUT skip if empathy was already sent recently (within 60s) to avoid duplicates
@@ -834,16 +879,25 @@ Deno.serve(async (req) => {
       && conversation.status_ia !== STATUS_IA.SHADOW  // R85: skip if already in shadow (counter still increments but no re-handoff)
     ) {
       log.info('Lead message limit reached — auto handoff', { count: leadMsgCount, max: MAX_LEAD_MESSAGES, handoffRule: effectiveHandoffRule })
-      let handoffMsg = agent.handoff_message || 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado!'
-      // #M17 F3: Profile > Funnel > Agent handoff message
-      if (profileData?.handoff_message) handoffMsg = profileData.handoff_message
-      else if (funnelData?.handoff_message) handoffMsg = funnelData.handoff_message
+      // Bug 16b: respeitar horário comercial (antes sempre usava handoff_message)
+      const notifyOutsideAuto = agent.notify_outside_hours_on_handoff !== false
+      const outsideHoursAuto = notifyOutsideAuto && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+      const handoffMsg = pickHandoffMessage({
+        agent, profileData, funnelData, outsideHours: outsideHoursAuto,
+        fallbackRegular: 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado!',
+      })
 
       // D30: atribui via fila ANTES de enviar
       const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
       await sendTextMsg(finalMessage)
       await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
+      })
+      // Bug 16c: log do auto-handoff (antes este path ficava invisível em ai_agent_logs)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        latency_ms: Date.now() - startTime,
+        metadata: { reason: 'message_limit', count: leadMsgCount, max: MAX_LEAD_MESSAGES, handoff_rule: effectiveHandoffRule, outside_hours: outsideHoursAuto, queue: queueRes },
       })
       // All handoffs → SHADOW (AI continues extracting data silently)
       // R86: reset lead_msg_count to 0 so returning lead doesn't immediately re-trigger auto-handoff
@@ -1508,7 +1562,7 @@ ${contextBlock}`
         const phrasing = formatPhrasing(stage.phrasing, nextField)
         return `[QUALIFICAÇÃO ATUAL — REGRA ABSOLUTA, SOBRESCREVE TUDO]
 Categoria detectada: ${category.label} (id: ${category.id})
-Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.exit_action})
+Stage: ${stage.label} (score ${score}/${stage.max_score})
 🎯 PRÓXIMA PERGUNTA OBRIGATÓRIA: ${nextField.label} (priority ${nextField.priority})
 🗣️ FRASE EXATA SUGERIDA: "${phrasing}"
 
@@ -1517,7 +1571,8 @@ Stage: ${stage.label} (score ${score}/${stage.max_score}, exit_action=${stage.ex
 - ❌ ERRADO: "preferência por marca ou cor?", "qual cor e marca?", "tipo e cor?".
 - ✅ CERTO: pergunte SOMENTE "${nextField.label}" usando o phrasing acima.
 - Após o lead responder, chame set_tags(["${nextField.key}:VALOR"]) ANTES de qualquer outra ação.
-- NUNCA pule este field. Se o sub-agent SDR sugerir outra pergunta, IGNORE — esta seção vence.`
+- NUNCA pule este field. Se o sub-agent SDR sugerir outra pergunta, IGNORE — esta seção vence.
+- 🚫 PROIBIDO chamar handoff_to_human ENQUANTO houver "PRÓXIMA PERGUNTA OBRIGATÓRIA" aqui. Esta seção SÓ deixa de aparecer quando TODOS os fields da categoria foram preenchidos. O exit_action de cada categoria (handoff ou search_products) só roda DEPOIS da qualificação completa, NUNCA antes. Mesmo que a categoria seja sobre produto que aparentemente "não temos cadastrado", você DEVE qualificar os fields restantes antes de transferir — o vendedor humano precisa do contexto.`
       } catch {
         return ''
       }
@@ -2869,21 +2924,10 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           // #22: Choose handoff message based on business hours (R107: respeita extended_hours_until)
           // 2026-05-13: toggle notify_outside_hours_on_handoff (default true) decide se há aviso.
           // OFF = atendentes 24/7, sempre handoff_message normal.
-          let handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+          // 2026-05-17 (Bug 16b): unificado via pickHandoffMessage helper.
           const notifyOutside = agent.notify_outside_hours_on_handoff !== false
           const outsideHours = notifyOutside && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-          if (outsideHours) {
-            handoffMsg = agent.handoff_message_outside_hours || 'No momento estamos fora do horário de atendimento, mas assim que disponível nosso consultor de vendas vai dar prosseguimento ao seu atendimento. Deseja algo mais? 😊'
-          }
-
-          // #M16: Funnel handoff priority — funnel msg > agent msg
-          if (funnelData) {
-            if (outsideHours && funnelData.handoff_message_outside_hours) {
-              handoffMsg = funnelData.handoff_message_outside_hours
-            } else if (!outsideHours && funnelData.handoff_message) {
-              handoffMsg = funnelData.handoff_message
-            }
-          }
+          let handoffMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours })
 
           // If reason indicates frustration/negative sentiment, send empathy BEFORE handoff
           const negativeReasons = ['frustração', 'frustracao', 'irritação', 'irritacao', 'reclamação', 'reclamacao', 'insatisfação', 'insatisfacao', 'negativo', 'absurdo']
@@ -3465,7 +3509,10 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
     // 22. Execute deferred handoff trigger (when grouped msgs had questions before the trigger)
     if (pendingHandoffTrigger && !hadExplicitHandoff && !textLooksLikeHandoff) {
       log.info('Executing deferred handoff trigger after LLM response', { trigger: pendingHandoffTrigger })
-      const handoffMsg = agent.handoff_message || 'Só um instante que vou te encaminhar para nosso consultor de vendas.'
+      // Bug 16b: respeitar horário comercial (antes sempre usava handoff_message)
+      const notifyOutsideDef = agent.notify_outside_hours_on_handoff !== false
+      const outsideHoursDef = notifyOutsideDef && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+      const handoffMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursDef })
       // D30: atribui via fila ANTES de enviar
       const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
       await sendTextMsg(finalMessage)

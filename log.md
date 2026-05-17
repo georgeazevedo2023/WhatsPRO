@@ -9,6 +9,26 @@ type: log
 
 ---
 
+## 2026-05-17 (noite) — Bug 16 fix: 3 paths handoff sem outside_hours + handoff prematuro (v7.37.3)
+
+User reportou print: lead "vcs tem trena?" → IA fez handoff prematuro com `handoff_message` regular (domingo fechado, deveria ser `_outside_hours`). Audit revelou 3 paths em `ai-agent/index.ts` que ignoravam horário comercial (linhas 688, 837, 3468) — apenas o tool LLM `handoff_to_human` (linha 2872) checava. E o path 837 nem logava em `ai_agent_logs`.
+
+**Fixes:**
+- Helper top-level `pickHandoffMessage({ agent, profileData, funnelData, outsideHours, fallbacks })` com priority Profile > Funnel > Agent.
+- Aplicado nos 4 paths (3 quebrados + tool LLM refatorado).
+- Log `event='implicit_handoff'` adicionado no path 837 (auto-handoff por message limit).
+- `buildQualificationContext` reforçado: removido `exit_action=` do header + nova regra absoluta "🚫 PROIBIDO chamar handoff_to_human ENQUANTO houver PRÓXIMA PERGUNTA OBRIGATÓRIA. Categoria com `exit_action=handoff` ainda exige qualificar TODOS fields antes."
+
+**Validação E2E prod, 4 turnos (domingo, Eletropiso fechada):**
+- T3 ("vcs tem trena?") → IA pergunta `uso_ferramenta` (qualif correta) — NÃO faz handoff prematuro.
+- T4 ("profissional. quero falar com um vendedor") → handoff_trigger=vendedor disparou + IA enviou EXATAMENTE a `handoff_message_outside_hours`: *"Perfeito! Anotei seu pedido. Nosso consultor dará prosseguimento assim que estivermos disponíveis..."*. Lucas atribuído pela fila.
+
+**Regra preventiva:** todo caminho de handoff (manual, auto, tool-driven) DEVE consultar `isOutsideBusinessHours` + toggle antes da msg. Centralizar em helper.
+
+tsc=0. Deploy ai-agent. Frase de retomada: *"validar bug 16 prod real 2026-05-18"*
+
+---
+
 ## 2026-05-17 (fim tarde) — Bug 15b fix: out_of_hours_message nunca enviada (v7.37.2)
 
 User reportou que 2 conversas (George + Bug11 Test) tinham badge "Em fila — Slone/Djavan (pausado)" mas o lead NÃO recebeu a mensagem de fora do horário comercial. Audit revelou que `requeue-conversations/index.ts:101` fazia `.select('id, inbox_id, assigned_to')` sem incluir `contact_id`. No Case B (linha 211), a busca por contato virava `eq('id', '')` silente → UAZAPI nunca chamado → `out_of_hours_msg_sent` permanecia false. Pause funcionava, mas notificação ao lead nunca.

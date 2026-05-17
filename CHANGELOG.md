@@ -13,6 +13,51 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.3 (2026-05-17) — Bug 16: 3 paths de handoff sem outside_hours + handoff prematuro
+
+**Problema reportado:** lead George pergunta "vcs tem trena?" às 12:11 (domingo, Eletropiso fechada). IA respondeu *"Perfeito! Vou conectar você com nosso consultor de vendas para finalizar seu pedido. Em instantes você terá retorno..."* — handoff prematuro (sem qualificar uso_ferramenta) E com a mensagem **errada** (deveria ser a `_outside_hours`: "assim que estivermos disponíveis").
+
+**Causas-raiz auditadas:**
+
+1. **Bug 16b — 3 paths de handoff ignoravam horário comercial:**
+   - `ai-agent/index.ts:688` (handoff por trigger matched)
+   - `ai-agent/index.ts:837` (auto-handoff por message limit)
+   - `ai-agent/index.ts:3468` (deferred trigger após LLM)
+   Cada path tinha `let handoffMsg = agent.handoff_message` sem nunca consultar `isOutsideBusinessHours`. Só o path do tool LLM `handoff_to_human` (linha 2872) tinha a lógica correta.
+
+2. **Bug 16c — auto-handoff path 837 não logava em `ai_agent_logs`:** os outros paths inseriam log (`event='handoff'` ou `'handoff_trigger'`), mas o auto-handoff por message limit não — debug ficava cego.
+
+3. **Bug 16a — handoff prematuro não-determinístico:** o `qualificationContext` injetado no prompt mostrava `exit_action=handoff` no header do stage. O LLM às vezes interpretava como "vai pra handoff agora" e chamava `handoff_to_human` SEM qualificar todos os fields da categoria. Acontecia raro mas era pure-prompt issue.
+
+**Fixes aplicados (HIGH RISK ai-agent aprovado):**
+
+1. Helper top-level `pickHandoffMessage({ agent, profileData, funnelData, outsideHours, fallbackRegular, fallbackOutside })` — unifica escolha com priority Profile > Funnel > Agent + fallback regular se profile/funnel não tiver variante outside.
+
+2. Os 3 paths quebrados passam a calcular `outsideHours` localmente e usam o helper. Path 837 também ganha `await ai_agent_logs.insert({ event: 'implicit_handoff', metadata: { reason: 'message_limit', count, max, outside_hours, queue } })`.
+
+3. Path do tool `handoff_to_human` (linha 2872) refatorado pra usar o mesmo helper — código duplicado removido.
+
+4. `buildQualificationContext` (linha 1495+): removido `exit_action=` do header do stage + nova regra absoluta: *"🚫 PROIBIDO chamar handoff_to_human ENQUANTO houver PRÓXIMA PERGUNTA OBRIGATÓRIA aqui. O exit_action de cada categoria só roda DEPOIS da qualificação completa, NUNCA antes. Mesmo que a categoria seja sobre produto que aparentemente 'não temos cadastrado', você DEVE qualificar os fields restantes antes de transferir — o vendedor humano precisa do contexto."*
+
+**Validação E2E (4 turnos, Eletropiso domingo fechado):**
+
+| Turno | Lead | IA (esperado) | IA (real) |
+|---|---|---|---|
+| 1 | "boa tarde" | greeting | ✅ "Olá! Bem-vindo a Eletropiso, com quem eu falo?" |
+| 2 | "george" | qualif aberta | ✅ "Em que posso te ajudar hoje?" |
+| 3 | "vcs tem trena?" | **qualif uso_ferramenta** (sem handoff) | ✅ **"Pra te ajudar, uso? (profissional ou doméstico) 🛠️"** |
+| 4 | "profissional. quero falar com um vendedor" | handoff trigger + **msg outside hours** | ✅ **"Perfeito! Anotei seu pedido. Nosso consultor dará prosseguimento ao seu atendimento assim que estivermos disponíveis. Foi um prazer atender! 😊"** + Lucas atribuído pela fila |
+
+Tags pós-handoff: `[ia_cleared, motivo:compra, interesse:ferramenta, tipo_ferramenta:trena, ia:shadow]` — auto-extract + qualif + tag de shadow preservados.
+
+**Regra preventiva**: ao criar caminho de handoff (manual, automático ou tool-driven), SEMPRE consultar `isOutsideBusinessHours` + `notify_outside_hours_on_handoff` antes de decidir qual mensagem enviar. Centralizar a lógica em `pickHandoffMessage` evita drift entre paths.
+
+Arquivos: `ai-agent/index.ts` (helper top-level + 4 paths refatorados + qualificationContext reforçado). tsc=0. Deploy via Supabase CLI.
+
+**Cruza com:** D32 (toggle `notify_outside_hours_on_handoff`), D33 (post-filter categoria), D34 (reabertura), v7.37.1 (auto-extract na 1ª msg), v7.37.2 (contact_id em out_of_hours).
+
+---
+
 ### v7.37.2 (2026-05-17) — Bug 15b: out_of_hours_message nunca enviada (contact_id ausente no select)
 
 **Problema:** quando lead manda msg fora do horário comercial e há `handoff_queue_event` ativo, o cron `requeue-conversations` deveria pausar o evento E enviar a `out_of_hours_message` configurada (ex: *"Olá! Estamos fora do horário..."*). Em prod, os events ficavam `out_of_hours_msg_sent=false` indefinidamente e o lead nunca recebia o aviso. Reproduzido com domingo (Eletropiso fechada): 2 events ativos (George + Bug 11 Test) pausados há 1h45 sem mensagem.
