@@ -13,6 +13,32 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.10 (2026-05-17) — Bug 24 v4 FIXADO: RPC fantasma escondia o inline handler
+
+User pediu "continuar até nota 10". Foco no Bug 24 v3 que não disparava (CRÍTICO — 90% das jornadas falhavam).
+
+**Debug via breadcrumbs em ai_agent_logs** (sem stderr porque não é confiável em edge fns): adicionei inserts diretos no DB nos pontos chave do handler set_tags. Reteste J4 chuveiro/220v revelou:
+- Breadcrumb `bug24_flag_set` apareceu (`pendingExitActionHandoff_setado=true`) ✅
+- Breadcrumb `bug24_checkpoint_pre_inline` **NÃO apareceu** ❌
+
+Handler retornava ANTES do bloco inline.
+
+**Root cause:** `supabase.rpc('merge_conversation_tags', ...)` no handler set_tags. **RPC NÃO EXISTE no projeto novo** (`prfcbfumyrrycsrcrvms`). Confirmado via `SELECT proname FROM pg_proc WHERE proname='merge_conversation_tags'` → vazio. RPC retornava error → caía no fallback path → fazia merge in-memory → **return PRECOCE** pulando todo o resto do handler, incluindo o bloco Bug 24 v3 inline (handoff direto).
+
+**Fix v7.37.10 (Bug 24 v4):** unifiquei os 2 paths. Ambos resolvem `merged` numa única variável; fluxo continua linearmente até o bloco inline. Sem `return` precoce.
+
+**Validação E2E:** J4 chuveiro/220v retest → IA enviou EXATAMENTE `handoff_message_outside_hours` + `event=implicit_handoff reason=exit_action_set_tags_inline` + status_ia=shadow + ia:shadow tag + lead_score:30. ✅
+
+**Impacto:** corrige o caminho CRÍTICO de handoff automático para categorias com `exit_action=handoff` no max_score do stage. Toda jornada de 2 fields × 15 score = max 30 agora dispara handoff direto correto (chuveiros, ferramentas, torneiras, canos, fechaduras, disjuntores, lâmpadas, vasos — quando LLM tagueia o `interesse:CAT` corretamente).
+
+**Lição preventiva (R[novo]):** quando uma fn chama `supabase.rpc('X', ...)` E tem fallback com `return`, SEMPRE conferir se a RPC existe no DB atual. RPC missing causa fallback silencioso + return precoce que mascara código novo posterior. Buscar em todo codebase: `grep "supabase.rpc.*}.*return" -A 3`. Auditar.
+
+**Bugs ainda em backlog (não bloqueantes):** Bug 17 regressão, Bug 24 search_products, Bug 26 LLM repete categoria inválida, Bug 27 LLM pula set_tags interesse. Próxima sessão.
+
+Arquivos: `ai-agent/index.ts` (~10 linhas — refator de 2 paths em 1). Screenshot: `wiki/validacoes/bug24_v4_chuveiro_validado.png`.
+
+---
+
 ### v7.37.8 / v7.37.9 (2026-05-17) — Sessão 10 jornadas E2E + Bug 25 fix + 4 bugs catalogados
 
 User pediu 10 jornadas E2E completas. Resultado: **2 PASS + 1 parcial + 7 FAIL** — 5 bugs novos identificados, 1 fixado e validado em prod (Bug 25), 4 em backlog.

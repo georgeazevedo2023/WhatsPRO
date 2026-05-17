@@ -2941,27 +2941,28 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             log.warn('score progression hook failed', { error: (scoreErr as Error).message })
           }
 
-          // Atomic merge: read + merge + write in a single SQL statement
-          const { data: updatedConv, error } = await supabase.rpc('merge_conversation_tags', {
+          // Atomic merge: read + merge + write in a single SQL statement.
+          // Bug 24 v4 (2026-05-17): RPC `merge_conversation_tags` nao existe em prod novo
+          // (so' no projeto antigo). Antes sempre caia no fallback path que tinha um return
+          // PRECOCE, pulando o bloco inline de handoff (Bug 24 v3) e demais code paths.
+          // Fix: unificar - tentar RPC, fallback em memoria, e depois SEMPRE seguir o fluxo
+          // ate o final (incluindo o disparo inline do handoff).
+          const { data: updatedConv, error: rpcError } = await supabase.rpc('merge_conversation_tags', {
             p_conversation_id: conversation_id,
             p_new_tags: newTags,
           })
-
-          if (error) {
-            // Fallback to in-memory merge if RPC not available
-            log.warn('merge_conversation_tags RPC failed, using in-memory fallback', { error: error.message })
+          let merged: string[]
+          if (rpcError) {
+            log.warn('merge_conversation_tags RPC failed, using in-memory fallback', { error: rpcError.message })
             const existing: string[] = conversation.tags || []
             const tagMap = new Map<string, string>()
             for (const t of existing) tagMap.set(t.split(':')[0], t)
             for (const t of newTags) tagMap.set(t.split(':')[0], t)
-            const merged = Array.from(tagMap.values())
+            merged = Array.from(tagMap.values())
             await supabase.from('conversations').update({ tags: merged }).eq('id', conversation_id)
-            conversation.tags = merged
-            return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}`
+          } else {
+            merged = updatedConv?.tags || [...(conversation.tags || []), ...newTags]
           }
-
-          // Update local reference for subsequent tool calls
-          const merged = updatedConv?.tags || [...(conversation.tags || []), ...newTags]
           conversation.tags = merged
 
           // Bug 24 v3 (2026-05-17): se a flag pendingExitActionHandoff foi setada acima
@@ -2970,8 +2971,9 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           // Antes (v2): setavamos a flag e o bloco pos-loop disparava. Mas o LLM as vezes
           // gerava texto vazio E o bloco nao executava (debugado em prod com J4 chuveiro).
           // Solucao inline mais robusta.
+          // Bug 24 v4 (2026-05-17): handoff inline (mirror Bug 18 sale_closed)
           if (pendingExitActionHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
-            log.info('Bug 24 v3: exit_action=handoff via set_tags — disparando INLINE', pendingExitActionHandoff)
+            log.info('Bug 24 v4: exit_action=handoff via set_tags — disparando INLINE', pendingExitActionHandoff)
             const notifyOutsideE3 = agent.notify_outside_hours_on_handoff !== false
             const outsideHoursE3 = notifyOutsideE3 && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
             const handoffMsgE3 = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursE3 })

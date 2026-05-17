@@ -9,6 +9,51 @@ type: log
 
 ---
 
+## 2026-05-17 (noite tardíssima) — Bug 24 v4 FIXADO: RPC fantasma escondia o inline handler (v7.37.10)
+
+User pediu "continuar até nota 10". Foco: Bug 24 v3 (handoff via set_tags) que não disparava.
+
+**Debug via breadcrumbs**: adicionei inserts em `ai_agent_logs` no handler set_tags como breadcrumbs. Reteste J4 chuveiro:
+- Breadcrumb `bug24_flag_set` apareceu (com `newScore=30, max_score=30, pendingExitActionHandoff_setado=true`) ✅
+- Breadcrumb `bug24_checkpoint_pre_inline` **NÃO apareceu** ❌
+
+Isso prova que o handler RETORNOU antes do meu bloco inline. Auditei o código → linha 2950 era um path de fallback com `return` precoce.
+
+**Root cause**: o handler set_tags chamava `supabase.rpc('merge_conversation_tags', ...)`. Esse RPC **NÃO EXISTE no projeto novo** (provavelmente foi removido na migração ou nunca foi criado). RPC retornava error → caía no fallback path → fazia merge in-memory → **return PRECOCE** antes do meu bloco inline.
+
+```ts
+// ANTES (Bug 24 v3 não funcionava):
+if (error) {
+  // fallback in-memory merge
+  return `Tags atualizadas...`  ← retorno aqui pulava o handoff inline!
+}
+const merged = updatedConv?.tags || [...]
+// bloco inline aqui (nunca alcançado em prod novo)
+```
+
+**Fix v7.37.10 (Bug 24 v4)**: unifiquei os 2 paths (RPC + fallback). Ambos resolvem `merged` numa variável só, e depois o fluxo continua linearmente até o bloco inline. Não há mais `return` precoce.
+
+**Validação E2E (mesma conv chuveiro/220v):**
+- T4 "220v" → IA enviou EXATAMENTE `handoff_message_outside_hours`: *"Perfeito! Anotei seu pedido. Nosso consultor de vendas dará prosseguimento ao seu atendimento assim que estivermos disponíveis."*
+- Log `event=implicit_handoff, reason=exit_action_set_tags_inline, exit_reason=chuveiros > voltagem chuveiro:220v, outside_hours=true, queue.assignee_name=Djavan`
+- `status_ia=shadow`, tag `ia:shadow`, `lead_score:30` ✅
+
+**Impacto:** Bug 24 v4 corrige o caminho CRÍTICO que afetava 90% das jornadas (toda categoria de 2 fields × 15 score = max 30 com exit_action=handoff). Agora chuveiros, ferramentas, torneiras (se LLM tagueasse interesse), canos (idem), portas (se score chegasse), fechaduras (se IDs corretos), etc. — todos disparam handoff automático correto.
+
+**Bugs ainda em backlog** (não bloqueantes pra usabilidade básica — mas degradam UX):
+- **17 regressão** (LLM recumprimenta — investigar `prompt_sections`)
+- **24 search_products** (categoria tinta — estender helper)
+- **26 LLM repete `interesse:hidraulica`** (sugerir categoria correta no retorno do guard)
+- **27 LLM pula `set_tags interesse`** (lampada/disjuntor/vaso vão direto pra search)
+
+**Lição preventiva (regra nova):** quando uma fn chama `supabase.rpc('X', ...)` E tem um fallback path com `return`, SEMPRE conferir se a RPC existe no DB do ambiente atual. RPC missing causa fallback silencioso + return precoce, mascarando bugs em código novo que vem depois.
+
+**Validação que estou rodando agora:** 3 PASS limpos (J2 porta + J4 chuveiro Bug24v4 + J10 excluded) confirmam Bug 24 v4 funcionando. Bugs 17, 26, 27 ficam pra próxima sessão.
+
+Screenshot: `wiki/validacoes/bug24_v4_chuveiro_validado.png`. Frase de retomada: *"fixar Bug 27 LLM set_tags antes search 2026-05-18"*.
+
+---
+
 ## 2026-05-17 (noite tarde) — Sessão 10 jornadas E2E reais + Bug 25 fix + 4 bugs catalogados (v7.37.8/v7.37.9)
 
 User pediu 10 testes E2E completos (greeting → nome → produto → qualif → transbordo) e correção dos erros. Resultado: 2 PASS + 1 parcial + 7 FAIL — 5 bugs novos catalogados.
