@@ -2,8 +2,8 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-14
-audited_at: 2026-05-14
+updated: 2026-05-17
+audited_at: 2026-05-17
 ---
 
 # Erros e Lições
@@ -16,6 +16,29 @@ audited_at: 2026-05-14
 - **Tabela de regras preventivas** (~30 regras): [[wiki/erros/regras-preventivas]]
 - **Histórico detalhado** (R91-R114): [[wiki/erros/historico-2026-05-part1]] · [[wiki/erros/historico-2026-05-part2]]
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
+
+---
+
+## 🚨 Bug 19 (v7.37.5) — IA alucina interesse:CAT sem o lead pedir — incidente 2026-05-17
+
+**Erro:** lead disse "boa tarde" + "George" (só nome). IA respondeu *"George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio."* — LLM cravou tag `interesse:porta` via set_tags sem o lead mencionar produto algum. Auto-extract não foi culpado (regex `porta|portas` não bate em "George"); foi o LLM chutando pra "ter o que perguntar" + set_tags handler aceitando sem validar.
+
+**Fix (v7.37.5):**
+1. Guard determinístico no handler `set_tags`: tags `interesse:CAT` exigem que o regex `interesse_match` da categoria bate em pelo menos uma incoming do lead na sessão. Se não, rejeitar + log `interesse_hallucination_blocked`.
+2. Regra hardcoded no prompt instruindo a IA a perguntar "No que posso ajudar?" quando lead só disse nome/saudação.
+3. Migration: adiciona event `interesse_hallucination_blocked` + `auto_field_extracted` ao CHECK constraint de `ai_agent_logs` (R114).
+
+**Regras preventivas:**
+- Todo handler que persiste estado controlado por LLM (tags, profile, kanban move, status) DEVE validar contra evidência no histórico do lead — nunca confiar cegamente no payload do LLM.
+- LLM em input trivial CHUTA pra completar o turno. Defesas determinísticas no servidor são a forma de garantir robustez.
+
+---
+
+## ✅ Bugs 17+18 (v7.37.4) — VALIDADO PROD 2026-05-17
+
+**Bug 17 (LLM recumprimentava no meio da conv) + Bug 18 (sale_closed → handoff vazio):** fixados em v7.37.4 (commit 96e9283). Validação E2E REAL em prod via Sandbox UAZAPI → Eletropiso prod (5 turnos pós-greeting, helpdesk observado em tempo real via Playwright):
+- Bug 17: 0 recumprimentos em 5 turnos consecutivos. IA usa nome como vocativo curto ("Maria, a Tinta...") sem "Olá NOME!".
+- Bug 18: ai_agent_logs registrou `sale_closed_detected` + `implicit_handoff` (reason=sale_closed, sale_type=fechado, outside_hours=true, assignee=Djavan). Msg enviada = `handoff_message_outside_hours` exata. status_ia=shadow + tags `venda:fechada` + `ia:shadow` aplicadas. Detalhes em `log.md`.
 
 ---
 

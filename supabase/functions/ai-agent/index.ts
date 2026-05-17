@@ -1574,6 +1574,7 @@ ${contextBlock}`
 - NUNCA repita uma pergunta que o lead já respondeu no histórico. Leia as mensagens anteriores antes de qualificar. EXEMPLO REAL DE FALHA: lead disse "Tem tinta acrílica fosco?" no T1 → IA depois perguntou "qual tipo? (acrílica, esmalte, epóxi)" e "qual acabamento? (fosco, acetinado)" — ERRADO, lead JÁ disse acrílica E fosco na T1. CERTO: antes de fazer QUALQUER pergunta, escaneie todo o histórico do lead e pule fields que ele já mencionou — chame set_tags PRIMEIRO pra registrar o que ele já disse, DEPOIS gere a próxima pergunta.
 - NUNCA ECOAR/CONFIRMAR/PARAFRASEAR a resposta do lead antes de fazer a próxima pergunta. PROIBIDO começar respostas com "Anotado", "Entendi", "Perfeito", "Certo", "Ok", "Show", "Beleza" seguidos de repetição do que o lead disse. Vá DIRETO à próxima pergunta. EXEMPLO ERRADO: "Anotado, ambiente interno para o quarto da sua filha. Você tem preferência por marca?". EXEMPLO CERTO: "Você tem preferência por alguma marca?". Confirmação só é aceita em fechamento de pedido (ex: "Confirma a Tinta Coral 18L por R$427?"), nunca durante qualificação.
 - NUNCA RECUMPRIMENTAR (Bug 17): PROIBIDO iniciar resposta com saudação ("Olá", "Oi", "Olá NOME", "Oi NOME", "Bem-vindo", "Bom dia", "Boa tarde", "Boa noite") DURANTE uma conversa em andamento. O greeting é enviado UMA ÚNICA VEZ pelo sistema na primeira interação — você NUNCA precisa cumprimentar de novo. EXEMPLO ERRADO: "Olá, Maria! A tinta Acrílica está por R$289..." (foi cumprimentada no T1). EXEMPLO CERTO: "A tinta Acrílica está por R$289...". Use o nome do lead no MÁXIMO 1 vez a cada 3-4 mensagens, e SOMENTE quando agregar (não como abertura genérica).
+- NUNCA ASSUMIR PRODUTO/CATEGORIA (Bug 19): PROIBIDO chamar set_tags com interesse:X ou perguntar sobre um produto se o lead AINDA NÃO mencionou EXPLICITAMENTE esse produto/categoria na conversa. Se o lead apenas enviou saudação ("oi", "bom dia") ou apenas o próprio nome ("Maria", "George"), a próxima resposta DEVE SER uma pergunta genérica de motivo, NUNCA uma pergunta de qualificação de produto específico. EXEMPLO ERRADO: lead diz "George" → IA "George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio." (alucinou "porta" — lead nunca pediu). EXEMPLO CERTO: lead diz "George" → IA "Prazer, George! Em que posso te ajudar hoje?" — sem set_tags interesse:X até o lead realmente mencionar o produto. O sistema bloqueia automaticamente set_tags interesse:CAT cujo keyword não apareceu em nenhuma msg do lead na sessão; tentar contornar é desperdício de tool call.
 - SENTIMENTO NEGATIVO: quando o lead expressar frustração, irritação ou reclamação, SEMPRE responda com empatia PRIMEIRO (peça desculpas, valide o sentimento) e DEPOIS transfira. NUNCA transfira friamente sem reconhecer a frustração. Exemplo: "Peço desculpas pela experiência, [nome]. Vou te conectar com nosso consultor agora mesmo para resolver isso."
 - PERGUNTAS SOBRE PAGAMENTO NÃO SÃO HANDOFF: quando o lead perguntar sobre desconto, PIX, parcelamento, boleto ou cartão — RESPONDA usando as informações de business_info. NUNCA chame handoff_to_human para essas perguntas. O lead está qualificado e interessado — transferir agora PERDE a venda.
 - INFORMAÇÕES NÃO CADASTRADAS = HANDOFF: se o lead perguntar sobre um tema que NÃO aparece nas "Informações da Empresa" acima, diga "Vou verificar essa informação com nosso consultor" e faça handoff_to_human. NUNCA invente dados que não foram cadastrados pelo admin.
@@ -2766,6 +2767,35 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             const PROTECTED_DETERMINISTIC_KEYS = ['objecao', 'pagamento', 'marca_citada', 'tipo_cliente']
             if (PROTECTED_DETERMINISTIC_KEYS.includes(key) && (conversation.tags || []).some((t: string) => t.startsWith(`${key}:`))) {
               rejected.push(rawTag); log.info('Tag rejected: deterministic key already set', { rawTag, key }); continue
+            }
+            // Bug 19 (2026-05-17): Anti-hallucination guard para interesse:CAT.
+            // LLM em inputs triviais ("oi", "George") chuta uma categoria sem o lead ter mencionado
+            // produto algum. Defesa: regex `interesse_match` da categoria pretendida DEVE bater em
+            // pelo menos uma incoming do lead na sessão (ou na msg atual). Se não, REJEITAR + log.
+            if (key === 'interesse') {
+              const targetCat = matchCategory(value, aliasConfig)
+              if (targetCat && targetCat.interesse_match) {
+                try {
+                  const reCheck = new RegExp(targetCat.interesse_match, 'i')
+                  const allIncoming = (contextMessages || [])
+                    .filter((m: any) => m && m.direction === 'incoming')
+                    .map((m: any) => String(m.content || ''))
+                    .join(' ')
+                  const corpus = `${allIncoming} ${incomingText || ''}`.toLowerCase()
+                  if (!reCheck.test(corpus)) {
+                    rejected.push(rawTag)
+                    log.warn('Tag rejected: interesse hallucinated (no keyword match in lead history)', { rawTag, regex: targetCat.interesse_match })
+                    const { error: logErr } = await supabase.from('ai_agent_logs').insert({
+                      agent_id, conversation_id, event: 'interesse_hallucination_blocked',
+                      metadata: { tag: rawTag, category_id: value, regex: targetCat.interesse_match, lead_msg_count: ((conversation as any)?.lead_msg_count ?? 0), corpus_preview: corpus.substring(0, 200) },
+                    })
+                    if (logErr) log.warn('Bug 19 log insert failed (non-fatal)', { error: logErr.message })
+                    continue
+                  }
+                } catch (regexErr) {
+                  log.warn('Bug 19 interesse regex test failed (non-fatal)', { error: (regexErr as Error).message })
+                }
+              }
             }
             if (rawKey !== resolvedKey) log.info('Tag aliased', { from: rawTag, to: tag })
             newTags.push(tag)

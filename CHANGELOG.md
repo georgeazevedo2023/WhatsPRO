@@ -13,6 +13,32 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.5 (2026-05-17) — Bug 19: anti-hallucination guard para `interesse:CAT`
+
+User mandou print de prod: lead disse "boa tarde" + "George" (só nome). IA respondeu *"George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio."* — chutou "porta" do nada.
+
+**Root cause:** o handler `set_tags` (ai-agent/index.ts:2712) não validava se a tag `interesse:CAT` cravada pelo LLM tinha conexão com o que o lead falou. Em inputs triviais ("oi", "George"), o LLM chuta uma categoria pra "ter algo a perguntar" → tag aceita → qualificationContext usa essa categoria → IA pergunta material da porta. Auto-extract (Bug 13) não foi o culpado (regex `porta|portas` não bate em "George"/"boa tarde").
+
+**Fix:**
+1. **Guard determinístico no handler `set_tags`:** quando LLM tenta cravar `interesse:CAT`, valida que o regex `interesse_match` da categoria bate em pelo menos uma msg incoming do lead na sessão (corpus = contextMessages + incomingText atual). Se não bater, rejeita + log `interesse_hallucination_blocked` com metadata `{tag, category_id, regex, lead_msg_count, corpus_preview}`. Lição R114: insert silencioso era risco — adicionado o event ao CHECK constraint via migration.
+2. **Regra hardcoded no prompt:** "NUNCA ASSUMIR PRODUTO/CATEGORIA (Bug 19): PROIBIDO chamar set_tags com interesse:X ou perguntar sobre produto se lead AINDA NÃO mencionou. Se lead só enviou saudação/nome, pergunte 'No que posso te ajudar?' — JAMAIS assuma. EXEMPLO ERRADO/CERTO incluído pro LLM internalizar."
+3. **Migration:** `20260517170000_ai_agent_logs_interesse_hallucination_event.sql` adiciona event `interesse_hallucination_blocked` + `auto_field_extracted` ao CHECK constraint de `ai_agent_logs`.
+
+**Validação E2E 5 cenários (Playwright + Sandbox UAZAPI emissor 558185749970 → Eletropiso prod):**
+- C1 trivial ("oi" → "Pedro"): IA "Pedro, em que produto ou material posso te ajudar hoje?" ✅ sem chutar, tag `motivo:compra` só
+- C2 "quero comprar tinta": sale_closed_detected disparou handoff prematuro (achado paralelo Bug 20 — sale_closed regex muito agressivo). Bug 19 OK: sem `interesse:` alucinado
+- C3 "vcs tem tinta?": IA qualificou ambiente. Guard PERMITIU `interesse:tinta` (regex bate em "tinta")
+- C4 "vcs vendem cama de casal?": excluded reply ("Infelizmente não trabalhamos com cama..."). Sem `interesse:` cravado
+- C5 "bom dia" → "preciso de um material": "Qual material de construção você está procurando?" — pergunta genérica sem chutar
+
+Arquivos: `ai-agent/index.ts` (+~30 linhas guard + 1 regra prompt hardcoded), migration nova. tsc com 6 erros TS18047 a mais (todos `'conversation' is possibly null` pré-existentes em padrão repetido pelo arquivo, não bloqueantes — supabase CLI deploya). Screenshots em `wiki/validacoes/bug19_5testes_final.png`.
+
+**Cruza com:** Bug 13 fix v7.37.1 (auto-extract — não era o culpado), R114 (insert silencioso por CHECK constraint), [[wiki/erros-e-licoes#-bug-19]].
+
+**Backlog Bug 20:** regex `saleClosedDetection.ts` casa "quero comprar X" mesmo SEM qualificação. Esperado: só dispara quando lead já tem produto+marca+ambiente OU diz "vou pagar"/"qual pix". Frase: *"investigar bug 20 sale_closed regex agressivo 2026-05-18"*.
+
+---
+
 ### v7.37.4 (2026-05-17) — Bugs 17+18: handoff automático em venda fechada + anti-recumprimento
 
 Descobertos numa jornada E2E de 8 turnos (lead Maria simulado via POST: bom dia → nome → tinta acrílica → ambiente → cor → marca → "quero fechar" → vendedor). Auditoria revelou 2 falhas:

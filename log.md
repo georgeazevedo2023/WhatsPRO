@@ -9,6 +9,68 @@ type: log
 
 ---
 
+## 2026-05-17 (fim tarde) — Bug 19 fix: IA alucina interesse:CAT sem o lead pedir (v7.37.5)
+
+User mandou print: lead disse "boa tarde" + "George" (só nome) → IA respondeu "George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio." LLM alucinou produto "porta" sem o lead mencionar nada.
+
+**Root cause:** o handler `set_tags` (ai-agent:2712) não validava se `interesse:CAT` cravado pelo LLM tinha CONEXÃO com o que o lead falou. Quando input é trivial ("oi", "George"), o LLM chuta uma categoria pra "ter algo a perguntar". Sem guard, tag `interesse:porta` foi aceita + entrou no qualificationContext + LLM perguntou material da porta. Auto-extract (Bug 13) NÃO foi o culpado (regex `porta|portas` não bate em "George"/"boa tarde").
+
+**Fix v7.37.5:**
+1. **Guard determinístico no handler `set_tags`:** quando LLM tenta cravar `interesse:CAT`, validar que o regex `interesse_match` da categoria bate em pelo menos uma msg incoming do lead nesta sessão (contextMessages + incomingText atual). Se não bater, rejeitar + log `interesse_hallucination_blocked`.
+2. **Regra hardcoded no prompt:** "NUNCA ASSUMIR PRODUTO/CATEGORIA (Bug 19): PROIBIDO chamar set_tags com interesse:X ou perguntar sobre produto se lead AINDA NÃO mencionou. Se lead só enviou saudação/nome, pergunte 'No que posso te ajudar?' — JAMAIS assuma."
+3. **Migration:** event `interesse_hallucination_blocked` adicionado ao CHECK constraint de `ai_agent_logs` (lição R114 — insert silencioso). Também `auto_field_extracted` (já em uso, faltava no constraint).
+
+**Validação E2E 5 cenários (Playwright + Sandbox UAZAPI):**
+- C1 trivial ("oi" → "Pedro"): IA "Pedro, em que produto ou material posso te ajudar?" ✅ sem chute, tag `motivo:compra` só
+- C2 "quero comprar tinta": sale_closed_detected disparou handoff prematuro (achado paralelo Bug 20 — sale_closed regex muito agressivo). Mas Bug 19 ok: sem `interesse:` alucinado
+- C3 "vcs tem tinta?": IA qualificou ambiente. Guard PERMITIU `interesse:tinta` (regex bate). ✅
+- C4 "vcs vendem cama de casal?": excluded reply ("Infelizmente não trabalhamos com cama..."). ✅
+- C5 "bom dia" → "preciso de um material": "Qual material de construção você está procurando?" — pergunta genérica sem chutar. ✅
+
+**Regra preventiva:** todo handler que persiste estado controlado por LLM (tags, profile, kanban move) precisa validar contra EVIDÊNCIA no histórico do lead, não confiar apenas no que o LLM mandar. LLM em input trivial CHUTA pra "ter o que fazer" — defesas determinísticas existem pra isso.
+
+Arquivos: `ai-agent/index.ts` (+~30 linhas guard + 1 regra prompt), `migrations/20260517170000_ai_agent_logs_interesse_hallucination_event.sql`. Deploy ai-agent. Screenshots em `wiki/validacoes/`.
+
+**Backlog Bug 20 (achado nos testes):** regex `sale_closed` em `saleClosedDetection.ts` casa "quero comprar X" mesmo SEM qualificação prévia. Lead deveria pelo menos ter passado por algumas qualif antes de virar venda fechada. Frase: *"investigar bug 20 sale_closed regex agressivo 2026-05-18"*.
+
+---
+
+## 2026-05-17 (tarde) — Validação E2E REAL PROD bugs 17+18 via Playwright + UAZAPI
+
+Sessão de validação dos fixes shipados ontem (v7.37.4). Diferente do teste de ontem (POST direto na edge fn), hoje rodou pelo path 100% real: Sandbox UAZAPI emite WhatsApp → bate em Eletropiso prod → ai-agent processa → resposta volta via WhatsApp → helpdesk reflete em tempo real (observado via Playwright).
+
+**Setup:**
+- Emissor: `558185749970` (Sandbox IA, token sandbox)
+- Receptor: `558181696546` (Eletropiso prod, business_hours definido → domingo = fechado)
+- Conv: `d317ef4b-6dfb-4944-aa24-af9872630cca` (Wsmart Digital, estava em `ia_cleared` desde 2026-05-11 → estado limpo pra teste fresco)
+- Playwright: `crm.wsmart.com.br` logado george.azevedo2023@gmail.com, conv aberta em tempo real
+
+**Jornada (6 turnos):**
+1. `oi` → "Olá! Bem-vindo a Eletropiso, com quem eu falo?" (greeting padrão sistema)
+2. `sou a Maria` → "Maria, em que tipo de material..." (vocativo, sem "Olá")
+3. `quero tinta acrilica fosco branca` → "Para encontrar a melhor opção, qual ambiente?" (auto-extract → pediu próximo field, sem nome, sem "Olá")
+4. `interno, eh pro quarto` → "Para encontrar a melhor opção, qual cor?" (sem nome, sem "Olá")
+5. `branca` → "Confira nossas opções:" + carrossel + "Maria, a Tinta Acrílica Fosco Standard 16L..." (vocativo com contexto, sem "Olá")
+6. `perfeito, quero a Coral mesmo, quero fechar` → **handoff automático**
+
+**Bug 17 — 0 recumprimentos em 5 turnos pós-greeting:** ✅ validado.
+
+**Bug 18 — handoff automático venda fechada:** ✅ todos os sinais confirmados:
+- `ai_agent_logs.event='sale_closed_detected'` (detection_type=fechado) — 16:35:38
+- `ai_agent_logs.event='brand_mentioned'` (coral) — 16:35:39
+- `ai_agent_logs.event='implicit_handoff'` com `reason=sale_closed`, `sale_type=fechado`, `outside_hours=true`, `queue.assignee_name=Djavan`, `queue.reason=reused_previous` — 16:35:47
+- Mensagem enviada: EXATAMENTE `handoff_message_outside_hours` da Eletropiso ("Perfeito! Anotei seu pedido. Nosso consultor de vendas dará prosseguimento ao seu atendimento assim que estivermos disponíveis. Foi um prazer atender! 😊")
+- `conversations.status_ia=shadow`, `assigned_to=Djavan`, `lead_msg_count=0`
+- Tags acumuladas (11): motivo:compra, interesse:tinta, acabamento:fosco, tipo_tinta:acrílica, produto:tinta_acrílica_fosco_branca, ambiente:interno, cor:branca, lead_score:15, **venda:fechada**, marca_citada:coral, **ia:shadow**
+
+**Latência por turno:** ~20-30s (debounce 5s + LLM 5-15s + UAZAPI send + webhook roundtrip).
+
+**Screenshots:** `wiki/validacoes/helpdesk_initial.png`, `wiki/validacoes/conv_wsmart_initial.png`, `wiki/validacoes/conv_T1_resposta.png`, `wiki/validacoes/conv_T5_bug17_validado.png`, `wiki/validacoes/conv_T7_bug18_validado.png`.
+
+**Frase de retomada:** *"auditar outros .select silentes 2026-05-18"* (próximo item do backlog).
+
+---
+
 ## 2026-05-17 (noite+) — Bugs 17+18 fix: handoff auto em venda fechada + anti-recumprimento (v7.37.4)
 
 Jornada E2E de 8 turnos (Maria: bom dia → nome → tinta acrílica → ambiente → cor → marca → "quero fechar" → vendedor) revelou 2 falhas.
