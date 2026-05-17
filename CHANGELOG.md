@@ -13,6 +13,43 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.4 (2026-05-17) — Bugs 17+18: handoff automático em venda fechada + anti-recumprimento
+
+Descobertos numa jornada E2E de 8 turnos (lead Maria simulado via POST: bom dia → nome → tinta acrílica → ambiente → cor → marca → "quero fechar" → vendedor). Auditoria revelou 2 falhas:
+
+**Bug 18 — `sale_closed_detected` sem handoff automático (CRÍTICO):**
+Lead disse *"obrigada, é só isso mesmo, quero fechar"*. IA detectou sinal de venda, tageou `venda:fechada`, logou `sale_closed_detected`, mas **enviou resposta vazia** e não acionou handoff. Lead ficou no limbo até pedir vendedor explicitamente no turno seguinte. Causa raiz: o handler em `ai-agent/index.ts:447` apenas marcava a tag — esperava-se que o LLM chamasse `handoff_to_human` no flow normal, mas o LLM ficava confuso (já tinha tudo) e gerava texto vazio.
+
+**Fix Bug 18:** novo flag `pendingSaleClosedHandoff` setado quando detect dispara; após o load de profile/funnel/runQueueAssignment (linha 681+), antes do bloco de handoff_triggers, novo bloco executa o handoff completo:
+- `pickHandoffMessage` (helper v7.37.3) escolhe regular vs outside_hours
+- `runQueueAssignment` atribui via fila
+- `sendTextMsg` + insert `conversation_messages` + update `conversations` (status_ia=SHADOW + lead_msg_count=0 + department_id se profile/funnel definiu)
+- Insert `ai_agent_logs.event='implicit_handoff', metadata.reason='sale_closed', sale_type, outside_hours`
+- `broadcastEvent` + return early (não vai pro LLM)
+
+Idempotente: pula se `conversation.status_ia=SHADOW` ou `shadow_only=true` (não dispara em modo observador).
+
+**Bug 17 — IA recumprimentava no meio da conversa:**
+LLM começava resposta com *"Olá, Maria! ..."* após 5 turnos de conversa ativa, mesmo que o greeting já tivesse sido enviado pelo sistema no turno 1. Violava regra de frequência de nome (1x a cada 3-4 msgs) + UX ("parecia que zerou contexto").
+
+**Fix Bug 17:** nova regra hardcoded em `hardcodedRules`:
+> *"NUNCA RECUMPRIMENTAR (Bug 17): PROIBIDO iniciar resposta com saudação ("Olá", "Oi", "Olá NOME", "Oi NOME", "Bem-vindo", "Bom dia", "Boa tarde", "Boa noite") DURANTE uma conversa em andamento. O greeting é enviado UMA ÚNICA VEZ pelo sistema na primeira interação — você NUNCA precisa cumprimentar de novo. EXEMPLO ERRADO: 'Olá, Maria! A tinta Acrílica está por R$289...' (foi cumprimentada no T1). EXEMPLO CERTO: 'A tinta Acrílica está por R$289...'. Use o nome do lead no MÁXIMO 1 vez a cada 3-4 mensagens, e SOMENTE quando agregar (não como abertura genérica)."*
+
+**Validação E2E (domingo, Eletropiso fechada):** reset da conv Maria pra estado "marca confirmada"; POST *"isso mesmo, quero comprar"* → IA imediatamente:
+- `sale_closed_detected` event
+- `implicit_handoff` event com `reason='sale_closed'`, `sale_type='fechado'`, `outside_hours='true'`
+- Mensagem enviada: EXATAMENTE `handoff_message_outside_hours` (Eletropiso)
+- Fila avançou cursor: Alberto → **jussara** (próximo do round-robin)
+- status_ia=shadow + tag ia:shadow apendado
+
+**Regra preventiva:** sinais de intenção alta (venda fechada, sentimento negativo persistente) devem disparar caminho de handoff automático em código, não esperar LLM decidir. LLM é bom em qualificação, ruim em "tomar a próxima ação óbvia quando estado já está completo".
+
+Arquivos: `ai-agent/index.ts` (+45 linhas: flag `pendingSaleClosedHandoff` + bloco de execução + regra Bug 17 em hardcodedRules). tsc=0. Deploy via Supabase CLI.
+
+**Cruza com:** v7.37.3 (helper `pickHandoffMessage` reutilizado), R113.1 H1 (detectSaleClosed), D32 (toggle outside_hours).
+
+---
+
 ### v7.37.3 (2026-05-17) — Bug 16: 3 paths de handoff sem outside_hours + handoff prematuro
 
 **Problema reportado:** lead George pergunta "vcs tem trena?" às 12:11 (domingo, Eletropiso fechada). IA respondeu *"Perfeito! Vou conectar você com nosso consultor de vendas para finalizar seu pedido. Em instantes você terá retorno..."* — handoff prematuro (sem qualificar uso_ferramenta) E com a mensagem **errada** (deveria ser a `_outside_hours`: "assim que estivermos disponíveis").

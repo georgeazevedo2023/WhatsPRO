@@ -444,6 +444,12 @@ Deno.serve(async (req) => {
     // R113.1 H1: detect sale-closed signals once incomingText is computed.
     // Idempotent: skips if `venda:*` already tagged. Runs even during shadow mode
     // (lead replies after handoff get tagged so dashboards see closed deals).
+    //
+    // Bug 18 (2026-05-17): além de tagear, sinaliza handoff pendente. Antes do fix
+    // a IA respondia vazio depois de detectar venda fechada — não chamava
+    // handoff_to_human nem mandava mensagem. Agora o handoff vai pro pendingSaleClosedHandoff
+    // e é executado após o load de profile/funnel/runQueueAssignment.
+    let pendingSaleClosedHandoff: string | null = null
     {
       const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
       const textForDetection = shadow_only ? (vendor_message || '') : incomingText
@@ -460,6 +466,10 @@ Deno.serve(async (req) => {
             metadata: { detection_type: saleType, incoming_text: textForDetection.substring(0, 200) },
           })
           log.info('Sale closed detected', { type: saleType, conversation_id })
+          // Bug 18 fix: marca handoff automático (executado mais à frente, após load de profile/funnel/runQueueAssignment)
+          if (!shadow_only && conversation.status_ia !== STATUS_IA.SHADOW) {
+            pendingSaleClosedHandoff = saleType
+          }
         }
       }
     }
@@ -667,6 +677,42 @@ Deno.serve(async (req) => {
         log.warn('runQueueAssignment failed — falling back without assignee', { error: (qErr as Error).message })
         return { result: fallback, finalMessage: applyAssigneeNameTemplate(handoffMessageTemplate, null) }
       }
+    }
+
+    // Bug 18 (2026-05-17): se sale_closed detectado, executar handoff automático ANTES dos
+    // outros caminhos. Venda fechada por definição requer vendedor humano (pagamento, dados,
+    // endereço, frete). Antes deste fix, IA detectava `venda:fechada`, tageava, e enviava
+    // resposta vazia — lead ficava no limbo.
+    if (pendingSaleClosedHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
+      log.info('Sale closed detected — triggering automatic handoff', { saleType: pendingSaleClosedHandoff })
+      const notifyOutsideSC = agent.notify_outside_hours_on_handoff !== false
+      const outsideHoursSC = notifyOutsideSC && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+      const handoffMsgSC = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursSC })
+      const { result: queueResSC, finalMessage: finalMsgSC } = await runQueueAssignment(handoffMsgSC)
+      await sendTextMsg(finalMsgSC)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: finalMsgSC, media_type: 'text',
+      })
+      const scUpdates: Record<string, unknown> = {
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        lead_msg_count: 0,
+      }
+      if (profileData?.handoff_department_id) {
+        scUpdates.department_id = profileData.handoff_department_id
+      } else if (funnelData?.handoff_department_id) {
+        scUpdates.department_id = funnelData.handoff_department_id
+      }
+      await supabase.from('conversations').update(scUpdates).eq('id', conversation_id)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        latency_ms: Date.now() - startTime,
+        metadata: { reason: 'sale_closed', sale_type: pendingSaleClosedHandoff, outside_hours: outsideHoursSC, queue: queueResSC },
+      })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMsgSC, media_type: 'text' })
+      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'sale_closed', sale_type: pendingSaleClosedHandoff, queue: queueResSC }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     // 5.5 Check handoff_triggers — force handoff if lead text matches any trigger
@@ -1527,6 +1573,7 @@ ${contextBlock}`
 - LEIA TODA a mensagem antes de responder. Se o lead enviou múltiplas linhas (ex: "Preciso de tinta\\nParede externa"), responda considerando TUDO — não pergunte algo que ele já informou.
 - NUNCA repita uma pergunta que o lead já respondeu no histórico. Leia as mensagens anteriores antes de qualificar. EXEMPLO REAL DE FALHA: lead disse "Tem tinta acrílica fosco?" no T1 → IA depois perguntou "qual tipo? (acrílica, esmalte, epóxi)" e "qual acabamento? (fosco, acetinado)" — ERRADO, lead JÁ disse acrílica E fosco na T1. CERTO: antes de fazer QUALQUER pergunta, escaneie todo o histórico do lead e pule fields que ele já mencionou — chame set_tags PRIMEIRO pra registrar o que ele já disse, DEPOIS gere a próxima pergunta.
 - NUNCA ECOAR/CONFIRMAR/PARAFRASEAR a resposta do lead antes de fazer a próxima pergunta. PROIBIDO começar respostas com "Anotado", "Entendi", "Perfeito", "Certo", "Ok", "Show", "Beleza" seguidos de repetição do que o lead disse. Vá DIRETO à próxima pergunta. EXEMPLO ERRADO: "Anotado, ambiente interno para o quarto da sua filha. Você tem preferência por marca?". EXEMPLO CERTO: "Você tem preferência por alguma marca?". Confirmação só é aceita em fechamento de pedido (ex: "Confirma a Tinta Coral 18L por R$427?"), nunca durante qualificação.
+- NUNCA RECUMPRIMENTAR (Bug 17): PROIBIDO iniciar resposta com saudação ("Olá", "Oi", "Olá NOME", "Oi NOME", "Bem-vindo", "Bom dia", "Boa tarde", "Boa noite") DURANTE uma conversa em andamento. O greeting é enviado UMA ÚNICA VEZ pelo sistema na primeira interação — você NUNCA precisa cumprimentar de novo. EXEMPLO ERRADO: "Olá, Maria! A tinta Acrílica está por R$289..." (foi cumprimentada no T1). EXEMPLO CERTO: "A tinta Acrílica está por R$289...". Use o nome do lead no MÁXIMO 1 vez a cada 3-4 mensagens, e SOMENTE quando agregar (não como abertura genérica).
 - SENTIMENTO NEGATIVO: quando o lead expressar frustração, irritação ou reclamação, SEMPRE responda com empatia PRIMEIRO (peça desculpas, valide o sentimento) e DEPOIS transfira. NUNCA transfira friamente sem reconhecer a frustração. Exemplo: "Peço desculpas pela experiência, [nome]. Vou te conectar com nosso consultor agora mesmo para resolver isso."
 - PERGUNTAS SOBRE PAGAMENTO NÃO SÃO HANDOFF: quando o lead perguntar sobre desconto, PIX, parcelamento, boleto ou cartão — RESPONDA usando as informações de business_info. NUNCA chame handoff_to_human para essas perguntas. O lead está qualificado e interessado — transferir agora PERDE a venda.
 - INFORMAÇÕES NÃO CADASTRADAS = HANDOFF: se o lead perguntar sobre um tema que NÃO aparece nas "Informações da Empresa" acima, diga "Vou verificar essa informação com nosso consultor" e faça handoff_to_human. NUNCA invente dados que não foram cadastrados pelo admin.

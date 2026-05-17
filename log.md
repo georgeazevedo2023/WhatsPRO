@@ -9,6 +9,24 @@ type: log
 
 ---
 
+## 2026-05-17 (noite+) — Bugs 17+18 fix: handoff auto em venda fechada + anti-recumprimento (v7.37.4)
+
+Jornada E2E de 8 turnos (Maria: bom dia → nome → tinta acrílica → ambiente → cor → marca → "quero fechar" → vendedor) revelou 2 falhas.
+
+**Bug 18 (CRÍTICO):** lead disse "quero fechar" → IA detectou `sale_closed_detected`, tageou `venda:fechada`, mas **respondeu vazio** e não disparou handoff. Lead só foi atendido após pedir vendedor explicitamente. Causa: handler em `ai-agent:447` só marcava tag — esperava o LLM chamar handoff_to_human no flow normal, mas LLM gerava texto vazio.
+
+**Fix 18:** novo flag `pendingSaleClosedHandoff`; após load de profile/funnel/runQueueAssignment (~linha 681), bloco novo executa handoff completo (pickHandoffMessage + runQueueAssignment + sendTextMsg + log `implicit_handoff` com reason='sale_closed' + return early). Idempotente: pula se já em SHADOW ou shadow_only.
+
+**Bug 17:** LLM cumprimentava de novo no meio da conv ("Olá, Maria! A tinta..."). Fix: nova regra hardcoded "NUNCA RECUMPRIMENTAR" com exemplo ERRADO/CERTO.
+
+**Validação E2E:** POST "isso mesmo, quero comprar" na conv Maria → `sale_closed_detected` + `implicit_handoff` event + EXATAMENTE `handoff_message_outside_hours` enviada + jussara atribuída (cursor Alberto→jussara) + status_ia=shadow.
+
+**Regra preventiva:** sinais de intenção alta (venda fechada, sentimento negativo) → handoff automático em código, não esperar LLM decidir.
+
+tsc=0. Deploy ai-agent. Frase de retomada: *"validar bugs 17+18 prod 2026-05-18"*
+
+---
+
 ## 2026-05-17 (noite) — Bug 16 fix: 3 paths handoff sem outside_hours + handoff prematuro (v7.37.3)
 
 User reportou print: lead "vcs tem trena?" → IA fez handoff prematuro com `handoff_message` regular (domingo fechado, deveria ser `_outside_hours`). Audit revelou 3 paths em `ai-agent/index.ts` que ignoravam horário comercial (linhas 688, 837, 3468) — apenas o tool LLM `handoff_to_human` (linha 2872) checava. E o path 837 nem logava em `ai_agent_logs`.
