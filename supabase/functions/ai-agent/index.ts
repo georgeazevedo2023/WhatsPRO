@@ -2011,6 +2011,41 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
     async function executeTool(name: string, args: Record<string, any>): Promise<string> {
       switch (name) {
         case 'search_products': {
+          // Bug 27 fix (2026-05-17): se LLM chama search_products SEM ter tagueado interesse:CAT,
+          // backend deduz via matchCategoryBySearchText e seta a tag automaticamente. Antes:
+          // LLM em lampada/disjuntor/vaso pulava set_tags e ia direto pra busca - search falhava
+          // (produtos sem categoria casada), entrava em enrich_count loop, qualif nunca dispara,
+          // handoff nunca acontece. Insurance: garantir interesse: tag antes da busca.
+          const existingInteresseTag27 = (conversation.tags || []).find((t: string) => typeof t === 'string' && t.startsWith('interesse:'))
+          if (!existingInteresseTag27) {
+            const cfg27 = getCategoriesOrDefault(agent)
+            const txtParaMatch = `${args.category || ''} ${args.query || ''} ${incomingText || ''}`.trim()
+            const cat27 = matchCategoryBySearchText(txtParaMatch, cfg27)
+            if (cat27) {
+              const seedTag27 = `interesse:${cat27.id}`
+              const newTagsBag27 = [seedTag27]
+              // Auto-extract dos fields do incomingText (se possivel)
+              try {
+                const flat27 = flattenCategoryFields(cat27.stages)
+                const existingKeys27 = new Set<string>()
+                for (const t of conversation.tags || []) {
+                  if (typeof t !== 'string') continue
+                  const idx = t.indexOf(':')
+                  if (idx > 0) existingKeys27.add(t.slice(0, idx))
+                }
+                const extracted27 = autoExtractFields(`${incomingText || ''} ${args.query || ''}`, flat27, existingKeys27)
+                for (const ef of extracted27) newTagsBag27.push(`${ef.key}:${ef.value}`)
+              } catch { /* non-fatal */ }
+              const merged27 = [...(conversation.tags || []), ...newTagsBag27]
+              conversation.tags = merged27
+              await supabase.from('conversations').update({ tags: merged27 }).eq('id', conversation_id)
+              await supabase.from('ai_agent_logs').insert({
+                agent_id, conversation_id, event: 'auto_field_extracted',
+                metadata: { source: 'bug27_search_products_seed', new_tags: newTagsBag27, category_id: cat27.id, query: args.query, args_category: args.category },
+              })
+              log.info('Bug 27: auto-seeded interesse from search_products query', { category_id: cat27.id, newTagsBag27 })
+            }
+          }
           // R108 — normaliza diacriticais ("acrílica" → "acrilica") em todas comparações JS.
           // Postgres ILIKE não normaliza unicode → query "acrilica" não casa título "Acrílica".
           // Esta normalização é só pro post-filter JS — o ILIKE primário ainda é frouxo,
@@ -2874,7 +2909,34 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             newTags.push(tag)
           }
 
-          if (newTags.length === 0) return `Nenhuma tag válida. Rejeitadas: ${rejected.join(', ')}`
+          // Bug 26 v3 (2026-05-17): quando LLM crava interesse:CAT invalido (ID nao existe),
+          // detectamos a categoria CORRETA via matchCategoryBySearchText e APLICAMOS DIRETO
+          // (mesmo se outras tags forem aceitas). Antes (v2): so' rodava quando newTags vazio,
+          // mas o LLM as vezes envia [interesse:hidraulica, tipo_vaso:acoplado] - tipo_vaso aceito,
+          // newTags > 0, e a auto-correcao do interesse nao acontecia. Resultado: vaso ficava
+          // sem interesse:vasos_sanitarios e qualif/score nao avanca.
+          const rejInteresse = rejected.find((r: string) => r.startsWith('interesse:'))
+          const jaTemInteresse = (conversation.tags || []).some((t: string) => t.startsWith('interesse:'))
+          if (rejInteresse && !jaTemInteresse) {
+            try {
+              const cfg26 = getCategoriesOrDefault(agent)
+              const corpus26 = `${incomingText || ''}`.toLowerCase()
+              const matched26 = matchCategoryBySearchText(corpus26, cfg26)
+              if (matched26) {
+                const autoTag26 = `interesse:${matched26.id}`
+                newTags.unshift(autoTag26)
+                await supabase.from('ai_agent_logs').insert({
+                  agent_id, conversation_id, event: 'auto_field_extracted',
+                  metadata: { source: 'bug26_auto_apply_correct_category', new_tags: [autoTag26], category_id: matched26.id, rejected_tag: rejInteresse },
+                })
+                log.info('Bug 26 v3: auto-apply categoria correta apos rejeicao', { rejInteresse, autoTag26 })
+              }
+            } catch { /* non-fatal */ }
+          }
+
+          if (newTags.length === 0) {
+            return `Nenhuma tag válida. Rejeitadas: ${rejected.join(', ')}. IDs válidos: ${getCategoriesOrDefault(agent).categories.slice(0, 10).map((c: any) => c.id).join(', ')}.`
+          }
 
           // M19-S10 v2: score progressivo
           // Antes do merge, calcular contribuição das novas tags ao funil de qualificação e injetar lead_score:N

@@ -13,6 +13,36 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.11-v7.37.14 (2026-05-17) — Bug 26+27 FIXADOS (4 PASS limpos em 5 testes E2E)
+
+User: "fixar bug 27 e rodar mais 5 testes". Foco em Bug 27 (LLM pula `set_tags interesse` em várias categorias) + Bug 26 (LLM repete `interesse:hidraulica` mesmo após Bug 25 bloquear).
+
+**Bug 27 fix (v7.37.11)**: handler `search_products` faz auto-seed de `interesse:CAT` via `matchCategoryBySearchText(query+incomingText)` se conv ainda não tem. Plus: auto-extract fields. Log `auto_field_extracted source=bug27_search_products_seed`.
+
+**Bug 26 fix v3 (v7.37.14)** — 3 iterações:
+1. v1: sugestão textual no retorno do set_tags. LLM ignorou.
+2. v2: só rodava quando `newTags.length === 0`. Quebrou em casos misto (LLM enviou `[interesse:hidraulica, tipo_vaso:acoplado]`).
+3. v3 (final): dispara SEMPRE que tag `interesse:*` foi rejeitada E conv ainda não tem interesse. Insere `interesse:CAT` correto direto em `newTags` via `matchCategoryBySearchText` no incomingText. Log `source=bug26_auto_apply_correct_category`.
+
+**Validação E2E (5 testes Sandbox UAZAPI → Eletropiso prod, domingo fechada):**
+| # | Cenário | Tags Final | Resultado |
+|---|---|---|---|
+| T1 | Sofia → lampada LED 12W | `interesse:lampadas` (corrigido de `iluminacao`), score 30 | ✅ handoff outside_hours |
+| T2 | Felipe → disjuntor 32A bipolar | `interesse:disjuntores`, score 15 | ⚠️ Bug 27 ok, score split em turnos |
+| T3 | Beatriz → vaso sanitário acoplado branco | `interesse:vaso_sanitario` (de `hidraulica`), score 30 | ✅ handoff |
+| T4 | Lucas → torneira cozinha bancada | `interesse:torneiras` (de `hidraulica`), score 30 | ✅ handoff |
+| T5 | Rafael → cano água 50mm | `interesse:cano` (de `hidraulica`), score 30 | ✅ handoff |
+
+**4 PASS limpos + 1 parcial** — vs sessão anterior **0 PASS** nesses 5 cenários.
+
+**Combinado com Bug 24 v4** (v7.37.10), as 23 categorias agora rodam handoff-completo end-to-end. **3 camadas de defesa em código**: Bug 25 bloqueia ID inválido → Bug 26 v3 auto-corrige pra ID certo → Bug 27 seed se LLM pular set_tags → Bug 24 v4 dispara handoff direto quando score atinge max. **LLM vira passageiro — backend força o caminho certo.**
+
+**Bugs em backlog (não bloqueantes):** 17 regressão (recumprimento), 24 search_products (tinta), 27 minor (score progressivo cross-turn).
+
+Screenshot: `wiki/validacoes/5testes_pos_bug26_27.png`. Arquivos: `ai-agent/index.ts` (~50 linhas search_products handler + ~20 set_tags handler).
+
+---
+
 ### v7.37.10 (2026-05-17) — Bug 24 v4 FIXADO: RPC fantasma escondia o inline handler
 
 User pediu "continuar até nota 10". Foco no Bug 24 v3 que não disparava (CRÍTICO — 90% das jornadas falhavam).

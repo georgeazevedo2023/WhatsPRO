@@ -9,6 +9,37 @@ type: log
 
 ---
 
+## 2026-05-17 (madrugada) — Bug 26+27 FIXADOS + 5 testes pós-fix (v7.37.11→v7.37.14)
+
+User: "fixar bug 27 e rodar mais 5 testes". Foco: Bug 27 (LLM pula `set_tags interesse` em várias categorias) + Bug 26 (LLM repete `interesse:hidraulica` após bloqueio).
+
+**Bug 27 fix (v7.37.11)**: no handler `search_products`, antes de buscar, se não há tag `interesse:`, deriva via `matchCategoryBySearchText` na query+incomingText e seta automaticamente. Plus: auto-extract fields dos examples. Log `auto_field_extracted source=bug27_search_products_seed`. **Funcionou em T2 disjuntor** — `interesse:disjuntores` setado direto do search.
+
+**Bug 26 fix v3 (v7.37.14)** — 3 iterações até funcionar:
+- v1 (v7.37.12): retorno do handler set_tags com SUGESTÃO textual ("tente novamente com interesse:lampadas"). LLM ignorou sugestão.
+- v2 (v7.37.13): só dispara quando `newTags.length === 0`. Não funcionou pois LLM enviava `[interesse:hidraulica, tipo_vaso:acoplado]` — `tipo_vaso` aceito, newTags > 0, auto-correção não rodava.
+- v3 (v7.37.14): dispara SEMPRE que tag interesse:* foi rejeitada E conv ainda não tem interesse:* setado. Insere `interesse:CAT` correto direto em `newTags` (via `matchCategoryBySearchText` no incomingText). Log `source=bug26_auto_apply_correct_category`. **Funcionou em T1 lampada, T3 vaso, T5 cano** — LLM tentava `interesse:hidraulica/iluminacao` e backend remapeou pra IDs corretos automaticamente.
+
+**Validação E2E pós-fixes — 5 testes:**
+- T1 Sofia → lampada LED 12W: `interesse:lampadas` (corrigido de iluminacao), score 30, handoff outside_hours ✅
+- T2 Felipe → disjuntor 32A bipolar: `interesse:disjuntores`, score 15 (parcial — tags em turnos separados, score não acumula direito; minor backlog)
+- T3 Beatriz → vaso sanitário acoplado branco: `interesse:vaso_sanitario` (corrigido de hidraulica), score 30, handoff ✅
+- T4 Lucas → torneira cozinha bancada: `interesse:torneiras` (corrigido de hidraulica), score 30, handoff ✅
+- T5 Rafael → cano água 50mm: `interesse:cano` (corrigido de hidraulica), score 30, handoff ✅
+
+**4 PASS limpos + 1 parcial** — vs sessão anterior (0/5 nesses cenários).
+
+**Combinado com Bug 24 v4** (v7.37.10), agora as 23 categorias podem ser handoff-completas. Estratégia: 3 camadas de defesa em código (Bug 25 bloqueia inválido, Bug 26 v3 auto-corrige pra ID certo, Bug 27 seed se LLM pular set_tags, Bug 24 v4 dispara handoff direto quando score atinge max). LLM vira passageiro — backend força o caminho certo.
+
+**Bugs ainda em backlog (não bloqueantes):**
+- 17 regressão (LLM recumprimenta)
+- 24 search_products (categoria tinta com exit_action=search_products)
+- 27 minor (score progressivo em turnos múltiplos — T2 disjuntor parcial)
+
+Screenshot: `wiki/validacoes/5testes_pos_bug26_27.png`. Frase de retomada: *"fixar Bug 24 search_products + Bug 17 regressao 2026-05-18"*.
+
+---
+
 ## 2026-05-17 (noite tardíssima) — Bug 24 v4 FIXADO: RPC fantasma escondia o inline handler (v7.37.10)
 
 User pediu "continuar até nota 10". Foco: Bug 24 v3 (handoff via set_tags) que não disparava.
