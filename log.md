@@ -9,6 +9,22 @@ type: log
 
 ---
 
+## 🎯 HANDOFF FIM DE SESSÃO — 2026-05-17 (limpeza de conv)
+
+Sessão de ~12h: **14 releases (v7.37.0→v7.37.14), 12 bugs fixados** (13, 15b, 16, 17, 18, 19, 21, 22, 24 v4, 25, 26 v3, 27). 4 camadas de defesa: Bug 25 bloqueia ID inválido → Bug 26 v3 auto-corrige → Bug 27 seed antes search → Bug 24 v4 handoff direto quando max_score.
+
+**E2E validado:** lampadas, vaso_sanitario, torneiras, cano, chuveiros, portas, ferramentas (trena), cama (excluded), Maria/D34 reabertura.
+
+**Backlog (não bloqueantes):** Bug 17 (LLM recumprimenta), Bug 24 search_products (tinta), Bug 27 minor (score cross-turn).
+
+**Pendências não tocadas:** `config.toml`, `regras-preventivas.md`, `free-forever-playbook.md`, 5 PNGs root (bug11/15b/maria) — limpar ou commitar em sessão futura.
+
+**Frase de retomada:** *"continuar fix bug 17 recumprimento + bug 24 search_products tinta 2026-05-18"*
+
+Refs: commits `cb188bb`→`18f8efc`, `wiki/validacoes/`, `wiki/log-arquivo-2026-05-17-tarde-bugs.md`, `wiki/changelog/2026-05-17-v7.37.0-v7.37.5.md`.
+
+---
+
 ## 2026-05-17 (madrugada) — Bug 26+27 FIXADOS + 5 testes pós-fix (v7.37.11→v7.37.14)
 
 User: "fixar bug 27 e rodar mais 5 testes". Foco: Bug 27 (LLM pula `set_tags interesse` em várias categorias) + Bug 26 (LLM repete `interesse:hidraulica` após bloqueio).
