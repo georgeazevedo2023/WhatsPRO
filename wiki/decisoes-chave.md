@@ -65,6 +65,8 @@ audited_at: 2026-05-17
 - **`out_of_hours_message`** virou legado (coluna preservada, não mais lida no backend nem mostrada no admin UI).
 - **Hint LLM** dinâmico: quando lead chega fora do horário com toggle ON, system prompt ganha *"⏰ não prometa retorno imediato — handoff fará o aviso."*
 - **Default novo** para `handoff_message_outside_hours`: *"No momento estamos fora do horário de atendimento, mas assim que disponível nosso consultor de vendas vai dar prosseguimento ao seu atendimento. Deseja algo mais? 😊"*
+- **B31 (2026-05-17)** — helper `enrichOutsideHoursMessage(msg, business_hours)` em `_shared/businessHours.ts` injeta auto prefix `"Estamos fora do horário (Seg-Sex 8h-18h, Sáb 8h-12h). "` quando a msg cadastrada NÃO menciona horário (regex `/\d{1,2}h\b|horário|seg-/i`). Admin pode override simplesmente incluindo horário no texto. `formatBusinessHours` agrupa dias consecutivos.
+- **B30 (2026-05-17)** — `out_of_hours_message` removido do `ALLOWED_FIELDS` em `AIAgentTab.tsx` pra impedir persistência acidental via UI. Coluna preservada no DB pra backward-compat.
 
 **Por quê:** comportamento anterior matava qualificação — lead chegava 21h, recebia "estamos fechados" e sumia. Com o novo, agente qualifica completamente (produto, ambiente, marca, cor) e só anuncia o horário no transbordo, quando não tem mais o que perguntar antes do humano.
 

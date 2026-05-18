@@ -19,6 +19,21 @@ audited_at: 2026-05-17
 
 ---
 
+## 🚨 Deploy via MCP `deploy_edge_function` com content vazio derrubou prod — incidente 2026-05-17
+
+**Erro:** chamei `mcp__supabase__deploy_edge_function({name:"ai-agent", files:[{"name":"index.ts","content":""}]})` achando que o MCP carregaria o arquivo local. Não carrega — o `content` é o blob real enviado pro Supabase. Resultado: ai-agent prod virou version 55 com index.ts vazio + `verify_jwt:true` (default do MCP), derrubando todas as chamadas internas (debounce, webhook → ai-agent). Janela de impacto ~1min.
+
+**Como detectei:** `list_edge_functions` logo depois mostrou `verify_jwt:true` (config.toml local tem false) + version vazia. Sinal de alarme imediato.
+
+**Fix:** `SUPABASE_ACCESS_TOKEN=sbp_... npx supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` redeployou o source completo (40+ arquivos `_shared` incluídos automaticamente) + restaurou `verify_jwt:false` do `config.toml`. Version 56 ACTIVE.
+
+**Regras preventivas:**
+1. **NUNCA use MCP `deploy_edge_function` pra funções complexas** que importam `_shared/*.ts`. O MCP precisa do conteúdo de cada arquivo explicitamente — passar só `index.ts` deixa shared sem upload. CLI `npx supabase functions deploy <name>` resolve imports automaticamente.
+2. **Após qualquer deploy de função crítica, validar imediatamente:** `list_edge_functions` deve mostrar `verify_jwt` conforme `config.toml` + `version` recém-atualizada + `ezbr_sha256` diferente do anterior. Se algum check falhar, redeploy via CLI.
+3. **Funções no `config.toml` com `verify_jwt=false` (ai-agent, debounce, webhook, requeue, transcribe-audio, assign-handoff, etc.) DEVEM permanecer assim** — são chamadas internas por cron com `CRON_AUTH_KEY` ou por outras edge fns com `INTERNAL_FUNCTION_KEY`. Gateway com `verify_jwt:true` rejeita esses tokens.
+
+---
+
 ## 🚨 Bug 19 (v7.37.5) — IA alucina interesse:CAT sem o lead pedir — incidente 2026-05-17
 
 **Erro:** lead disse "boa tarde" + "George" (só nome). IA respondeu *"George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio."* — LLM cravou tag `interesse:porta` via set_tags sem o lead mencionar produto algum. Auto-extract não foi culpado (regex `porta|portas` não bate em "George"); foi o LLM chutando pra "ter o que perguntar" + set_tags handler aceitando sem validar.

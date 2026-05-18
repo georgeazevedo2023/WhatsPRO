@@ -9,52 +9,32 @@ type: log
 
 ---
 
+## 2026-05-17 (noite) — Bugs 29-32 handoff outside_hours sem horários FIXADOS (v7.37.18)
+
+User reportou: IA atendeu fora horário OK mas transbordo enviou msg genérica sem horários. Diagnóstico: `handoff_message_outside_hours` do Eletropiso estava genérico; LEGADO `out_of_hours_message` (texto detalhado) não é mais lido desde D32. Fixes:
+
+- **B29**: UPDATE Eletropiso `handoff_message_outside_hours` com horários completos (Seg-Sex 8h-18h, Sáb 8h-12h) no DB prod.
+- **B30**: removido `out_of_hours_message` do `ALLOWED_FIELDS` (AIAgentTab.tsx).
+- **B31**: `enrichOutsideHoursMessage` + `formatBusinessHours` em `_shared/businessHours.ts`. Injeta prefix com horários quando msg não menciona (regex `/\d{1,2}h\b|horário|seg-/i`). 13 testes Vitest novos.
+- **B32**: placeholder admin UI com exemplo + hint sobre injeção automática.
+
+**Acidente:** deploy MCP `deploy_edge_function` com content="" derrubou ai-agent prod (verify_jwt:true vazio). Recuperado 1min via `npx supabase functions deploy ai-agent`. Regra preventiva em [[wiki/erros-e-licoes]] + memory `feedback_deploy_edge_use_cli_not_mcp`. v7.37.18 = version 56.
+
+**E2E 5/5 PASS** (Sandbox→Eletropiso prod, dom 20:50 BRT fora horário): C1 trena+profissional → handoff COM horários ✅ · C2 trigger "vendedor" → handoff COM horários ✅ · C3 cama box (excluded) → resposta educada ✅ · C4 tinta acrílica fosco branco Suvinil → max_score → handoff COM horários ✅ · C5 reabertura D34 (resolvida 2d) → IA usou "George" sem reperguntar nome ✅.
+
+**Frase de retomada:** *"validar handoff outside_hours em prod com lead real 2026-05-18"*.
+
+---
+
 ## 2026-05-17 (madrugada+) — Bug 17 v2 + Bug 24 v5 search_products FIXADOS (v7.37.15)
 
 Bug 17 v2: regex multiline expandida cobre olá/oi/bom dia/etc + nome + qualquer linha. Bug 24 v5: mirror v4 handoff, flag pendingExitActionSearch, executeToolSafe inline. E2E PASS: TI Pedro tinta (carrossel, sem "Olá"), TII Sandra 7 turnos (sem "Olá Sandra!", 2 carrosseis, score 80). Screenshot: `wiki/validacoes/bug17_24sp_validados.png`.
 
 ---
 
-## 🎯 HANDOFF FIM DE SESSÃO — 2026-05-17
-
-Sessão ~14h: **15 releases (v7.37.0→v7.37.15), 13 bugs fixados** (13, 15b, 16, 17 v2, 18, 19, 21, 22, 24 v4+v5, 25, 26 v3, 27). E2E validado: tinta, lampadas, vaso, torneiras, cano, chuveiros, portas, trena, cama excluded, Maria/D34.
-
-**Backlog:** Bug 27 minor (score cross-turn em disjuntor).
-
-**Pendências:** `config.toml`, `regras-preventivas.md`, `free-forever-playbook.md`, 5 PNGs root.
-
-**Frase de retomada:** *"validar 13 bugs com leads reais 2026-05-18 + revisar score cross-turn"*
-
----
-
 ## 2026-05-17 (madrugada) — Bug 26+27 FIXADOS + 5 testes pós-fix (v7.37.11→v7.37.14)
 
-User: "fixar bug 27 e rodar mais 5 testes". Foco: Bug 27 (LLM pula `set_tags interesse` em várias categorias) + Bug 26 (LLM repete `interesse:hidraulica` após bloqueio).
-
-**Bug 27 fix (v7.37.11)**: no handler `search_products`, antes de buscar, se não há tag `interesse:`, deriva via `matchCategoryBySearchText` na query+incomingText e seta automaticamente. Plus: auto-extract fields dos examples. Log `auto_field_extracted source=bug27_search_products_seed`. **Funcionou em T2 disjuntor** — `interesse:disjuntores` setado direto do search.
-
-**Bug 26 fix v3 (v7.37.14)** — 3 iterações até funcionar:
-- v1 (v7.37.12): retorno do handler set_tags com SUGESTÃO textual ("tente novamente com interesse:lampadas"). LLM ignorou sugestão.
-- v2 (v7.37.13): só dispara quando `newTags.length === 0`. Não funcionou pois LLM enviava `[interesse:hidraulica, tipo_vaso:acoplado]` — `tipo_vaso` aceito, newTags > 0, auto-correção não rodava.
-- v3 (v7.37.14): dispara SEMPRE que tag interesse:* foi rejeitada E conv ainda não tem interesse:* setado. Insere `interesse:CAT` correto direto em `newTags` (via `matchCategoryBySearchText` no incomingText). Log `source=bug26_auto_apply_correct_category`. **Funcionou em T1 lampada, T3 vaso, T5 cano** — LLM tentava `interesse:hidraulica/iluminacao` e backend remapeou pra IDs corretos automaticamente.
-
-**Validação E2E pós-fixes — 5 testes:**
-- T1 Sofia → lampada LED 12W: `interesse:lampadas` (corrigido de iluminacao), score 30, handoff outside_hours ✅
-- T2 Felipe → disjuntor 32A bipolar: `interesse:disjuntores`, score 15 (parcial — tags em turnos separados, score não acumula direito; minor backlog)
-- T3 Beatriz → vaso sanitário acoplado branco: `interesse:vaso_sanitario` (corrigido de hidraulica), score 30, handoff ✅
-- T4 Lucas → torneira cozinha bancada: `interesse:torneiras` (corrigido de hidraulica), score 30, handoff ✅
-- T5 Rafael → cano água 50mm: `interesse:cano` (corrigido de hidraulica), score 30, handoff ✅
-
-**4 PASS limpos + 1 parcial** — vs sessão anterior (0/5 nesses cenários).
-
-**Combinado com Bug 24 v4** (v7.37.10), agora as 23 categorias podem ser handoff-completas. Estratégia: 3 camadas de defesa em código (Bug 25 bloqueia inválido, Bug 26 v3 auto-corrige pra ID certo, Bug 27 seed se LLM pular set_tags, Bug 24 v4 dispara handoff direto quando score atinge max). LLM vira passageiro — backend força o caminho certo.
-
-**Bugs ainda em backlog (não bloqueantes):**
-- 17 regressão (LLM recumprimenta)
-- 24 search_products (categoria tinta com exit_action=search_products)
-- 27 minor (score progressivo em turnos múltiplos — T2 disjuntor parcial)
-
-Screenshot: `wiki/validacoes/5testes_pos_bug26_27.png`. Frase de retomada: *"fixar Bug 24 search_products + Bug 17 regressao 2026-05-18"*.
+Bug 27 (v7.37.11): handler search_products seed `interesse:` via `matchCategoryBySearchText` + auto-extract fields se LLM pular set_tags. Bug 26 v3 (v7.37.14, 3 iters): dispara SEMPRE que LLM cravou interesse:* inválido E conv sem interesse: setado → backend remapeia pra ID correto automaticamente. **E2E 5 testes: 4 PASS limpos + 1 parcial** (T1 Sofia lampada · T2 Felipe disjuntor parcial score · T3 Beatriz vaso · T4 Lucas torneira · T5 Rafael cano). Combinado com Bug 24 v4, as 23 categorias podem ser handoff-completas via 3 camadas de defesa em código (LLM vira passageiro). Screenshot: `wiki/validacoes/5testes_pos_bug26_27.png`.
 
 ---
 

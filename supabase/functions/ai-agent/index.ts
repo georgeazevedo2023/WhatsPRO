@@ -35,7 +35,7 @@ import { autoExtractFields, flattenCategoryFields } from '../_shared/fieldAutoEx
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
 import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
 import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
-import { isOutsideBusinessHours } from '../_shared/businessHours.ts'
+import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -91,12 +91,20 @@ function pickHandoffMessage(opts: {
     return null
   }
 
-  return (
+  const chosen = (
     pickFrom(opts.profileData)
     || pickFrom(opts.funnelData)
     || pickFrom(opts.agent)
     || (opts.outsideHours ? fallbackOutside : fallbackRegular)
   )
+
+  // Bug 31 (2026-05-17): se outsideHours=true e a mensagem escolhida não menciona
+  // horários, injeta prefixo com o business_hours do agent. Admin pode sobrescrever
+  // simplesmente incluindo "horário" ou "8h-18h" no texto que cadastrar.
+  if (opts.outsideHours && opts.agent?.business_hours) {
+    return enrichOutsideHoursMessage(chosen, opts.agent.business_hours)
+  }
+  return chosen
 }
 
 /**

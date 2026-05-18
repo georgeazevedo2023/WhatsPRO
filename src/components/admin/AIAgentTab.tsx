@@ -60,7 +60,10 @@ const ALLOWED_FIELDS = [
   'handoff_triggers', 'handoff_cooldown_minutes', 'handoff_max_conversation_minutes',
   'handoff_negative_sentiment', 'blocked_topics', 'max_discount_percent', 'blocked_phrases',
   'voice_enabled', 'voice_max_text_length', 'voice_reply_to_audio', 'voice_name', 'context_short_messages', 'context_long_enabled',
-  'business_hours', 'out_of_hours_message', 'extraction_fields', 'blocked_numbers',
+  // B30 (2026-05-17): out_of_hours_message removido — legado desde D32 (2026-05-13).
+  // A coluna existe no DB pra backward-compat mas não é mais escrita pela UI nem lida pelo backend.
+  // Mensagem de transbordo fora do horário: `handoff_message_outside_hours`.
+  'business_hours', 'extraction_fields', 'blocked_numbers',
   'extraction_address_enabled', 'handoff_message',
   'follow_up_enabled', 'follow_up_rules', 'business_info',
   'returning_greeting_message',

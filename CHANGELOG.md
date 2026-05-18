@@ -13,6 +13,31 @@ audited_at: 2026-05-17
 
 ---
 
+### v7.37.18 (2026-05-17) — Bug 29-32 handoff fora horário sem horários FIXADO
+
+User reportou que IA atendeu normal fora do horário (greeting + nome + qualif "trena profissional"), mas o transbordo enviou msg genérica *"Perfeito! Anotei seu pedido... assim que estivermos disponíveis"* sem mencionar horário. Esperado: msg explicando Seg-Sex 8h-18h, Sáb 8h-12h.
+
+**Diagnóstico:** sistema funcionou correto (enviou `handoff_message_outside_hours`), mas o texto cadastrado pra Eletropiso estava genérico. Coluna LEGADO `out_of_hours_message` (que tinha o texto detalhado) não é mais lida desde D32 (2026-05-13).
+
+**Bugs catalogados:**
+- **B29** P1: Eletropiso `handoff_message_outside_hours` sem horários → atualizado pelo `UPDATE ai_agents` no DB prod
+- **B30** P2: coluna LEGADO `out_of_hours_message` ainda em `ALLOWED_FIELDS` (AIAgentTab.tsx) → removida
+- **B31** P2: fallback genérico do `pickHandoffMessage` sem horários → helper novo `enrichOutsideHoursMessage` em `_shared/businessHours.ts` injeta prefix com horários quando msg não menciona (regex `/\d{1,2}h\b|horário|seg-/i` detecta presença)
+- **B32** P3: placeholder do admin UI sem direção → atualizado com exemplo + hint
+
+**Helper novo:** `formatBusinessHours(business_hours)` agrupa dias consecutivos (Seg-Sex 8h-18h, Sáb 8h-12h). Tratamento de formato weekly + legacy. 13 testes Vitest novos.
+
+**Validação E2E 5 cenários (Sandbox UAZAPI → Eletropiso prod, domingo 20:50 BRT):**
+- C1 trena+profissional → handoff outside_hours COM horários ✅
+- C2 trigger "vendedor" → handoff outside_hours COM horários ✅
+- C3 cama box (excluded) → resposta educada + sugestões ✅
+- C4 tinta acrílica fosco branco Suvinil → max_score → handoff outside_hours COM horários ✅
+- C5 reabertura D34 (conv resolvida 2d) → status_ia=ligada + `reaberta:DATE` + tags preservadas + IA usa nome conhecido ✅
+
+5/5 PASS. Acidente meio-caminho: deploy via MCP `deploy_edge_function` com content="" derrubou ai-agent prod (verify_jwt:true + version vazia). Recuperado em 1min via supabase CLI. Lição: NUNCA usar MCP `deploy_edge_function` pra ai-agent — sempre CLI `npx supabase functions deploy ai-agent` que entende shared imports.
+
+Vitest: 27 passam em businessHours.test.ts (14 originais + 13 novos). tsc 0 erros. 9 falhas pré-existentes (FormBuilder, useForms, detectores) intactas.
+
 ### v7.37.15 (2026-05-17) — Bug 17 v2 + Bug 24 v5 search_products FIXADOS
 
 User questionou backlog Bug 17 + Bug 24 search_products. Fixei ambos:

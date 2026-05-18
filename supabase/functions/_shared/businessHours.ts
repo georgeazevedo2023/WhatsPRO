@@ -67,3 +67,88 @@ export function isOutsideBusinessHours(
 
   return false
 }
+
+/**
+ * Bug 31 (2026-05-17) — formata business_hours num texto humano BR-PT.
+ *
+ * Agrupa dias consecutivos com mesmo horário (Seg-Sex 8h-18h) e separa o
+ * resto (Sáb 8h-12h). Domingo fechado fica implícito (não aparece).
+ *
+ * Retorna null se `business_hours` for null/inválido (significando 24/7).
+ *
+ * Exemplos:
+ *   { mon-fri: 08-18, sat: 08-12, sun: closed } → "Seg-Sex 8h-18h, Sáb 8h-12h"
+ *   { mon-sat: 09-19 } → "Seg-Sáb 9h-19h"
+ *   { mon,wed,fri: 10-16 } → "Seg, Qua, Sex 10h-16h"
+ *
+ * Formato legacy {start,end} sem dias → "8h-18h" (assume todo dia).
+ */
+const DAY_SHORT: Record<string, string> = {
+  mon: 'Seg', tue: 'Ter', wed: 'Qua', thu: 'Qui', fri: 'Sex', sat: 'Sáb', sun: 'Dom',
+}
+const DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+function formatHour(hhmm: string): string {
+  const [hh, mm] = hhmm.split(':')
+  return mm === '00' ? `${parseInt(hh, 10)}h` : `${parseInt(hh, 10)}h${mm}`
+}
+
+export function formatBusinessHours(businessHours: BusinessHours): string | null {
+  if (!businessHours || typeof businessHours !== 'object' || Array.isArray(businessHours)) {
+    return null
+  }
+  // Legacy {start,end}
+  if (typeof businessHours.start === 'string' && typeof businessHours.end === 'string' && !DAY_ORDER.some(d => businessHours[d])) {
+    return `${formatHour(businessHours.start)}-${formatHour(businessHours.end)}`
+  }
+  // Weekly
+  const open = DAY_ORDER
+    .map(d => ({ d, sch: businessHours[d] }))
+    .filter(x => x.sch && typeof x.sch === 'object' && x.sch.open !== false && x.sch.start && x.sch.end)
+
+  if (open.length === 0) return null
+
+  // Group consecutive days with same hours
+  const groups: { start: string; end: string; range: string }[] = []
+  let cur: typeof groups[0] | null = null
+  for (const { d, sch } of open) {
+    const range = `${formatHour(sch.start)}-${formatHour(sch.end)}`
+    const idx = DAY_ORDER.indexOf(d)
+    if (cur && cur.range === range && DAY_ORDER.indexOf(cur.end) === idx - 1) {
+      cur.end = d
+    } else {
+      if (cur) groups.push(cur)
+      cur = { start: d, end: d, range }
+    }
+  }
+  if (cur) groups.push(cur)
+
+  return groups
+    .map(g => {
+      const days = g.start === g.end ? DAY_SHORT[g.start] : `${DAY_SHORT[g.start]}-${DAY_SHORT[g.end]}`
+      return `${days} ${g.range}`
+    })
+    .join(', ')
+}
+
+/**
+ * Bug 31 (2026-05-17) — enriquece mensagem de transbordo fora do horário
+ * com os horários comerciais reais quando a mensagem não os menciona.
+ *
+ * Heurística: se a mensagem JÁ contém marcadores de horário (regex `\d{1,2}h`,
+ * "horário", "segunda a", "seg-"), retorna como está (admin já incluiu).
+ * Caso contrário, injeta um prefixo com a janela formatada.
+ */
+export function enrichOutsideHoursMessage(
+  message: string,
+  businessHours: BusinessHours,
+): string {
+  if (!message) return message
+  // Já menciona horários? não toca
+  if (/\d{1,2}h\b|horário|hor[áa]rios|segunda\s+a|seg-/i.test(message)) {
+    return message
+  }
+  const hoursText = formatBusinessHours(businessHours)
+  if (!hoursText) return message
+  return `Estamos fora do horário (${hoursText}). ${message}`
+}

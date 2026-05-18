@@ -39,10 +39,12 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
             <Textarea
               value={config.handoff_message_outside_hours || ''}
               onChange={(e) => onChange({ handoff_message_outside_hours: e.target.value })}
-              placeholder="Sua mensagem foi recebida e retornaremos assim que possivel!"
+              placeholder={'Estamos fora do horário (Seg-Sex 8h-18h, Sáb 8h-12h). Anotei seu pedido e retornaremos assim que possível! 😊'}
               className="min-h-[60px] resize-none"
             />
-            <p className="text-[11px] text-muted-foreground">Enviada fora do horario ou em dias fechados.</p>
+            <p className="text-[11px] text-muted-foreground">
+              Enviada fora do horario ou em dias fechados. <strong>Inclua os horários no texto</strong> para o lead saber quando esperar retorno. Se você deixar genérico, o sistema injeta um prefixo automático com os horários do agente.
+            </p>
           </div>
         </CardContent>
       </Card>

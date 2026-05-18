@@ -138,3 +138,99 @@ describe('isOutsideBusinessHours — formato legacy', () => {
     expect(isOutsideBusinessHours({ start: '08:00', end: '18:00' })).toBe(false)
   })
 })
+
+// =====================================================================
+// B31 (2026-05-17): formatBusinessHours + enrichOutsideHoursMessage
+// =====================================================================
+import { formatBusinessHours, enrichOutsideHoursMessage } from '../businessHours.ts'
+
+describe('formatBusinessHours', () => {
+  it('agrupa Seg-Sex com mesmo horário', () => {
+    const wh = {
+      mon: { open: true, start: '08:00', end: '18:00' },
+      tue: { open: true, start: '08:00', end: '18:00' },
+      wed: { open: true, start: '08:00', end: '18:00' },
+      thu: { open: true, start: '08:00', end: '18:00' },
+      fri: { open: true, start: '08:00', end: '18:00' },
+      sat: { open: true, start: '08:00', end: '12:00' },
+      sun: { open: false },
+    }
+    expect(formatBusinessHours(wh)).toBe('Seg-Sex 8h-18h, Sáb 8h-12h')
+  })
+
+  it('domingo fechado fica implícito', () => {
+    const wh = {
+      mon: { open: true, start: '09:00', end: '19:00' },
+      tue: { open: true, start: '09:00', end: '19:00' },
+      wed: { open: true, start: '09:00', end: '19:00' },
+      thu: { open: true, start: '09:00', end: '19:00' },
+      fri: { open: true, start: '09:00', end: '19:00' },
+      sat: { open: true, start: '09:00', end: '19:00' },
+      sun: { open: false },
+    }
+    expect(formatBusinessHours(wh)).toBe('Seg-Sáb 9h-19h')
+  })
+
+  it('dias não-consecutivos viram lista', () => {
+    const wh = {
+      mon: { open: true, start: '10:00', end: '16:00' },
+      tue: { open: false },
+      wed: { open: true, start: '10:00', end: '16:00' },
+      thu: { open: false },
+      fri: { open: true, start: '10:00', end: '16:00' },
+      sat: { open: false },
+      sun: { open: false },
+    }
+    expect(formatBusinessHours(wh)).toBe('Seg 10h-16h, Qua 10h-16h, Sex 10h-16h')
+  })
+
+  it('null / inválido retorna null (24/7)', () => {
+    expect(formatBusinessHours(null)).toBeNull()
+    expect(formatBusinessHours(undefined)).toBeNull()
+    expect(formatBusinessHours({})).toBeNull()
+  })
+
+  it('minutos quebrados aparecem (8h30)', () => {
+    const wh = {
+      mon: { open: true, start: '08:30', end: '17:30' },
+    }
+    expect(formatBusinessHours(wh)).toBe('Seg 8h30-17h30')
+  })
+})
+
+describe('enrichOutsideHoursMessage', () => {
+  const wh = {
+    mon: { open: true, start: '08:00', end: '18:00' },
+    tue: { open: true, start: '08:00', end: '18:00' },
+    wed: { open: true, start: '08:00', end: '18:00' },
+    thu: { open: true, start: '08:00', end: '18:00' },
+    fri: { open: true, start: '08:00', end: '18:00' },
+    sat: { open: true, start: '08:00', end: '12:00' },
+    sun: { open: false },
+  }
+
+  it('injeta horários quando msg é genérica', () => {
+    const msg = 'Anotei seu pedido e retornaremos em breve.'
+    expect(enrichOutsideHoursMessage(msg, wh))
+      .toBe('Estamos fora do horário (Seg-Sex 8h-18h, Sáb 8h-12h). Anotei seu pedido e retornaremos em breve.')
+  })
+
+  it('não toca msg que já menciona horário (8h)', () => {
+    const msg = 'Estamos fechados até 8h amanhã.'
+    expect(enrichOutsideHoursMessage(msg, wh)).toBe(msg)
+  })
+
+  it('não toca msg que já menciona "horário"', () => {
+    const msg = 'Fora do nosso horário de atendimento.'
+    expect(enrichOutsideHoursMessage(msg, wh)).toBe(msg)
+  })
+
+  it('retorna msg original se business_hours null', () => {
+    const msg = 'Mensagem qualquer.'
+    expect(enrichOutsideHoursMessage(msg, null)).toBe(msg)
+  })
+
+  it('retorna msg vazia se input vazio', () => {
+    expect(enrichOutsideHoursMessage('', wh)).toBe('')
+  })
+})
