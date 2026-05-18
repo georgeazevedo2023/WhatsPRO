@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-05-17
-audited_at: 2026-05-17
+updated: 2026-05-18
+audited_at: 2026-05-18
 ---
 
 # Changelog
@@ -10,6 +10,39 @@ audited_at: 2026-05-17
 > Releases ativas (últimos ~14 dias). Histórico completo em [[wiki/changelog/]].
 >
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
+
+---
+
+### v7.37.19 (2026-05-18) — Fila Inteligente bot/IA não fecha mais evento + UI revalida em tempo real
+
+Dois bugs distintos corrigidos no D30 Fila depois que user reportou que handoff pra Lucas nunca rotacionava pro próximo da fila (Alberto/Jussara/Djavan/Slone).
+
+**R115 — `handoff_queue_events` fora da publication realtime (UI stale).** Hook `useActiveQueueEvents` só recebia broadcast HTTP `fireAndForget` do cron — quando broadcast falhava silente a UI ficava com snapshot antigo do badge "Em fila — X (0:00)" para sempre. A tabela nunca foi adicionada ao `supabase_realtime` publication.
+
+- Migration `20260518000000_handoff_queue_events_realtime_publication.sql` — `ALTER PUBLICATION supabase_realtime ADD TABLE handoff_queue_events` (idempotente). Aplicada via MCP.
+- `src/hooks/useActiveQueueEvents.ts` — 3 camadas defense in depth: postgres_changes event='*' canônico + broadcast legacy mantido + poll fallback 3s quando evento ativo passou `expires_at`.
+
+**R116 — `detectResponded` confundia msg do bot com resposta do atendente.** A msg de handoff do IA ("Vou conectar você...") é inserida ~7s após criar o evento, batia o grace de 5s, e `requeue-conversations/index.ts:140-153` contava qualquer outgoing como "atendente respondeu" → marcava `responded` → fila não rotacionava. George teve 3 eventos consecutivos com esse padrão.
+
+- `requeue-conversations/index.ts` `detectResponded` agora filtra `.not('sender_id', 'is', null)`. Atendente humano via helpdesk preenche `sender_id` com user_id; IA/bot deixa NULL — discrimina perfeitamente.
+- `RESPONDED_GRACE_SECONDS` ampliado de 5 → 15s (defense em camada).
+- Deploy via CLI (`prfcbfumyrrycsrcrvms`).
+
+**Validação 5 cenários E2E paralelos (sem Playwright, SQL puro):**
+- A — George handoff natural 5min30s + 2 msgs bot ✅ Lucas timed_out → rotação
+- B — Maria 3 msgs bot pós-handoff ✅ Lucas timed_out → Alberto rot 1
+- C — Wrap-around Slone (qp50) → Lucas (qp10) ✅ pulando Josafá gerente
+- D — Humano com `sender_id=Lucas` ✅ fechou `responded`, fila parou (caso positivo do filtro)
+- E — Ciclo completo 6 rotações com wrap ✅
+
+5/5 PASS. Bug confirmado: antes count=1 falso positivo na detecção, depois count=0 (mesmo evento, mesma query). Sem impacto em msgs reais de atendente.
+
+**Files:**
+- `supabase/functions/requeue-conversations/index.ts` (R116)
+- `src/hooks/useActiveQueueEvents.ts` (R115)
+- `supabase/migrations/20260518000000_handoff_queue_events_realtime_publication.sql` (R115)
+- `wiki/erros/regras-preventivas.md` (R115 + R116 entries)
+- `log.md` (registro)
 
 ---
 

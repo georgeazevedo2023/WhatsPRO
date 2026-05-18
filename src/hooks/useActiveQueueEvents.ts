@@ -3,11 +3,18 @@
  * com `status='active'` para alimentar a badge "Em fila — Lucas (3:42)" no
  * helpdesk.
  *
- * Refetch ao receber broadcast `queue-update` (do cron Sprint C ou de
- * `assignHandoff`). Tick interno de 1s para o countdown.
+ * Revalidação em 3 camadas (defense in depth — broadcast HTTP do cron é
+ * fire-and-forget e falhava silenciosamente, deixando UI stale após rotação):
+ *   1. postgres_changes em handoff_queue_events — entrega direta via WebSocket
+ *      sob RLS. Catch-all para INSERT/UPDATE/DELETE (cron, assign-handoff, UI).
+ *   2. Broadcast queue-update (legacy) — best-effort, mantido para resposta
+ *      imediata quando o broadcast chega antes do replication slot.
+ *   3. Poll de segurança — quando algum evento ativo passou de `expires_at`,
+ *      agenda refetch em 3s até estabilizar. Bounded: zero polling em estado
+ *      saudável.
  *
- * Quando `paused_at` está setado (horário fechado), o countdown some — exibe
- * apenas o nome do atendente + ícone de pausa.
+ * Tick interno de 1s só para o countdown visual. Quando `paused_at` está setado
+ * (horário fechado), countdown some — exibe nome + ícone de pausa.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -105,17 +112,38 @@ export function useActiveQueueEvents() {
     return () => { isMountedRef.current = false; };
   }, [fetchAll]);
 
-  // Subscribe ao broadcast queue-update do cron Sprint C
+  // Camadas 1 e 2: postgres_changes (canônico) + broadcast queue-update (legacy).
   useEffect(() => {
     const channel = supabase
-      .channel('helpdesk-realtime')
+      .channel('queue-events-watch')
       .on('broadcast', { event: 'queue-update' }, () => { fetchAll(); })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'handoff_queue_events' },
+        () => { fetchAll(); },
+      )
       .subscribe();
     return () => {
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [fetchAll]);
+
+  // Camada 3: poll de segurança quando algum evento ativo passou de expires_at.
+  // O cron roda a cada 1min — sem isso, UI fica até 60s exibindo "0:00" do
+  // assignee anterior antes do postgres_changes da rotação chegar.
+  useEffect(() => {
+    let anyExpired = false;
+    for (const ev of events.values()) {
+      if (ev.paused_at) continue;
+      if (new Date(ev.expires_at).getTime() <= now) { anyExpired = true; break; }
+    }
+    if (!anyExpired) return;
+    const t = setTimeout(() => {
+      if (isMountedRef.current) fetchAll();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [events, now, fetchAll]);
 
   /**
    * Segundos restantes até `expires_at`. Retorna `null` quando:

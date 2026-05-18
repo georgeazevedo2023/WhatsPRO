@@ -35,7 +35,10 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const UAZAPI_URL = Deno.env.get('UAZAPI_SERVER_URL') ?? 'https://wsmart.uazapi.com'
 
-const RESPONDED_GRACE_SECONDS = 5  // ignora outgoing nos 5s após criação do evento
+// R116 (2026-05-18): grace expandido de 5s pra 15s para cobrir latência típica
+// do INSERT do handoff_message do IA (medido até 7s real). Defense em camada
+// dupla: filtro `sender_id IS NOT NULL` em detectResponded já exclui bot.
+const RESPONDED_GRACE_SECONDS = 15
 
 // deno-lint-ignore no-explicit-any
 type SupabaseClient = any
@@ -136,7 +139,16 @@ async function countEligibleMembers(supabase: SupabaseClient, departmentId: stri
   return count || 0
 }
 
-/** Caso C: detecta se algum atendente respondeu após criação do evento. */
+/**
+ * Caso C: detecta se algum ATENDENTE HUMANO respondeu após criação do evento.
+ *
+ * R116 (2026-05-18): mensagens do IA / bot têm `sender_id IS NULL`. Mensagens
+ * enviadas via helpdesk por atendente humano sempre setam `sender_id` com o
+ * user_id. Sem esse filtro, o INSERT do `handoff_message` do IA (executado
+ * ~7s após criar o evento, fora do grace de 5s antigo) era detectado como
+ * "atendente respondeu", marcava `status=responded` e a fila NUNCA
+ * rotacionava — Lucas pegava todo handoff e a próxima volta nunca chegava.
+ */
 async function detectResponded(
   supabase: SupabaseClient,
   conversationId: string,
@@ -148,6 +160,7 @@ async function detectResponded(
     .select('*', { count: 'exact', head: true })
     .eq('conversation_id', conversationId)
     .eq('direction', 'outgoing')
+    .not('sender_id', 'is', null)
     .gte('created_at', cutoff)
   return (count || 0) > 0
 }

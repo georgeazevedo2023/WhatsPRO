@@ -9,6 +9,55 @@ type: log
 
 ---
 
+## 2026-05-18 (tarde) — R116 detectResponded: bot/IA marcava evento como `responded` erradamente
+
+**Bug crítico (segunda iteração — R115 era parcial).** Após R96 (publication realtime), user voltou reportando que rotação NÃO acontecia mesmo natural: handoff → Lucas → 5min sem resposta → evento sumia, não rotacionava. Investigação direta no DB encontrou padrão claro nos eventos do George:
+
+| created_at | expires_at | resolved_at | reason |
+|---|---|---|---|
+| 11:33:05 | 11:38:04 | 11:38:57 | **outgoing_after_assignment** |
+| 12:09:54 | 12:14:54 | 12:14:57 | **outgoing_after_assignment** |
+
+Todos `responded` ~3s após `expires_at`. Lucas nunca respondeu. A msg "Vou conectar você com nosso consultor..." do IA foi inserida +7.06s após criar o evento — bate o `RESPONDED_GRACE_SECONDS=5`. `detectResponded` linha 140-153 não filtrava `sender_id` → contava msg do bot como "atendente respondeu".
+
+**Distinção crítica:** atendente humano via helpdesk preenche `conversation_messages.sender_id` com o user_id. IA/bot deixa NULL. Filtro `sender_id IS NOT NULL` discrimina perfeitamente.
+
+**Fix shipado:**
+1. `requeue-conversations/index.ts` `detectResponded` — `.not('sender_id', 'is', null)` adicionado, ignora msgs do bot.
+2. `RESPONDED_GRACE_SECONDS` 5 → 15s (defense in depth para outras race conditions).
+3. Deploy via CLI (PAT `eletropiso.wsmart@gmail.com`, project `prfcbfumyrrycsrcrvms`).
+
+**Validação 5 cenários E2E paralelos:**
+- **A** (George, handoff natural 5min30s real) ✅ — Lucas timed_out + rotacionou pra Jussara
+- **B** (Maria, 3 msgs bot pós-handoff) ✅ — Lucas timed_out + Alberto rot 1 active
+- **C** (Bug 11, wrap Slone qp50 → Lucas qp10) ✅ — wrap funcionou pulando Josafá (gerente sem opt-in)
+- **D** (Wsmart, humano responde com sender_id=Lucas) ✅ — fechou como responded, fila parou corretamente
+- **E** (ciclo completo 6 rotações) ⏳ rodando
+
+**Lição (R116):** queries de "atendente respondeu" SEMPRE devem distinguir bot do humano via `sender_id IS NOT NULL`. Vai pra `wiki/erros/regras-preventivas.md` como regra dura.
+
+---
+
+## 2026-05-18 — R115 Fila Inteligente UI stale (badge não revalidava após rotação)
+
+User reportou: badge "Em fila — Lucas (0:00)" travado, deveria ir pra Alberto mas pulou pra Slone/Djavan; depois badge sumiu de algumas conversas. 3 agentes em paralelo (audit código + dados prod + Playwright) confirmaram:
+
+- **Backend correto.** Maria rotacionou Jussara→Djavan→Slone→Lucas→Alberto→Jussara→Djavan→Slone→Lucas 8x. `pick_next_assignee` com FOR UPDATE + cursor `last_assignee_position` funcionou. Pool real = 5 (Josafá é gerente fora da fila por design).
+- **Bug é frontend.** `handoff_queue_events` NUNCA foi adicionado ao `supabase_realtime` publication (`20260320011406_enable_realtime_publications.sql` listou 10 tabelas, fila ficou de fora). Hook `useActiveQueueEvents` dependia 100% de broadcast HTTP `fireAndForget` do cron — sem retry, sem visibility. Quando broadcast falhava silente (DNS, throttling, etc), UI ficava stale eternamente.
+
+**Fix (defense in depth):**
+1. Migration `20260518000000_handoff_queue_events_realtime_publication.sql` — ADD TABLE idempotente. Aplicada em prod via MCP.
+2. `src/hooks/useActiveQueueEvents.ts` — postgres_changes event='*' canônico + broadcast legacy + poll de segurança 3s quando há evento ativo expirado.
+
+**Validação Playwright nota 10/10:**
+- UPDATE forçado em `expires_at` → cron rotacionou em 60s → badge UI atualizou em ~1.5s sem F5 (Alberto rot 9 → jussara rot 10).
+- Network requests confirmam: postgres_changes → GET handoff_queue_events → GET user_profiles → re-render badge.
+- Console clean (0 errors). Screenshots `bug_fila_BEFORE.png` + `bug_fila_FIXED.png`.
+
+TypeScript 0 erros. Hook só, sem alteração de edge fn (broadcast legacy continua funcionando como camada extra).
+
+---
+
 ## 2026-05-17 (noite) — Bugs 29-32 handoff outside_hours sem horários FIXADOS (v7.37.18)
 
 User reportou: IA atendeu fora horário OK mas transbordo enviou msg genérica sem horários. Diagnóstico: `handoff_message_outside_hours` do Eletropiso estava genérico; LEGADO `out_of_hours_message` (texto detalhado) não é mais lido desde D32. Fixes:
@@ -168,57 +217,15 @@ Arquivos: `ai-agent/index.ts` (~30 linhas no auto-extract path + ~35 no bloco de
 
 ---
 
-## 2026-05-17 (noite-inicio) — Bug 21+22 fix: validator BLOCK ignorava outside_hours + transbordo prematuro (v7.37.6)
+## 2026-05-17 (noite-inicio) — Bug 21+22 validator BLOCK (v7.37.6) — arquivado
 
-User mandou print: lead "boa tarde" → "george" → "voces tem trena?" → IA respondeu *"Perfeito! Vou conectar você com nosso consultor de vendas para finalizar seu pedido. Em instantes você terá retorno."* — duas falhas:
-
-**Bug 21:** transbordo prematuro. Categoria `ferramentas_manuais` tem 2 fields obrigatórios (`tipo_ferramenta`, `uso_ferramenta`). Auto-extract pegou só `trena` (tipo). Faltava `uso_ferramenta` (profissional/doméstico). Mesmo assim handoff disparou. Vendedor recebe lead sem qualif → perde tempo perguntando o óbvio.
-
-**Bug 22:** msg REGULAR enviada em vez de `_outside_hours` (domingo, Eletropiso fechada) — regressão do que Bug 16 v7.37.3 fixou. Root cause: NÃO foi pelo handoff_to_human tool (sem log de event=handoff). Foi pelo **validator BLOCK path** (linha 3344 antiga). Esse path usava `agent.handoff_message` direto, sem checar `outside_hours` — 4º caminho que escapou do Bug 16 fix.
-
-**Fix v7.37.6 — validator BLOCK reescrito:**
-1. **Bug 22:** `pickHandoffMessage({agent,profileData,funnelData,outsideHours})` helper agora aplicado no validator BLOCK path. Adiciona também log `event='handoff', reason='validator_block'` (antes invisível).
-2. **Bug 21:** se `qualificationContext` contém "PRÓXIMA PERGUNTA OBRIGATÓRIA" (ou seja, qualif ainda incompleta), validator BLOCK NÃO transborda — em vez disso envia a "FRASE EXATA SUGERIDA" extraída do qualif context. Lead continua sendo qualificado. Log `event='response_sent', metadata.source='validator_block_qualif_fallback'`.
-
-**Validação E2E (mesmo cenário do user — Sandbox UAZAPI → Eletropiso prod, domingo fechado):**
-- T1 "oi" → greeting padrão
-- T2 "sou o Joao" → "Joao, em que posso te ajudar hoje?" (Bug 19 ✅ sem chutar produto)
-- T3 "voces tem trena?" → **"Pra te ajudar, uso? (profissional ou doméstico)"** — PERGUNTA o uso ✅ (era esse o bug)
-- T4 "profissional" → IA pergunta comprimento (LLM improvisou — bug paralelo backlog: LLM inventa fields fora do schema)
-- T5 "5 metros, fechar" → IA pergunta tipo de trabalho (enrichment, search_fail:1 — trena não cadastrada)
-- T6 "quero falar com vendedor agora" → IA enviou EXATAMENTE `handoff_message_outside_hours` ("...assim que estivermos disponíveis...") + `status_ia=shadow` + `ia:shadow` tag ✅
-
-**Regra preventiva:** TODO path que decide transbordo (`handoff_to_human` tool, auto-handoff, deferred trigger, **validator BLOCK**, futuros) DEVE consultar `pickHandoffMessage` para escolher regular vs outside_hours. Centralizar em helper compartilhado evita 5º caminho escapar. Buscar grep `agent.handoff_message ||` periodicamente — qualquer uso direto sem o helper é red flag.
-
-Arquivos: `ai-agent/index.ts` (~60 linhas no validator BLOCK path: guard qualif + helper). tsc=77 (igual ao pre-fix, sem regressão). Deploy ai-agent. Screenshots: `wiki/validacoes/bug21_22_validado.png`.
-
-**Backlog Bug 23 (achado nesta sessão):** LLM em enrichment improvisa pergunta sobre field NÃO cadastrado (ex: "comprimento" pra trena). Resultado: pergunta off-script, dado coletado vira `tipo_ferramenta:trena_5m` em vez de field próprio. Investigar: 2026-05-18 — *"limitar improvisação LLM em enrichment / schema dinâmico"*.
+> Movido para [[wiki/log-arquivo-2026-05-17-bug21-22]] em 2026-05-18 (hard limit 300 linhas).
 
 ---
 
-## 2026-05-17 (fim tarde) — Bug 19 fix: IA alucina interesse:CAT sem o lead pedir (v7.37.5)
+## 2026-05-17 (fim tarde) — Bug 19 IA alucina interesse:CAT (v7.37.5) — arquivado
 
-User mandou print: lead disse "boa tarde" + "George" (só nome) → IA respondeu "George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio." LLM alucinou produto "porta" sem o lead mencionar nada.
-
-**Root cause:** o handler `set_tags` (ai-agent:2712) não validava se `interesse:CAT` cravado pelo LLM tinha CONEXÃO com o que o lead falou. Quando input é trivial ("oi", "George"), o LLM chuta uma categoria pra "ter algo a perguntar". Sem guard, tag `interesse:porta` foi aceita + entrou no qualificationContext + LLM perguntou material da porta. Auto-extract (Bug 13) NÃO foi o culpado (regex `porta|portas` não bate em "George"/"boa tarde").
-
-**Fix v7.37.5:**
-1. **Guard determinístico no handler `set_tags`:** quando LLM tenta cravar `interesse:CAT`, validar que o regex `interesse_match` da categoria bate em pelo menos uma msg incoming do lead nesta sessão (contextMessages + incomingText atual). Se não bater, rejeitar + log `interesse_hallucination_blocked`.
-2. **Regra hardcoded no prompt:** "NUNCA ASSUMIR PRODUTO/CATEGORIA (Bug 19): PROIBIDO chamar set_tags com interesse:X ou perguntar sobre produto se lead AINDA NÃO mencionou. Se lead só enviou saudação/nome, pergunte 'No que posso te ajudar?' — JAMAIS assuma."
-3. **Migration:** event `interesse_hallucination_blocked` adicionado ao CHECK constraint de `ai_agent_logs` (lição R114 — insert silencioso). Também `auto_field_extracted` (já em uso, faltava no constraint).
-
-**Validação E2E 5 cenários (Playwright + Sandbox UAZAPI):**
-- C1 trivial ("oi" → "Pedro"): IA "Pedro, em que produto ou material posso te ajudar?" ✅ sem chute, tag `motivo:compra` só
-- C2 "quero comprar tinta": sale_closed_detected disparou handoff prematuro (achado paralelo Bug 20 — sale_closed regex muito agressivo). Mas Bug 19 ok: sem `interesse:` alucinado
-- C3 "vcs tem tinta?": IA qualificou ambiente. Guard PERMITIU `interesse:tinta` (regex bate). ✅
-- C4 "vcs vendem cama de casal?": excluded reply ("Infelizmente não trabalhamos com cama..."). ✅
-- C5 "bom dia" → "preciso de um material": "Qual material de construção você está procurando?" — pergunta genérica sem chutar. ✅
-
-**Regra preventiva:** todo handler que persiste estado controlado por LLM (tags, profile, kanban move) precisa validar contra EVIDÊNCIA no histórico do lead, não confiar apenas no que o LLM mandar. LLM em input trivial CHUTA pra "ter o que fazer" — defesas determinísticas existem pra isso.
-
-Arquivos: `ai-agent/index.ts` (+~30 linhas guard + 1 regra prompt), `migrations/20260517170000_ai_agent_logs_interesse_hallucination_event.sql`. Deploy ai-agent. Screenshots em `wiki/validacoes/`.
-
-**Backlog Bug 20 (achado nos testes):** regex `sale_closed` em `saleClosedDetection.ts` casa "quero comprar X" mesmo SEM qualificação prévia. Lead deveria pelo menos ter passado por algumas qualif antes de virar venda fechada. Frase: *"investigar bug 20 sale_closed regex agressivo 2026-05-18"*.
+> Movido para [[wiki/log-arquivo-2026-05-17-bug19]] em 2026-05-18 (hard limit 300 linhas).
 
 ---
 
