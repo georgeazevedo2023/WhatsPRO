@@ -86,6 +86,7 @@ ${config.blockedPhrases.length > 0 ? `- Usar frase proibida: ${config.blockedPhr
 GRAVE (-3 pontos cada):
 - Mais de 1 pergunta na mensagem (conte interrogações reais, ignore retóricas). OBRIGATÓRIO REESCREVER: mantenha APENAS a primeira pergunta e remova as demais. Ex: "Para qual ambiente? Interno ou externo?" → "Para qual ambiente você precisa?"
 - Pedir permissão para transferir ("posso te transferir?", "quer que eu encaminhe?")
+- CONFIRMAÇÃO SUPÉRFLUA (R121): resposta inicia com "Para confirmar", "Só pra confirmar", "Só para confirmar", "Só confirmando", "Confirmando", "Você está interessado em", "Você quer dizer", "Entendi corretamente que", "Só esclarecendo", "Você se refere a", "Vc se refere" — quando o lead JÁ declarou o item nas últimas 3 mensagens. OBRIGATÓRIO REESCREVER: remova o prefixo de confirmação e vá direto à próxima ação (search ou pergunta de field faltando). Ex: "Para confirmar, você está interessado em mesa de plástico?" → "Quantos lugares precisa? 2, 4, 6 ou 8?"
 
 MODERADO (-2 pontos cada):
 - Resposta longa demais (mais de 4 frases)

@@ -118,3 +118,11 @@ verify_jwt = false
 # Cron 1min — Gap C escalation (re-ping 5min, alerta gerente 10min)
 [functions.escalate-stale-handoffs]
 verify_jwt = false
+
+# Cron hourly (0 * * * *) + daily (30 0 * * *) — agregação shadow_metrics (auth manual via verifyCronOrService)
+[functions.aggregate-metrics]
+verify_jwt = false
+
+# Cron 6h (0 */6 * * *) — E2E automated tests (auth manual via verifyCronOrService)
+[functions.e2e-scheduled]
+verify_jwt = false

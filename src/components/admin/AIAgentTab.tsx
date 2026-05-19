@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Bot, BrainCircuit, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle, FileText, ListTree } from 'lucide-react';
+import { Bot, BrainCircuit, Loader2, Plus, Package, BookOpen, Shield, Mic, BarChart3, MoreVertical, Copy, Trash2, Pencil, Store, Check, AlertCircle, FileText, ListTree, Power, PowerOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 import { GeneralConfig } from './ai-agent/GeneralConfig';
@@ -345,6 +345,18 @@ export default function AIAgentTab() {
     }
   };
 
+  const handleToggleEnabled = async (agent: AIAgent) => {
+    const next = !agent.enabled;
+    try {
+      const { error } = await supabase.from('ai_agents').update({ enabled: next }).eq('id', agent.id);
+      if (error) throw error;
+      toast.success(next ? 'Agente ativado' : 'Agente desativado');
+      fetchAgents();
+    } catch (err) {
+      handleError(err, `Erro ao ${next ? 'ativar' : 'desativar'} agente`, 'Toggle AI agent enabled');
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
@@ -464,6 +476,13 @@ export default function AIAgentTab() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setSelectedAgentId(agent.id); setActiveTab('setup'); }}>
                           <Pencil className="w-4 h-4 mr-2" /> Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleToggleEnabled(agent); }}>
+                          {agent.enabled ? (
+                            <><PowerOff className="w-4 h-4 mr-2" /> Desativar</>
+                          ) : (
+                            <><Power className="w-4 h-4 mr-2" /> Ativar</>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDuplicate(agent); }}>
                           <Copy className="w-4 h-4 mr-2" /> Duplicar

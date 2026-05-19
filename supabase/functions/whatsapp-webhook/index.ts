@@ -529,36 +529,90 @@ Deno.serve(async (req) => {
         })
       }
 
-      // Find instance by name, id, or owner_jid (with AND without suffix)
-      // Also check payload.owner field as fallback (UAZAPI sends owner phone number)
+      // Find instance — lookup em CASCATA priorizando campos UNICOS.
+      //
+      // R121 v2 (2026-05-19): apos migracao Eletropiso, ambas instancias tem
+      // mesmo `name` no UAZAPI ("Eletropiso") porque o nome do painel UAZAPI
+      // nao foi renomeado. Lookup por name ficaria ambiguo — bateria na primeira
+      // row encontrada. Solucao: priorizar `token` (unico por instancia) e
+      // `owner_jid` (unico por numero), deixando `name` so como fallback final.
+      //
+      // R121 v1 (2026-05-19): refatorado pra queries em cascata em vez de OR PostgREST,
+      // pois OR com espaco no valor (ex: "Sandbox IA") quebrava parser.
+      const payloadToken = payload.token || ''
       const ownerField = payload.owner || message?.owner || ''
-      // Sanitize instance identifiers to prevent PostgREST filter injection
       const sanitize = (s: string) => s.replace(/[,()]/g, '')
       const ownerClean = sanitize(instanceName.replace('@s.whatsapp.net', ''))
       const ownerWithSuffix = `${ownerClean}@s.whatsapp.net`
+      const ownerFieldClean = ownerField ? sanitize(ownerField.replace('@s.whatsapp.net', '')) : ''
+      const ownerFieldWithSuffix = ownerFieldClean ? `${ownerFieldClean}@s.whatsapp.net` : ''
 
-      let orConditions = `id.eq.${ownerClean},name.eq.${ownerClean},owner_jid.eq.${ownerClean},owner_jid.eq.${ownerWithSuffix}`
+      let foundInstance: { id: string; name: string; token: string; user_id: string } | null = null
 
-      // Add owner field as additional lookup (phone number of the instance)
-      if (ownerField && ownerField !== instanceName) {
-        const ownerFieldClean = sanitize(ownerField.replace('@s.whatsapp.net', ''))
-        const ownerFieldWithSuffix = `${ownerFieldClean}@s.whatsapp.net`
-        orConditions += `,owner_jid.eq.${ownerFieldClean},owner_jid.eq.${ownerFieldWithSuffix}`
+      // Tentativa 1: token (UNICO por instancia — prioridade maxima)
+      if (payloadToken) {
+        const { data } = await supabase
+          .from('instances')
+          .select('id, name, token, user_id')
+          .eq('token', payloadToken)
+          .maybeSingle()
+        if (data) foundInstance = data
       }
 
-      const { data: foundInstance } = await supabase
-        .from('instances')
-        .select('id, name, token, user_id')
-        .or(orConditions)
-        .maybeSingle()
+      // Tentativa 2: owner_jid via campo `owner` do payload (phone number — UNICO)
+      if (!foundInstance && ownerFieldClean) {
+        for (const val of [ownerFieldClean, ownerFieldWithSuffix]) {
+          const { data } = await supabase
+            .from('instances')
+            .select('id, name, token, user_id')
+            .eq('owner_jid', val)
+            .maybeSingle()
+          if (data) { foundInstance = data; break }
+        }
+      }
+
+      // Tentativa 3: instance.id literal (UAZAPI manda id em alguns payloads)
+      if (!foundInstance && ownerClean) {
+        const { data } = await supabase
+          .from('instances')
+          .select('id, name, token, user_id')
+          .eq('id', ownerClean)
+          .maybeSingle()
+        if (data) foundInstance = data
+      }
+
+      // Tentativa 4: owner_jid via instanceName (caso instanceName seja phone)
+      if (!foundInstance && ownerClean) {
+        for (const val of [ownerClean, ownerWithSuffix]) {
+          const { data } = await supabase
+            .from('instances')
+            .select('id, name, token, user_id')
+            .eq('owner_jid', val)
+            .maybeSingle()
+          if (data) { foundInstance = data; break }
+        }
+      }
+
+      // Tentativa 5 (FALLBACK final): name — pode ser ambiguo se 2 instancias compartilham nome.
+      // Em caso de empate, .maybeSingle() retorna a primeira row OU erro de multiple rows.
+      // Por isso ficou por ultimo.
+      if (!foundInstance && ownerClean) {
+        const { data } = await supabase
+          .from('instances')
+          .select('id, name, token, user_id')
+          .eq('name', ownerClean)
+          .maybeSingle()
+        if (data) foundInstance = data
+      }
 
       if (!foundInstance) {
-        log.error('Instance not found', { instanceName, ownerField, ownerClean })
+        log.error('Instance not found', { instanceName, ownerField, ownerClean, ownerFieldClean, hasToken: !!payloadToken })
         return new Response(JSON.stringify({ error: 'Instance not found' }), {
           status: 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
+      log.info('Instance resolved', { instance_id: foundInstance.id, name: foundInstance.name, resolved_by: payloadToken ? 'token' : (ownerFieldClean ? 'owner_field' : 'instance_name') })
       instance = foundInstance
 
       // Find inbox for this instance

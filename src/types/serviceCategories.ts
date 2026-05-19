@@ -47,6 +47,8 @@ export interface Stage {
   phrasing: string;
 }
 
+export type CatalogStatus = 'digital' | 'offline' | 'none';
+
 export interface ServiceCategory {
   /** slug único da categoria (a-z0-9_) */
   id: string;
@@ -55,7 +57,20 @@ export interface ServiceCategory {
   /** regex string que casa contra a tag interesse:X */
   interesse_match: string;
   stages: Stage[];
+  /**
+   * Disponibilidade do catalogo digital.
+   * - 'digital' (default): produtos com foto/preço cadastrados em ai_agent_products.
+   * - 'offline': vendemos mas sem catalogo digital. Qualifica e faz handoff com contexto.
+   * - 'none': reservado.
+   */
+  catalog_status?: CatalogStatus;
 }
+
+export const CATALOG_STATUS_OPTIONS: { value: CatalogStatus; label: string; description: string }[] = [
+  { value: 'digital', label: 'Catalogo digital', description: 'Produtos cadastrados com foto e preço — bot mostra direto' },
+  { value: 'offline', label: 'Vendemos sem catalogo', description: 'Vendemos mas inventory não cadastrado — bot qualifica e transfere com contexto' },
+  { value: 'none',    label: 'Sem catalogo',       description: 'Sem inventory algum (uso futuro)' },
+];
 
 export interface DefaultCategory {
   stages: Stage[];

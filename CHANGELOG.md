@@ -13,6 +13,38 @@ audited_at: 2026-05-18
 
 ---
 
+### v7.37.20 (2026-05-19) — R121 catalog_status + busca direta "tem X?" + migração Eletropiso v2
+
+**Bug fix R121 (5 cenários auditados por 5 agentes paralelos).** Lead da Eletropiso perguntou "vcs tem mesa de plastico?" e bot respondeu "Para confirmar, você está interessado em mesas de plástico?" em vez de buscar ou qualificar — confirmação supérflua quando o lead já foi explícito.
+
+**7 camadas defense-in-depth (3 determinísticas + 2 prompt + 1 validator + 1 governança):**
+
+- **C1 `catalog_status` (digital/offline/none)** no schema `service_categories` — distingue categoria com produtos cadastrados (Camada 1) de categoria que vendemos sem catálogo digital (Camada 2). `serviceCategories.ts` + `src/types/serviceCategories.ts` + UI dropdown em `ServiceCategoriesConfig.tsx`. 21 cats Eletropiso marcadas como `offline`, 3 como `digital`.
+- **C2 Auto-extract search trigger** — `ai-agent/index.ts:1741` estende Bug 24 v5 com else-if `search_products`. Score >= max_score + exit_action=search_products + catalog_status=digital → `pendingExitActionSearch` inline.
+- **C3 Pre-LLM "tem X?" trigger** — `ai-agent/index.ts:1685-1715` regex `/(?:vcs?|você(s)? )?(?:tem|t[êe]m|vende[mn]?|fazem|trabalham\s+com)/i` detecta pergunta direta + categoria + catalog_status=digital → força search inline antes do LLM. Offline cai no fluxo natural (qualif + handoff sem dizer "não temos").
+- **C4 Bloco "FATOS JÁ ESTABELECIDOS"** — `ai-agent/index.ts:1583` substitui listagem crua `Tags atuais: interesse:mesas, material_mesa:plástico` por bloco semântico legível com fields humanizados. LLM tem instrução explícita pra não reperguntar.
+- **C5 Validator confirmation rule** — `validatorAgent.ts:90` regra GRAVE (-3) detecta "Para confirmar / Só pra confirmar / Você está interessado em / Você quer dizer / Entendi corretamente / Só esclarecendo / Confirmando" como início de resposta + reescreve.
+- **C6 Prompt tightening** — `ai-agent/index.ts:1617+1627` estende lista proibida de prefixos + adiciona regra absoluta "LEAD PERGUNTOU TEM X? → search_products IMEDIATO" empatando prioridade com MARCA MENCIONADA.
+- **C7 UI Admin** — dropdown `catalog_status` no editor de categoria + badge visual "Sem catalogo digital" no card list.
+
+**R121 fix lookup webhook (queries em cascata):**
+- `whatsapp-webhook/index.ts:532` — antes OR PostgREST quebrava com espaço em `instanceName` ("Sandbox IA"). Refatorado pra `eq()` separadas: token → owner_jid → id → name. Token tem prioridade máxima (único por instância). Necessário porque ambas Eletropiso (antiga e v2) tem mesmo `name="Eletropiso"` no UAZAPI.
+
+**Migração Eletropiso v2 (+558781592373):**
+- Nova instância `re662a6d32de7e0` criada aditiva — antiga preservada e DESABILITADA (`disabled=true` + `ai_agents.enabled=false`).
+- Inbox `01a9c21d-98c8-4225-805a-18e79e7df719`, dept `5240c457-...` (queue_mode_enabled=false, default_assignee=Lucas único), agent `1062059a-...`.
+- Clone integral: 56 colunas ai_agent + 24 service_categories + 13 excluded_products + 7 produtos com URLs de imagem compartilhadas.
+- Handoff garantido pro Lucas via Modo OFF (handoffQueue.ts:168 cai em default_assignee_id sem exceções).
+- Doc: [[wiki/migracao-eletropiso-558781592373]].
+
+**Toggle Ativar/Desativar no dropdown 3-pontos do `AIAgentTab`** — antes só Editar/Duplicar/Excluir. Agora `handleToggleEnabled` faz UPDATE direto + toast + auto-refresh do badge.
+
+**DB Reset pré-migração** — 32 tabelas truncadas via CASCADE (1941 msgs, 24 convs, 21 contacts, 18 leads). Configs/users/templates preservados. Doc: [[wiki/db-reset-2026-05-19]].
+
+**Lição:** Defense-in-depth com 3 camadas determinísticas garante que LLM não pode burlar regras críticas — mesmo se prompt for ignorado, validator regrava ou auto-extract força ação correta. Vai pra `wiki/erros/regras-preventivas.md` como R122.
+
+---
+
 ### v7.37.19 (2026-05-18) — Fila Inteligente bot/IA não fecha mais evento + UI revalida em tempo real
 
 Dois bugs distintos corrigidos no D30 Fila depois que user reportou que handoff pra Lucas nunca rotacionava pro próximo da fila (Alberto/Jussara/Djavan/Slone).

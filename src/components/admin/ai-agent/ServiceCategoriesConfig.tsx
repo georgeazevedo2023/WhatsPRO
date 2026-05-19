@@ -102,7 +102,9 @@ import {
   type Stage,
   type QualificationField,
   type ExitAction,
+  type CatalogStatus,
   EXIT_ACTION_OPTIONS,
+  CATALOG_STATUS_OPTIONS,
   DEFAULT_SERVICE_CATEGORIES_V2,
 } from '@/types/serviceCategories';
 
@@ -1225,6 +1227,12 @@ function CategoryCard({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {/* R121: badge catalog_status visual */}
+                {(((category as any).catalog_status || 'digital') !== 'digital') && (
+                  <Badge variant="outline" className="text-[9px] gap-1 border-amber-500/50 text-amber-700 dark:text-amber-400">
+                    {((category as any).catalog_status === 'offline') ? 'Sem catalogo digital' : 'Sem catalogo'}
+                  </Badge>
+                )}
                 {hasErrors && (
                   <Badge variant="destructive" className="text-[9px] gap-1">
                     <AlertCircle className="h-3 w-3" /> Erros
@@ -1342,6 +1350,37 @@ function CategoryCard({
                 />
               )}
               {errors.regex && <p className="text-destructive text-xs">{errors.regex}</p>}
+            </div>
+
+            {/* R121 (2026-05-19): catalog_status — sinaliza disponibilidade do inventory.
+                'digital' = tem produtos cadastrados em ai_agent_products (com foto).
+                'offline' = vendemos mas nao cadastramos. Bot qualifica + handoff sem dizer "nao temos".
+                'none'    = reservado. */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">
+                Disponibilidade do catalogo
+              </Label>
+              <Select
+                value={(category as any).catalog_status || 'digital'}
+                onValueChange={(v) => onChange({ catalog_status: v as CatalogStatus })}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATALOG_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      <div className="flex flex-col text-left">
+                        <span className="font-medium">{opt.label}</span>
+                        <span className="text-xs text-muted-foreground">{opt.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Como o bot trata buscas nesta categoria. <strong>Digital</strong>: mostra produtos do catalogo com foto. <strong>Vendemos sem catalogo</strong>: qualifica e transfere ao vendedor com contexto rico (sem dizer que nao temos).
+              </p>
             </div>
 
             {/* Funil visual */}

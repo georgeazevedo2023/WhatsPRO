@@ -63,6 +63,15 @@ export interface ServiceCategory {
   /** Regex string usado contra a tag interesse:VALUE. Validado em runtime com try/catch. */
   interesse_match: string
   stages: Stage[]
+  /**
+   * Disponibilidade do catalogo digital para esta categoria.
+   * - 'digital' (default): produtos cadastrados em ai_agent_products com foto/preco. search_products retorna inventory.
+   * - 'offline': vendemos a categoria mas inventory nao esta cadastrado. search_products retorna 0 = comportamento esperado;
+   *   fluxo deve qualificar fields e fazer handoff com contexto rico, sem dizer "nao temos".
+   * - 'none': uso futuro. tratar como offline.
+   * Ausente = 'digital' (backward compat).
+   */
+  catalog_status?: 'digital' | 'offline' | 'none'
 }
 
 export interface DefaultCategory {

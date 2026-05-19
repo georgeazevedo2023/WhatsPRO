@@ -460,6 +460,9 @@ Deno.serve(async (req) => {
     let pendingSaleClosedHandoff: string | null = null
     let pendingExitActionHandoff: { reason: string; queueMotivo: string } | null = null
     let pendingExitActionSearch: { query: string; category: string } | null = null
+    // R121 (2026-05-19): toolCallsLog elevado pra cima do auto-extract inline search.
+    // Antes estava em linha 3449 — fora do escopo do bloco R121 inline.
+    const toolCallsLog: any[] = []
     {
       const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
       const textForDetection = shadow_only ? (vendor_message || '') : incomingText
@@ -1577,7 +1580,28 @@ ${contextBlock}`
       leadMsgCount >= MAX_LEAD_MESSAGES - 2 ? 'Acelere a qualificação e faça handoff proativamente.' : '',
       `\nLabels disponíveis: ${availableLabelNames.length > 0 ? availableLabelNames.join(', ') : '(nenhuma)'}`,
       currentLabelNames.length > 0 ? `Labels atuais: ${currentLabelNames.join(', ')}` : '',
-      conversation.tags?.length ? `Tags atuais: ${conversation.tags.join(', ')}` : '',
+      // R121 (2026-05-19): bloco semantico "FATOS JA ESTABELECIDOS".
+      // Substitui a listagem crua "Tags atuais: interesse:mesas, material_mesa:plástico"
+      // por frases legiveis tipo "JA SABEMOS: Interesse = Mesas | Material = plástico".
+      // Reforca que LLM NAO deve reperguntar nem confirmar o que ja esta aqui.
+      // Tags meta (ia, ia_cleared, lead_score, motivo, enrich_count, search_fail) ficam ocultas.
+      conversation.tags?.length ? (() => {
+        const META_KEYS_FACTS = new Set(['ia','ia_cleared','lead_score','enrich_count','search_fail','aguardando_upsell','produto','motivo'])
+        const facts: string[] = []
+        for (const t of conversation.tags || []) {
+          if (typeof t !== 'string') continue
+          const idx = t.indexOf(':')
+          if (idx <= 0) continue
+          const k = t.slice(0, idx)
+          const v = t.slice(idx + 1)
+          if (META_KEYS_FACTS.has(k)) continue
+          // Humanizar key: material_mesa -> Material mesa; interesse -> Interesse
+          const labelKey = k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' ')
+          facts.push(`${labelKey} = ${v}`)
+        }
+        if (facts.length === 0) return ''
+        return `\n[FATOS JA ESTABELECIDOS pelo lead nesta sessao — NAO PERGUNTE NEM CONFIRME O QUE ESTA AQUI]\n${facts.join(' | ')}\n(Use estes fatos diretamente. Se algum campo de qualificacao esta faltando, pergunte SO o que falta — sem reperguntar/confirmar o que ja foi dito acima.)`
+      })() : '',
       agent.blocked_topics?.length ? `\nTópicos PROIBIDOS: ${agent.blocked_topics.join(', ')}` : '',
       agent.blocked_phrases?.length ? `Frases PROIBIDAS: ${agent.blocked_phrases.join(', ')}` : '',
     ].filter(Boolean).join('\n')
@@ -1590,7 +1614,7 @@ ${contextBlock}`
 - Quando resultados de ferramenta são marcados com [INTERNO], NUNCA repita o conteúdo ao lead.
 - LEIA TODA a mensagem antes de responder. Se o lead enviou múltiplas linhas (ex: "Preciso de tinta\\nParede externa"), responda considerando TUDO — não pergunte algo que ele já informou.
 - NUNCA repita uma pergunta que o lead já respondeu no histórico. Leia as mensagens anteriores antes de qualificar. EXEMPLO REAL DE FALHA: lead disse "Tem tinta acrílica fosco?" no T1 → IA depois perguntou "qual tipo? (acrílica, esmalte, epóxi)" e "qual acabamento? (fosco, acetinado)" — ERRADO, lead JÁ disse acrílica E fosco na T1. CERTO: antes de fazer QUALQUER pergunta, escaneie todo o histórico do lead e pule fields que ele já mencionou — chame set_tags PRIMEIRO pra registrar o que ele já disse, DEPOIS gere a próxima pergunta.
-- NUNCA ECOAR/CONFIRMAR/PARAFRASEAR a resposta do lead antes de fazer a próxima pergunta. PROIBIDO começar respostas com "Anotado", "Entendi", "Perfeito", "Certo", "Ok", "Show", "Beleza" seguidos de repetição do que o lead disse. Vá DIRETO à próxima pergunta. EXEMPLO ERRADO: "Anotado, ambiente interno para o quarto da sua filha. Você tem preferência por marca?". EXEMPLO CERTO: "Você tem preferência por alguma marca?". Confirmação só é aceita em fechamento de pedido (ex: "Confirma a Tinta Coral 18L por R$427?"), nunca durante qualificação.
+- NUNCA ECOAR/CONFIRMAR/PARAFRASEAR a resposta do lead antes de fazer a próxima pergunta. PROIBIDO começar respostas com "Anotado", "Entendi", "Perfeito", "Certo", "Ok", "Show", "Beleza", "Para confirmar", "Só pra confirmar", "Só para confirmar", "Só confirmando", "Confirmando", "Para esclarecer", "Só esclarecendo", "Você está interessado em", "Você quer dizer", "Entendi corretamente que", "Vc se refere a", "Você se refere a" seguidos de repetição do que o lead disse. Vá DIRETO à próxima pergunta ou ação. EXEMPLO ERRADO: "Para confirmar, George, você está interessado em mesas de plástico?" (lead JÁ disse mesa de plástico — não confirme, busque ou qualifique o próximo field). EXEMPLO CERTO: "Quantos lugares precisa? 2, 4, 6 ou 8?". Confirmação só é aceita em fechamento de pedido (ex: "Confirma a Tinta Coral 18L por R$427?"), nunca durante qualificação.
 - NUNCA RECUMPRIMENTAR (Bug 17): PROIBIDO iniciar resposta com saudação ("Olá", "Oi", "Olá NOME", "Oi NOME", "Bem-vindo", "Bom dia", "Boa tarde", "Boa noite") DURANTE uma conversa em andamento. O greeting é enviado UMA ÚNICA VEZ pelo sistema na primeira interação — você NUNCA precisa cumprimentar de novo. EXEMPLO ERRADO: "Olá, Maria! A tinta Acrílica está por R$289..." (foi cumprimentada no T1). EXEMPLO CERTO: "A tinta Acrílica está por R$289...". Use o nome do lead no MÁXIMO 1 vez a cada 3-4 mensagens, e SOMENTE quando agregar (não como abertura genérica).
 - NUNCA ASSUMIR PRODUTO/CATEGORIA (Bug 19): PROIBIDO chamar set_tags com interesse:X ou perguntar sobre um produto se o lead AINDA NÃO mencionou EXPLICITAMENTE esse produto/categoria na conversa. Se o lead apenas enviou saudação ("oi", "bom dia") ou apenas o próprio nome ("Maria", "George"), a próxima resposta DEVE SER uma pergunta genérica de motivo, NUNCA uma pergunta de qualificação de produto específico. EXEMPLO ERRADO: lead diz "George" → IA "George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio." (alucinou "porta" — lead nunca pediu). EXEMPLO CERTO: lead diz "George" → IA "Prazer, George! Em que posso te ajudar hoje?" — sem set_tags interesse:X até o lead realmente mencionar o produto. O sistema bloqueia automaticamente set_tags interesse:CAT cujo keyword não apareceu em nenhuma msg do lead na sessão; tentar contornar é desperdício de tool call.
 - SENTIMENTO NEGATIVO: quando o lead expressar frustração, irritação ou reclamação, SEMPRE responda com empatia PRIMEIRO (peça desculpas, valide o sentimento) e DEPOIS transfira. NUNCA transfira friamente sem reconhecer a frustração. Exemplo: "Peço desculpas pela experiência, [nome]. Vou te conectar com nosso consultor agora mesmo para resolver isso."
@@ -1601,6 +1625,7 @@ ${contextBlock}`
 - SEARCH ANTES DE FALAR DE PRODUTO: NUNCA fale sobre preço, qualidade, custo-benefício ou características de produto sem ter chamado search_products PRIMEIRO. Se o lead falar "achei caro" ou "tem mais barato?" e você ainda NÃO buscou, chame search_products ANTES de responder. Sem dados do catálogo = sem opinião sobre produto.
 - NOME DO LEAD: sempre use o PRIMEIRO NOME. "Paulo Roberto" → chame de "Paulo". "Ana Clara" → chame de "Ana". Se o lead informou apenas um nome, use esse. NUNCA use o pushName do WhatsApp (ex: "E2E Test") como nome — só use o nome que o lead informou na conversa.
 - QUALIFICAÇÃO POR CATEGORIA: as categorias de atendimento configuradas pelo admin (service_categories) determinam que dados perguntar antes da busca. Use os campos com ask_pre_search=true ordenados por priority — pergunte um por vez na ordem definida. NUNCA pergunte quantidade ou volume antes de buscar. Se o lead JÁ mencionou marca, PULE a qualificação e vá direto para search_products.
+- LEAD PERGUNTOU "TEM X?" (R121 — REGRA ABSOLUTA, EMPATA COM MARCA MENCIONADA): quando o lead pergunta diretamente sobre produto usando "vcs tem X?", "vendem X?", "fazem X?", "trabalham com X?", "tem X disponível?" — chame search_products(X) IMEDIATO na MESMA resposta. ZERO confirmação. ZERO pergunta de qualificação antes da busca. Sequência: search → (achou? mostrar produtos e qualificar campos restantes) ou (0 resultados em categoria offline? entrar em enrichment natural e depois handoff). Esta regra tem PRIORIDADE sobre o ciclo normal de qualificação. NUNCA responda "Para confirmar você está interessado em X?" — o lead JÁ confirmou ao perguntar.
 - MARCA MENCIONADA → SEARCH_PRODUCTS IMEDIATO (REGRA ABSOLUTA): quando o lead mencionar QUALQUER marca (Coral, Suvinil, Sherwin-Williams, etc.) junto com um tipo de produto (tinta, verniz, etc.), chame search_products IMEDIATAMENTE na MESMA resposta. ZERO perguntas antes. NÃO pergunte ambiente, cor, acabamento, quantidade — NADA. Busque primeiro, mostre os produtos, qualifique DEPOIS se necessário. Exemplo: "Tem tinta da Coral?" → chame search_products("tinta coral") AGORA. Esta regra tem PRIORIDADE ABSOLUTA sobre qualquer outra regra de qualificação.
 - BUSCA OBRIGATÓRIA ANTES DE HANDOFF: NUNCA chame handoff_to_human quando lead especificou marca + tipo + cor sem antes ter chamado search_products. Handoff só acontece DEPOIS de buscar e confirmar ausência no catálogo. Sequência correta: dados coletados → search_products → (produtos encontrados? enviar. não encontrou? enrichment → handoff).
 - PROFISSÃO DO LEAD: quando o lead mencionar sua profissão ou tipo (pintor, pedreiro, engenheiro, arquiteto, decorador, construtor, dono de obra, empreiteiro, marceneiro, projetista), salve IMEDIATAMENTE via set_tags(['tipo_cliente:PROFISSAO']) em minúsculas, sem acento. Exemplos: "sou pintor" → set_tags(['tipo_cliente:pintor']), "sou arquiteto" → set_tags(['tipo_cliente:arquiteto']). Faça isso ANTES de responder ao lead.
@@ -1670,6 +1695,37 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
           matchCategory(interesseValue, cfgPre) ||
           matchCategoryBySearchText(incomingText, cfgPre)
         if (categoryPre) {
+          const catalogStatusPreCat = (categoryPre as any).catalog_status || 'digital'
+          // R121 (2026-05-19): Pre-LLM "tem X?" trigger — pra cobrir CASO em que lead
+          // pergunta direto e nenhum field foi extraido (auto-extract retorna vazio).
+          // Roda ANTES do auto-extract pra forcar search inline mesmo sem score.
+          const directProductQuestionRe = /(?:^|\s)(?:vcs?|voc[êe]s?)?\s*(?:tem|t[êe]m|vende[mn]?|fazem|trabalham\s+com|trabalha\s+com|tem\s+dispon[ií]vel)\s+/i
+          const isDirectProductQuestion = directProductQuestionRe.test(incomingText)
+          const leadHasReceivedProducts = (conversation.tags || []).some((t: string) => typeof t === 'string' && (t.startsWith('produto:') || t === 'aguardando_upsell'))
+          if (isDirectProductQuestion && !leadHasReceivedProducts && !pendingExitActionSearch && !pendingExitActionHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
+            if (catalogStatusPreCat === 'digital') {
+              const META_KEYS_R121 = new Set(['motivo','interesse','lead_score','ia','ia_cleared','enrich_count','search_fail','produto','aguardando_upsell','venda','tipo_cliente','marca_citada','objecao','pagamento'])
+              const queryPartsR121: string[] = []
+              if (interesseValue) queryPartsR121.push(interesseValue)
+              for (const t of conversation.tags || []) {
+                if (typeof t !== 'string') continue
+                const idx = t.indexOf(':')
+                if (idx < 0) continue
+                const k = t.slice(0, idx)
+                const v = t.slice(idx + 1)
+                if (META_KEYS_R121.has(k)) continue
+                if (v && !queryPartsR121.some(p => p.toLowerCase().includes(v.toLowerCase()))) queryPartsR121.push(v)
+              }
+              const queryR121 = queryPartsR121.length > 0 ? queryPartsR121.join(' ').trim() : incomingText.trim()
+              pendingExitActionSearch = {
+                query: queryR121,
+                category: interesseValue || categoryPre.id || '',
+              }
+              log.info('R121: pre-LLM "tem X?" trigger (categoria digital)', { query: queryR121, category: categoryPre.id, incoming_preview: incomingText.substring(0, 80) })
+            } else {
+              log.info('R121: "tem X?" detectado em categoria offline — fluxo natural qualif+handoff', { category: categoryPre.id, incoming_preview: incomingText.substring(0, 80) })
+            }
+          }
           const allFields = flattenCategoryFields(categoryPre.stages)
           const existingKeys = new Set<string>()
           for (const t of conversation.tags || []) {
@@ -1692,6 +1748,7 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
               const newScore = Math.min(100, currentScore + scoreDelta)
               scoreTags.push(`lead_score:${newScore}`)
               const stageAfter = getCurrentStage(newScore, categoryPre, cfgPre.default)
+              const catalogStatusPre = (categoryPre as any).catalog_status || 'digital'
               if (newScore >= stageAfter.max_score && stageAfter.exit_action === 'handoff' && conversation.status_ia !== STATUS_IA.SHADOW) {
                 const qualSummary = newTags
                   .filter(t => !t.startsWith('lead_score:') && !t.startsWith('motivo:') && !t.startsWith('interesse:'))
@@ -1702,6 +1759,32 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
                   queueMotivo: `${categoryPre.label} — ${qualSummary}`,
                 }
                 log.info('Bug 24: exit_action=handoff disparado via auto-extract', { stage: stageAfter.label, newScore, max_score: stageAfter.max_score })
+              }
+              // C2 fallback: se "tem X?" nao bateu mas score atingiu max_score com search_products
+              if (!pendingExitActionSearch && newScore >= stageAfter.max_score && stageAfter.exit_action === 'search_products' && catalogStatusPre === 'digital' && conversation.status_ia !== STATUS_IA.SHADOW) {
+                // R121 (2026-05-19): mirror do Bug 24 v5 (linhas ~3061) mas via auto-extract.
+                // Antes, search_products so disparava se LLM chamasse set_tags. Lead que
+                // pergunta "tem tinta Coral fosca?" tinha auto-extract setando tipo+marca+acabamento
+                // mas search nunca acontecia automaticamente. Agora dispara inline.
+                // Skipa quando catalog_status=offline: categoria Camada 2 nao tem inventory cadastrado,
+                // forcar search retornaria 0 e LLM ficaria preso. Fluxo natural eh qualif+handoff.
+                const META_KEYS = new Set(['motivo','interesse','lead_score','ia','ia_cleared','enrich_count','search_fail','produto','aguardando_upsell','venda','tipo_cliente','marca_citada','objecao','pagamento'])
+                const queryParts: string[] = []
+                if (interesseValue) queryParts.push(interesseValue)
+                for (const t of [...(conversation.tags || []), ...newTags]) {
+                  if (typeof t !== 'string') continue
+                  const idx = t.indexOf(':')
+                  if (idx < 0) continue
+                  const k = t.slice(0, idx)
+                  const v = t.slice(idx + 1)
+                  if (META_KEYS.has(k)) continue
+                  if (v && !queryParts.some(p => p.toLowerCase().includes(v.toLowerCase()))) queryParts.push(v)
+                }
+                pendingExitActionSearch = {
+                  query: queryParts.join(' ').trim(),
+                  category: interesseValue || categoryPre.id || '',
+                }
+                log.info('R121: exit_action=search_products disparado via auto-extract', { stage: stageAfter.label, newScore, max_score: stageAfter.max_score, query: pendingExitActionSearch.query })
               }
             }
             const mergedTags = [...(conversation.tags || []), ...seedTags, ...newTags, ...scoreTags]
@@ -1753,6 +1836,31 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
       return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'exit_action_auto_extract', queue: queueResEA }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    // R121 (2026-05-19): se auto-extract setou pendingExitActionSearch (categoria digital
+    // com score>=max), executar search_products INLINE aqui — antes do LLM rodar.
+    // Resultado eh injetado no prompt como [INTERNO] pra LLM nao perguntar de novo
+    // marca/cor que ja foram extraidas e usadas na busca.
+    let inlineSearchContext = ''
+    if (pendingExitActionSearch && conversation.status_ia !== STATUS_IA.SHADOW) {
+      try {
+        log.info('R121: executando search_products INLINE via auto-extract', pendingExitActionSearch)
+        const searchRes = await executeToolSafe('search_products', {
+          query: pendingExitActionSearch.query,
+          category: pendingExitActionSearch.category,
+        })
+        await supabase.from('ai_agent_logs').insert({
+          agent_id, conversation_id, event: 'tool_called',
+          metadata: { tool: 'search_products', source: 'r121_auto_extract_inline', query: pendingExitActionSearch.query, category: pendingExitActionSearch.category, result_preview: String(searchRes).substring(0, 200) },
+        })
+        toolCallsLog.push({ name: 'search_products', args: pendingExitActionSearch, result: String(searchRes).substring(0, 200) })
+        inlineSearchContext = `\n\n[INTERNO — search_products JA foi chamado pelo backend antes do seu turno. NAO chame de novo nesta resposta.]\nQuery: ${pendingExitActionSearch.query}\nResultado:\n${searchRes}\n\nUse esses resultados para responder ao lead. Se 0 produtos retornados E catalog_status=offline na categoria, mostre interesse e pergunte fields restantes (NAO diga "nao temos").`
+        // Limpa flag pra nao re-disparar no set_tags handler
+        pendingExitActionSearch = null
+      } catch (err) {
+        log.error('R121 inline search failed (non-fatal)', { error: (err as Error).message })
+      }
     }
 
     const qualificationContext = buildQualificationContext(conversation.tags || [], agent)
@@ -2313,6 +2421,23 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
               for (const [kw, cat] of Object.entries(categoryKeywords)) {
                 if (queryLower.includes(kw)) { failTags.interesse = cat; break }
               }
+            }
+
+            // === R120 (2026-05-19): outside_hours short-circuit ===
+            // Fora do horário comercial + busca sem resultados = transbordo IMEDIATO via
+            // handoff_message_outside_hours. Sem isso o LLM gasta 1-2 turnos perguntando
+            // cor/acabamento/marca alternativa antes de transbordar, e a UX percebe o
+            // lead como "ignorado" fora hora. G2 (Suvinil 5L fora hora) era exatamente
+            // esse cenário no relatório E2E 2026-05-19.
+            const outsideHoursSF = isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+            if (outsideHoursSF) {
+              failTags.search_fail = String(searchFailCount + 1)
+              failTags.marca_indisponivel_outside_hours = '1'
+              await supabase.from('conversations').update({
+                tags: mergeTags(conversation.tags || [], failTags),
+              }).eq('id', conversation_id)
+              log.info('search_products: 0 results + outside_hours → handoff imediato', { searchText })
+              return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" sem resultados E estamos FORA DO HORÁRIO COMERCIAL. AÇÃO: chame handoff_to_human AGORA com motivo="${searchText || 'consulta'}_fora_hora". PROIBIDO: enrichment, perguntas de qualificação, "não trabalhamos". A mensagem outside_hours configurada será enviada automaticamente pelo helper pickHandoffMessage.`
             }
 
             // === PATH A: Well-qualified + enrichment NOT complete → ask enrichment question ===
@@ -2883,8 +3008,12 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             // LLM em inputs triviais ("oi", "George") chuta uma categoria sem o lead ter mencionado
             // produto algum. Defesa: regex `interesse_match` da categoria pretendida DEVE bater em
             // pelo menos uma incoming do lead na sessão (ou na msg atual). Se não, REJEITAR + log.
+            // R117 (2026-05-19): interesseCanonicalSlug captura o slug correto pra normalizar
+            // singular/sinônimo (ex: LLM crava 'porta' mas slug canônico é 'portas').
+            let interesseCanonicalSlug: string | null = null
             if (key === 'interesse') {
               const targetCat = matchCategory(value, aliasConfig)
+              if (targetCat) interesseCanonicalSlug = targetCat.id
               // Bug 25 (2026-05-17): categoria INEXISTENTE no schema (ex: LLM crava
               // 'interesse:hidraulica' quando so existe 'torneiras'/'canos'/etc).
               // Antes Bug 19 so bloqueava se a categoria existia e o regex nao batia.
@@ -2922,8 +3051,38 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
                 }
               }
             }
-            if (rawKey !== resolvedKey) log.info('Tag aliased', { from: rawTag, to: tag })
-            newTags.push(tag)
+            // R117 (2026-05-19): normaliza `interesse:<singular|sinônimo>` para o slug
+            // canônico da categoria (ex: 'porta' -> 'portas', 'tinta' -> 'tintas').
+            // Sem isso, LLM pode persistir tag fora do schema service_categories, quebrando
+            // qualif chain e busca de produtos.
+            let finalTag = tag
+            if (key === 'interesse' && interesseCanonicalSlug && interesseCanonicalSlug !== value) {
+              finalTag = `interesse:${interesseCanonicalSlug}`
+              log.info('Tag normalized: interesse value -> canonical slug', { from: tag, to: finalTag })
+            }
+            // R118 (2026-05-19): guard `marca_preferida:X` — value DEVE aparecer em
+            // alguma incoming do lead. LLM tende a cravar marca SUGERIDA pela busca
+            // (ex: "Coral" do carrossel) em vez da que o lead pediu ("Suvinil"). Resulta
+            // em CRM com dado falso e handoff prematuro. Espelha o guard do interesse Bug19.
+            if (key === 'marca_preferida') {
+              const allIncoming = (contextMessages || [])
+                .filter((m: any) => m && m.direction === 'incoming')
+                .map((m: any) => String(m.content || ''))
+                .join(' ')
+              const corpus = `${allIncoming} ${incomingText || ''}`.toLowerCase()
+              const valueNorm = String(value).toLowerCase().trim()
+              if (valueNorm && !corpus.includes(valueNorm)) {
+                rejected.push(rawTag)
+                log.warn('Tag rejected: marca_preferida hallucinated (not in lead history)', { rawTag, value })
+                await supabase.from('ai_agent_logs').insert({
+                  agent_id, conversation_id, event: 'marca_preferida_hallucination_blocked',
+                  metadata: { tag: rawTag, value, reason: 'value_not_in_lead_history', corpus_preview: corpus.substring(0, 200) },
+                }).then((r: { error?: { message?: string } }) => { if (r.error) log.warn('R118 log insert failed (non-fatal)', { error: r.error.message }) })
+                continue
+              }
+            }
+            if (rawKey !== resolvedKey) log.info('Tag aliased', { from: rawTag, to: finalTag })
+            newTags.push(finalTag)
           }
 
           // Bug 26 v3 (2026-05-17): quando LLM crava interesse:CAT invalido (ID nao existe),
@@ -3345,7 +3504,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
     let responseText = ''
     let inputTokens = 0
     let outputTokens = 0
-    const toolCallsLog: any[] = []
+    // toolCallsLog declarado acima na linha ~462 pra suportar R121 inline search no auto-extract.
     let carouselSentInThisCall = false  // prevents duplicate carousel when LLM calls search_products 2x
     let attempts = 0
     const maxAttempts = 5

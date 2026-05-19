@@ -22,8 +22,10 @@
 
 import type { QualificationField } from './serviceCategories.ts'
 
-// Fields com valor numérico/dimensional — pulados na auto-extração MVP.
-// Pra extrair (futuro): regex como `\b(\d+)\s*(W|mm|m²|L|A|v)\b`.
+// Fields com valor numérico/dimensional — pulados na auto-extração padrão
+// (regex de examples não casa "12v" porque value já é numérico, não palavra-chave).
+// Cada chave aqui PODE ter um extractor específico em NUMERIC_REGEX_EXTRACTORS.
+// Se a chave não tem extractor, continua sendo pulada (comportamento original).
 const NUMERIC_KEYS = new Set([
   'quantidade',
   'quantidade_cimento',
@@ -41,6 +43,32 @@ const NUMERIC_KEYS = new Set([
   'degraus',
   'potencia_lampada',
 ])
+
+// R119 (2026-05-19): extractores para campos numéricos comuns. Sem isso, lead
+// que responde "12v" ou "220v" não tem o field setado, prompt fica em loop
+// "PRÓXIMA PERGUNTA OBRIGATÓRIA: qual a voltagem?" infinitamente porque o LLM
+// também não consegue mapear pra value canônico sem o assist do regex.
+const NUMERIC_REGEX_EXTRACTORS: Record<string, { regex: RegExp; normalize?: (m: RegExpMatchArray) => string }> = {
+  voltagem: {
+    // Casa "12v", "12 V", "220v", "127", "110v", "bivolt", "sem fio" (bateria=12v)
+    regex: /\b(12|110|127|220|240|bivolt|sem\s*fio|a\s*bateria|com\s*fio)\s*v?\b/i,
+    normalize: (m) => {
+      const raw = m[1].toLowerCase().replace(/\s+/g, ' ').trim()
+      if (raw === 'sem fio' || raw === 'a bateria') return '12v'
+      if (raw === 'com fio') return '220v'
+      if (raw === 'bivolt') return 'bivolt'
+      return `${raw}v`
+    },
+  },
+  voltagem_chuveiro: {
+    regex: /\b(127|220|240)\s*v?\b/i,
+    normalize: (m) => `${m[1]}v`,
+  },
+  amperagem_disjuntor: {
+    regex: /\b(10|16|20|25|32|40|50|63|80|100)\s*a\b/i,
+    normalize: (m) => `${m[1]}A`,
+  },
+}
 
 const NEGATION_WINDOW = 25
 
@@ -78,12 +106,26 @@ export function parseExamples(rawExamples: string | null | undefined): string[] 
     .replace(/\betc\.?\b/gi, '')
     .replace(/\bou\b/gi, ',')
     .replace(/\//g, ',')
-  return cleaned
+  const base = cleaned
     .split(',')
     .map((t) => t.trim())
     .filter((t) => t.length >= 3)
     .map((t) => t.replace(/^(o|a|os|as|um|uma|uns|umas)\s+/i, ''))
     .filter((t) => t.length >= 3)
+  // R119 (2026-05-19): para tokens com hífen (ex: "tetra-chave"), também
+  // adiciona as partes individuais como candidatos. Lead frequentemente fala
+  // só a primeira parte ("tetra"), e o `\btetra-chave\b` não casa só "tetra".
+  const expanded: string[] = []
+  for (const t of base) {
+    expanded.push(t)
+    if (t.includes('-')) {
+      for (const part of t.split('-')) {
+        const p = part.trim()
+        if (p.length >= 3 && !expanded.includes(p)) expanded.push(p)
+      }
+    }
+  }
+  return expanded
 }
 
 function hasNegationBefore(normalizedText: string, matchStart: number): boolean {
@@ -119,8 +161,20 @@ export function autoExtractFields(
   const sorted = fields.slice().sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99))
 
   for (const field of sorted) {
-    if (NUMERIC_KEYS.has(field.key)) continue
     if (seenKeys.has(field.key)) continue
+    // R119: tenta extractor numérico específico (voltagem, amperagem...) antes
+    // de pular. Se field é numérico mas tem extractor configurado, usa ele.
+    if (NUMERIC_KEYS.has(field.key)) {
+      const extractor = NUMERIC_REGEX_EXTRACTORS[field.key]
+      if (!extractor) continue
+      const m = rawText.match(extractor.regex)
+      if (m && m.index !== undefined && !hasNegationBefore(text, m.index)) {
+        const value = extractor.normalize ? extractor.normalize(m) : m[1] || m[0]
+        results.push({ key: field.key, value, evidence: m[0] })
+        seenKeys.add(field.key)
+      }
+      continue
+    }
 
     const candidates = parseExamples(field.examples)
     for (const candidate of candidates) {

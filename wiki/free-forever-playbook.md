@@ -174,10 +174,19 @@ ORDER BY 1 DESC;
 
 | Data | Órfão | Inv/dia | Ação |
 |---|---|---:|---|
-| 2026-05-05 | `event-processor` 404 (10s) — fn nunca existiu | 8.640 | n8n cleanup pendente |
-| 2026-05-05 | `process-jobs` 401 (60s) — auth pós-R92, job_queue vazio 30d | 1.440 | n8n cleanup pendente |
+| 2026-05-05 | `event-processor` 404 (10s) — fn nunca existiu | 8.640 | ✅ resolvido (projeto `wspro_v2` pausado em 2026-05) |
+| 2026-05-05 | `process-jobs` 401 (60s) — auth pós-R92 | 1.440 | ✅ resolvido (mesmo motivo) |
+| 2026-05-17 | `aggregate-metrics` 401 (1h) — gateway rejeitando `CRON_AUTH_KEY` por **`verify_jwt` default = true** | 24 | ✅ fix verify_jwt=false + redeploy v3 |
+| 2026-05-17 | `aggregate-metrics-daily-consolidation` 401 (1/dia) — mesma raiz | 1 | ✅ mesmo fix |
+| 2026-05-17 | `e2e-scheduled` 401 (4×/dia) — mesma raiz | 4 | ✅ fix verify_jwt=false + redeploy v3 |
 
-Total descoberto 2026-05-05: ~302k/mês = ~60% do limite Free Tier — **maior gap silencioso**. Preferir pg_cron interno a workflow externo (single source of truth, vault rotation fixa em 1 lugar).
+> **Lição R114 (2026-05-17):** Toda fn chamada por `pg_cron` que envia `Bearer <CRON_AUTH_KEY>` (token custom de 64 chars, não JWT) DEVE estar declarada em `supabase/config.toml` com `verify_jwt = false`. Caso contrário, o gateway Supabase rejeita o token ANTES da fn rodar com `UNAUTHORIZED_INVALID_JWT_FORMAT` — e a auth manual via `verifyCronOrService` nunca é executada. Sintoma característico: erro 401 com `code: "UNAUTHORIZED_INVALID_JWT_FORMAT"` (vem do gateway, não do código da fn).
+
+> **Bug downstream descoberto 2026-05-17:** após fix do `e2e-scheduled`, ele agora roda (200) mas todos os 6 cenários retornam "E2E function returned error". Próximo passo: investigar `e2e-test` (provavelmente outro problema de auth ou env var faltando no projeto novo `prfcbfumyrrycsrcrvms`).
+
+### Duplicação D30 descoberta 2026-05-17
+
+`pg_cron jobid 29` (`handoff-queue-requeue`, `* * * * *`) + n8n workflow `WhatsPRO 02 — Eletropiso D30 Fila` estão **ambos** chamando `requeue-conversations` a cada 1 min. Era pra n8n ser fonte única (decisão 2026-05-05) — cron foi RECRIADO durante migração pro projeto novo. Pendente: desschedular jobid 29 após confirmar que o workflow n8n aponta pra `prfcbfumyrrycsrcrvms` (e não pro `euljumeflwtljegknawy` pausado). Custo: ~1440 invocações/dia desperdiçadas.
 
 ## 6. Escalation se este plano não for suficiente
 
@@ -195,6 +204,7 @@ Se em 1 ano de uso real algum recurso passar de 70% **com o playbook em dia**, s
 - [[wiki/erros-e-licoes]] — R92 (vault rotation), R74 (is_table_protected), **R96 (chamadores externos invisíveis)**
 - [[wiki/casos-de-uso/admin-detalhado]] — Painel Admin / Retention page
 - [[CLAUDE.md]] — Regras de ouro
-- Supabase dashboard: https://supabase.com/dashboard/project/euljumeflwtljegknawy
+- Supabase dashboard (PROD ativo): https://supabase.com/dashboard/project/prfcbfumyrrycsrcrvms
+- Supabase dashboard (antigo pausado, ref): https://supabase.com/dashboard/project/euljumeflwtljegknawy
 - n8n VPS: https://flux.wsmart.com.br
 - Workflow D30: https://flux.wsmart.com.br/workflow/8QULMsbBRemVeFz7xQqI5
