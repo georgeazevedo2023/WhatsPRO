@@ -16,6 +16,7 @@ import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.t
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
 import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
+import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG } from '../_shared/handoffGuard.ts'
 import {
   getCategoriesOrDefault,
   matchCategory,
@@ -3559,17 +3560,17 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
 
           if (hasSideEffects || llmResult.toolCalls.length === 1) {
             for (const tc of llmResult.toolCalls) {
-              // GUARD: handoff_to_human requires search_products first when product context exists
+              // GUARD: handoff_to_human exige busca prévia quando há contexto de produto.
+              // Lógica isolada em _shared/handoffGuard.ts pra ser testável (R122).
               if (tc.name === 'handoff_to_human') {
-                const hasSearched = toolCallsLog.some(t => t.name === 'search_products')
-                const productTags = (conversation.tags || []).filter((t: string) =>
-                  t.startsWith('produto:') || t.startsWith('interesse:') || t.startsWith('marca_preferida:')
-                )
-                if (!hasSearched && productTags.length > 0) {
-                  log.warn('GUARD: handoff blocked — search_products required first', { productTags })
-                  const guardMsg = '[INTERNO] REGRA BUSCA OBRIGATÓRIA: você DEVE chamar search_products antes de handoff_to_human. O lead tem interesse em produto — busque primeiro. Se não encontrar, aí sim faça handoff.'
-                  toolCallsLog.push({ name: tc.name, args: tc.args, result: guardMsg })
-                  toolResultEntries.push({ name: tc.name, result: guardMsg })
+                const guard = evaluateHandoffGuard({
+                  tags: conversation.tags || [],
+                  toolNamesThisRound: toolCallsLog.map(t => t.name),
+                })
+                if (!guard.allowed) {
+                  log.warn('GUARD: handoff blocked — search_products required first', { reason: guard.reason })
+                  toolCallsLog.push({ name: tc.name, args: tc.args, result: HANDOFF_GUARD_BLOCKED_MSG })
+                  toolResultEntries.push({ name: tc.name, result: HANDOFF_GUARD_BLOCKED_MSG })
                   continue
                 }
               }
