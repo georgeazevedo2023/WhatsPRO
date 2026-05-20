@@ -100,6 +100,25 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
   const [isNote, setIsNote] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
+  const [agentName, setAgentName] = useState<string>('');
+
+  // Carrega o nome do atendente uma vez para prefixar mensagens outgoing
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    supabase
+      .from('user_profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const name = (data?.full_name || user.email || '').trim();
+        const firstName = name.split(/\s+/)[0] || '';
+        setAgentName(firstName);
+      });
+    return () => { cancelled = true; };
+  }, [user]);
 
   // Draft: load on conversation change
   const draftKey = `helpdesk-draft-${conversation.id}`;
@@ -332,9 +351,13 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
     setSending(true);
 
     // Build final content with quote prefix if replying
-    const finalContent = replyTo
+    const quoted = replyTo
       ? `> *Citando:* ${replyTo.content || '[Midia]'}\n\n${text.trim()}`
       : text.trim();
+    // Notas privadas não recebem prefixo de nome (uso interno)
+    const finalContent = isNote || !agentName
+      ? quoted
+      : `*${agentName}*\n${quoted}`;
 
     try {
       if (isNote) {

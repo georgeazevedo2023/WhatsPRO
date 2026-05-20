@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-05-18
-audited_at: 2026-05-18
+updated: 2026-05-20
+audited_at: 2026-05-20
 ---
 
 # Changelog
@@ -10,6 +10,17 @@ audited_at: 2026-05-18
 > Releases ativas (últimos ~14 dias). Histórico completo em [[wiki/changelog/]].
 >
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
+
+---
+
+### v7.37.21 (2026-05-20) — Prefixo `*Nome*` do atendente em msgs humanas (helpdesk)
+
+**UX.** Atendente envia texto pelo helpdesk → lead recebe `*Lucas*\nOi Maria...` no WhatsApp. Aplicado em **toda** msg outgoing (decisão validada via AskUserQuestion — evita confusão de identidade em conversas longas com troca humano↔IA↔humano).
+
+**`src/components/helpdesk/ChatInput.tsx`:**
+- State `agentName` carregado 1x no mount via `user_profiles.full_name` (primeiro nome; fallback `user.email`).
+- `handleSend` prefixa `*${agentName}*\n` antes do `quoted` (citação do replyTo segue após o nome). Prefixo vai pro UAZAPI **E** pro INSERT em `conversation_messages` → card outgoing no helpdesk mostra exatamente o que o lead recebeu.
+- Notas privadas (`private_note`) e mídia (imagem/áudio/doc) **não** recebem prefixo — escopo intencional.
 
 ---
 

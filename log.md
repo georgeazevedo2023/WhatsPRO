@@ -9,6 +9,27 @@ type: log
 
 ---
 
+## 2026-05-20 — Prefixo nome atendente em mensagens humanas (v7.37.21)
+
+**Feature UX simples** do helpdesk. Atendente humano envia "Oi Maria" → lead recebe `*Lucas*\nOi Maria` no WhatsApp. Negrito + linha separada deixa explícito quem está falando, principalmente em fluxos onde atendente troca ou IA volta a assumir.
+
+**Decisões do usuário (via AskUserQuestion):**
+1. **Frequência:** toda mensagem outgoing (não só primeira do turno). Trade-off avaliado: +verbose, mas evita confusão em conversas longas.
+2. **Formato:** `*Nome*` em negrito (WhatsApp renderiza), só primeiro nome.
+3. **Escopo:** só texto. Áudio/imagem/documento mantêm fluxo atual.
+
+**Onde mexeu:** `src/components/helpdesk/ChatInput.tsx`
+- L100-119: novo state `agentName` + useEffect carrega `user_profiles.full_name` no mount → primeiro nome (fallback email).
+- L354-360: handleSend monta `quoted` (com citação opcional do replyTo) e adiciona prefixo `*${agentName}*\n` quando NÃO é nota privada e há nome carregado. Prefixo vai pro UAZAPI E pro DB → card outgoing no helpdesk mostra exatamente o que o lead viu.
+
+**Notas privadas excluídas** (direction='private_note' não passa por send-chat e é uso interno). **Mídia excluída** (escopo escolhido).
+
+**TS check:** ✅ 0 erros. Build local não rodado (mudança contida, 1 arquivo). Deploy: CI builda + Portainer webhook após push.
+
+**Lição:** features de UX de helpdesk pequenas como essa não precisam de migration nem edge function — todo o estado relevante (nome do atendente) já existe em `user_profiles`. Lookup 1x no mount via useEffect, sem refetch a cada send. Mantém p99 do handleSend igual ao anterior.
+
+---
+
 ## 2026-05-19 (tarde) — Migração Eletropiso → nova instância +558781592373
 
 **Migração aditiva.** Nova instância UAZAPI criada com número +558781592373 (id `re662a6d32de7e0`, token `aaae9607-...`). Eletropiso atual (`r466a98889b5809`) preservada e segue operando em paralelo.
