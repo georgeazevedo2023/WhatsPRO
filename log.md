@@ -9,6 +9,77 @@ type: log
 
 ---
 
+## 2026-05-20 (noite II) — Fix R125: badge "Em fila" no Modo OFF (v7.38.3)
+
+**Bug reportado pelo user via screenshot.** Modo Fila do dept Vendas desligado no QueueConfig, mas helpdesk mostrava `⏱ Em fila — Lucas (2:10)` na conversa do dinho. "Se desliguei a fila, por que aparece?"
+
+**Causa raiz.** `_shared/handoffQueue.ts` criava `handoff_queue_events` ativo em **todo** handoff, mesmo com `queue_mode_enabled=false`. Hook `useActiveQueueEvents` renderiza badge sempre que existe row ativa — sem olhar o flag.
+
+**Fix em 2 frentes:**
+1. **Backend (`_shared/handoffQueue.ts`)** — bloco INSERT/UPDATE de queue_event agora roda só quando `dept.queue_mode_enabled === true`. No Modo OFF, faz UPDATE só em `conversations.assigned_to` + cancela qualquer event ativo herdado da transição ON→OFF.
+2. **UI (`QueueConfig.tsx`)** — `handleSave` cancela events ativos do dept quando toggle salva OFF (não depende de novo handoff acontecer).
+
+**Limpeza imediata em prod.** SQL via MCP: `UPDATE handoff_queue_events SET status='cancelled' WHERE id='693eb2a2...'` → badge sumiu imediato via postgres_changes.
+
+**Pipeline:**
+- 21/21 testes PASS em `handoffQueue.test.ts` (1 novo: `R125 — Modo OFF não chama insert`)
+- typecheck 0 erros
+- npm test: 802 pass / 9 falhas pré-existentes (intocadas)
+- Deploy `ai-agent v176` + `assign-handoff v2` ✓ via scoop CLI
+
+**Docs:**
+- CHANGELOG v7.38.3
+- erros-e-licoes — R125 (Top recente)
+- regras-preventivas — entrada R125
+- memory — `feedback_ui_must_respect_feature_toggle.md` + `project_bug_queue_badge_off.md`
+
+**Nota 0-10: 9/10.**
+- Conteúdo: 10 (causa raiz precisa, fix em 2 camadas, limpeza prod, teste novo)
+- Orquestração: 9 (fix backend + UI defense-in-depth)
+- Estado: 8 (E2E real validado com queue=0 ativo no DB; UX em browser depende de ter um handoff novo pra confirmar — coberto por unit)
+
+**Frase de retorno**: "abrir bug R125 badge fila OFF 2026-05-20".
+
+---
+
+## 2026-05-20 (noite) — Fix R124: handoff bloqueado eternamente após search_fail (v7.38.2)
+
+**Bug em prod (Eletropiso 558781592373, conv Carla `04baffce`).** Lead pediu valor de arandela → IA buscou 0 resultados → setou tag `search_fail:1` + `produto:arandela` → pediu refinamento → lead voltou pedindo valor → IA tentou `handoff_to_human` 2x mas guard "REGRA BUSCA OBRIGATÓRIA" bloqueou. Conversa ficou **não atribuída**, **IA Ativa**, sem mensagem de transbordo, **sem atribuir Lucas (default_assignee)**. Loop infinito.
+
+**Investigação (logs `ai_agent_logs`):**
+- 20:17:04 `search_products(arandela)` → 0 results
+- 20:18:27 `handoff_to_human` → guard bloqueou (msg "REGRA BUSCA OBRIGATÓRIA")
+- 20:18:41 `handoff_to_human` de novo → guard bloqueou de novo
+
+**Causa raiz** (`ai-agent/index.ts:3562-3575`): guard checava `toolCallsLog.some(t => t.name === 'search_products')` — `toolCallsLog` reseta a cada invocação da edge function. Busca foi no turn 1; turn 4 já tinha esquecido. Tag `produto:arandela` permanente → bloqueio eterno.
+
+**Fix v7.38.2:**
+- Extraído pra `_shared/handoffGuard.ts` (44 lin) — `evaluateHandoffGuard()` testável
+- `_shared/handoffGuard.test.ts` (69 lin) — 8 cenários, incluindo repro EXATO da Carla
+- `index.ts` consome helper (importa do shared)
+- Nova condição: libera handoff se `tags.some(t => t.startsWith('search_fail:'))`
+
+**Pipeline:**
+- 8/8 testes PASS
+- typecheck 0 erros
+- npm test: 801 pass / 9 falhas pré-existentes (não tocadas)
+- Deploy `supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓ (via scoop CLI; npx falhou com SmartScreen)
+
+**Docs:**
+- CHANGELOG v7.38.2 — release com diagnóstico + lição
+- erros-e-licoes — R124 (Top recente)
+- regras-preventivas — entrada R124 acima da #116
+- memory — `feedback_guard_must_check_durable_tags.md` + `project_bug_handoff_search_fail.md`
+
+**Nota 0-10: 9/10.**
+- Conteúdo: 10 (causa raiz precisa, fix mínimo, 8 testes incluindo repro)
+- Orquestração: 9 (refactor pra `_shared` + helper testável, índices do vault atualizados)
+- Estado: 8 (E2E real via WhatsApp na sandbox não foi feito — coberto por unit + repro de prod logs; ficou opcional pro user)
+
+**Frase de retorno**: "abrir bug R124 handoff search_fail 2026-05-20".
+
+---
+
 ## 2026-05-20 (tarde) — D36 Permissões granulares + redesign Categorias/Excluded (v7.38.0)
 
 **Sprint completo.** Redesign UX Categorias/Excluded + sistema de permissões granulares (F1) shipado.

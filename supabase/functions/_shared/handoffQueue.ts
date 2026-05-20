@@ -180,14 +180,30 @@ export async function assignHandoff(
     }
 
     // Cria evento da fila + atualiza conversation.assigned_to
+    //
+    // 2026-05-20 (R125) — Só cria queue_event no Modo ON. No Modo OFF não há
+    // rotação/timeout/fila: o handoff vai direto pro default_assignee, e badge
+    // "Em fila — Lucas (2:10)" não deve aparecer no helpdesk.
+    // Cancela qualquer event ativo herdado de quando o dept estava em Modo ON
+    // (transição ON→OFF deixa events órfãos com countdown ativo).
     const expiresAt = new Date(Date.now() + timeoutMinutes * 60 * 1000).toISOString()
-
-    // 2026-05-14 — Defesa contra loop: se já existe event active na conversa
-    // (constraint EXCLUDE handoff_queue_events_one_active_per_conv), reusa em
-    // vez de tentar inserir e ficar em erro. Caller que chama em sequência
-    // (ex: ai-agent após reset de status_ia) não duplica fila.
     let event: { id: string } | null = null
-    {
+
+    if (!dept.queue_mode_enabled) {
+      // Modo OFF: cancela qualquer active event nesta conversa (limpa badge).
+      const { error: cancelErr } = await supabase
+        .from('handoff_queue_events')
+        .update({ status: 'cancelled' })
+        .eq('conversation_id', conversation_id)
+        .eq('status', 'active')
+      if (cancelErr) {
+        log.warn('handoffQueue: failed to cancel stale active event (mode OFF)', { error: cancelErr.message })
+      }
+    } else {
+      // 2026-05-14 — Defesa contra loop: se já existe event active na conversa
+      // (constraint EXCLUDE handoff_queue_events_one_active_per_conv), reusa em
+      // vez de tentar inserir e ficar em erro. Caller que chama em sequência
+      // (ex: ai-agent após reset de status_ia) não duplica fila.
       const { data: existingActive } = await supabase
         .from('handoff_queue_events')
         .select('id, assigned_user_id, expires_at')

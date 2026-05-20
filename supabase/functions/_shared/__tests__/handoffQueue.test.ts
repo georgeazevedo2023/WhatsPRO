@@ -140,8 +140,37 @@ describe('assignHandoff — Modo OFF', () => {
     expect(r.reason).toBe('queue_off_default')
     expect(r.assigned_user_id).toBe('user-default')
     expect(r.assignee_name).toBe('Lucas') // primeiro nome
-    expect(r.queue_event_id).toBe('evt-1')
+    // R125: Modo OFF não cria handoff_queue_events (sem badge "Em fila" no UI)
+    expect(r.queue_event_id).toBeNull()
     expect(r.timeout_minutes).toBe(5)
+  })
+
+  it('R125 — Modo OFF não chama insert em handoff_queue_events', async () => {
+    const insertSpy = vi.fn()
+    const supabase = makeSupabase({
+      departments: {
+        data: { id: 'd1', queue_mode_enabled: false, queue_mode_timeout_minutes: 5, default_assignee_id: 'user-default' },
+        error: null,
+      },
+      authUser: { user: { user_metadata: { full_name: 'Lucas Silva' } } },
+    })
+    // Intercepta o builder de handoff_queue_events pra detectar insert
+    const originalFrom = supabase.from
+    supabase.from = (table: string) => {
+      const b = originalFrom(table)
+      if (table === 'handoff_queue_events') {
+        b.insert = vi.fn(() => { insertSpy(); return b })
+      }
+      return b
+    }
+    const r = await assignHandoff({
+      supabase,
+      conversation_id: 'conv-1',
+      department_id: 'd1',
+    })
+    expect(r.reason).toBe('queue_off_default')
+    expect(r.queue_event_id).toBeNull()
+    expect(insertSpy).not.toHaveBeenCalled()
   })
 
   it('sem default_assignee_id -> queue_off_no_default sem atribuir', async () => {
@@ -313,6 +342,7 @@ describe('assignHandoff — D-β (re-handoff)', () => {
     })
     expect(r.reason).toBe('queue_off_default')
     expect(r.assigned_user_id).toBe('user-default')
+    expect(r.queue_event_id).toBeNull() // R125
   })
 
   it('previous assignee em skip_user_ids -> ignora', async () => {

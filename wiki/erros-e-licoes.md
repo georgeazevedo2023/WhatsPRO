@@ -2,8 +2,8 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-17
-audited_at: 2026-05-17
+updated: 2026-05-20
+audited_at: 2026-05-20
 ---
 
 # Erros e Lições
@@ -16,6 +16,45 @@ audited_at: 2026-05-17
 - **Tabela de regras preventivas** (~30 regras): [[wiki/erros/regras-preventivas]]
 - **Histórico detalhado** (R91-R114): [[wiki/erros/historico-2026-05-part1]] · [[wiki/erros/historico-2026-05-part2]]
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
+
+---
+
+## 🚨 R125 — badge "Em fila" aparecia mesmo com Modo Fila OFF (dinho, Eletropiso 558781592373) — incidente 2026-05-20
+
+**Erro:** atendente desligou Modo Fila no QueueConfig (toggle off → `queue_mode_enabled=false`, default_assignee=Lucas), mas helpdesk continuava mostrando badge `⏱ Em fila — Lucas (2:10)` em conversas novas. "Se desliguei a fila, por que aparece?"
+
+**Causa raiz** (`_shared/handoffQueue.ts:182-237` antes do fix): o INSERT em `handoff_queue_events` com `status='active'` + `expires_at` rodava em **todo** handoff, independente do flag do dept. Hook `useActiveQueueEvents.ts:69` filtra só por `status='active'` — sem olhar `dept.queue_mode_enabled` — então renderizava badge mesmo no Modo OFF onde fila não roda.
+
+Pior: na transição ON→OFF, `QueueConfig.handleSave` só atualizava o flag, **sem cancelar** events ativos pré-existentes. UI mostrava badge até cada event expirar (5min).
+
+**Fix (v7.38.3, 2 camadas):**
+1. **Backend** — INSERT/UPDATE de queue_event agora roda só se `dept.queue_mode_enabled === true`. Modo OFF: UPDATE só em `conversations.assigned_to` + cancela events ativos herdados.
+2. **UI** — `QueueConfig.handleSave` cancela events ativos do dept quando toggle salva OFF (defense-in-depth).
+
+**Regras preventivas:**
+1. **Toda feature toggleável precisa testar "se flag=OFF, o usuário vê algum vestígio?".** Backend que cria row em código compartilhado deve respeitar o flag do contexto, não criar incondicionalmente.
+2. **Toggle OFF no admin precisa cancelar estado pendente** (events, jobs, timeouts) — não basta salvar o flag e contar com expiração natural. UX é "OFF = sumiu agora".
+3. **Hooks de UI que renderizam por shape do dado** (`row existe → renderiza badge`) precisam cruzar com a configuração que governa a feature (`dept.queue_mode_enabled`). Senão vazam estado quando a feature está desligada.
+
+---
+
+## 🚨 R124 — handoff_to_human bloqueado eternamente após search_fail (Carla, Eletropiso 558781592373) — incidente 2026-05-20
+
+**Erro:** lead pediu valor de arandela → IA buscou (0 resultados → tag `search_fail:1`) → pediu refinamento → lead voltou pedindo valor → IA tentou `handoff_to_human` **2x** mas o guard "REGRA BUSCA OBRIGATÓRIA" bloqueou. Conversa ficou "Não atribuída", sem mensagem de transbordo, sem atribuir Lucas. Loop infinito.
+
+**Causa raiz** (`ai-agent/index.ts:3562-3575` antes do fix):
+```ts
+const hasSearched = toolCallsLog.some(t => t.name === 'search_products')
+if (!hasSearched && productTags.length > 0) {  // bloqueia
+```
+`toolCallsLog` é a memória da **rodada atual** da edge function — reseta a cada invocação. A busca foi feita no turn 1; no turn 4 (quando lead voltou) ela já não estava mais. Tag `produto:arandela` ainda lá → bloqueio eterno.
+
+**Fix (v7.38.2):** extraído pra `_shared/handoffGuard.ts` (testável). Nova condição libera handoff se `tags.some(t => t.startsWith('search_fail:'))` — busca prévia já falhou, persistir é inútil.
+
+**Regras preventivas:**
+1. **Toda guard que depende de `toolCallsLog` (rodada atual) deve também olhar tags durables.** Cada invocação do ai-agent é stateless; tags são a única memória persistente entre turnos.
+2. **Antes de cravar bloqueio num guard, simular o "loop infinito":** "se isso disparar 1000x, o lead consegue sair?" Se a única forma de destravar é uma ação que o LLM já tentou e falhou, é bug.
+3. **Lógica de guard que cabe em ~10 linhas vai pra `_shared/` exportada.** Inline no `index.ts` (gigante) ninguém testa.
 
 ---
 

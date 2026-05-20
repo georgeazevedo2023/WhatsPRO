@@ -258,7 +258,17 @@ const QueueConfig = ({ open, onOpenChange, departmentId, departmentName, onSaved
         .update({ last_assignee_position: 0 })
         .eq('id', departmentId);
 
-      // 4. Audit log (não-bloqueante)
+      // 4. R125: ao desligar Modo Fila, cancela queue_events ativos do dept
+      // (badge "Em fila — Lucas (2:10)" sumiria só ao expirar — UX confusa).
+      if (!queueModeEnabled) {
+        await supabase
+          .from('handoff_queue_events')
+          .update({ status: 'cancelled' })
+          .eq('department_id', departmentId)
+          .eq('status', 'active');
+      }
+
+      // 5. Audit log (não-bloqueante)
       try {
         const { data: authData } = await supabase.auth.getUser();
         if (authData?.user?.id) {
