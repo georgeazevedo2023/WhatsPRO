@@ -41,7 +41,7 @@ export function useOriginMetrics(instanceId: string | null, periodDays = 30) {
       const [leadMetricsRes, utmCampaignsRes] = await Promise.all([
         supabase
           .from('v_lead_metrics' as any)
-          .select('lead_id, origin, current_score, avg_ticket, lead_created_at')
+          .select('lead_id, origin, current_score, average_ticket, lead_created_at')
           .eq('instance_id', instanceId)
           .gte('lead_created_at', since),
 
@@ -50,6 +50,11 @@ export function useOriginMetrics(instanceId: string | null, periodDays = 30) {
           .select('id, name, utm_source, utm_medium')
           .eq('instance_id', instanceId),
       ]);
+
+      // Defensivo: schema mismatch silencioso (PostgREST 400) escondia dados antes.
+      // Ver scripts/check-view-selects.mjs.
+      if (leadMetricsRes.error) throw leadMetricsRes.error;
+      if (utmCampaignsRes.error) throw utmCampaignsRes.error;
 
       // ── Processar Channels ──
       const leadRows = (leadMetricsRes.data || []) as any[];
@@ -68,8 +73,8 @@ export function useOriginMetrics(instanceId: string | null, periodDays = 30) {
         }
         originMap[origin].leads.push(r);
         originMap[origin].scores.push(r.current_score ?? 50);
-        if (r.avg_ticket && Number(r.avg_ticket) > 0) {
-          originMap[origin].tickets.push(Number(r.avg_ticket));
+        if (r.average_ticket && Number(r.average_ticket) > 0) {
+          originMap[origin].tickets.push(Number(r.average_ticket));
         }
       }
 

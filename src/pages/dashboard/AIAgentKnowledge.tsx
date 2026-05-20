@@ -1,6 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { handleError } from '@/lib/errorUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -14,7 +12,6 @@ interface AIAgent {
 }
 
 const AIAgentKnowledge = () => {
-  const { isSuperAdmin } = useAuth();
   const [agents, setAgents] = useState<AIAgent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,8 +36,6 @@ const AIAgentKnowledge = () => {
   }, []);
 
   useEffect(() => { fetchAgents(); }, []);
-
-  if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
 
   if (loading) {
     return (

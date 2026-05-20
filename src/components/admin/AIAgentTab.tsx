@@ -26,6 +26,8 @@ import { MetricsConfig } from './ai-agent/MetricsConfig';
 import { ProfilesConfig } from './ai-agent/ProfilesConfig';
 import { ServiceCategoriesConfig } from './ai-agent/ServiceCategoriesConfig';
 import { ExcludedProductsConfig } from './ai-agent/ExcludedProductsConfig';
+import { useFeaturePermission } from '@/hooks/useFeaturePermission';
+import { Lock } from 'lucide-react';
 import { BlockedNumbersConfig } from './ai-agent/BlockedNumbersConfig';
 import { FollowUpConfig } from './ai-agent/FollowUpConfig';
 import { BusinessInfoConfig } from './ai-agent/BusinessInfoConfig';
@@ -101,6 +103,11 @@ export default function AIAgentTab() {
   const [config, setConfig] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = usePersistedState<string>('aiagent.activeTab', 'setup');
+  const { canEdit: canEditQualification } = useFeaturePermission('manage_qualification');
+  const { canEdit: canEditExcluded } = useFeaturePermission('manage_excluded_products');
+  const { canEdit: canEditCatalog } = useFeaturePermission('manage_catalog');
+  const { canEdit: canEditFaq } = useFeaturePermission('manage_faq');
+  const { canEdit: canEditBlockedNumbers } = useFeaturePermission('manage_blocked_numbers');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const fieldErrorsRef = useRef<Record<string, string>>({});
@@ -567,25 +574,65 @@ export default function AIAgentTab() {
                 {/* QUALIFICACAO: Service Categories (M19-S10 v2 — stages + score) + Excluded Products (D28) */}
                 {activeTab === 'qualification' && (
                   <div className="space-y-6">
-                    <ServiceCategoriesConfig
-                      config={(config.service_categories as any) ?? null}
-                      onChange={(value) => handleChange({ service_categories: value as any })}
-                    />
-                    <ExcludedProductsConfig
-                      config={config}
-                      onChange={handleChange}
-                    />
+                    {canEditQualification ? (
+                      <ServiceCategoriesConfig
+                        config={(config.service_categories as any) ?? null}
+                        onChange={(value) => handleChange({ service_categories: value as any })}
+                      />
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center">
+                        <Lock className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Sem permissão para gerenciar Categorias de atendimento</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Solicite acesso ao administrador da conta.
+                        </p>
+                      </div>
+                    )}
+                    {canEditExcluded ? (
+                      <ExcludedProductsConfig
+                        config={config}
+                        onChange={handleChange}
+                      />
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center">
+                        <Lock className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Sem permissão para gerenciar Produtos NÃO vendemos</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Solicite acesso ao administrador da conta.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* CATALOGO */}
                 {activeTab === 'catalog' && (
-                  <CatalogConfig agentId={selectedAgentId} />
+                  canEditCatalog ? (
+                    <CatalogConfig agentId={selectedAgentId} />
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center">
+                      <Lock className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                      <p className="text-sm font-medium">Sem permissão para gerenciar o Catálogo</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Solicite acesso ao administrador da conta.
+                      </p>
+                    </div>
+                  )
                 )}
 
                 {/* CONHECIMENTO */}
                 {activeTab === 'knowledge' && (
-                  <KnowledgeConfig agentId={selectedAgentId} />
+                  canEditFaq ? (
+                    <KnowledgeConfig agentId={selectedAgentId} />
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center">
+                      <Lock className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                      <p className="text-sm font-medium">Sem permissão para gerenciar Base de Conhecimento</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Solicite acesso ao administrador da conta.
+                      </p>
+                    </div>
+                  )
                 )}
 
                 {/* SEGURANCA: Regras + Guardrails + Bloqueios */}
@@ -593,7 +640,17 @@ export default function AIAgentTab() {
                   <div className="space-y-6">
                     <RulesConfig config={config} onChange={handleChange} fieldErrors={fieldErrors} />
                     <GuardrailsConfig config={config} onChange={handleChange} fieldErrors={fieldErrors} />
-                    <BlockedNumbersConfig config={config} onChange={handleChange} />
+                    {canEditBlockedNumbers ? (
+                      <BlockedNumbersConfig config={config} onChange={handleChange} />
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center">
+                        <Lock className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Sem permissão para gerenciar Números Bloqueados</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Solicite acesso ao administrador da conta.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 

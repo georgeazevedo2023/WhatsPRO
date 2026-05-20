@@ -59,7 +59,7 @@ export function useHandoffMetrics(instanceId: string | null, periodDays = 30) {
       const { data, error } = await supabase
         .from('v_handoff_details' as any)
         .select(
-          'conversation_id, seller_id, handoff_at, handoff_reason, handoff_trigger, evitavel, converteu, minutes_before_handoff, minutes_to_resolve_after_handoff, status'
+          'conversation_id, seller_id, handoff_at, handoff_reason, handoff_trigger, evitavel, converteu, minutes_before_handoff, minutes_to_resolve_after_handoff, conversation_status'
         )
         .eq('instance_id', instanceId)
         .gte('handoff_at', since)
@@ -140,7 +140,7 @@ export function useHandoffMetrics(instanceId: string | null, periodDays = 30) {
         converteu: r.converteu === true,
         minutesBeforeHandoff: r.minutes_before_handoff != null ? Number(r.minutes_before_handoff) : null,
         minutesToResolve: r.minutes_to_resolve_after_handoff != null ? Number(r.minutes_to_resolve_after_handoff) : null,
-        status: (r.status as string) || '',
+        status: (r.conversation_status as string) || '',
       }));
 
       return { kpis, byMotivo, byTrigger, recentRows };

@@ -180,22 +180,36 @@ const Leads = () => {
   });
 
   // useMutation — toggle IA block for a lead on the current instance
+  // Usa RPC set_contact_ia_blocked (SECURITY DEFINER) porque a policy de UPDATE em contacts
+  // só permite super_admin — gerentes/atendentes silenciosamente falham no UPDATE direto.
   const toggleIaMutation = useMutation({
     mutationFn: async ({ contactId, updatedBlocked }: { contactId: string; updatedBlocked: string[] }) => {
-      const { error } = await supabase
-        .from('contacts')
-        .update({ ia_blocked_instances: updatedBlocked })
-        .eq('id', contactId);
+      const { error } = await supabase.rpc('set_contact_ia_blocked', {
+        p_contact_id: contactId,
+        p_blocked: updatedBlocked,
+      });
       if (error) throw error;
     },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['leads', selectedInstanceId] });
-      const lead = leads.find(l => l.contact_id === variables.contactId);
+    onMutate: async ({ contactId, updatedBlocked }) => {
+      const queryKey = ['leads', selectedInstanceId];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<LeadData[]>(queryKey);
+      queryClient.setQueryData<LeadData[]>(queryKey, (old) =>
+        (old || []).map(l => l.contact_id === contactId ? { ...l, ia_blocked_instances: updatedBlocked } : l)
+      );
+      const lead = previous?.find(l => l.contact_id === contactId);
       const wasBlocked = (lead?.ia_blocked_instances || []).includes(selectedInstanceId!);
       toast.success(wasBlocked ? `IA ativada para ${lead?.display_name}` : `IA desligada para ${lead?.display_name}`);
+      return { previous };
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['leads', selectedInstanceId], context.previous);
+      }
       handleError(err, 'Erro ao alterar IA', 'Leads');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads', selectedInstanceId] });
     },
   });
 

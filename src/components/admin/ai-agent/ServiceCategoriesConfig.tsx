@@ -37,10 +37,12 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -89,6 +91,12 @@ import {
   LogOut,
   Sparkles,
   Wrench,
+  Search,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  SearchX,
 } from 'lucide-react';
 
 import { useUiMode, type UiMode } from './service-categories/useUiMode';
@@ -1154,14 +1162,141 @@ function StageList({ stages, stageErrors, onChange, uiMode, initialSlugs }: Stag
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// CategoryCard — uma categoria com seus stages
+// CategoryTile + CategoryEditor — tile no grid + editor no Sheet (drawer)
 // ────────────────────────────────────────────────────────────────────────────
 
-interface CategoryCardProps {
+// Paleta determinística para avatares — hash do label → cor consistente
+const AVATAR_PALETTE = [
+  { bg: 'bg-sky-500/15', text: 'text-sky-700 dark:text-sky-300', ring: 'ring-sky-500/30' },
+  { bg: 'bg-emerald-500/15', text: 'text-emerald-700 dark:text-emerald-300', ring: 'ring-emerald-500/30' },
+  { bg: 'bg-amber-500/15', text: 'text-amber-700 dark:text-amber-300', ring: 'ring-amber-500/30' },
+  { bg: 'bg-violet-500/15', text: 'text-violet-700 dark:text-violet-300', ring: 'ring-violet-500/30' },
+  { bg: 'bg-rose-500/15', text: 'text-rose-700 dark:text-rose-300', ring: 'ring-rose-500/30' },
+  { bg: 'bg-cyan-500/15', text: 'text-cyan-700 dark:text-cyan-300', ring: 'ring-cyan-500/30' },
+  { bg: 'bg-indigo-500/15', text: 'text-indigo-700 dark:text-indigo-300', ring: 'ring-indigo-500/30' },
+  { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-700 dark:text-fuchsia-300', ring: 'ring-fuchsia-500/30' },
+];
+
+function paletteFor(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+}
+
+function getInitials(label: string): string {
+  const cleaned = (label || '').trim();
+  if (!cleaned) return '·';
+  const words = cleaned.split(/\s+/).filter(w => w.length > 0 && !['de', 'da', 'do', 'e'].includes(w.toLowerCase()));
+  if (words.length === 0) return cleaned.slice(0, 2).toUpperCase();
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// CategoryTile — visual compacto usado no grid (clique abre Sheet com editor)
+// ────────────────────────────────────────────────────────────────────────────
+
+interface CategoryTileProps {
   category: ServiceCategory;
   errors: CategoryErrors;
-  expanded: boolean;
-  onToggle: () => void;
+  onClick: () => void;
+  uiMode: UiMode;
+}
+
+function CategoryTile({ category, errors, onClick, uiMode }: CategoryTileProps) {
+  const hasErrors = categoryHasErrors(errors);
+  const stagesCount = category.stages.length;
+  const fieldsCount = category.stages.reduce((acc, s) => acc + s.fields.length, 0);
+  const matchPreview = uiMode === 'simple'
+    ? regexToCsv(category.interesse_match)
+    : category.interesse_match;
+  const palette = paletteFor(category.label || category.id || 'x');
+  const initials = getInitials(category.label || category.id);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group relative text-left w-full rounded-xl border bg-card overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+        hasErrors ? 'border-destructive/60' : 'border-border'
+      }`}
+    >
+      {/* Indicador lateral de erro */}
+      {hasErrors && (
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-destructive" aria-hidden />
+      )}
+
+      <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
+        {/* Header: avatar colorido + nome + pencil hover */}
+        <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
+          <div className={`shrink-0 w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center font-semibold text-[11px] sm:text-sm ring-1 ${palette.bg} ${palette.text} ${palette.ring}`}>
+            {initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-sm truncate leading-tight">
+              {category.label || category.id || 'Nova categoria'}
+            </div>
+            {matchPreview ? (
+              <div className="text-[10px] sm:text-[11px] text-muted-foreground line-clamp-1 sm:line-clamp-2 mt-0.5 sm:mt-1">
+                <span className="opacity-60">ativa em:</span>{' '}
+                <span className="text-foreground/80">{matchPreview}</span>
+              </div>
+            ) : (
+              <div className="text-[10px] sm:text-[11px] text-amber-600 dark:text-amber-400 italic mt-0.5 sm:mt-1 flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" />
+                Sem palavra-chave
+              </div>
+            )}
+          </div>
+          <Pencil className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
+        </div>
+
+        {/* Mini funil — dots por etapa, cor por exit_action */}
+        {stagesCount > 0 && (
+          <div className="flex items-center gap-1">
+            {category.stages.map((stage, i) => (
+              <div
+                key={i}
+                className={`h-1 sm:h-1.5 flex-1 rounded-full ${exitActionColor(stage.exit_action)} opacity-70 group-hover:opacity-100 transition-opacity`}
+                title={`${stage.label || stage.id} → ${exitActionLabel(stage.exit_action)}`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Footer: counts */}
+        <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Activity className="h-3 w-3" />
+            <strong className="text-foreground/90">{stagesCount}</strong>
+            <span className="hidden sm:inline">etapa{stagesCount !== 1 ? 's' : ''}</span>
+            <span className="sm:hidden">et</span>
+          </span>
+          <span className="text-muted-foreground/30">·</span>
+          <span className="flex items-center gap-1">
+            <MessageSquare className="h-3 w-3" />
+            <strong className="text-foreground/90">{fieldsCount}</strong>
+            <span className="hidden sm:inline">pergunta{fieldsCount !== 1 ? 's' : ''}</span>
+            <span className="sm:hidden">perg</span>
+          </span>
+          {hasErrors && (
+            <Badge variant="destructive" className="text-[9px] gap-1 h-5 ml-auto">
+              <AlertCircle className="h-3 w-3" /> Corrigir
+            </Badge>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// CategoryEditor — conteúdo completo do editor (renderizado dentro do Sheet)
+// ────────────────────────────────────────────────────────────────────────────
+
+interface CategoryEditorProps {
+  category: ServiceCategory;
+  errors: CategoryErrors;
   onChange: (patch: Partial<ServiceCategory>) => void;
   onStagesChange: (stages: Stage[]) => void;
   onDuplicate: () => void;
@@ -1170,90 +1305,22 @@ interface CategoryCardProps {
   initialSlugs: Set<string>;
 }
 
-function CategoryCard({
+function CategoryEditor({
   category,
   errors,
-  expanded,
-  onToggle,
   onChange,
   onStagesChange,
   onDuplicate,
   onRemove,
   uiMode,
   initialSlugs,
-}: CategoryCardProps) {
+}: CategoryEditorProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const hasErrors = categoryHasErrors(errors);
   const stageErrors = errors.stages ?? {};
-  const stagesCount = category.stages.length;
-  const fieldsCount = category.stages.reduce((acc, s) => acc + s.fields.length, 0);
 
   return (
-    <Collapsible open={expanded} onOpenChange={onToggle}>
-      <Card className={hasErrors ? 'border-destructive/50' : ''}>
-        <CollapsibleTrigger asChild>
-          <CardHeader className="pb-3 cursor-pointer hover:bg-muted/30 transition-colors">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <Layers className="w-4 h-4 text-primary shrink-0" />
-                <div className="min-w-0">
-                  <CardTitle className="text-base truncate">
-                    {category.label || category.id || 'Nova categoria'}
-                  </CardTitle>
-                  <CardDescription className="text-xs truncate">
-                    {uiMode === 'simple' ? (
-                      category.interesse_match ? (
-                        <>
-                          Ativa quando o cliente diz:{' '}
-                          <span className="text-foreground font-medium">
-                            {regexToCsv(category.interesse_match)}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="italic">Nenhuma palavra-chave configurada</span>
-                      )
-                    ) : (
-                      <span className="font-mono">
-                        id: {category.id || '—'}
-                        {category.interesse_match && (
-                          <>
-                            {' · '}match:{' '}
-                            <span className="text-foreground">{category.interesse_match}</span>
-                          </>
-                        )}
-                      </span>
-                    )}
-                  </CardDescription>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {/* R121: badge catalog_status visual */}
-                {(((category as any).catalog_status || 'digital') !== 'digital') && (
-                  <Badge variant="outline" className="text-[9px] gap-1 border-amber-500/50 text-amber-700 dark:text-amber-400">
-                    {((category as any).catalog_status === 'offline') ? 'Sem catalogo digital' : 'Sem catalogo'}
-                  </Badge>
-                )}
-                {hasErrors && (
-                  <Badge variant="destructive" className="text-[9px] gap-1">
-                    <AlertCircle className="h-3 w-3" /> Erros
-                  </Badge>
-                )}
-                <Badge variant="outline" className="text-xs">
-                  {stagesCount} etapa{stagesCount !== 1 ? 's' : ''} · {fieldsCount} pergunta
-                  {fieldsCount !== 1 ? 's' : ''}
-                </Badge>
-                <ChevronDown
-                  className={`w-4 h-4 text-muted-foreground transition-transform ${
-                    expanded ? 'rotate-180' : ''
-                  }`}
-                />
-              </div>
-            </div>
-          </CardHeader>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          <CardContent className="pt-0 space-y-5">
+    <>
+      <div className="space-y-5">
             {/* Identidade da categoria */}
             <div className={uiMode === 'simple' ? 'space-y-1.5' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
               {uiMode === 'advanced' && (
@@ -1430,9 +1497,7 @@ function CategoryCard({
                 <Trash2 className="h-3.5 w-3.5" /> Remover
               </Button>
             </div>
-          </CardContent>
-        </CollapsibleContent>
-      </Card>
+      </div>
 
       <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <AlertDialogContent>
@@ -1459,104 +1524,102 @@ function CategoryCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Collapsible>
+    </>
   );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// DefaultCategoryCard — fallback (sem id, sem regex)
+// DefaultCategoryTile + DefaultCategoryEditor — fallback (row + Sheet)
 // ────────────────────────────────────────────────────────────────────────────
 
-interface DefaultCategoryCardProps {
+interface DefaultCategoryTileProps {
   defaultCat: DefaultCategory;
   errors: DefaultErrors;
-  expanded: boolean;
-  onToggle: () => void;
+  onClick: () => void;
+}
+
+function DefaultCategoryTile({ defaultCat, errors, onClick }: DefaultCategoryTileProps) {
+  const hasErrors = defaultHasErrors(errors);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group text-left w-full rounded-lg border bg-primary/[0.03] transition-all hover:shadow-md hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+        hasErrors ? 'border-destructive/60' : 'border-primary/30'
+      }`}
+    >
+      <div className="p-3 sm:p-4 flex items-center gap-3 flex-wrap">
+        <div className="rounded-md p-1.5 bg-primary/10 text-primary shrink-0">
+          <Lock className="w-4 h-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-sm flex items-center gap-1.5">
+            Padrão (fallback)
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-xs">
+                  Usado quando nenhuma categoria matcha. Recomendado: 1 stage simples com exit_action = "Transferir".
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">
+            Sempre ativo · não removível
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 ml-auto">
+          {hasErrors && (
+            <Badge variant="destructive" className="text-[9px] gap-1 h-5">
+              <AlertCircle className="h-3 w-3" /> Erros
+            </Badge>
+          )}
+          <Badge variant="outline" className="text-[10px] h-5">
+            {defaultCat.stages.length} etapa{defaultCat.stages.length !== 1 ? 's' : ''}
+          </Badge>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+interface DefaultCategoryEditorProps {
+  defaultCat: DefaultCategory;
+  errors: DefaultErrors;
   onStagesChange: (stages: Stage[]) => void;
   uiMode: UiMode;
   initialSlugs: Set<string>;
 }
 
-function DefaultCategoryCard({
+function DefaultCategoryEditor({
   defaultCat,
   errors,
-  expanded,
-  onToggle,
   onStagesChange,
   uiMode,
   initialSlugs,
-}: DefaultCategoryCardProps) {
-  const hasErrors = defaultHasErrors(errors);
+}: DefaultCategoryEditorProps) {
   const stageErrors = errors.stages ?? {};
 
   return (
-    <Collapsible open={expanded} onOpenChange={onToggle}>
-      <Card
-        className={`border-primary/30 bg-primary/[0.03] ${hasErrors ? 'border-destructive/50' : ''}`}
-      >
-        <CollapsibleTrigger asChild>
-          <CardHeader className="pb-3 cursor-pointer hover:bg-muted/30 transition-colors">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <Lock className="w-4 h-4 text-primary shrink-0" />
-                <div className="min-w-0">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    Padrão (quando nenhuma categoria casa)
-                    <TooltipProvider delayDuration={200}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs text-xs">
-                          Usado quando nenhuma categoria matcha. Recomendado: 1 stage
-                          simples com exit_action = "Transferir".
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </CardTitle>
-                  <CardDescription className="text-[11px]">
-                    Sempre ativo · não removível
-                  </CardDescription>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {hasErrors && (
-                  <Badge variant="destructive" className="text-[9px] gap-1">
-                    <AlertCircle className="h-3 w-3" /> Erros
-                  </Badge>
-                )}
-                <Badge variant="outline" className="text-xs">
-                  {defaultCat.stages.length} etapa{defaultCat.stages.length !== 1 ? 's' : ''}
-                </Badge>
-                <ChevronDown
-                  className={`w-4 h-4 text-muted-foreground transition-transform ${
-                    expanded ? 'rotate-180' : ''
-                  }`}
-                />
-              </div>
-            </div>
-          </CardHeader>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <CardContent className="pt-0 space-y-5">
-            <FunnelPreviewBar stages={defaultCat.stages} />
-            <div className="space-y-2">
-              <Label className="text-sm font-medium flex items-center gap-1.5">
-                <Activity className="h-4 w-4" />
-                Etapas do funil padrão
-              </Label>
-              <StageList
-                stages={defaultCat.stages}
-                stageErrors={stageErrors}
-                onChange={onStagesChange}
-                uiMode={uiMode}
-                initialSlugs={initialSlugs}
-              />
-            </div>
-          </CardContent>
-        </CollapsibleContent>
-      </Card>
-    </Collapsible>
+    <div className="space-y-5">
+      <FunnelPreviewBar stages={defaultCat.stages} />
+      <div className="space-y-2">
+        <Label className="text-sm font-medium flex items-center gap-1.5">
+          <Activity className="h-4 w-4" />
+          Etapas do funil padrão
+        </Label>
+        <StageList
+          stages={defaultCat.stages}
+          stageErrors={stageErrors}
+          onChange={onStagesChange}
+          uiMode={uiMode}
+          initialSlugs={initialSlugs}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1569,12 +1632,18 @@ interface ServiceCategoriesConfigProps {
   onChange: (config: ServiceCategoriesConfigType) => void;
 }
 
+type CategorySort = 'order' | 'name_asc' | 'most_stages' | 'most_questions' | 'errors_first';
+const PAGE_SIZE = 12;
+
 export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesConfigProps) {
   const safeConfig = useMemo(() => ensureConfig(config), [config]);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [defaultExpanded, setDefaultExpanded] = useState(false);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editingDefault, setEditingDefault] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [uiMode, setUiMode] = useUiMode();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortMode, setSortMode] = useState<CategorySort>('order');
+  const [page, setPage] = useState(0);
 
   // F2.3 Guardrail: capturar slugs presentes no carregamento inicial.
   // Auto-slugify NUNCA regrava esses, mesmo em modo Iniciante.
@@ -1607,15 +1676,6 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
 
   const emit = (next: ServiceCategoriesConfigType) => {
     onChange(next);
-  };
-
-  const toggleCategory = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   };
 
   const updateCategory = (idx: number, patch: Partial<ServiceCategory>) => {
@@ -1653,7 +1713,7 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
       categories: [...safeConfig.categories, fresh],
     };
     emit(next);
-    setExpandedIds((prev) => new Set(prev).add(newId));
+    setEditingIdx(safeConfig.categories.length);
   };
 
   const duplicateCategory = (idx: number) => {
@@ -1678,7 +1738,7 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
       ],
     };
     emit(next);
-    setExpandedIds((prev) => new Set(prev).add(newId));
+    setEditingIdx(idx + 1);
   };
 
   const removeCategory = (idx: number) => {
@@ -1687,6 +1747,7 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
       categories: safeConfig.categories.filter((_, i) => i !== idx),
     };
     emit(next);
+    setEditingIdx(null);
   };
 
   const updateDefaultStages = (stages: Stage[]) => {
@@ -1699,9 +1760,69 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
 
   const restoreDefaults = () => {
     onChange(DEFAULT_SERVICE_CATEGORIES_V2);
-    setExpandedIds(new Set());
-    setDefaultExpanded(false);
+    setEditingIdx(null);
+    setEditingDefault(false);
   };
+
+  const editingCategory = editingIdx !== null ? safeConfig.categories[editingIdx] : null;
+  const editingCategoryErrors = editingIdx !== null ? categoryErrors[editingIdx] : null;
+
+  // ─── Filter + Sort + Paginate ───
+  // Preservo índice original (origIdx) pra clicar e abrir o editor certo
+  const indexedCategories = useMemo(
+    () => safeConfig.categories.map((cat, origIdx) => ({ cat, origIdx, err: categoryErrors[origIdx] })),
+    [safeConfig.categories, categoryErrors]
+  );
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredCategories = useMemo(() => {
+    if (!normalizedQuery) return indexedCategories;
+    return indexedCategories.filter(({ cat }) => {
+      const hay = `${cat.label} ${cat.id} ${cat.interesse_match}`.toLowerCase();
+      return hay.includes(normalizedQuery);
+    });
+  }, [indexedCategories, normalizedQuery]);
+
+  const sortedCategories = useMemo(() => {
+    const arr = [...filteredCategories];
+    switch (sortMode) {
+      case 'name_asc':
+        arr.sort((a, b) => (a.cat.label || '').localeCompare(b.cat.label || ''));
+        break;
+      case 'most_stages':
+        arr.sort((a, b) => b.cat.stages.length - a.cat.stages.length);
+        break;
+      case 'most_questions': {
+        const count = (c: ServiceCategory) => c.stages.reduce((acc, s) => acc + s.fields.length, 0);
+        arr.sort((a, b) => count(b.cat) - count(a.cat));
+        break;
+      }
+      case 'errors_first':
+        arr.sort((a, b) => Number(categoryHasErrors(b.err)) - Number(categoryHasErrors(a.err)));
+        break;
+      // 'order' = original
+    }
+    return arr;
+  }, [filteredCategories, sortMode]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedCategories.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pagedCategories = sortedCategories.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+  // Reset page quando filtros mudam e zeram lista
+  if (page !== safePage) {
+    // ajusta sem rerender extra (state set é OK aqui pq é raro)
+    setTimeout(() => setPage(safePage), 0);
+  }
+
+  // ─── Stats ───
+  const totalCategories = safeConfig.categories.length;
+  const totalQuestions = safeConfig.categories.reduce(
+    (acc, c) => acc + c.stages.reduce((a, s) => a + s.fields.length, 0),
+    0
+  );
+  const totalStages = safeConfig.categories.reduce((acc, c) => acc + c.stages.length, 0);
+  const categoriesWithErrors = categoryErrors.filter(categoryHasErrors).length;
 
   return (
     <div className="space-y-4">
@@ -1753,59 +1874,259 @@ export function ServiceCategoriesConfig({ config, onChange }: ServiceCategoriesC
         </CardHeader>
       </Card>
 
-      {/* Categorias */}
-      <div className="space-y-3">
-        {safeConfig.categories.length === 0 ? (
-          <div className="rounded-lg border-2 border-dashed py-10 text-center">
-            <p className="text-sm text-muted-foreground mb-3">
-              Nenhuma categoria configurada — só o fallback abaixo será usado.
-            </p>
-            <Button size="sm" onClick={addCategory} className="gap-1.5">
-              <Plus className="h-4 w-4" /> Adicionar primeira categoria
-            </Button>
+      {/* Stats bar — 4 cols sempre, compacto */}
+      {totalCategories > 0 && (
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+          <div className="rounded-lg border border-border bg-card px-2 py-2 sm:px-3 sm:py-2.5">
+            <div className="text-[9px] sm:text-[10px] uppercase tracking-wide text-muted-foreground font-medium truncate">Categorias</div>
+            <div className="text-base sm:text-lg font-bold text-foreground flex items-baseline gap-1">
+              {totalCategories}
+              <Layers className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary/60" />
+            </div>
           </div>
-        ) : (
-          safeConfig.categories.map((cat, idx) => (
-            <CategoryCard
-              key={`${cat.id}-${idx}`}
-              category={cat}
-              errors={categoryErrors[idx]}
-              expanded={expandedIds.has(cat.id)}
-              onToggle={() => toggleCategory(cat.id)}
-              onChange={(patch) => updateCategory(idx, patch)}
-              onStagesChange={(stages) => updateCategoryStages(idx, stages)}
-              onDuplicate={() => duplicateCategory(idx)}
-              onRemove={() => removeCategory(idx)}
+          <div className="rounded-lg border border-border bg-card px-2 py-2 sm:px-3 sm:py-2.5">
+            <div className="text-[9px] sm:text-[10px] uppercase tracking-wide text-muted-foreground font-medium truncate">Etapas</div>
+            <div className="text-base sm:text-lg font-bold text-foreground flex items-baseline gap-1">
+              {totalStages}
+              <Activity className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-500/60" />
+            </div>
+          </div>
+          <div className="rounded-lg border border-border bg-card px-2 py-2 sm:px-3 sm:py-2.5">
+            <div className="text-[9px] sm:text-[10px] uppercase tracking-wide text-muted-foreground font-medium truncate">Perguntas</div>
+            <div className="text-base sm:text-lg font-bold text-foreground flex items-baseline gap-1">
+              {totalQuestions}
+              <MessageSquare className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-sky-500/60" />
+            </div>
+          </div>
+          <div className={`rounded-lg border px-2 py-2 sm:px-3 sm:py-2.5 ${categoriesWithErrors > 0 ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-card'}`}>
+            <div className="text-[9px] sm:text-[10px] uppercase tracking-wide text-muted-foreground font-medium truncate">Pendentes</div>
+            <div className={`text-base sm:text-lg font-bold flex items-baseline gap-1 ${categoriesWithErrors > 0 ? 'text-destructive' : 'text-foreground/60'}`}>
+              {categoriesWithErrors}
+              <AlertCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toolbar: search + sort + add — compact mobile */}
+      {totalCategories > 0 && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="relative flex-1 min-w-[160px]">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+              placeholder="Buscar..."
+              className="h-9 pl-8 pr-8"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(''); setPage(0); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground"
+                aria-label="Limpar busca"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <Select value={sortMode} onValueChange={(v) => { setSortMode(v as CategorySort); setPage(0); }}>
+            <SelectTrigger className="h-9 w-[44px] sm:w-[180px] gap-1.5 px-2 sm:px-3">
+              <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <SelectValue className="hidden sm:inline" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="order">Ordem original</SelectItem>
+              <SelectItem value="name_asc">Nome (A-Z)</SelectItem>
+              <SelectItem value="most_stages">Mais etapas</SelectItem>
+              <SelectItem value="most_questions">Mais perguntas</SelectItem>
+              <SelectItem value="errors_first">Com pendências primeiro</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={addCategory} size="sm" className="h-9 gap-1.5 shrink-0 px-2 sm:px-3">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">Nova categoria</span>
+          </Button>
+        </div>
+      )}
+
+      {/* Resumo do filtro */}
+      {totalCategories > 0 && (normalizedQuery || sortMode !== 'order') && (
+        <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+          <span>
+            Mostrando <strong className="text-foreground">{sortedCategories.length}</strong>
+            {' de '}<strong className="text-foreground">{totalCategories}</strong>
+          </span>
+          {(normalizedQuery || sortMode !== 'order') && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs gap-1"
+              onClick={() => { setSearchQuery(''); setSortMode('order'); setPage(0); }}
+            >
+              <X className="h-3 w-3" />
+              Limpar filtros
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Grid de categorias */}
+      {totalCategories === 0 ? (
+        <div className="rounded-lg border-2 border-dashed py-12 text-center">
+          <Layers className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm font-medium mb-1">Nenhuma categoria configurada</p>
+          <p className="text-xs text-muted-foreground mb-4">
+            Só o fallback "Padrão" abaixo será usado.
+          </p>
+          <Button size="sm" onClick={addCategory} className="gap-1.5">
+            <Plus className="h-4 w-4" /> Adicionar primeira categoria
+          </Button>
+        </div>
+      ) : sortedCategories.length === 0 ? (
+        <div className="rounded-lg border-2 border-dashed py-12 text-center">
+          <SearchX className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm font-medium mb-1">Nenhuma categoria encontrada</p>
+          <p className="text-xs text-muted-foreground mb-4">
+            Não há resultados para "<strong className="text-foreground">{searchQuery}</strong>"
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => { setSearchQuery(''); setSortMode('order'); setPage(0); }}
+            className="gap-1.5"
+          >
+            <X className="h-3.5 w-3.5" /> Limpar filtros
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {pagedCategories.map(({ cat, origIdx, err }) => (
+              <CategoryTile
+                key={`${cat.id}-${origIdx}`}
+                category={cat}
+                errors={err}
+                onClick={() => setEditingIdx(origIdx)}
+                uiMode={uiMode}
+              />
+            ))}
+          </div>
+
+          {/* Paginação */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between gap-2 pt-2">
+              <div className="text-xs text-muted-foreground">
+                Página <strong className="text-foreground">{safePage + 1}</strong> de{' '}
+                <strong className="text-foreground">{totalPages}</strong>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1"
+                  onClick={() => setPage(Math.max(0, safePage - 1))}
+                  disabled={safePage === 0}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">Anterior</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1"
+                  onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}
+                  disabled={safePage >= totalPages - 1}
+                >
+                  <span className="hidden sm:inline">Próxima</span>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Default fallback — row destacada */}
+      <DefaultCategoryTile
+        defaultCat={safeConfig.default}
+        errors={defaultErrors}
+        onClick={() => setEditingDefault(true)}
+      />
+
+      {/* Sheet — editor de categoria normal */}
+      <Sheet
+        open={editingIdx !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingIdx(null);
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-2xl overflow-y-auto p-0"
+        >
+          {editingCategory && editingCategoryErrors && (
+            <>
+              <SheetHeader className="p-6 pb-4 border-b sticky top-0 bg-background z-10">
+                <SheetTitle className="flex items-center gap-2 text-base">
+                  <Layers className="h-4 w-4 text-primary" />
+                  {editingCategory.label || editingCategory.id || 'Nova categoria'}
+                </SheetTitle>
+                <SheetDescription className="text-xs">
+                  Configure as etapas, perguntas e ação de saída desta categoria.
+                </SheetDescription>
+              </SheetHeader>
+              <div className="p-6">
+                <CategoryEditor
+                  category={editingCategory}
+                  errors={editingCategoryErrors}
+                  onChange={(patch) => updateCategory(editingIdx!, patch)}
+                  onStagesChange={(stages) => updateCategoryStages(editingIdx!, stages)}
+                  onDuplicate={() => duplicateCategory(editingIdx!)}
+                  onRemove={() => removeCategory(editingIdx!)}
+                  uiMode={uiMode}
+                  initialSlugs={initialSlugsRef.current}
+                />
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Sheet — editor do fallback Padrão */}
+      <Sheet
+        open={editingDefault}
+        onOpenChange={(open) => {
+          if (!open) setEditingDefault(false);
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-2xl overflow-y-auto p-0"
+        >
+          <SheetHeader className="p-6 pb-4 border-b sticky top-0 bg-background z-10">
+            <SheetTitle className="flex items-center gap-2 text-base">
+              <Lock className="h-4 w-4 text-primary" />
+              Padrão (fallback)
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              Usado quando nenhuma categoria matcha o lead. Recomendado: 1 etapa simples com ação "Transferir".
+            </SheetDescription>
+          </SheetHeader>
+          <div className="p-6">
+            <DefaultCategoryEditor
+              defaultCat={safeConfig.default}
+              errors={defaultErrors}
+              onStagesChange={updateDefaultStages}
               uiMode={uiMode}
               initialSlugs={initialSlugsRef.current}
             />
-          ))
-        )}
-
-        {safeConfig.categories.length > 0 && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={addCategory}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Adicionar Categoria
-          </Button>
-        )}
-      </div>
-
-      {/* Default fallback */}
-      <DefaultCategoryCard
-        defaultCat={safeConfig.default}
-        errors={defaultErrors}
-        expanded={defaultExpanded}
-        onToggle={() => setDefaultExpanded((v) => !v)}
-        onStagesChange={updateDefaultStages}
-        uiMode={uiMode}
-        initialSlugs={initialSlugsRef.current}
-      />
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Footer */}
       <div className="flex justify-end pt-2 border-t">

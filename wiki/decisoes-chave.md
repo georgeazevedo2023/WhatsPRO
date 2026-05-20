@@ -1,12 +1,62 @@
 ---
 title: Decisões-Chave
-tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, d32, d33, d34, d35, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors, business-hours, cross-category, reabertura-conversa, catalog-status, migracao]
+tags: [decisoes, regras, padroes, seguranca, d27, d28, d29, d32, d33, d34, d35, d36, excluded-products, valid-keys-dinamico, eletropiso, sync-rule, cors, business-hours, cross-category, reabertura-conversa, catalog-status, migracao, permissoes-granulares]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-19
-audited_at: 2026-05-19
+updated: 2026-05-20
+audited_at: 2026-05-20
 ---
 
 # Decisões-Chave
+
+## D36 — Permissões granulares por feature (2026-05-20)
+
+> Sistema de permissões por feature pra liberar atendentes específicos a gerenciar Catálogo, FAQ, Categorias, Excluded e Números bloqueados. Backend faz a resolução; frontend só consulta via hook.
+
+**Modelo:**
+- **super_admin** → SEMPRE true (bypass).
+- **gerente** → true por padrão. Pode ser revogado com row `can_edit=false`.
+- **user (atendente)** → false por padrão. Precisa de row explícita `can_edit=true`.
+
+**5 features iniciais (`feature_key` no CHECK constraint):**
+- `manage_catalog` — produtos com foto
+- `manage_faq` — base de conhecimento
+- `manage_qualification` — categorias de atendimento
+- `manage_excluded_products` — produtos NÃO vendemos
+- `manage_blocked_numbers` — números bloqueados
+
+**Arquitetura:**
+- Tabela `user_feature_permissions(user_id, feature_key, can_view, can_edit, granted_by, granted_at, updated_at)` com UNIQUE(user_id, feature_key)
+- Função `has_feature_permission(p_user_id, p_feature_key)` SECURITY DEFINER STABLE — único ponto de verdade
+- Hook React `useFeaturePermission(feature)` em `src/hooks/useFeaturePermission.ts` chama a RPC
+- Components `<FeatureRoute feature="X">` (singular) e `<AnyFeatureRoute features={[...]}>` (acessa rota se TEM pelo menos uma)
+- Gerente acessa `/dashboard/admin/users` (mudei de `AdminRoute` pra `CrmRoute`) e edita via `UserPermissionsDialog` (botão Shield no card)
+
+**Por quê:**
+- Sistema antes só tinha 3 roles fixos (super_admin/gerente/user). Atendente precisava virar gerente pra cadastrar 1 produto — escalada de privilégio enorme.
+- Caso real Eletropiso: alguns atendentes deveriam manter catálogo sem ter acesso a CRM/Disparador/Admin.
+
+**SYNC RULE auditada:**
+- Itens 1 (DB): ✅ migration
+- Itens 2 (types): ✅ regen via MCP
+- Itens 3 (admin UI): ✅ UserPermissionsDialog
+- Itens 4 (ALLOWED_FIELDS): N/A — não é campo de ai_agents
+- Itens 5 (backend): N/A — função SQL é o backend
+- Itens 6 (prompt): N/A — não afeta LLM
+- Itens 7 (system_settings): N/A
+- Itens 8 (docs): ✅ CHANGELOG v7.38.0, D36 aqui
+
+**Casos de uso (Eletropiso):**
+1. Lucas (atendente sênior) ganha `manage_catalog` → cadastra novos produtos sem ser promovido
+2. Djavan (gerente) tem tudo true por default → comportamento atual preservado
+3. Atendente novato → vê só Helpdesk e Conversas, sem acesso ao Agente IA
+4. Cris (gerente) tem `manage_faq=false` → bloqueada de mexer no Knowledge mas mantém resto
+
+**Backlog (próxima sessão):**
+- Esconder ações destrutivas do gerente em UsersTab (delete user, role select pra super_admin) — gap de privilege escalation atual
+- Testes vitest pra useFeaturePermission/FeatureRoute/UserPermissionsDialog
+- F2 não é necessário — `BlockedNumbersConfig` já existe na tab Segurança (campo `ai_agents.blocked_numbers` array text). Permissão `manage_blocked_numbers` já cobre.
+
+---
 
 ## D35 — `catalog_status` por categoria + migração aditiva de instância (2026-05-19)
 

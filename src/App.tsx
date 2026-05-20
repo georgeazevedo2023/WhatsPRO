@@ -8,6 +8,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { FeatureRoute } from "@/components/routes/FeatureRoute";
+import { AnyFeatureRoute } from "@/components/routes/AnyFeatureRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
@@ -233,7 +235,7 @@ const AppRoutes = () => {
         <Route path="inbox-users" element={<AdminRoute><ErrorBoundary section="Membros"><Suspense fallback={<PageLoader />}><InboxUsersManagement /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin" element={<AdminRoute><ErrorBoundary section="Administração"><Suspense fallback={<PageLoader />}><AdminPanel /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/inboxes" element={<AdminRoute><ErrorBoundary section="Caixas"><Suspense fallback={<PageLoader />}><AdminInboxes /></Suspense></ErrorBoundary></AdminRoute>} />
-        <Route path="admin/users" element={<AdminRoute><ErrorBoundary section="Equipe"><Suspense fallback={<PageLoader />}><AdminUsers /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="admin/users" element={<CrmRoute><ErrorBoundary section="Equipe"><Suspense fallback={<PageLoader />}><AdminUsers /></Suspense></ErrorBoundary></CrmRoute>} />
         <Route path="admin/notifications" element={<AdminRoute><ErrorBoundary section="Notificações"><Suspense fallback={<PageLoader />}><AdminNotifications /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/departments" element={<AdminRoute><ErrorBoundary section="Departamentos"><Suspense fallback={<PageLoader />}><AdminDepartments /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin/secrets" element={<AdminRoute><ErrorBoundary section="Secrets"><Suspense fallback={<PageLoader />}><AdminSecrets /></Suspense></ErrorBoundary></AdminRoute>} />
@@ -244,9 +246,9 @@ const AppRoutes = () => {
         <Route path="docs" element={<AdminRoute><ErrorBoundary section="Documentação"><Suspense fallback={<PageLoader />}><AdminDocs /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="roadmap" element={<AdminRoute><ErrorBoundary section="Roadmap"><Suspense fallback={<PageLoader />}><AdminRoadmap /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="backup" element={<AdminRoute><ErrorBoundary section="Backup"><Suspense fallback={<PageLoader />}><AdminBackup /></Suspense></ErrorBoundary></AdminRoute>} />
-        <Route path="ai-agent" element={<AdminRoute><ErrorBoundary section="Agente IA"><Suspense fallback={<PageLoader />}><AIAgentConfig /></Suspense></ErrorBoundary></AdminRoute>} />
-        <Route path="ai-agent/catalog" element={<AdminRoute><ErrorBoundary section="Catálogo IA"><Suspense fallback={<PageLoader />}><AIAgentCatalog /></Suspense></ErrorBoundary></AdminRoute>} />
-        <Route path="ai-agent/knowledge" element={<AdminRoute><ErrorBoundary section="Conhecimento IA"><Suspense fallback={<PageLoader />}><AIAgentKnowledge /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="ai-agent" element={<AnyFeatureRoute features={['manage_catalog','manage_faq','manage_qualification','manage_excluded_products','manage_blocked_numbers']}><ErrorBoundary section="Agente IA"><Suspense fallback={<PageLoader />}><AIAgentConfig /></Suspense></ErrorBoundary></AnyFeatureRoute>} />
+        <Route path="ai-agent/catalog" element={<FeatureRoute feature="manage_catalog"><ErrorBoundary section="Catálogo IA"><Suspense fallback={<PageLoader />}><AIAgentCatalog /></Suspense></ErrorBoundary></FeatureRoute>} />
+        <Route path="ai-agent/knowledge" element={<FeatureRoute feature="manage_faq"><ErrorBoundary section="Conhecimento IA"><Suspense fallback={<PageLoader />}><AIAgentKnowledge /></Suspense></ErrorBoundary></FeatureRoute>} />
         <Route path="ai-agent/playground" element={<AdminRoute><ErrorBoundary section="Playground IA"><Suspense fallback={<PageLoader />}><AIAgentPlayground /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="intelligence" element={<AdminRoute><ErrorBoundary section="Inteligência"><Suspense fallback={<PageLoader />}><Intelligence /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="campaigns" element={<AdminRoute><ErrorBoundary section="Campanhas"><Suspense fallback={<PageLoader />}><Campaigns /></Suspense></ErrorBoundary></AdminRoute>} />

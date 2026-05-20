@@ -33,6 +33,7 @@ import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import ManageUserInstancesDialog from '@/components/dashboard/ManageUserInstancesDialog';
 import { UserNotificationPanel } from '@/components/admin/notification/UserNotificationPanel';
+import { UserPermissionsDialog } from '@/components/admin/UserPermissionsDialog';
 import type { Database } from '@/integrations/supabase/types';
 
 type InboxRole = Database['public']['Enums']['inbox_role'];
@@ -122,6 +123,9 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
   // Manage instances
   const [manageInstancesUser, setManageInstancesUser] = useState<UserWithRole | null>(null);
   const [isManageInstancesOpen, setIsManageInstancesOpen] = useState(false);
+
+  // Manage permissions
+  const [permissionsUser, setPermissionsUser] = useState<UserWithRole | null>(null);
 
   // Inline inbox membership saving state
   const [savingInboxMembership, setSavingInboxMembership] = useState<string | null>(null);
@@ -471,6 +475,7 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                           </Select>
                           <div className="flex items-center gap-0.5 shrink-0">
                             <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openEditUser(u)} aria-label="Editar membro"><Pencil className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent side="bottom"><p>Editar membro</p></TooltipContent></Tooltip>
+                            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => setPermissionsUser(u)} aria-label="Permissões"><Shield className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent side="bottom"><p>Permissões de features</p></TooltipContent></Tooltip>
                             <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setManageInstancesUser(u); setIsManageInstancesOpen(true); }} aria-label="Gerenciar instâncias"><Settings className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent side="bottom"><p>Gerenciar instâncias</p></TooltipContent></Tooltip>
                             <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/60 hover:text-destructive hover:bg-destructive/10" onClick={() => setUserToDelete(u)} aria-label="Excluir membro"><Trash2 className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent side="bottom"><p>Excluir membro</p></TooltipContent></Tooltip>
                           </div>
@@ -888,6 +893,16 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
 
       {/* Manage Instances */}
       <ManageUserInstancesDialog open={isManageInstancesOpen} onOpenChange={setIsManageInstancesOpen} user={manageInstancesUser} onSave={fetchUsers} />
+
+      {permissionsUser && (
+        <UserPermissionsDialog
+          open={!!permissionsUser}
+          onOpenChange={(open) => { if (!open) setPermissionsUser(null); }}
+          userId={permissionsUser.id}
+          userName={permissionsUser.full_name || permissionsUser.email}
+          userRole={permissionsUser.app_role}
+        />
+      )}
     </>
   );
 };

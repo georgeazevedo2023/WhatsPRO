@@ -9,6 +9,40 @@ type: log
 
 ---
 
+## 2026-05-20 (tarde) — D36 Permissões granulares + redesign Categorias/Excluded (v7.38.0)
+
+**Sprint completo.** Redesign UX Categorias/Excluded + sistema de permissões granulares (F1) shipado.
+
+**Redesign Categorias + Excluded (3 iterações):**
+1. Grid 2-3 col responsivo + Sheet drawer pro editor de categoria
+2. Toolbar (busca + sort + paginação 12/pg) + stats bar 4-cards + tiles com avatar colorido determinístico
+3. Mobile compacto: 4 cols sempre nos stats, avatares 32px mobile, padding p-3, labels abreviadas
+
+**Permissões granulares (D36 — feedback do user "alguns atendentes precisam gerenciar catálogo"):**
+- Migration `user_feature_permissions` + função `has_feature_permission` SECURITY DEFINER aplicada em prod via MCP
+- types.ts regen via MCP
+- Hook `useFeaturePermission(feature)` + components `<FeatureRoute>` + `<AnyFeatureRoute>`
+- `UserPermissionsDialog` (botão Shield no UsersTab) com 5 toggles + reset pro padrão
+- Gerente agora acessa `/dashboard/admin/users` (era só super_admin)
+- AIAgentTab: 5 guards de tab (Categorias, Excluded, Catálogo, Conhecimento, Bloqueados)
+- Sidebar "Agente IA" aparece pra atendente com qualquer feature
+
+**Bugs próprios corrigidos na auditoria intermediária:**
+- **Bug A**: Gerente não acessava `/admin/users` — AdminRoute → CrmRoute
+- **Bug B**: 3 guards `isSuperAdmin` duplicados em AIAgentConfig/Catalog/Knowledge — removidos
+- **Bug C**: Migration não aplicada — aplicada via MCP
+
+**Backlog próxima sessão (Task #20):**
+- Esconder ações destrutivas do gerente em UsersTab (delete + role select pra super_admin) — gap de privilege escalation
+- Testes vitest pra useFeaturePermission/FeatureRoute/UserPermissionsDialog
+- Validar UX `BlockedNumbersConfig` (já existe na tab Segurança)
+
+**Lição:** sempre auditar guards internos duplicados ao adicionar route guards — múltiplas camadas viram bug silencioso (página redireciona mesmo passando o guard de rota). Pattern: route guard único, página interna confia.
+
+**Validação:** tsc 0 erros, vitest 793 ✅ (9 falhas pré-existentes confirmadas via git stash).
+
+---
+
 ## 2026-05-20 — Prefixo nome atendente em mensagens humanas (v7.37.21)
 
 **Feature UX simples** do helpdesk. Atendente humano envia "Oi Maria" → lead recebe `*Lucas*\nOi Maria` no WhatsApp. Negrito + linha separada deixa explícito quem está falando, principalmente em fluxos onde atendente troca ou IA volta a assumir.

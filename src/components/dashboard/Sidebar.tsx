@@ -1,6 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import type { Instance } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFeaturePermission } from '@/hooks/useFeaturePermission';
 import { cn } from '@/lib/utils';
 import { handleError } from '@/lib/errorUtils';
 import {
@@ -85,6 +86,12 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
   const location = useLocation();
   const { id: instanceId } = useParams<{ id: string }>();
   const { profile, isSuperAdmin, isGerente, signOut, user } = useAuth();
+  const { canEdit: canEditCatalog } = useFeaturePermission('manage_catalog');
+  const { canEdit: canEditFaq } = useFeaturePermission('manage_faq');
+  const { canEdit: canEditQualification } = useFeaturePermission('manage_qualification');
+  const { canEdit: canEditExcluded } = useFeaturePermission('manage_excluded_products');
+  const { canEdit: canEditBlockedNumbers } = useFeaturePermission('manage_blocked_numbers');
+  const hasAnyAgentFeature = canEditCatalog || canEditFaq || canEditQualification || canEditExcluded || canEditBlockedNumbers;
   const { theme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [instancesOpen, setInstancesOpen] = useState(false);
@@ -594,8 +601,8 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           </>
         )}
 
-        {/* Agente IA - Collapsible (super admin only) */}
-        {isSuperAdmin && renderCollapsible(
+        {/* Agente IA - Collapsible (super_admin/gerente OU atendente com qualquer feature AI) */}
+        {(isSuperAdmin || isGerente || hasAnyAgentFeature) && renderCollapsible(
           Bot,
           'Agente IA',
           aiAgentOpen,
@@ -604,7 +611,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           '/dashboard/ai-agent',
           <>
             {renderSubItem('/dashboard/ai-agent', 'Configuracao', Bot)}
-            {renderSubItem('/dashboard/ai-agent/playground', 'Playground', Play)}
+            {(isSuperAdmin || isGerente) && renderSubItem('/dashboard/ai-agent/playground', 'Playground', Play)}
           </>
         )}
 
