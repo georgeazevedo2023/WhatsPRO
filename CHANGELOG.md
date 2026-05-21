@@ -13,52 +13,51 @@ audited_at: 2026-05-21
 
 ---
 
-### v7.40.0 (2026-05-21) — Sprint B1: extração `hardcodedRules` (-90% prompt)
+### v7.40.1 (2026-05-21) — Sprint B1.5: fix R135 (anti-loop qualif) + R136 (multi-item horizontal)
 
-**Sprint B1 do plano orquestrador.** Decomposição do monolito `hardcodedRules` (24 bullets / 9.348 chars no prompt principal) em 4 helpers determinísticos/dedicados. **Redução medida: -89,98% no inline (9.348 → 937 chars)** = ~-2.100 tokens por turno.
+**2 bugs reais em prod fixados** após v7.40.0 (paz + Paloma, ambos EletropisoV2):
 
-**5 agentes paralelos + 1 auditor** (sessão 2026-05-21 manhã):
-- Agent 1 → `_shared/promptRules.ts` (NOVO): exporta `buildPromptRulesString()` com 5 regras de tom (LEIA toda msg, NUNCA repita pergunta, NUNCA ECOAR, primeiro nome, profissão→set_tags). 937 chars. 3/3 tests.
-- Agent 2 → `_shared/responseValidator.ts` (NOVO): exporta `validateLLMResponse(text, ctx)` cobrindo 7 regras determinísticas (anti-negative_phrases, anti_internal_error, anti_internal_leak, anti_echo_opener, anti_recumprimento, name_overuse, hallucinated_price). 185 lin. **Modo telemetria** nesta sprint (só `log.warn`). 19/19 tests.
-- Agent 3 → `_shared/searchGuard.ts` (estendido): nova função `detectIncomingSearchSignal({ text, knownBrands })` cobre R121 ("tem X?") e marca→search imediato. +91 lin. 28/28 tests (15 antigos + 13 novos). **Não wirado nesta sprint** (Edit 3 = ALTO RISCO, fica pro Sprint B5 após split).
-- Agent 4 → `_shared/handoffGuard.ts` (estendido): `shouldBlockHandoffForPayment` + `mentionsPaymentTopic`. +87 lin. 23/23 tests (8 antigos + 15 novos). **Wirado** em `case 'handoff_to_human'`.
-- Agent 5 → wire plan em `/tmp/B1_WIRE_PLAN.md` (4 edits, 7 riscos mapeados).
-- Auditor (Agent 6 — pós-edit): verificou 5 destinos + 5 wire points. **Veredito: PASS COM RESSALVAS** (ressalvas esperadas pelo plano).
+- **R135** — IA repetiu LITERAL "Qual material? (granito, mármore, inox ou sintético)" depois do lead responder "Mas simples mesmo". Causa: `buildQualificationContext` reinjetava "FRASE EXATA SUGERIDA" sem detectar que o lead já tinha respondido no turn anterior sem casar com keywords.
+- **R136** — IA ignorou lista multi-item "1 massa PVA / 1 Latão de tinta branco neve / 15 lixas d'água N° 150" e qualif só `tintas`, perdendo os 2 itens sem categoria cadastrada. Causa: sistema afunilou em mono-categoria quando só 1 categoria cadastrada casou na lista.
 
-**Wire aplicado em `ai-agent/index.ts`:**
-1. Import dos 4 helpers novos (linhas 19-25)
-2. Declaração `const hardcodedRules = ...` REMOVIDA (era 25 linhas / 9.3 KB)
-3. `systemPrompt` array agora usa `buildPromptRulesString()` (linha ~2008)
-4. `case 'handoff_to_human'` chama `shouldBlockHandoffForPayment` ANTES da lógica (linha ~3676) — bloqueia handoff quando lead pergunta sobre pagamento (PIX/desconto/parcelamento/boleto/cartão) e devolve mensagem pro LLM responder com business_info
-5. `validateLLMResponse` chamado em modo telemetria antes do validator LLM (linha ~3997-4016)
-6. `validatorAgent.ts` prompt estendido com 4 regras órfãs (INTERNO leak, erro interno, eco genérico, recumprimento mid-convo) — cobre as 7 violações no LLM validator também
+**Regra definida pelo user:** lista multi-item mista (cadastrado + não-cadastrado) → **qualificação horizontal** (1 pergunta abrangente sobre ambiente + marca/tipo + qualidade) → handoff rico com lista preservada. Vale também pra single-item-fora-catálogo.
+
+**3 novos helpers (3 agentes paralelos):**
+- `_shared/multiItemDetector.ts` (239 lin) — detecta lista numerada/comma/newline-separated, classifica items por categoria, devolve `{ detected, items, mixed, orphanCount, reason }`. 16/16 tests. Repro Paloma exato OK.
+- `_shared/horizontalQualif.ts` (133 lin) — gera pergunta horizontal adaptativa (tintas → ambiente+marca+tipo+qualidade; portas/janelas → material+tamanho; só orphans → genérica) + constrói handoff reason rico (lista preservada + contexto + msg original). 10/10 tests.
+- `_shared/qualificationAntiLoop.ts` (90 lin) — detecta se sistema está prestes a reinjetar mesma phrasing já enviada no turn anterior. Quando repeating=true, devolve nudge instruindo LLM a interpretar resposta do lead ou reformular com contexto. 10/10 tests. Repro paz exato OK.
+
+**Wire em `ai-agent/index.ts` (5 edits):**
+1. Imports dos 3 helpers
+2. `buildQualificationContext` ganha branch prioritário pra tag `qualif_horizontal:pending` (força handoff_to_human imediato com reason no formato estruturado)
+3. Fix R135 inline em `buildQualificationContext`: chama `detectQualifLoop`; quando repeating, substitui "FRASE EXATA SUGERIDA" pelo nudge
+4. Call site de `buildQualificationContext` passa últimas 8 msgs do contexto
+5. ANTES do bloco R129 (multi-categoria cadastrada), detector multi-item: se `mixed=true`, envia pergunta horizontal + seta tag pending + return (curto-circuita LLM, igual padrão R129)
 
 **Pipeline:**
-- `npx tsc --noEmit`: ✅ 0 erros
-- `npx vitest run`: ✅ 913 pass / 9 fail pré-existentes (idêntico a Sprint A — FormBuilder + useForms + excludedProducts não-relacionados). **+50 testes novos do B1 todos pass.**
-- Deploy de edge fns: **PENDENTE de aprovação do user** (não foi feito automaticamente)
+- `npx tsc --noEmit`: 0 erros
+- `npx vitest run`: 949 pass / 9 fail pré-existentes (FormBuilder/useForms/excludedProducts — não-relacionados). **+36 testes novos B1.5 todos pass.**
+- Deploy `ai-agent` v75 → v76 ACTIVE
+- 4 arquivos novos + 1 estendido + vault particionado (erros-e-licoes 312→215, R124-R134 → wiki/erros/historico-2026-05-part3.md)
 
-**Riscos / follow-up:**
-- Edit 3 (searchGuard PRÉ-LLM wire) pulado: requer duplicar ~70 linhas de search inline. Fica pro Sprint B5 após split do `index.ts`. R121/brand→search continuam ativas via `evaluateSearchGuard` (R126) + prompt principal.
-- `responseValidator` em telemetria por 1-2 semanas pra coletar volume real antes de virar enforcement.
-- B2/B3/B4/B5 (Sprint B restante) ainda pendentes.
+**Comportamento esperado pós-deploy:**
 
-**Arquivos tocados (10):** 4 novos + 4 estendidos + 1 modificado + 1 ai-agent/index.ts.
+| Cenário | Antes | Depois |
+|---|---|---|
+| Lead manda lista multi-item mista | Afunila em 1 categoria, ignora orphans | 1 pergunta horizontal → handoff rico |
+| Lead responde fora do menu ("mais simples") | IA repete frase literal | IA interpreta ou reformula com contexto |
+| Lead manda 2+ categorias cadastradas | R129 dispara "qual prefere começar?" (mantido) | Mantido |
+| Lead manda 1 item único | Qualif normal por field (mantido) | Mantido |
+
+**Follow-up:** monitorar logs `r136_multi_item_horizontal` + `R135 anti-loop` por 3-5 dias. Casos edge devem voltar pra Sprint C (router + qualification_specialist) como comportamento natural do prompt.
+
+**Regras preventivas:** [[wiki/erros/regras-preventivas]] entradas 135 + 136.
 
 ---
 
-### Plano Orquestrador 2026-05-21 (meta — documentação)
+### v7.40.0 + Plano Orquestrador (2026-05-21) — arquivado
 
-Plano completo da transição monolito→orquestrador+specialists documentado em 2 wikis (parte 1 visão+Sprint B, parte 2 Sprint C+D+métricas). Sem código novo — só planejamento detalhado com medições reais.
-
-**Medições:** prompt assembled HOJE = 280-310 linhas / 26 KB. Target Sprint B = 150 lin. Target Sprint C+D = router 25 lin + specialist 30-70 lin.
-
-**3 Sprints (6 semanas):**
-- Sprint B: B1 extrair hardcodedRules (9.3 KB → 5-8 lin no prompt + validator/guards), B2 strict mode 9 tools, B3 sub_agents→agent_profiles reader, B4 varredura curto-circuitos R134, B5 split index.ts em 6 fases
-- Sprint C: Router gpt-5-nano + product_specialist POC com feature flag routing_mode, E2E sandbox comparativo
-- Sprint D: qualification/handoff/objection/greeting specialists + migração 100%
-
-**Artefatos:** [[wiki/plano-orquestrador-subagentes]] + [[wiki/plano-orquestrador-subagentes-part2]]
+> Movido para [[wiki/changelog/2026-05-part8]] em 2026-05-21 (hard limit 300). Conteúdo: Sprint B1 extração hardcodedRules (-90% prompt, 5 agentes paralelos + auditor, ai-agent v75) + meta-entrada Plano Orquestrador (3 sprints / 6 semanas).
 
 ---
 

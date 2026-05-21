@@ -9,6 +9,37 @@ type: log
 
 ---
 
+## 2026-05-21 (tarde II) — R135 + R136 em prod (paz + Paloma) — Sprint B1.5 fix tático
+
+**Trigger:** user mandou 2 prints de prod — caso 1 (paz/558791319539): IA repetiu LITERAL "Qual material? (granito, mármore, inox ou sintético)" depois do lead responder "Mas simples mesmo". Caso 2 (Paloma/558182563943): IA ignorou lista "1 massa PVA / 1 Latão de tinta branco neve / 15 lixas d'água N° 150" e perguntou "para qual produto?" depois do lead já ter mandado. User pediu "por que erraram + como corrigir definitivamente + onde documentar".
+
+**Investigação via MCP (ai_agent_logs):**
+- R135 (paz, conv 691b0017): `auto_field_extracted` em msg2 "E sintético" salvou `material_pia:sintético` MAS o `response_sent` anterior já tinha repetido a phrasing literal (LLM transcreveu o "FRASE EXATA SUGERIDA" do qualificationContext). `buildQualificationContext` não detecta "lead respondeu mas não casou — re-injetar evento de qualif sem mudança = loop".
+- R136 (Paloma, conv 0740250f): `matchAllCategoriesBySearchText` só casou `tintas` (massa PVA e lixa não têm categoria cadastrada). Sistema seguiu qualif rígida de tinta (ambiente, tipo), ignorou os 2 outros itens. Lead repetiu lista, IA estourou 8/8 msgs sem orçamento útil. Handoff implícito.
+
+**Regra do user (capturada pra B1.5):**
+> Lista multi-item mista (cadastrado + não-cadastrado) → qualificação **horizontal** (1 pergunta abrangente sobre ambiente/marca/qualidade) → handoff rico com lista preservada. Vale também pra single-item-fora-catálogo.
+
+**Docs atualizadas:**
+- `wiki/erros-e-licoes.md` (top): R135+R136 com sequência + causa + fix v7.40.1
+- `wiki/erros/regras-preventivas.md` (entradas 135 + 136)
+- `log.md` (esta entrada)
+
+**B1.5 tasks criadas (em progresso):**
+- B1.5-a `_shared/multiItemDetector.ts` (novo, helper paralelo)
+- B1.5-b `_shared/horizontalQualif.ts` (novo, helper paralelo)
+- B1.5-c wire em `ai-agent/index.ts` (eu, sequencial)
+- B1.5-d fix R135 em `serviceCategories.ts.buildQualificationContext` (eu ou agente)
+- B1.5-e testes + deploy v7.40.1
+
+**Pipeline + deploy:** tsc 0 erros, vitest 949 pass / 9 fail pré-existentes (+36 testes novos B1.5 todos pass). Deploy ai-agent v75→v76 ACTIVE via CLI (token novo).
+
+**Particionamento do vault:** erros-e-licoes 312→215 (R124-R134 movido pra novo `wiki/erros/historico-2026-05-part3.md`). CHANGELOG.md 322→279 (v7.40.0 B1 detalhado movido pra `wiki/changelog/2026-05-part8.md`).
+
+**Frase de retomada:** *"executar Sprint B2 strict mode 2026-05-21"* (B1.5 fechado; B2 strict mode 9 tools é próximo natural).
+
+---
+
 ## 2026-05-21 (manhã) — Sprint B1 shipped (v7.40.0) — extração hardcodedRules
 
 **Trigger:** user pediu "executar Sprint B do orquestrador 2026-05-21". Escolheu: B1 sozinho, 5 agentes paralelos, HIGH RISK aprovado em ai-agent/index.ts, categorização 5/7/6/5 aceita.

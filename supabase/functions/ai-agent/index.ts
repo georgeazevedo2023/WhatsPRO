@@ -22,6 +22,9 @@ import { validateSetTagsInput, validateInteresseCategory } from '../_shared/setT
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
+import { detectMultiItem } from '../_shared/multiItemDetector.ts'
+import { buildHorizontalQuestion, buildHorizontalHandoffReason, HORIZONTAL_QUALIF_PENDING_TAG } from '../_shared/horizontalQualif.ts'
+import { detectQualifLoop } from '../_shared/qualificationAntiLoop.ts'
 import {
   getCategoriesOrDefault,
   matchCategory,
@@ -1653,8 +1656,43 @@ ${contextBlock}`
     // ele tomava liberdade e combinava perguntas (ex: "marca ou cor?") pulando
     // fields prioritários como tipo_tinta. Agora o sistema pré-computa a próxima
     // pergunta exata e injeta no prompt — LLM passa a transcrever, não inferir.
-    function buildQualificationContext(currentTags: string[], agentCfg: any): string {
+    function buildQualificationContext(
+      currentTags: string[],
+      agentCfg: any,
+      recentMessages?: { direction: 'incoming' | 'outgoing'; content: string }[],
+    ): string {
       try {
+        // R136 (2026-05-21 B1.5): se tag qualif_horizontal:pending existe E lead respondeu,
+        // bloquear qualif normal e forçar handoff_to_human com reason rico.
+        // Esta checagem tem prioridade absoluta — lead já passou pela pergunta horizontal,
+        // próximo passo é só o handoff.
+        const horizontalPending = (currentTags || []).some(
+          (t) => typeof t === 'string' && (t === HORIZONTAL_QUALIF_PENDING_TAG || t.startsWith(HORIZONTAL_QUALIF_PENDING_TAG + ':')),
+        )
+        if (horizontalPending) {
+          return `[HANDOFF MULTI-ITEM — REGRA ABSOLUTA, SOBRESCREVE TUDO]
+🎯 Lead enviou lista multi-item de produtos no turn anterior e o sistema já fez UMA pergunta horizontal abrangente. Ele acaba de responder.
+
+AÇÃO OBRIGATÓRIA AGORA: chame handoff_to_human IMEDIATAMENTE.
+
+REASON do handoff_to_human deve seguir este formato exato (preencha com o que você vê no histórico desta conversa):
+"[Nome do lead] solicitou orçamento multi-item:
+• [linha do item 1 como o lead enviou]
+• [linha do item 2 como o lead enviou]
+• [linha do item 3 como o lead enviou — adicione quantas linhas houver]
+
+Contexto coletado:
+[resposta atual do lead à pergunta horizontal — ambiente/marca/qualidade etc]
+
+Mensagem original:
+[texto literal da msg em que o lead enviou a lista]"
+
+PROIBIDO:
+- NUNCA pergunte outra coisa ao lead. NUNCA faça qualif field-by-field. NUNCA tente buscar produtos.
+- A pergunta horizontal JÁ foi feita no turn anterior; lead respondeu; agora SÓ handoff.
+- Não chame set_tags. Não chame search_products. Apenas handoff_to_human.`
+        }
+
         // R129 (2026-05-21): se tag multi_interesse_pending: existir, lead pediu
         // 2+ categorias. Pergunta pro LLM perguntar qual começar primeiro.
         // PRIORIDADE: esta seção sobrescreve tudo. Lead precisa escolher antes
@@ -1705,11 +1743,28 @@ Sistema só processa UMA categoria por vez. Você DEVE perguntar qual o lead que
         )
         const answeredCountInStage = stage.fields.filter((f) => answeredKeysInStage.has(f.key)).length
         const phrasing = formatPhrasing(stage.phrasing, nextField, answeredCountInStage)
+
+        // R135 (2026-05-21 B1.5): anti-loop. Se o sistema JÁ enviou esta phrasing no turn anterior
+        // e o lead respondeu (mas resposta não casou com keywords pré-definidas), NÃO repetir literal.
+        // Em vez disso, substituir a "FRASE EXATA SUGERIDA" por um nudge instruindo o LLM a
+        // interpretar a resposta ou reformular com contexto.
+        let phrasingBlock = `🗣️ FRASE EXATA SUGERIDA: "${phrasing}"`
+        if (recentMessages && recentMessages.length > 0) {
+          const loopVerdict = detectQualifLoop({
+            recentMessages,
+            intendedPhrasing: phrasing,
+            fieldLabel: nextField.label,
+          })
+          if (loopVerdict.repeating) {
+            phrasingBlock = `🗣️ ${loopVerdict.nudge}`
+          }
+        }
+
         return `[QUALIFICAÇÃO ATUAL — REGRA ABSOLUTA, SOBRESCREVE TUDO]
 Categoria detectada: ${category.label} (id: ${category.id})
 Stage: ${stage.label} (score ${score}/${stage.max_score})
 🎯 PRÓXIMA PERGUNTA OBRIGATÓRIA: ${nextField.label} (priority ${nextField.priority})
-🗣️ FRASE EXATA SUGERIDA: "${phrasing}"
+${phrasingBlock}
 
 ⚠️ REGRAS ABSOLUTAS (esta seção tem PRIORIDADE MÁXIMA — ignore qualquer instrução conflitante de seções anteriores ou sub-agents):
 - Faça APENAS a pergunta sobre "${nextField.label}". NÃO mencione marca, cor, ambiente, tipo, quantidade, ou qualquer outro field nesta resposta.
@@ -1747,6 +1802,69 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
         const cfgPre = getCategoriesOrDefault(agent)
         const interesseTagPre = (conversation.tags || []).find((t: string) => typeof t === 'string' && t.startsWith('interesse:'))
         const interesseValue = interesseTagPre ? (interesseTagPre.split(':')[1] || '') : ''
+
+        // R136 (2026-05-21 B1.5): detector de lista multi-item mista (cadastrado + não-cadastrado).
+        // Quando o lead manda uma lista numerada e há mistura de categorias cadastradas vs
+        // não-cadastradas (orphans), o R129 não cobre — afunilaria na única categoria casada
+        // e ignoraria os items órfãos. Solução: 1 pergunta horizontal cobrindo ambiente +
+        // marca/tipo + qualidade. Depois handoff rico via buildQualificationContext.
+        const alreadyHasHorizontalPending = (conversation.tags || []).some(
+          (t: string) => typeof t === 'string' && (t === HORIZONTAL_QUALIF_PENDING_TAG || t.startsWith(HORIZONTAL_QUALIF_PENDING_TAG + ':')),
+        )
+        if (!alreadyHasHorizontalPending) {
+          const multiItem = detectMultiItem({ text: incomingText, categoriesConfig: cfgPre })
+          if (multiItem.detected && multiItem.mixed) {
+            const question = buildHorizontalQuestion({
+              detector: multiItem,
+              leadName,
+              originalText: incomingText,
+            })
+            const mergedTagsHorizontal = [...(conversation.tags || []), question.pendingTag]
+            conversation.tags = mergedTagsHorizontal
+            await supabase.from('conversations').update({ tags: mergedTagsHorizontal }).eq('id', conversation_id)
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'auto_field_extracted',
+              metadata: {
+                source: 'r136_multi_item_horizontal',
+                new_tags: [question.pendingTag],
+                items: multiItem.items,
+                orphan_count: multiItem.orphanCount,
+                reason: multiItem.reason,
+              },
+            })
+            log.info('R136: multi-item misto detectado — enviando pergunta horizontal', {
+              items: multiItem.items.length,
+              orphans: multiItem.orphanCount,
+              reason: multiItem.reason,
+            })
+            try {
+              await sendTextMsg(question.text)
+              const { data: savedMsg } = await supabase.from('conversation_messages').insert({
+                conversation_id, direction: 'outgoing', content: question.text, media_type: 'text',
+              }).select('id, created_at').single()
+              broadcastEvent({
+                conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing',
+                content: question.text, media_type: 'text',
+                message_id: savedMsg?.id, created_at: savedMsg?.created_at || new Date().toISOString(),
+              })
+              await supabase.from('ai_agent_logs').insert({
+                agent_id, conversation_id, event: 'response_sent',
+                latency_ms: Date.now() - startTime,
+                metadata: {
+                  incoming_text: incomingText.substring(0, 500),
+                  response_text: question.text,
+                  source: 'r136_multi_item_horizontal_ask',
+                  message_count: (queuedMessages || []).length,
+                },
+              })
+              return new Response(JSON.stringify({ ok: true, response: question.text, reason: 'r136_multi_item_horizontal_ask' }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              })
+            } catch (e) {
+              log.warn('R136: send horizontal question failed, fallback to LLM', { error: (e as Error).message })
+            }
+          }
+        }
 
         // R129 (2026-05-21): se NÃO tem interesse: setado ainda, checar se o
         // texto bate em MÚLTIPLAS categorias. Se sim, ENVIAR DIRETO a pergunta
@@ -1983,7 +2101,12 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
       }
     }
 
-    const qualificationContext = buildQualificationContext(conversation.tags || [], agent)
+    // R135 (B1.5): passa recentMessages pro detector anti-loop não repetir phrasing literal.
+    const recentMsgsForQualif = (contextMessages || [])
+      .filter((m: any) => m && typeof m.content === 'string')
+      .slice(-8)
+      .map((m: any) => ({ direction: m.direction as 'incoming' | 'outgoing', content: m.content }))
+    const qualificationContext = buildQualificationContext(conversation.tags || [], agent, recentMsgsForQualif)
 
     // 2026-05-13: hint contextual de "fora do horário" quando toggle de aviso está ON.
     // Evita o LLM prometer retorno imediato ("te ligo em 5min") fora do expediente.
