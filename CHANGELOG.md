@@ -13,6 +13,21 @@ audited_at: 2026-05-21
 
 ---
 
+### Plano Orquestrador 2026-05-21 (meta — documentação)
+
+Plano completo da transição monolito→orquestrador+specialists documentado em 2 wikis (parte 1 visão+Sprint B, parte 2 Sprint C+D+métricas). Sem código novo — só planejamento detalhado com medições reais.
+
+**Medições:** prompt assembled HOJE = 280-310 linhas / 26 KB. Target Sprint B = 150 lin. Target Sprint C+D = router 25 lin + specialist 30-70 lin.
+
+**3 Sprints (6 semanas):**
+- Sprint B: B1 extrair hardcodedRules (9.3 KB → 5-8 lin no prompt + validator/guards), B2 strict mode 9 tools, B3 sub_agents→agent_profiles reader, B4 varredura curto-circuitos R134, B5 split index.ts em 6 fases
+- Sprint C: Router gpt-5-nano + product_specialist POC com feature flag routing_mode, E2E sandbox comparativo
+- Sprint D: qualification/handoff/objection/greeting specialists + migração 100%
+
+**Artefatos:** [[wiki/plano-orquestrador-subagentes]] + [[wiki/plano-orquestrador-subagentes-part2]]
+
+---
+
 ### v7.39.0 (2026-05-21) — Sprint A da auditoria 2026-05-21 — P0s + I2 + I3
 
 **Execução parcial da Sprint A.** 7 dos 13 itens planejados aplicados; 5 confirmados já-fechados pela investigação; 3 HIGH-RISK deferidos pra Sprint B com justificativa documentada.
@@ -54,22 +69,9 @@ audited_at: 2026-05-21
 
 ### Auditoria 2026-05-21 (meta — sem release de código)
 
-**Tipo:** auditoria 360° read-only. 5 agentes paralelos (DB, AI Agent core, prompts/regras, paridade UI↔backend, research best practices 2026) + síntese + 30 melhorias gerais + 20 de inteligência. Nenhum código alterado.
+Auditoria 360° read-only com 5 agentes paralelos. **Veredito geral 5.9/10.** AI Agent 5.7/10 (prompt=3, funcional=6, subagentes=2, orquestrador=3, contexto=5, tools=7). DB 6.5/10 (4 P0s). Paridade 7.2/10. Achados críticos: CHECK constraints rivais R114, prompt 26 KB inflado, ai-agent 4.4k lin, drift D34/D35.
 
-**Veredito geral: 5.9/10.** AI Agent em **5.7/10** (D1 prompt=3, D2 funcional=6, D3 subagentes=2, D4 orquestrador=3, D5 contexto=5, D6 tools=7). DB 6.5/10 (4 P0s herdados). Paridade UI↔backend 7.2/10 (3 paths divergentes).
-
-**Achados críticos:**
-- 2 CHECK constraints rivais em `ai_agent_logs.event` bloqueando silenciosamente inserts dos eventos novos (R114 de novo)
-- `handoff_queue_events` sem `EXCLUDE USING gist` + cron `purge_notifications_older` inexistente (promessas pós-incidente 9h não cumpridas)
-- `agent.known_brands` lido em `brandDetection.ts` mas coluna não existe no schema
-- `sub_agents` ainda lido apesar de UI ter migrado pra `agent_profiles` (M17 F3)
-- Prompt assembled 20-30 KB / 5-8k tokens (`hardcodedRules` sozinho 9.3 KB monolito)
-- `ai-agent/index.ts` 4.407 lin (cresceu +33% em 30d), 12 paths de handoff no mesmo arquivo
-- Drift D34 (`conversations.resolved_at`) e D35 (`service_categories.catalog_status`) não commitados
-
-**Recomendação modelo:** migrar `gpt-4.1-mini` → `gpt-5-mini` (custo neutro $6 vs $6.40/10k msgs, instruction following melhor, structured outputs nativos). "GPT 5.4" mencionado pelo user existe mas é 2.3× mais caro; flagship atual é GPT-5.5 (2026-04-24).
-
-**Próximos passos:** Sprint A (1 sem) fecha 8 P0s + I1/I2/I3 (strict + enum + modelo). Sprint B (1 sem) refator I4/I5/I7/I8. Sprint C+ orquestrador router + specialists.
+**Recomendação modelo:** gpt-4.1-mini → gpt-5-mini (custo neutro, instruction following melhor). "GPT 5.4" existe mas 2.3× mais caro. Flagship atual GPT-5.5.
 
 **Artefatos:** [[wiki/auditoria-2026-05-21-veredito]], [[wiki/auditoria-2026-05-21-melhorias]], [[wiki/auditoria-2026-05-21-db]], [[wiki/auditoria-2026-05-21-ai-agent]], [[wiki/auditoria-2026-05-21-prompts]], [[wiki/auditoria-2026-05-21-paridade]], [[wiki/auditoria-2026-05-21-research]].
 

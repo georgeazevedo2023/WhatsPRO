@@ -9,6 +9,22 @@ type: log
 
 ---
 
+## 2026-05-21 (madrugada III) — Plano Orquestrador + Subagentes documentado
+
+**Trigger:** user pediu medições reais do prompt + plano orquestrador + o que falta.
+
+**Medições reais (Eletropiso V2):** prompt assembled = **280-310 linhas / ~26 KB / ~6.500 tok**. 8 prompt_sections DB somam 182 lin; `hardcodedRules` sozinho = 24 lin / 9.348 chars (37% do total). Ideal: 4-8 KB. Hoje 3-4× acima.
+
+**Plano 6 sem (3 sprints):** B (extrair hardcodedRules + strict mode + sub_agents reader + R134 sweep + split index.ts em 6 fases → prompt 150 lin), C (router gpt-5-nano + product_specialist POC + feature flag + E2E sandbox), D (qualification/handoff/objection/greeting specialists + migração 100%).
+
+**Arquitetura alvo:** Guards TS pré → Router (gpt-5-nano ~300ms) → 1 dos 5 specialists (gpt-5-mini, ~30-70 lin) → Guards TS pós → Validator → Send.
+
+**Docs:** `wiki/plano-orquestrador-subagentes.md` (parte 1: visão + Sprint B) + `-part2.md` (Sprint C+D+métricas). Refs cruzadas em index.md/CHANGELOG.md.
+
+**Frase de retomada:** *"executar Sprint B do orquestrador 2026-05-21"*
+
+---
+
 ## 2026-05-21 (madrugada II) — Sprint A da auditoria (v7.39.0)
 
 **Trigger:** user pediu "executar Sprint A da auditoria 2026-05-21". Aprovou HIGH RISK em ai-agent/index.ts (com testes vitest) + deploy de edge fns ao final.
