@@ -19,6 +19,58 @@ audited_at: 2026-05-20
 
 ---
 
+## 🚨 R132 — IA ignorou transcrição de áudio (Edson, EletropisoV2 v7.38.7, 2026-05-21)
+
+**Erro:** lead Edson (558781302237) mandou "Bom dia" → "Edson" → áudio (transcrição populada "Você tem a quartisolite rejunto pra piscina?") → IA respondeu pergunta genérica "Edson, em que tipo de material ou produto você tem interesse hoje?". Log `response_sent` mostrou `incoming_text="Edson"` + `incoming_has_audio=false` — ai-agent não enxergou a transcrição.
+
+**Causa raiz (4º incidente família Camada 3):** pipeline áudio é assíncrono. Texto entra direto no `ai_debounce_queue.messages` (content="Edson"), debounce de 10s dispara `ai-agent` rapidamente. Áudio passa por `transcribe-audio` (~5-10s Groq Whisper) e só DEPOIS chama `ai-agent-debounce` com `content=transcription`. Mas o queue do "Edson" já foi processado/marcado — a transcrição vira queue paralelo órfão ou é simplesmente ignorada. Pior: na linha `ai-agent/index.ts:311-314`, `incomingText = msgs.map(m.content || '').filter(Boolean)` — pra áudio inicial com content="", `.filter(Boolean)` removia a row inteira do array.
+
+**Mesma família que:** R126 Camada 3 (Guttemberg "porta+janela" enquanto greeting processava), C8 multi-msg combined (saudação+intent na mesma turno), R50 race debounce (backlog). 4º caso reportado da família.
+
+**Fix v7.38.7 (Fix B — re-leitura DB antes do LLM):**
+1. Novo `_shared/incomingMessagesLoader.ts` (helper testável, 4 funções puras + 14 testes)
+2. Estratégia: `lower_bound = queue.first_message_at - 2s` → query `conversation_messages WHERE conversation_id=X AND direction='incoming' AND created_at >= lower_bound LIMIT 20`. Priority: `transcription` sobre `content`. Quando DB tem ≥1 row útil, substitui `incomingMessages` inteiro pelo array normalizado; senão fallback pro queue (comportamento pré-fix preservado).
+3. Log estruturado `R132 db-vs-queue divergence resolved` quando DB enriquece.
+
+**Regras preventivas:**
+1. **Pipeline assíncrono multi-canal (texto+áudio+OCR+...) NÃO pode confiar 100% que o queue captura o estado real.** O queue é construído pelos webhooks; eles correm contra a clock real do banco. Defesa em profundidade é o consumidor final re-ler a fonte de verdade (a tabela) antes da decisão crítica.
+2. **`.filter(Boolean)` em arrays de mensagens é uma armadilha** — qualquer row com `content=""` (áudio, imagem, sticker, audio-only-button) some silenciosamente. Sempre cruzar com colunas alternativas (`transcription`, `media_url`, `caption`) antes de filtrar.
+3. **Family Camada 3 (race áudio + race msg-during-processing + race multi-msg) tem causa comum:** queue-based pipelines não são fonte de verdade. Toda nova feature que dependa de "última N mensagens do lead" deve consumir do DB direto, não do queue.
+
+---
+
+## 🎨 R131 — phrasing repetia "Para encontrar a melhor opção" (v7.38.6, 2026-05-21)
+
+IA Eletropiso fez 3 perguntas seguidas na qualif de tintas com mesma abertura. Causa: `formatPhrasing(stage.phrasing, field)` em `_shared/serviceCategories.ts` usa o MESMO template do stage pra cada field. **Fix híbrido:** `formatPhrasing` aceita `answeredCountInStage`; se `>= 1` substitui pelo curto `"Qual {label}? ({examples})"`. 3 call sites no `ai-agent/index.ts`. Detalhe completo no `CHANGELOG.md` v7.38.6.
+
+**Regras preventivas:**
+1. Template `phrasing` único por stage = repetição inevitável com N fields. Variar no formatter ou separar preâmbulo/continuação.
+2. Cuidado ao "soltar" determinismo recém conquistado (R124-R130) — flexibilização nova deve ser cosmética, não comportamental.
+3. UX consultiva ≠ transacional — lead que demonstra desconhecimento precisa de explicação antes do termo técnico. Sprint dedicada aberta.
+
+---
+
+## 🚨 R127/R128/R129/R130 — loop multi-categoria + sale_closed false positive (E2E sandbox 2026-05-21)
+
+**4 bugs descobertos numa sessão de 10 jornadas E2E reais (sandbox 558185749970 → EletropisoV2). Fix completo em v7.38.5.**
+
+**R127 — IA loop "Para qual ambiente você precisa da janela?":** lead pediu "porta e janela alumínio" → LLM passou `["interesse:portas", "interesse:janelas"]` numa só chamada → `mergeTags` faz REPLACE-by-key → `interesse:portas` sobrescrito silenciosamente → categoria virou só janelas → LLM inventou "ambiente da janela" (categoria janelas não tem `ambiente_janela`, só `material_janela` e `tamanho_janela`). Loop infinito. Fix: `_shared/setTagsValidator.ts` rejeita 2+ valores em mesma key + caso especial em `interesse:` devolve instrução pra perguntar ao lead qual começar.
+
+**R128 — `sale_closed_detected` false positive:** regex `\bquero\s+(comprar|levar|fechar)\b` em `saleClosedDetection.ts` pegava "quero comprar um material" como SALE CLOSED → handoff prematuro com `venda:fechada` antes de qualquer qualif. Fix: removido o padrão (só "bora fechar", "fechei", "pix", "comprovante" disparam).
+
+**R129 — auto-extract silencioso escolhe 1ª categoria em multi-interesse:** `matchCategoryBySearchText` retorna o PRIMEIRO match. Lead diz "porta + janela" → auto-extract setou só `interesse:portas`, ignorou janela. LLM não viu multi e respondeu genérico. Fix: novo `matchAllCategoriesBySearchText` + curto-circuita o LLM se detectar 2+ categorias: envia direto "Posso te ajudar com X e Y. Por qual prefere começar?" + seta `multi_interesse_pending:CSV`.
+
+**R130 — após escolha lead, LLM improvisa field inválido:** depois do `set_tags(interesse:NEW_CAT)`, qualificationContext stale → LLM ignora reforço de prompt e improvisa. Chegou a usar `send_poll` com opções inventadas "sala/cozinha/quarto/banheiro" pra categoria janelas. Fix: flag `pendingForcedNextQuestion` no handler set_tags + OVERRIDE pós-LLM determinístico (se LLM divergiu OU usou send_poll, substitui pelo phrasing exato da próxima pergunta da nova categoria).
+
+**Regras preventivas:**
+1. **`mergeTags` REPLACE-by-key é silencioso e perigoso** — 2 valores numa mesma key viram 1. Validar ANTES do merge.
+2. **Detectores determinísticos de "intenção avançada" (sale_closed, objecao, etc.) precisam de contexto de qualif prévia** — verbos como "quero comprar" no início são INTENÇÃO de início, não fechamento. Regex isolado é insuficiente.
+3. **Prompt reinforcement não substitui override determinístico** — quando LLM tem padrão visual forte (greeting já no histórico, exemplos de outra categoria), regras em texto são ignoradas. Defesa real é flag + override pós-LLM.
+4. **Multi-categoria não é caso edge raro** — lead que pede 2+ produtos é comum em obra (porta+janela, tinta+pincel, etc.). Sistema multi-tenant precisa suportar nativamente ou ter caminho explícito de "pergunte qual começar".
+5. **E2E real explora combinações que unit-tests não pegam** — sessão de 10 jornadas descobriu 4 bugs que typecheck/vitest não viam. Custo: 30min E2E vs horas de debug pós-prod.
+
+---
+
 ## 🚨 R126 — `search_products({query:"material"})` cross-categoria → enviou Telha PVC pra lead pedindo porta/janela alumínio (Guttemberg, Eletropiso 558781592373) — incidente 2026-05-20
 
 **Erro:** lead msg1 "Olá gostaria de saber mais informações sobre um **material**" (genérico) → IA respondeu greeting. Msg2 4s depois: "**Porta em alumínio e janela em alumínio**, só uma de 139" → IA enviou carrossel **Telha de PVC R$62**. Categoria errada absoluta (lead pediu portas/janelas, recebeu telha).
@@ -233,43 +285,8 @@ Fonte: OpenAPI spec oficial em `https://docs.uazapi.com/openapi-bundled.json`, s
 
 ---
 
-## ⚠️ Tipo de parâmetro de RPC divergente da coluna real (uuid vs text) — incidente 2026-05-12
-
-**Erro:** RPC `append_ai_debounce_message` declarava `p_instance_id uuid`. Mas `ai_debounce_queue.instance_id` é `text` (porque `instances.id` é `text` — IDs UAZAPI tipo `r466a98889b5809` não são UUID). Toda chamada explodia com `ERROR 22P02: invalid input syntax for type uuid: "r466a98889b5809"`. **Pipeline inteiro do AI Agent ficou quebrado** por dias até alguém perceber.
-
-**Como descobri:** gestor mandou áudio no WhatsApp e a IA não respondeu. Investigação: msg criada ✓, transcrita ✓, mas `ai_debounce_queue` sem entry nova e `ai_agent_logs` zero em 24h. Suspeita do tipo confirmada chamando a RPC manualmente via SQL.
-
-**Como ficou invisível:** o erro foi silenciado por **três camadas de fire-and-forget**: (1) `whatsapp-webhook` → `transcribe-audio` (background), (2) `transcribe-audio` → `ai-agent-debounce` (background), (3) `ai-agent-debounce` → `supabase.rpc(...)` sem `.throw()`. Toda camada engole erro pra não quebrar o flow do webhook. Erro só apareceria nos logs internos da edge fn — que ninguém olhava.
-
-**Fix:** migration `20260512011546_fix_append_ai_debounce_message_instance_id_text` faz DROP da assinatura antiga + CREATE com `p_instance_id text`. E2E validado em produção (áudio teste respondeu em ~32s).
-
-**Regras preventivas:**
-1. **Quando criar/alterar RPC, o tipo do parâmetro DEVE bater com a coluna real**. Não confiar em "uuid é universal" — IDs externos (UAZAPI, Stripe, etc) chegam como `text`. Confirmar via `\d tabela` ou `information_schema.columns`.
-2. **Pipelines fire-and-forget de várias camadas precisam de teste E2E periódico** que valide o resultado final (msg outgoing aparece?). TS-check não pega; logs internos da edge fn não escalam pra alarme.
-3. **Para diagnosticar pipeline silenciosamente quebrado**: começar pela tabela final (a fila não recebe?) e voltar caminhando. Reproduzir chamada da RPC isoladamente via SQL revela o erro real escondido.
+> **Incidentes 2026-05-12 (RPC uuid vs text) e 2026-05-10 (schema mismatch max_retries) movidos** pra [[wiki/erros/historico-2026-05-part2]] em 2026-05-21 pra respeitar 300-line limit. Regras já estão em [[wiki/erros/regras-preventivas]].
 
 ---
 
-## ⚠️ Schema mismatch em INSERT silencioso (v2): `max_retries` vs `max_attempts` — incidente 2026-05-10
-
-**Erro:** `whatsapp-webhook/index.ts` inseria `max_retries: 1` em `job_queue`, mas o schema usa `max_attempts`. INSERT falha com `column max_retries does not exist`. Erro foi para `log.error('Failed to enqueue transcription job')` mas como o pipeline não tinha alarmes, ninguém viu. Resultado: **transcrição de áudio quebrada por ~6 semanas** (corte temporal: 28/03/2026 em diante).
-
-**Como descobri:** usuário reportou áudios incoming presos em "Transcrevendo...". Query `SELECT * FROM job_queue WHERE job_type='transcribe_audio'` retornou vazio. Tentativa de inserir manualmente expôs a coluna inexistente.
-
-**Como agravou:** As RPCs `claim_jobs` e `complete_job` chamadas pelo `process-jobs/index.ts` também não existem no DB. Mesmo que o INSERT do webhook funcionasse, o cron nunca processaria.
-
-**Fix:** removida a fila pra esse caso — webhook chama `transcribe-audio` direto via `backgroundFetch`. Dependência de `job_queue`/`claim_jobs`/`complete_job` eliminada para o caso de áudio.
-
-**Regra preventiva:**
-1. **Todo edge function que insere em tabela com schema crítico precisa de teste E2E real** que valide `error === null` no retorno do `.insert()`. TS-check não pega.
-2. **Pipelines com chain de RPCs precisam de health-check** em runtime: `claim_jobs` existe? `complete_job` existe?
-3. **Quando suspeitar do pipeline**: queries diretas no DB revelam silêncio melhor que logs.
-
----
-
-> **Incidentes mais antigos:** PostgREST `.maybeSingle()` mascara erro (2026-05-09) e UAZAPI ≠ Business API Meta (2026-05-07) movidos para [[wiki/erros/historico-2026-05-part2]] para respeitar 300-line limit.
-
----
-
-> Para **todas** as ~30 regras preventivas em formato tabela, veja [[wiki/erros/regras-preventivas]].
-> Para detalhes de R91-R114 (incidentes de maio 2026), veja [[wiki/erros/historico-2026-05-part1]] e [[wiki/erros/historico-2026-05-part2]].
+> **Histórico:** incidentes antigos em [[wiki/erros/historico-2026-05-part1]] e [[wiki/erros/historico-2026-05-part2]]. ~30 regras em formato tabela: [[wiki/erros/regras-preventivas]].

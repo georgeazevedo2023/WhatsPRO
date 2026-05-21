@@ -337,6 +337,43 @@ export function matchCategoryBySearchText(
 }
 
 /**
+ * R129 (2026-05-21): retorna TODAS as categorias cujo `interesse_match` regex
+ * casa no texto. Necessário pra detectar multi-categoria ("quero porta E janela")
+ * antes do auto-extract escolher silenciosamente a 1ª.
+ *
+ * Mesma proteção contra regex inválido. Texto vazio retorna [].
+ * Resultado deduplicado por categoria.id (não retorna a mesma 2x).
+ */
+export function matchAllCategoriesBySearchText(
+  searchText: string | null | undefined,
+  config: ServiceCategoriesConfig,
+): ServiceCategory[] {
+  if (!searchText) return []
+  const trimmed = String(searchText).trim()
+  if (!trimmed) return []
+
+  const found: ServiceCategory[] = []
+  const seenIds = new Set<string>()
+
+  for (const cat of config.categories) {
+    if (seenIds.has(cat.id)) continue
+    let re: RegExp
+    try {
+      re = new RegExp(cat.interesse_match, 'i')
+    } catch {
+      // eslint-disable-next-line no-console
+      console.warn(`[serviceCategories] Regex invalido em categoria "${cat.id}": ${cat.interesse_match}`)
+      continue
+    }
+    if (re.test(trimmed)) {
+      found.push(cat)
+      seenIds.add(cat.id)
+    }
+  }
+  return found
+}
+
+/**
  * Descobre o stage atual com base no score acumulado.
  *
  * - Stages sao ordenados por min_score crescente (input ja deveria estar, mas
@@ -523,9 +560,19 @@ export function getExitAction(
  * Ex: formatPhrasing("Sobre {label}, prefere {examples}?", { label: "cor", examples: "azul", ... })
  *      -> "Sobre cor, prefere azul?"
  */
-export function formatPhrasing(template: string, field: QualificationField): string {
-  if (!template) return ''
-  return template
+export function formatPhrasing(
+  template: string,
+  field: QualificationField,
+  answeredCountInStage: number = 0,
+): string {
+  // R131 (2026-05-21): segunda+ pergunta do mesmo stage usa variante curta sem
+  // preâmbulo — evita o LLM repetir "Para encontrar a melhor opção, qual X?"
+  // 3x seguidas quando o stage tem múltiplos fields.
+  const effectiveTemplate = answeredCountInStage >= 1
+    ? (field.examples ? 'Qual {label}? ({examples})' : 'Qual {label}?')
+    : template
+  if (!effectiveTemplate) return ''
+  return effectiveTemplate
     .replace(/\{label\}/g, field.label)
     .replace(/\{examples\}/g, field.examples)
 }
@@ -620,6 +667,7 @@ export const BASE_VALID_TAG_KEYS: ReadonlySet<string> = new Set([
   // controle/telemetria
   'ia', 'ia_cleared', 'search_fail', 'enrich_count',
   'qualificacao_completa', 'lead_score', 'qualif_stage', 'marca_indisponivel',
+  'multi_interesse_pending', // R129 (2026-05-21): lista CSV de categorias quando lead pede 2+
   // taxonomia comum
   'motivo', 'interesse', 'produto', 'objecao', 'sentimento',
   'servico', 'agendamento', 'funil', 'intencao',

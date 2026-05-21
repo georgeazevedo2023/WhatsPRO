@@ -18,10 +18,13 @@ import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
 import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG } from '../_shared/handoffGuard.ts'
 import { evaluateSearchGuard } from '../_shared/searchGuard.ts'
+import { validateSetTagsInput } from '../_shared/setTagsValidator.ts'
+import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import {
   getCategoriesOrDefault,
   matchCategory,
   matchCategoryBySearchText,
+  matchAllCategoriesBySearchText,
   getQualificationFields,
   formatPhrasing,
   extractInteresseFromTags,
@@ -304,13 +307,38 @@ Deno.serve(async (req) => {
     sendPresence('composing')
 
     // 5. Combine queued messages
-    const incomingMessages = (queuedMessages || [])
-      .filter((m: any) => m.direction === 'incoming' || !m.direction)
-    const incomingText = incomingMessages
-      .map((m: any) => m.content || '')
-      .filter(Boolean)
-      .join('\n')
-    const incomingHasAudio = incomingMessages.some((m: any) => m.media_type === 'audio')
+    // R132 (2026-05-21): re-leitura da tabela conversation_messages antes do LLM
+    // cobre 3 races já reportados:
+    //  - R132 áudio Edson — transcrição chega após enqueue do queue, content=""
+    //    do áudio fazia a transcrição sumir
+    //  - R126 Camada 3 / C8 — msgs novas chegando durante processamento do queue
+    //    anterior viravam órfãs em queue paralelo
+    //  - R50 race debounce (backlog do roadmap)
+    // O queue é a fonte primária; quando o DB tem dados úteis no intervalo, ele
+    // ganha (é o estado real do que o lead enviou).
+    const dbRead = await loadIncomingMessages(supabase, conversation_id, queuedMessages || [])
+    const incomingMessages = dbRead.messages.length > 0
+      ? dbRead.messages
+      : (queuedMessages || []).filter((m: any) => m.direction === 'incoming' || !m.direction)
+    const incomingText = dbRead.text
+    const incomingHasAudio = dbRead.hasAudio
+
+    if (dbRead.source === 'db') {
+      const queueOnlyText = (queuedMessages || [])
+        .filter((m: any) => m.direction === 'incoming' || !m.direction)
+        .map((m: any) => (m.content || '').trim())
+        .filter(Boolean)
+        .join('\n')
+      if (queueOnlyText !== dbRead.text) {
+        log.info('R132 db-vs-queue divergence resolved', {
+          queue_count: (queuedMessages || []).length,
+          db_count: dbRead.count,
+          queue_text_len: queueOnlyText.length,
+          db_text_len: dbRead.text.length,
+          has_audio: dbRead.hasAudio,
+        })
+      }
+    }
 
     // shadow_only=true: vendor message arrives without queuedMessages — skip empty guard
     if (!incomingText.trim() && !shadow_only) {
@@ -462,6 +490,10 @@ Deno.serve(async (req) => {
     let pendingSaleClosedHandoff: string | null = null
     let pendingExitActionHandoff: { reason: string; queueMotivo: string } | null = null
     let pendingExitActionSearch: { query: string; category: string } | null = null
+    // R130 (2026-05-21): override pós-LLM — quando set_tags adiciona interesse:NEW e
+    // tem próximo field não respondido, forçar essa pergunta exata. LLM tende a
+    // improvisar/inventar fields ou usar send_poll com opções erradas.
+    let pendingForcedNextQuestion: { text: string; category: string; fieldKey: string } | null = null
     // R121 (2026-05-19): toolCallsLog elevado pra cima do auto-extract inline search.
     // Antes estava em linha 3449 — fora do escopo do bloco R121 inline.
     const toolCallsLog: any[] = []
@@ -1642,6 +1674,32 @@ ${contextBlock}`
     // pergunta exata e injeta no prompt — LLM passa a transcrever, não inferir.
     function buildQualificationContext(currentTags: string[], agentCfg: any): string {
       try {
+        // R129 (2026-05-21): se tag multi_interesse_pending: existir, lead pediu
+        // 2+ categorias. Pergunta pro LLM perguntar qual começar primeiro.
+        // PRIORIDADE: esta seção sobrescreve tudo. Lead precisa escolher antes
+        // de qualquer qualif fazer sentido.
+        const multiTag = (currentTags || []).find((t) => typeof t === 'string' && t.startsWith('multi_interesse_pending:'))
+        if (multiTag) {
+          const csv = multiTag.slice('multi_interesse_pending:'.length)
+          const ids = csv.split(',').map((s) => s.trim()).filter(Boolean)
+          if (ids.length >= 2) {
+            const cfgMulti = getCategoriesOrDefault(agentCfg)
+            const labels = ids
+              .map((id) => cfgMulti.categories.find((c) => c.id === id)?.label || id)
+              .map((lbl) => lbl.toLowerCase())
+            const friendly = labels.length === 2 ? `${labels[0]} e ${labels[1]}` : `${labels.slice(0, -1).join(', ')} e ${labels[labels.length - 1]}`
+            return `[QUALIFICAÇÃO MULTI-CATEGORIA — REGRA ABSOLUTA, SOBRESCREVE TUDO]
+🎯 LEAD PEDIU ${ids.length} CATEGORIAS DIFERENTES: ${labels.join(', ')}
+Sistema só processa UMA categoria por vez. Você DEVE perguntar qual o lead quer começar primeiro.
+🗣️ FRASE SUGERIDA: "Posso te ajudar com ${friendly}. Por qual prefere começar?"
+⚠️ REGRAS ABSOLUTAS:
+- NÃO chame set_tags com interesse: nesta resposta — espere o lead escolher.
+- NÃO pergunte qualquer outra coisa (ambiente, marca, tamanho) — só a escolha.
+- Quando o lead escolher, no PRÓXIMO turno chame set_tags(["interesse:CAT_ESCOLHIDA"]) com APENAS 1 valor.
+- As outras categorias ficam pra DEPOIS de fechar a primeira.`
+          }
+        }
+
         const interesse = extractInteresseFromTags(currentTags || [])
         if (!interesse) return ''
         const config = getCategoriesOrDefault(agentCfg)
@@ -1652,7 +1710,14 @@ ${contextBlock}`
         if (!stage) return ''
         const nextField = getNextField(stage, currentTags || [])
         if (!nextField) return ''
-        const phrasing = formatPhrasing(stage.phrasing, nextField)
+        // R131: variante curta a partir da 2ª pergunta do stage
+        const answeredKeysInStage = new Set(
+          (currentTags || [])
+            .filter((t): t is string => typeof t === 'string' && t.includes(':'))
+            .map((t) => t.slice(0, t.indexOf(':'))),
+        )
+        const answeredCountInStage = stage.fields.filter((f) => answeredKeysInStage.has(f.key)).length
+        const phrasing = formatPhrasing(stage.phrasing, nextField, answeredCountInStage)
         return `[QUALIFICAÇÃO ATUAL — REGRA ABSOLUTA, SOBRESCREVE TUDO]
 Categoria detectada: ${category.label} (id: ${category.id})
 Stage: ${stage.label} (score ${score}/${stage.max_score})
@@ -1665,7 +1730,9 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
 - ✅ CERTO: pergunte SOMENTE "${nextField.label}" usando o phrasing acima.
 - Após o lead responder, chame set_tags(["${nextField.key}:VALOR"]) ANTES de qualquer outra ação.
 - NUNCA pule este field. Se o sub-agent SDR sugerir outra pergunta, IGNORE — esta seção vence.
-- 🚫 PROIBIDO chamar handoff_to_human ENQUANTO houver "PRÓXIMA PERGUNTA OBRIGATÓRIA" aqui. Esta seção SÓ deixa de aparecer quando TODOS os fields da categoria foram preenchidos. O exit_action de cada categoria (handoff ou search_products) só roda DEPOIS da qualificação completa, NUNCA antes. Mesmo que a categoria seja sobre produto que aparentemente "não temos cadastrado", você DEVE qualificar os fields restantes antes de transferir — o vendedor humano precisa do contexto.`
+- 🚫 PROIBIDO chamar handoff_to_human ENQUANTO houver "PRÓXIMA PERGUNTA OBRIGATÓRIA" aqui. Esta seção SÓ deixa de aparecer quando TODOS os fields da categoria foram preenchidos. O exit_action de cada categoria (handoff ou search_products) só roda DEPOIS da qualificação completa, NUNCA antes. Mesmo que a categoria seja sobre produto que aparentemente "não temos cadastrado", você DEVE qualificar os fields restantes antes de transferir — o vendedor humano precisa do contexto.
+- 🚫 R127 — PROIBIDO INVENTAR FIELDS: você só pode perguntar sobre fields da categoria ATUAL ("${category.id}"). Os fields válidos desta categoria são SOMENTE os listados nos stages. NÃO copie o phrasing/exemplos de outra categoria por analogia. Ex: se categoria atual é "janelas" (fields: material_janela, tamanho_janela), NUNCA pergunte "ambiente da janela" mesmo que tenha perguntado "ambiente da porta" antes — janelas não tem field ambiente.
+- 🚫 R127 — MULTI-CATEGORIA: se o lead pediu 2+ produtos de categorias diferentes (ex: "porta + janela"), NUNCA chame set_tags com 2 valores de interesse: na mesma chamada. Sistema vai rejeitar. Em vez disso: pergunte ao lead qual quer começar primeiro, e chame set_tags com APENAS 1 valor de interesse: depois que ele escolher. As demais categorias ficam pra um segundo turno DEPOIS de fechar a primeira.`
       } catch {
         return ''
       }
@@ -1693,9 +1760,68 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
         const cfgPre = getCategoriesOrDefault(agent)
         const interesseTagPre = (conversation.tags || []).find((t: string) => typeof t === 'string' && t.startsWith('interesse:'))
         const interesseValue = interesseTagPre ? (interesseTagPre.split(':')[1] || '') : ''
-        const categoryPre =
+
+        // R129 (2026-05-21): se NÃO tem interesse: setado ainda, checar se o
+        // texto bate em MÚLTIPLAS categorias. Se sim, ENVIAR DIRETO a pergunta
+        // "qual produto começar?" e RETORNAR sem chamar o LLM — defesa
+        // determinística (LLM ignora qualificationContext quando confuso com
+        // greeting já enviado no histórico). Também seta tag
+        // multi_interesse_pending pra cobrir caso de re-invocação.
+        let suppressAutoExtractForMulti = false
+        if (!interesseValue) {
+          const allCatsMatched = matchAllCategoriesBySearchText(incomingText, cfgPre)
+          if (allCatsMatched.length >= 2) {
+            suppressAutoExtractForMulti = true
+            const multiSlug = `multi_interesse_pending:${allCatsMatched.map(c => c.id).join(',')}`
+            const alreadyHasMulti = (conversation.tags || []).some((t: string) => typeof t === 'string' && t.startsWith('multi_interesse_pending:'))
+            if (!alreadyHasMulti) {
+              const mergedMulti = [...(conversation.tags || []), multiSlug]
+              conversation.tags = mergedMulti
+              await supabase.from('conversations').update({ tags: mergedMulti }).eq('id', conversation_id)
+              await supabase.from('ai_agent_logs').insert({
+                agent_id, conversation_id, event: 'auto_field_extracted',
+                metadata: {
+                  source: 'r129_multi_interesse_detected',
+                  new_tags: [multiSlug],
+                  category_ids: allCatsMatched.map(c => c.id),
+                },
+              })
+              log.info('R129: multi-categoria detectada — enviando pergunta direta', { categories: allCatsMatched.map(c => c.id), incoming_preview: incomingText.substring(0, 80) })
+            }
+            // Enviar pergunta determinística e retornar (curto-circuita LLM)
+            const labels = allCatsMatched.map((c) => (c.label || c.id).toLowerCase())
+            const friendly = labels.length === 2 ? `${labels[0]} e ${labels[1]}` : `${labels.slice(0, -1).join(', ')} e ${labels[labels.length - 1]}`
+            const askMsg = `Posso te ajudar com ${friendly}. Por qual prefere começar?`
+            try {
+              await sendTextMsg(askMsg)
+              const { data: savedMsg } = await supabase.from('conversation_messages').insert({
+                conversation_id, direction: 'outgoing', content: askMsg, media_type: 'text',
+              }).select('id, created_at').single()
+              broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: askMsg, media_type: 'text', message_id: savedMsg?.id, created_at: savedMsg?.created_at || new Date().toISOString() })
+              await supabase.from('ai_agent_logs').insert({
+                agent_id, conversation_id, event: 'response_sent',
+                latency_ms: Date.now() - startTime,
+                metadata: {
+                  incoming_text: incomingText.substring(0, 500),
+                  response_text: askMsg,
+                  source: 'r129_multi_interesse_ask',
+                  category_ids: allCatsMatched.map((c) => c.id),
+                  message_count: (queuedMessages || []).length,
+                },
+              })
+              return new Response(JSON.stringify({ ok: true, response: askMsg, reason: 'r129_multi_interesse_ask' }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              })
+            } catch (e) {
+              log.warn('R129: send ask failed, fallback to LLM with prompt hint', { error: (e as Error).message })
+            }
+          }
+        }
+
+        const categoryPre = suppressAutoExtractForMulti ? null : (
           matchCategory(interesseValue, cfgPre) ||
           matchCategoryBySearchText(incomingText, cfgPre)
+        )
         if (categoryPre) {
           const catalogStatusPreCat = (categoryPre as any).catalog_status || 'digital'
           // R121 (2026-05-19): Pre-LLM "tem X?" trigger — pra cobrir CASO em que lead
@@ -2085,8 +2211,10 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
         : ''
 
       // Exemplo de frase dinâmica baseado no primeiro field do stage + phrasing template do stage
+      // R131: passa answeredCountInStage = (fields totais - fields ainda não respondidos) → variante curta a partir da 2ª
+      const answeredCountInStage = currentStage.fields.length - stageFields.length
       const exampleSentence = stageFields.length > 0
-        ? ` Diga algo natural como: "${formatPhrasing(currentStage.phrasing, stageFields[0])}"`
+        ? ` Diga algo natural como: "${formatPhrasing(currentStage.phrasing, stageFields[0], answeredCountInStage)}"`
         : ''
 
       // Lista de keys válidas para set_tags.
@@ -2978,6 +3106,35 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           const rawTags: string[] = args.tags || []
           if (rawTags.length === 0) return 'Nenhuma tag informada.'
 
+          // R127 (2026-05-20): guard determinístico ANTES do processing.
+          // Detecta 2+ valores diferentes na mesma chave (especialmente interesse:portas +
+          // interesse:janelas) — mergeTags faria REPLACE silencioso, sistema esqueceria a 1ª
+          // categoria e ficaria com fields órfãos. Lead que pediu 2 produtos vê IA em loop.
+          // Caso especial em `interesse:` devolve instrução pro LLM perguntar ao lead qual começar.
+          const dupValidation = validateSetTagsInput(rawTags)
+          if (dupValidation.hasDuplicateKeys) {
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'set_tags_duplicate_keys_rejected',
+              metadata: {
+                raw_tags: rawTags,
+                duplicates: dupValidation.duplicates,
+                cleaned_tags: dupValidation.cleanedTags,
+              },
+            })
+            log.info('R127: set_tags duplicate keys rejected', {
+              raw_tags: rawTags,
+              duplicates: dupValidation.duplicates,
+            })
+            // Se sobrou alguma tag (conflict em key não-interesse), continua o processing
+            // com as tags limpas. Se zerou (conflict em interesse), aborta e devolve msg.
+            if (dupValidation.cleanedTags.length === 0) {
+              return dupValidation.message
+            }
+            // Reescreve args.tags pra continuar o pipeline com tags válidas + log da rejeição
+            args.tags = dupValidation.cleanedTags
+          }
+          const sanitizedRawTags: string[] = args.tags || rawTags
+
           // FIX (2026-04-29): aliasing automático de keys genéricas pra sufixadas da categoria.
           // O LLM tende a usar "material:madeira" em vez de "material_porta:madeira", caindo em
           // VALID_KEYS rejection silenciosa. Score nunca sobe e IA entra em loop de enrichment.
@@ -3013,7 +3170,7 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
 
           const newTags: string[] = []
           const rejected: string[] = []
-          for (const rawTag of rawTags) {
+          for (const rawTag of sanitizedRawTags) {
             const [rawKey, ...rest] = rawTag.split(':')
             const value = rest.join(':')
             if (!rawKey || !value) { rejected.push(rawTag); continue }
@@ -3254,6 +3411,62 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
             merged = updatedConv?.tags || [...(conversation.tags || []), ...newTags]
           }
           conversation.tags = merged
+
+          // R129 (2026-05-21): se o LLM setou interesse: (lead escolheu a categoria),
+          // remover a tag multi_interesse_pending: que estava sinalizando "lead pediu 2+".
+          // Sem remover, o buildQualificationContext continua mostrando a regra multi e a IA
+          // fica em loop perguntando "qual quer começar?" mesmo depois do lead já ter escolhido.
+          if (newTags.some((t) => t.startsWith('interesse:')) && merged.some((t) => t.startsWith('multi_interesse_pending:'))) {
+            const cleaned = merged.filter((t) => !t.startsWith('multi_interesse_pending:'))
+            await supabase.from('conversations').update({ tags: cleaned }).eq('id', conversation_id)
+            conversation.tags = cleaned
+            merged = cleaned
+            log.info('R129: multi_interesse_pending removed after lead choice', { chosen_interesse: newTags.find((t) => t.startsWith('interesse:')) })
+          }
+
+          // R130 (2026-05-21): após set_tags adicionar interesse:NEW_CAT, setar flag
+          // pendingForcedNextQuestion que será aplicada pós-LLM. Reforço de prompt
+          // não segura o LLM — ele usa send_poll com opções erradas (ex: ambiente
+          // sala/cozinha/quarto/banheiro pra janelas). Override pós-LLM é determinístico.
+          const newInteresseTag = newTags.find((t) => t.startsWith('interesse:'))
+          if (newInteresseTag) {
+            try {
+              const newInteresseValue = newInteresseTag.slice('interesse:'.length)
+              const cfgNext = getCategoriesOrDefault(agent)
+              const catNext = matchCategory(newInteresseValue, cfgNext)
+              if (catNext) {
+                const scoreNext = getScoreFromTags(merged)
+                const stageNext = getCurrentStage(scoreNext, catNext, cfgNext.default)
+                const nextFieldNext = getNextField(stageNext, merged)
+                if (nextFieldNext) {
+                  // R131: variante curta a partir da 2ª pergunta do stage
+                  const answeredKeysInStageNext = new Set(
+                    merged
+                      .filter((t): t is string => typeof t === 'string' && t.includes(':'))
+                      .map((t) => t.slice(0, t.indexOf(':'))),
+                  )
+                  const answeredCountInStageNext = stageNext.fields.filter((f) => answeredKeysInStageNext.has(f.key)).length
+                  const phrasingNext = formatPhrasing(stageNext.phrasing, nextFieldNext, answeredCountInStageNext)
+                  // Anexar à exitInstruction (tentativa via prompt)
+                  exitInstruction = (exitInstruction || '') +
+                    ` [INTERNO — REGRA ABSOLUTA] Categoria atual: "${catNext.id}". ` +
+                    `Próximo field: "${nextFieldNext.label}" (key: ${nextFieldNext.key}). ` +
+                    `FRASE EXATA pra usar: "${phrasingNext}". ` +
+                    `NÃO invente outras perguntas. NÃO use send_poll. ` +
+                    `Os ÚNICOS fields válidos de "${catNext.id}" são: ${stageNext.fields.map((f) => f.key).join(', ')}.`
+                  // E setar override pós-LLM (defesa determinística)
+                  pendingForcedNextQuestion = {
+                    text: phrasingNext,
+                    category: catNext.id,
+                    fieldKey: nextFieldNext.key,
+                  }
+                  log.info('R130: pendingForcedNextQuestion setada', { categoria: catNext.id, next_field: nextFieldNext.key, phrasing: phrasingNext })
+                }
+              }
+            } catch (r130err) {
+              log.warn('R130: failed to set forcedNextQuestion', { error: (r130err as Error).message })
+            }
+          }
 
           // Bug 24 v3 (2026-05-17): se a flag pendingExitActionHandoff foi setada acima
           // (score atingiu max_score do stage com exit_action=handoff), disparamos handoff
@@ -3858,6 +4071,32 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
       }
 
       break
+    }
+
+    // R130 (2026-05-21): override determinístico — quando set_tags adicionou
+    // interesse:NEW e há próximo field, FORÇAR a frase exata. LLM ignora a
+    // exitInstruction e/ou usa send_poll com opções inventadas (testes E2E
+    // 2026-05-21 mostraram LLM perguntando "ambiente da janela" repetidas vezes
+    // mesmo a categoria janelas não ter field ambiente). Override roda mesmo se
+    // o LLM já gerou texto — esse texto é DESCARTADO em favor do phrasing oficial.
+    if (pendingForcedNextQuestion) {
+      const expected = pendingForcedNextQuestion.text
+      // Se LLM acertou (texto contém a frase ou o key do field), aceita.
+      const normalizedResp = (responseText || '').toLowerCase()
+      const normalizedExpected = expected.toLowerCase()
+      const usedSendPoll = toolCallsLog.some((t) => t.name === 'send_poll')
+      const matchedExpected = normalizedResp.includes(normalizedExpected.substring(0, Math.min(40, normalizedExpected.length)))
+      if (usedSendPoll || !matchedExpected) {
+        log.info('R130: forcing exact next question (LLM divergiu)', {
+          field: pendingForcedNextQuestion.fieldKey,
+          category: pendingForcedNextQuestion.category,
+          llm_response_preview: (responseText || '').substring(0, 100),
+          used_send_poll: usedSendPoll,
+        })
+        responseText = expected
+      } else {
+        log.info('R130: LLM seguiu o phrasing — sem override', { field: pendingForcedNextQuestion.fieldKey })
+      }
     }
 
     // #12: If handoff was called, ALWAYS discard LLM text — handoff tool already sent handoff_message

@@ -28,7 +28,6 @@ Deno.test('detectSaleClosed — fechado', () => {
   assertEquals(detectSaleClosed('Combinado'), 'fechado')
   assertEquals(detectSaleClosed('Tá fechado pra mim'), 'fechado')
   assertEquals(detectSaleClosed('Bora fechar'), 'fechado')
-  assertEquals(detectSaleClosed('Quero levar'), 'fechado')
 })
 
 Deno.test('detectSaleClosed — no match', () => {
@@ -37,6 +36,17 @@ Deno.test('detectSaleClosed — no match', () => {
   assertEquals(detectSaleClosed('Tem desconto?'), null)
   assertEquals(detectSaleClosed('Vou pensar'), null)
   assertEquals(detectSaleClosed('Aceita pix?'), null)
+})
+
+Deno.test('R128 — detectSaleClosed NÃO dispara em intenção de compra inicial', () => {
+  // Repro: "quero comprar um material" no início da conversa
+  // (Maria sandbox 2026-05-21) — antes do fix, disparava 'fechado' silenciosamente
+  // e mandava conv pra shadow + venda:fechada + handoff implícito.
+  assertEquals(detectSaleClosed('Quero comprar um material'), null)
+  assertEquals(detectSaleClosed('quero comprar uma porta'), null)
+  assertEquals(detectSaleClosed('Quero levar uma tinta'), null)
+  assertEquals(detectSaleClosed('Eu queria fechar uma compra'), null)  // contém "fechar" como verbo de intenção
+  assertEquals(detectSaleClosed('Bora comprar uma janela'), null)
 })
 
 Deno.test('detectSaleClosed — first match wins (comprovante before pago)', () => {

@@ -578,6 +578,30 @@ describe('formatPhrasing', () => {
   it('template sem placeholders retorna inalterado', () => {
     expect(formatPhrasing('texto fixo', acabamento)).toBe('texto fixo')
   })
+
+  // R131 (2026-05-21): variante curta a partir da 2ª pergunta do stage
+  it('R131 — answeredCount=0 usa template completo', () => {
+    expect(formatPhrasing('Para encontrar a melhor opção, qual {label}? ({examples})', acabamento, 0))
+      .toBe('Para encontrar a melhor opção, qual acabamento? (fosco, brilho)')
+  })
+
+  it('R131 — answeredCount>=1 troca pra variante curta com examples', () => {
+    expect(formatPhrasing('Para encontrar a melhor opção, qual {label}? ({examples})', acabamento, 1))
+      .toBe('Qual acabamento? (fosco, brilho)')
+    expect(formatPhrasing('Para encontrar a melhor opção, qual {label}? ({examples})', acabamento, 2))
+      .toBe('Qual acabamento? (fosco, brilho)')
+  })
+
+  it('R131 — answeredCount>=1 sem examples retorna só "Qual {label}?"', () => {
+    const semExemplos: QualificationField = { ...acabamento, examples: '' }
+    expect(formatPhrasing('Antes de transferir, {label}?', semExemplos, 1))
+      .toBe('Qual acabamento?')
+  })
+
+  it('R131 — answeredCount default (omitido) = 0 → preserva comportamento legado', () => {
+    expect(formatPhrasing('Sobre {label}, prefere {examples}?', acabamento))
+      .toBe('Sobre acabamento, prefere fosco, brilho?')
+  })
 })
 
 // =============================================================================
