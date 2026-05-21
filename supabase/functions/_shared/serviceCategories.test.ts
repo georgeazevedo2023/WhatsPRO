@@ -41,10 +41,11 @@ describe('matchCategory', () => {
     expect(matchCategory('esmalte', DEFAULT_SERVICE_CATEGORIES_V2)?.id).toBe('tintas')
   })
 
-  it('case 4 — "impermeabilizante" matcha tintas (primeira regex que casa)', () => {
-    // tintas.regex tambem inclui "impermeabilizante" -> primeira a casar vence
+  // R133 (2026-05-21): regex tintas NÃO inclui mais "impermeabilizante"
+  // (causava overlap silencioso e multi-categoria fantasma — caso Branca).
+  it('case 4 (R133) — "impermeabilizante" matcha APENAS impermeabilizantes', () => {
     const cat = matchCategory('impermeabilizante', DEFAULT_SERVICE_CATEGORIES_V2)
-    expect(['tintas', 'impermeabilizantes']).toContain(cat?.id)
+    expect(cat?.id).toBe('impermeabilizantes')
   })
 
   it('case 5 — "manta" matcha apenas categoria impermeabilizantes', () => {
@@ -178,11 +179,60 @@ describe('matchCategoryBySearchText', () => {
     expect(matchCategoryBySearchText('vcs tem mesa de plastico pra cozinha?', cfgComMesas)?.id).toBe('mesas')
   })
 
-  it('primeira categoria que casa vence (mesmo padrao do matchCategory)', () => {
-    // tintas regex inclui "tinta|esmalte|verniz|impermeabilizante" — entao
-    // "impermeabilizante" no texto deveria casar com tintas (vem antes).
+  // R133 (2026-05-21): após remover impermeabilizante da regex tintas,
+  // "impermeabilizante" no texto agora matcha SOMENTE impermeabilizantes.
+  it('R133 — "preciso de impermeabilizante" matcha APENAS impermeabilizantes', () => {
     const cat = matchCategoryBySearchText('preciso de impermeabilizante', DEFAULT_SERVICE_CATEGORIES_V2)
-    expect(['tintas', 'impermeabilizantes']).toContain(cat?.id)
+    expect(cat?.id).toBe('impermeabilizantes')
+  })
+})
+
+// =============================================================================
+// matchAllCategoriesBySearchText (R129 / R133-R134 — caso Branca)
+// =============================================================================
+import { matchAllCategoriesBySearchText } from './serviceCategories.ts'
+
+describe('matchAllCategoriesBySearchText (R133+R134)', () => {
+  it('R133 — frase com "caixa fortlev + impermeabilizante" matcha só impermeabilizantes no seed default (sem tintas fantasma)', () => {
+    // Seed default só tem `tintas` e `impermeabilizantes`. Pré-R133, esta frase
+    // matchava AMBAS (tintas via overlap de impermeabilizante). Pós-R133, só
+    // `impermeabilizantes`.
+    const text = 'Qual o valor da caixa de água fortlev de 500 e 1.000 litros e do impermeabilizante?'
+    const cats = matchAllCategoriesBySearchText(text, DEFAULT_SERVICE_CATEGORIES_V2)
+    expect(cats.map((c) => c.id)).toEqual(['impermeabilizantes'])
+  })
+
+  it('R133 — em config com caixas_dagua + tintas + impermeabilizantes, a frase Branca matcha 2 (não 3)', () => {
+    // Reproduz a config real do Eletropiso pós-R133.
+    const cfg: ServiceCategoriesConfig = {
+      categories: [
+        ...DEFAULT_SERVICE_CATEGORIES_V2.categories,
+        {
+          id: 'caixas_dagua', label: 'Caixas d\'Água', interesse_match: 'caixa d|caixa dagua|reservatório|reservatorio',
+          stages: [{ id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff', fields: [{ key: 'litragem', label: 'litragem', examples: '500, 1000', score_value: 50, priority: 1 }], phrasing: 'X' }],
+        },
+      ],
+      default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+    }
+    const text = 'Qual o valor da caixa de água fortlev de 500 e 1.000 litros e do impermeabilizante?'
+    const ids = matchAllCategoriesBySearchText(text, cfg).map((c) => c.id).sort()
+    expect(ids).toEqual(['caixas_dagua', 'impermeabilizantes'])
+    expect(ids).not.toContain('tintas') // R133 — tintas não vem mais por overlap
+  })
+
+  it('R133 — só "impermeabilizante" retorna 1 categoria (não 2)', () => {
+    const cats = matchAllCategoriesBySearchText('quero impermeabilizante', DEFAULT_SERVICE_CATEGORIES_V2)
+    expect(cats.map((c) => c.id)).toEqual(['impermeabilizantes'])
+  })
+
+  it('R133 — "tinta acrilica" continua matchando tintas (sem regressão)', () => {
+    const cats = matchAllCategoriesBySearchText('tem tinta acrilica?', DEFAULT_SERVICE_CATEGORIES_V2)
+    expect(cats.map((c) => c.id)).toEqual(['tintas'])
+  })
+
+  it('R133 — texto vazio retorna []', () => {
+    expect(matchAllCategoriesBySearchText('', DEFAULT_SERVICE_CATEGORIES_V2)).toEqual([])
+    expect(matchAllCategoriesBySearchText(null, DEFAULT_SERVICE_CATEGORIES_V2)).toEqual([])
   })
 })
 

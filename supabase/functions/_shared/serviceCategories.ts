@@ -92,7 +92,10 @@ export const DEFAULT_SERVICE_CATEGORIES_V2: ServiceCategoriesConfig = {
     {
       id: 'tintas',
       label: 'Tintas e Vernizes',
-      interesse_match: 'tinta|esmalte|verniz|impermeabilizante',
+      // R133 (2026-05-21): removido `impermeabilizante` — sobrepunha com categoria
+      // `impermeabilizantes` causando lead que disse só "impermeabilizante" virar
+      // multi-categoria fantasma (tintas + impermeabilizantes detectadas).
+      interesse_match: 'tinta|esmalte|verniz',
       stages: [
         {
           id: 'identificacao',

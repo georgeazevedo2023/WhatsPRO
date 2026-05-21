@@ -9,42 +9,37 @@ type: log
 
 ---
 
+## 2026-05-21 (tarde) — R133+R134: regex overlap tintas + loop R129 (caso Branca, v7.38.8)
+
+**Trigger:** print Branca (558781754008) — IA respondeu "Posso te ajudar com **tintas e vernizes**, impermeabilizantes e mantas e caixas d'água…" mesmo lead nunca pedindo tinta, e repetiu MESMA pergunta 2x.
+
+**Auditoria via SQL (`supabase db query --linked`):**
+- Conv 176f7c6f tags: `multi_interesse_pending:tintas,impermeabilizantes,caixas_dagua` (tintas fantasma)
+- Logs `ai_agent_logs`: 2 `response_sent` idênticos `source=r129_multi_interesse_ask` confirmando loop
+- Único overlap do banco: termo `impermeabilizante` em AMBAS regex `tintas` E `impermeabilizantes` (3 agents Eletropiso)
+
+**R133 (regex DB overlap):** UPDATE jsonb idempotente em `ai_agents.service_categories` removendo `|impermeabilizante` da regex `tintas`. Aplicado nos 3 agents via `db query`. Migration `20260521120000_*.sql` versionada. Seed default em `_shared/serviceCategories.ts:95` também corrigido.
+
+**R134 (loop R129):** guarda `!alreadyHasMultiPending` antes do curto-circuito em `ai-agent/index.ts:1771`. `buildQualificationContext` reforçado com 3 regras pra LLM lidar com resposta do lead: (a) escolha clara → set_tags 1 valor, (b) "ambos" → escolhe 1ª categoria e avisa, (c) vago → primeira da lista.
+
+**Cleanup Branca:** removidas tags `multi_interesse_pending:...`, `interesse:tintas` (errado), `ambiente:interno` (errado). Só restou `marca_citada:fortlev`. Próxima msg re-processa limpo.
+
+**Testes:** 6 novos em `serviceCategories.test.ts` (125/125 PASS). Cobertura: matchCategory, matchCategoryBySearchText, novo describe `matchAllCategoriesBySearchText` com caso Branca realista.
+
+**Deploy:** `npx supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓
+
+---
+
 ## 2026-05-21 (manhã II) — R132: IA ignorou transcrição de áudio (Edson EletropisoV2 v7.38.7)
 
 **Bug ao vivo prod.** Lead Edson (558781302237) mandou "Bom dia" → "Edson" → áudio "Você tem a quartisolite rejunto pra piscina?". IA respondeu pergunta GENÉRICA "Edson, em que tipo de material ou produto…". User mandou print perguntando "pq o agente de ia nao respondeu a transcrição".
 
 **Investigação:**
-- Conv `353e5b4d-fe1c-4634-a38d-04ba1e90e912` — auditei `conversation_messages` (timeline) + `ai_agent_logs` (response_sent payload)
-- Log mostrou `incoming_text="Edson"` + `incoming_has_audio=false` quando áudio JÁ tinha chegado (11:24:03) e tinha transcription populada na tabela
-- Grep em `ai-agent/index.ts` revelou bug:308-322 lia só `m.content` do queue, áudio com content="" sumia em `.filter(Boolean)`
-- Mapeei pipeline: webhook NÃO enfileira áudio (skip explícito linha 1300) → transcribe-audio assíncrono → chama ai-agent-debounce DEPOIS. Race com queue de texto.
+- Conv `353e5b4d-fe1c-4634-a38d-04ba1e90e912` — auditei `conversation_messages` + `ai_agent_logs`
+- Bug: `ai-agent:308-322` lia só `m.content` do queue; áudio com content="" sumia em `.filter(Boolean)`
+- 4º incidente família Camada 3 (R126 + C8 + R50 + R132). Causa comum: queue não captura estado real.
 
-**Diagnóstico:** 4º incidente da família Camada 3 (R126 Guttemberg + C8 multi-msg + R50 backlog + R132 áudio Edson). Causa raiz comum: queue não captura estado real.
-
-**Opções propostas A/B/C — user escolheu B** (re-leitura DB antes do LLM).
-
-**Fix implementado (v7.38.7):**
-- `_shared/incomingMessagesLoader.ts` — helper testável (4 funções puras: `buildIncomingFromDbRows`, `buildIncomingFromQueue`, `calcLowerBoundTs`, `loadIncomingMessages`)
-- `_shared/incomingMessagesLoader.test.ts` — 14 testes (Edson repro, áudio+texto combinados, fallback DB error, empty queue, exceções)
-- `ai-agent/index.ts:308-340` — import + integração com log estruturado `R132 db-vs-queue divergence resolved`
-
-**Pipeline:**
-- typecheck 0 erros
-- vitest: 849 pass / +14 novos / 9 falhas pré-existentes (URL imports Deno + FormBuilder/useForms intocadas)
-- deploy CLI: `supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` → v64 ACTIVE (1ª passada com label "R131", renomeado pra R132 por colisão com sessão paralela do phrasing)
-
-**Renomeação R131 → R132:** outra sessão paralela já tinha usado R131 pra outro bug (phrasing repetido v7.38.6). Renomeado em CHANGELOG, helpers, comentários, log estruturado.
-
-**Docs:**
-- CHANGELOG v7.38.7
-- erros-e-licoes — entry R132 no topo (R131 phrasing logo abaixo preservada)
-- regras-preventivas — entries 86 e 87
-- log.md (este)
-
-**Nota 0-10: 9/10.**
-- Conteúdo: 10 (diagnóstico end-to-end via logs DB + grep, helper testável, fix mínimo cirúrgico, 14 testes cobrindo race áudio + fallback + erros)
-- Orquestração: 9 (TaskList atualizada, deploy CLI obrigatório respeitado, semver bumpada pra evitar colisão com sessão paralela)
-- Estado: 8 (deploy ok, mas E2E real com Edson não foi feito ainda — fix começa a valer da próxima msg dele. Re-deploy menor pra atualizar label "R131"→"R132" no log estruturado em prod pode ser feito junto com próximo deploy)
+**Fix v7.38.7 (opção B re-leitura DB):** `_shared/incomingMessagesLoader.ts` (4 funções puras, 14 testes) + integração no `ai-agent/index.ts:308-340`. Deploy CLI v64. Detalhe completo: `CHANGELOG.md` v7.38.7. Renomeação R131→R132 por colisão com sessão paralela do phrasing.
 
 **Frase de retorno**: "validar R132 áudio em prod 2026-05-21".
 

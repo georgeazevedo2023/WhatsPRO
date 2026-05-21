@@ -13,6 +13,36 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.38.8 (2026-05-21) — R133+R134: regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca)
+
+**Queixa do user:** print Branca (558781754008) — IA respondeu "Posso te ajudar com **tintas e vernizes**, impermeabilizantes e mantas e caixas d'água..." (lead nunca pediu tinta) e repetiu a MESMA pergunta 2x.
+
+**Auditoria via SQL confirmou:**
+- Tag conv: `multi_interesse_pending:tintas,impermeabilizantes,caixas_dagua` (3 cats — `tintas` fantasma)
+- `ai_agent_logs` mostrou 2 `response_sent` idênticos com `source: r129_multi_interesse_ask`
+- Único overlap do banco todo: termo `impermeabilizante` aparecia em ambas regex `tintas` E `impermeabilizantes` (3 agents Eletropiso afetados)
+
+**R133 (regex overlap):**
+- Migration `20260521120000_R133_remove_impermeabilizante_from_tintas_regex.sql` faz UPDATE jsonb em `ai_agents.service_categories` removendo `|impermeabilizante` da regex `tintas` (3 agents atualizados, idempotente)
+- Seed default em `_shared/serviceCategories.ts:95` corrigido (`tinta|esmalte|verniz|~~impermeabilizante~~` → `tinta|esmalte|verniz`) — novos tenants nascem corretos
+- 6 testes novos em `serviceCategories.test.ts` (125/125 PASS) cobrindo: matchCategory direto, matchCategoryBySearchText, matchAllCategoriesBySearchText com seed default + config Eletropiso realista
+
+**R134 (loop R129):**
+- `ai-agent/index.ts:1771` guarda `!alreadyHasMultiPending` adicionada antes do bloco curto-circuito R129 — quando tag já existe, deixa LLM processar resposta do lead via `buildQualificationContext` em vez de re-enviar mesma pergunta
+- `buildQualificationContext` reforçado com regras explícitas pra LLM lidar com resposta do lead à pergunta multi: (a) escolha clara → set_tags 1 valor, (b) "ambos" → escolhe 1ª categoria + diz "vou começar com X", (c) vago → primeira da lista
+
+**Cleanup manual:** tag corrompida `multi_interesse_pending:tintas,...` removida da conv Branca (176f7c6f). Tags `interesse:tintas` + `ambiente:interno` (também erradas) limpas. Próxima msg da lead vai re-processar do zero com regex corrigida.
+
+**Arquivos:**
+- `supabase/migrations/20260521120000_R133_*.sql` (UPDATE jsonb idempotente)
+- `supabase/functions/_shared/serviceCategories.ts` (seed regex)
+- `supabase/functions/_shared/serviceCategories.test.ts` (+6 testes; 125/125)
+- `supabase/functions/ai-agent/index.ts` (guarda R134 + qualificationContext reforçado)
+
+**Deploy:** `npx supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓
+
+---
+
 ### v7.38.7 (2026-05-21) — R132: IA ignorou transcrição de áudio (Edson, EletropisoV2)
 
 **Lead Edson (558781302237) mandou "Bom dia" → "Edson" → áudio "Você tem a quartisolite rejunto pra piscina?" → IA respondeu pergunta genérica "Edson, em que tipo de material...".** Logs mostraram `incoming_text="Edson"` + `incoming_has_audio=false` — ai-agent processou só o texto, ignorou a transcrição que já estava populada na tabela.

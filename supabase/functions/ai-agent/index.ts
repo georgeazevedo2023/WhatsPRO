@@ -1691,11 +1691,17 @@ ${contextBlock}`
             return `[QUALIFICAÇÃO MULTI-CATEGORIA — REGRA ABSOLUTA, SOBRESCREVE TUDO]
 🎯 LEAD PEDIU ${ids.length} CATEGORIAS DIFERENTES: ${labels.join(', ')}
 Sistema só processa UMA categoria por vez. Você DEVE perguntar qual o lead quer começar primeiro.
-🗣️ FRASE SUGERIDA: "Posso te ajudar com ${friendly}. Por qual prefere começar?"
+🗣️ FRASE SUGERIDA (use só se ainda não perguntou): "Posso te ajudar com ${friendly}. Por qual prefere começar?"
+
+⚠️ R134 (2026-05-21) — SE O LEAD JÁ ESTÁ RESPONDENDO À PERGUNTA "qual prefere começar":
+- Se o lead respondeu com 1 categoria clara (ex: "começar com caixa", "primeiro tinta"), chame set_tags(["interesse:CAT_ESCOLHIDA"]) AGORA — UMA só.
+- Se o lead respondeu com 2+ categorias na mesma msg (ex: "caixa de água e impermeabilizante"), ESCOLHA A PRIMEIRA mencionada por ele e chame set_tags(["interesse:PRIMEIRA"]) — diga ao lead "Vou começar com X então, e depois passo Y, ok?" — NUNCA repita a mesma pergunta "qual prefere começar".
+- Se o lead respondeu vago ("tanto faz", "qualquer um", "os dois"), escolha a primeira categoria da lista (${ids[0]}) e siga com set_tags(["interesse:${ids[0]}"]).
+
 ⚠️ REGRAS ABSOLUTAS:
-- NÃO chame set_tags com interesse: nesta resposta — espere o lead escolher.
-- NÃO pergunte qualquer outra coisa (ambiente, marca, tamanho) — só a escolha.
-- Quando o lead escolher, no PRÓXIMO turno chame set_tags(["interesse:CAT_ESCOLHIDA"]) com APENAS 1 valor.
+- NUNCA repita "Posso te ajudar com X e Y. Por qual prefere começar?" — essa pergunta SÓ deve ser feita 1x.
+- NÃO pergunte qualquer outra coisa (ambiente, marca, tamanho) ANTES de fixar a primeira categoria.
+- Quando setar interesse:, use APENAS 1 valor (sistema rejeita 2+ valores na mesma key — ver R127).
 - As outras categorias ficam pra DEPOIS de fechar a primeira.`
           }
         }
@@ -1767,27 +1773,32 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
         // determinística (LLM ignora qualificationContext quando confuso com
         // greeting já enviado no histórico). Também seta tag
         // multi_interesse_pending pra cobrir caso de re-invocação.
+        //
+        // R134 (2026-05-21): guarda alreadyHasMulti movida pra fora do bloco —
+        // se a tag JÁ existe (lead já recebeu a pergunta uma vez), NÃO re-curto-
+        // circuita; deixa LLM processar a resposta do lead via qualificationContext
+        // que reforça a regra. Sem essa guarda, R129 redetectava as mesmas
+        // categorias na 2ª msg e re-enviava a MESMA pergunta — loop confirmado
+        // no caso Branca (conv 176f7c6f, 2026-05-21).
+        const alreadyHasMultiPending = (conversation.tags || []).some((t: string) => typeof t === 'string' && t.startsWith('multi_interesse_pending:'))
         let suppressAutoExtractForMulti = false
-        if (!interesseValue) {
+        if (!interesseValue && !alreadyHasMultiPending) {
           const allCatsMatched = matchAllCategoriesBySearchText(incomingText, cfgPre)
           if (allCatsMatched.length >= 2) {
             suppressAutoExtractForMulti = true
             const multiSlug = `multi_interesse_pending:${allCatsMatched.map(c => c.id).join(',')}`
-            const alreadyHasMulti = (conversation.tags || []).some((t: string) => typeof t === 'string' && t.startsWith('multi_interesse_pending:'))
-            if (!alreadyHasMulti) {
-              const mergedMulti = [...(conversation.tags || []), multiSlug]
-              conversation.tags = mergedMulti
-              await supabase.from('conversations').update({ tags: mergedMulti }).eq('id', conversation_id)
-              await supabase.from('ai_agent_logs').insert({
-                agent_id, conversation_id, event: 'auto_field_extracted',
-                metadata: {
-                  source: 'r129_multi_interesse_detected',
-                  new_tags: [multiSlug],
-                  category_ids: allCatsMatched.map(c => c.id),
-                },
-              })
-              log.info('R129: multi-categoria detectada — enviando pergunta direta', { categories: allCatsMatched.map(c => c.id), incoming_preview: incomingText.substring(0, 80) })
-            }
+            const mergedMulti = [...(conversation.tags || []), multiSlug]
+            conversation.tags = mergedMulti
+            await supabase.from('conversations').update({ tags: mergedMulti }).eq('id', conversation_id)
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'auto_field_extracted',
+              metadata: {
+                source: 'r129_multi_interesse_detected',
+                new_tags: [multiSlug],
+                category_ids: allCatsMatched.map(c => c.id),
+              },
+            })
+            log.info('R129: multi-categoria detectada — enviando pergunta direta', { categories: allCatsMatched.map(c => c.id), incoming_preview: incomingText.substring(0, 80) })
             // Enviar pergunta determinística e retornar (curto-circuita LLM)
             const labels = allCatsMatched.map((c) => (c.label || c.id).toLowerCase())
             const friendly = labels.length === 2 ? `${labels[0]} e ${labels[1]}` : `${labels.slice(0, -1).join(', ')} e ${labels[labels.length - 1]}`

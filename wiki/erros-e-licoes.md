@@ -39,6 +39,17 @@ audited_at: 2026-05-20
 
 ---
 
+## 🔁 R133+R134 — overlap regex tintas↔impermeabilizantes + loop R129 (v7.38.8, 2026-05-21)
+
+Caso Branca: IA listou "tintas" fantasma + repetiu pergunta 2x. **R133:** regex `tintas` incluía `impermeabilizante` (overlap silencioso). Fix: migration jsonb UPDATE + seed corrigido. **R134:** R129 redispara sem checar `multi_interesse_pending`. Fix: guarda `!alreadyHasMultiPending` + `buildQualificationContext` instrui LLM a aceitar resposta. Detalhe: `CHANGELOG.md` v7.38.8.
+
+**Regras preventivas:**
+1. Auditar overlap entre regex de categorias — termo em 2+ regex = bug latente. SQL: `regexp_split_to_table(interesse_match,'\|')` cruzando categorias.
+2. Curto-circuito que grava estado precisa de guarda anti-loop ANTES de disparar: `if (cond && !jaGravou) { acao; gravar; }`.
+3. Categoria nova exige teste de unicidade: `matchAllCategoriesBySearchText('TERMO', cfg).length === 1` por termo.
+
+---
+
 ## 🎨 R131 — phrasing repetia "Para encontrar a melhor opção" (v7.38.6, 2026-05-21)
 
 IA Eletropiso fez 3 perguntas seguidas na qualif de tintas com mesma abertura. Causa: `formatPhrasing(stage.phrasing, field)` em `_shared/serviceCategories.ts` usa o MESMO template do stage pra cada field. **Fix híbrido:** `formatPhrasing` aceita `answeredCountInStage`; se `>= 1` substitui pelo curto `"Qual {label}? ({examples})"`. 3 call sites no `ai-agent/index.ts`. Detalhe completo no `CHANGELOG.md` v7.38.6.
@@ -262,30 +273,9 @@ Fonte: OpenAPI spec oficial em `https://docs.uazapi.com/openapi-bundled.json`, s
 
 ---
 
-## ⚠️ LLM ignora dados óbvios na 1ª msg quando qualificationContext já tem próxima pergunta — incidente 2026-05-13
-
-**Erro:** lead clicou em "Eu quero!" num botão REPLY de carrossel. Helpdesk gravou mensagem incoming com `content=""`. Ai-agent fez early-return em `ai-agent/index.ts:253` (`if (!incomingText.trim()) return 'no_text'`). **IA parou de responder, lead esfriou, venda perdida.**
-
-**Causa raiz:** `whatsapp-webhook/index.ts` só extraía `message.selectedButtonId` e `message.listResponse.id`. Mas UAZAPI/Baileys mandam o clique em payloads diferentes dependendo do tipo:
-- Botão antigo: `selectedButtonId` / `selectedButtonText`
-- Quick reply v2: `buttonsResponseMessage.selectedDisplayText`
-- Carrossel template: `templateButtonReplyMessage.selectedId` + `selectedDisplayText`
-- Native flow (carrossel moderno): `interactiveResponseMessage.nativeFlowResponseMessage.paramsJson` (JSON aninhado)
-- Baileys puro: `buttonReply.id` + `displayText`
-- Lista: `listResponseMessage.singleSelectReply.selectedRowId`
-
-**Fix:** webhook agora tenta TODAS as 8 variantes em ordem. Pra carrossel, grava `content = "${displayText} (${id})"` (ex: `"Eu quero! (Tinta Acrílica Fosco 16L)"`) pra LLM saber QUAL produto.
-
-**Como descobri:** gestor testou E2E em sandbox e reportou que IA parou após clique no botão. SQL mostrou row com content vazio. Code search no webhook expôs o caminho único de extração.
-
-**Regras preventivas:**
-1. **Webhook que processa payload externo (UAZAPI, Stripe, etc): NUNCA confiar em 1-2 nomes de campo**. Plataformas que rodam sobre Baileys/WhatsApp Cloud têm 5+ formatos por feature. Capturar TODAS as variantes conhecidas, com fallback em cascata.
-2. **Mensagem de botão DEVE preservar contexto** (id do produto, valor da opção). Gravar só "Eu quero!" perde a referência. Formato: `"${displayText} (${id})"`.
-3. **Toda extração de content do webhook deve ter teste E2E real** com clique em botão — não basta cobrir só text/audio/image.
-
----
-
-> **Incidentes 2026-05-12 (RPC uuid vs text) e 2026-05-10 (schema mismatch max_retries) movidos** pra [[wiki/erros/historico-2026-05-part2]] em 2026-05-21 pra respeitar 300-line limit. Regras já estão em [[wiki/erros/regras-preventivas]].
+> **Removido em 2026-05-21:** entry duplicada "LLM ignora dados óbvios (2026-05-13)" tinha mesmo conteúdo da seção "UAZAPI button reply" acima. Regras consolidadas em [[wiki/erros/regras-preventivas]].
+>
+> **Incidentes 2026-05-12 (RPC uuid vs text) e 2026-05-10 (schema mismatch max_retries) movidos** pra [[wiki/erros/historico-2026-05-part2]] pra respeitar 300-line limit.
 
 ---
 
