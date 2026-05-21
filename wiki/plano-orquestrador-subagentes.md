@@ -50,7 +50,9 @@ audited_at: 2026-05-21
 
 > **NÃO pular pra Sprint C sem fechar B.** Senão cada specialist herda os mesmos 9 KB de `hardcodedRules`.
 
-### B1 — Extrair `hardcodedRules` (9.3 KB) ⚡ MAIOR IMPACTO
+### B1 — Extrair `hardcodedRules` (9.3 KB) ⚡ MAIOR IMPACTO ✅ SHIPPED v7.40.0 (2026-05-21)
+
+**Resultado real:** **-89,98% no prompt** (9.348 → 937 chars / ~-2.100 tokens/turno). 5 agentes paralelos + 1 auditor. 10 arquivos tocados. +50 testes novos todos pass. Deploy de edge fn pendente de aprovação. **Edit 3 (searchGuard PRÉ-LLM wire) pulado** — defer Sprint B5 após split do index.ts. Detalhe em [[CHANGELOG.md]] e [[log.md]].
 
 **Hoje:** `ai-agent/index.ts:1644-1668` — 24 linhas que viram string única com 23 bullets no prompt. Não-configurável, cresceu por bug fix.
 

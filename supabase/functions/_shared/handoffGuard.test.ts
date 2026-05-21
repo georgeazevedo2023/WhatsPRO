@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateHandoffGuard } from './handoffGuard.ts'
+import {
+  evaluateHandoffGuard,
+  mentionsPaymentTopic,
+  shouldBlockHandoffForPayment,
+} from './handoffGuard.ts'
 
 describe('evaluateHandoffGuard', () => {
   it('libera handoff quando lead não tem contexto de produto', () => {
@@ -70,5 +74,112 @@ describe('evaluateHandoffGuard', () => {
     })
     expect(r.allowed).toBe(true)
     expect(r.reason).toBe('searched_before')
+  })
+})
+
+describe('mentionsPaymentTopic', () => {
+  it('match desconto', () => {
+    const r = mentionsPaymentTopic('Tem desconto pra mim?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('desconto')
+  })
+
+  it('match pix', () => {
+    const r = mentionsPaymentTopic('Aceita pix?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('pix')
+  })
+
+  it('match parcela', () => {
+    const r = mentionsPaymentTopic('Parcela em quantas vezes?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('parcela')
+  })
+
+  it('no match em saudação', () => {
+    const r = mentionsPaymentTopic('Bom dia')
+    expect(r.match).toBe(false)
+    expect(r.terms).toEqual([])
+  })
+
+  it('no match em intenção genérica', () => {
+    const r = mentionsPaymentTopic('Quero comprar')
+    expect(r.match).toBe(false)
+  })
+
+  it('match boleto', () => {
+    const r = mentionsPaymentTopic('Boleto bancario funciona?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('boleto')
+  })
+
+  it('match em 2 termos: a vista + desconto', () => {
+    const r = mentionsPaymentTopic('À vista tem desconto?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('a vista')
+    expect(r.terms).toContain('desconto')
+  })
+
+  it('match case-insensitive (DESCONTO maiúsculo)', () => {
+    const r = mentionsPaymentTopic('DESCONTO disponivel?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('desconto')
+  })
+
+  it('match sem acento: cartao', () => {
+    const r = mentionsPaymentTopic('aceita cartao?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('cartao')
+  })
+
+  it('match com acento: cartão', () => {
+    const r = mentionsPaymentTopic('aceita cartão?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('cartao')
+  })
+
+  it('match forma de pagamento (multi-palavra)', () => {
+    const r = mentionsPaymentTopic('qual forma de pagamento voces aceitam?')
+    expect(r.match).toBe(true)
+    expect(r.terms).toContain('forma de pagamento')
+  })
+})
+
+describe('shouldBlockHandoffForPayment', () => {
+  it('bloqueia quando handoffReason cita desconto', () => {
+    const r = shouldBlockHandoffForPayment({
+      handoffReason: 'Lead perguntou desconto',
+      leadText: '',
+    })
+    expect(r.block).toBe(true)
+    expect(r.matchedTerms).toContain('desconto')
+    expect(r.message).toMatch(/business_info/)
+  })
+
+  it('libera quando handoffReason é frustração/pedido de vendedor', () => {
+    const r = shouldBlockHandoffForPayment({
+      handoffReason: 'Lead frustrado, quer vendedor',
+      leadText: '',
+    })
+    expect(r.block).toBe(false)
+    expect(r.matchedTerms).toEqual([])
+    expect(r.message).toBe('')
+  })
+
+  it('bloqueia quando leadText cita pix mesmo com reason neutra', () => {
+    const r = shouldBlockHandoffForPayment({
+      handoffReason: 'Cliente VIP',
+      leadText: 'Aceita pix?',
+    })
+    expect(r.block).toBe(true)
+    expect(r.matchedTerms).toContain('pix')
+  })
+
+  it('lida com leadText undefined sem crashar', () => {
+    const r = shouldBlockHandoffForPayment({
+      handoffReason: 'tem boleto?',
+    })
+    expect(r.block).toBe(true)
+    expect(r.matchedTerms).toContain('boleto')
   })
 })

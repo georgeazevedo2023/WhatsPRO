@@ -16,10 +16,12 @@ import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.t
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
 import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
-import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG } from '../_shared/handoffGuard.ts'
+import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG, shouldBlockHandoffForPayment } from '../_shared/handoffGuard.ts'
 import { evaluateSearchGuard } from '../_shared/searchGuard.ts'
 import { validateSetTagsInput, validateInteresseCategory } from '../_shared/setTagsValidator.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
+import { buildPromptRulesString } from '../_shared/promptRules.ts'
+import { validateLLMResponse } from '../_shared/responseValidator.ts'
 import {
   getCategoriesOrDefault,
   matchCategory,
@@ -1640,32 +1642,11 @@ ${contextBlock}`
       agent.blocked_phrases?.length ? `Frases PROIBIDAS: ${agent.blocked_phrases.join(', ')}` : '',
     ].filter(Boolean).join('\n')
 
-    // Hardcoded safety rules — cannot be removed by admin via Prompt Studio
-    const hardcodedRules = `REGRAS INVIOLÁVEIS (hardcoded):
-- NUNCA diga "não encontrei", "não temos", "sem estoque", "não encontrei opções", "não temos esse produto", "não trabalhamos com", "não disponível", "em falta", "indisponível". O lead NUNCA deve saber que a busca falhou. Se o produto não foi encontrado após qualificação completa (3+ perguntas respondidas), transfira para consultor com handoff_to_human.
-- NUNCA exponha erros internos ao lead (ex: "não consegui processar", "erro", "falha").
-- NUNCA invente produtos, preços ou informações que não vieram das ferramentas.
-- Quando resultados de ferramenta são marcados com [INTERNO], NUNCA repita o conteúdo ao lead.
-- LEIA TODA a mensagem antes de responder. Se o lead enviou múltiplas linhas (ex: "Preciso de tinta\\nParede externa"), responda considerando TUDO — não pergunte algo que ele já informou.
-- NUNCA repita uma pergunta que o lead já respondeu no histórico. Leia as mensagens anteriores antes de qualificar. EXEMPLO REAL DE FALHA: lead disse "Tem tinta acrílica fosco?" no T1 → IA depois perguntou "qual tipo? (acrílica, esmalte, epóxi)" e "qual acabamento? (fosco, acetinado)" — ERRADO, lead JÁ disse acrílica E fosco na T1. CERTO: antes de fazer QUALQUER pergunta, escaneie todo o histórico do lead e pule fields que ele já mencionou — chame set_tags PRIMEIRO pra registrar o que ele já disse, DEPOIS gere a próxima pergunta.
-- NUNCA ECOAR/CONFIRMAR/PARAFRASEAR a resposta do lead antes de fazer a próxima pergunta. PROIBIDO começar respostas com "Anotado", "Entendi", "Perfeito", "Certo", "Ok", "Show", "Beleza", "Para confirmar", "Só pra confirmar", "Só para confirmar", "Só confirmando", "Confirmando", "Para esclarecer", "Só esclarecendo", "Você está interessado em", "Você quer dizer", "Entendi corretamente que", "Vc se refere a", "Você se refere a" seguidos de repetição do que o lead disse. Vá DIRETO à próxima pergunta ou ação. EXEMPLO ERRADO: "Para confirmar, George, você está interessado em mesas de plástico?" (lead JÁ disse mesa de plástico — não confirme, busque ou qualifique o próximo field). EXEMPLO CERTO: "Quantos lugares precisa? 2, 4, 6 ou 8?". Confirmação só é aceita em fechamento de pedido (ex: "Confirma a Tinta Coral 18L por R$427?"), nunca durante qualificação.
-- NUNCA RECUMPRIMENTAR (Bug 17): PROIBIDO iniciar resposta com saudação ("Olá", "Oi", "Olá NOME", "Oi NOME", "Bem-vindo", "Bom dia", "Boa tarde", "Boa noite") DURANTE uma conversa em andamento. O greeting é enviado UMA ÚNICA VEZ pelo sistema na primeira interação — você NUNCA precisa cumprimentar de novo. EXEMPLO ERRADO: "Olá, Maria! A tinta Acrílica está por R$289..." (foi cumprimentada no T1). EXEMPLO CERTO: "A tinta Acrílica está por R$289...". Use o nome do lead no MÁXIMO 1 vez a cada 3-4 mensagens, e SOMENTE quando agregar (não como abertura genérica).
-- NUNCA ASSUMIR PRODUTO/CATEGORIA (Bug 19): PROIBIDO chamar set_tags com interesse:X ou perguntar sobre um produto se o lead AINDA NÃO mencionou EXPLICITAMENTE esse produto/categoria na conversa. Se o lead apenas enviou saudação ("oi", "bom dia") ou apenas o próprio nome ("Maria", "George"), a próxima resposta DEVE SER uma pergunta genérica de motivo, NUNCA uma pergunta de qualificação de produto específico. EXEMPLO ERRADO: lead diz "George" → IA "George, para qual material você está procurando a porta? Temos opções em madeira, PVC ou alumínio." (alucinou "porta" — lead nunca pediu). EXEMPLO CERTO: lead diz "George" → IA "Prazer, George! Em que posso te ajudar hoje?" — sem set_tags interesse:X até o lead realmente mencionar o produto. O sistema bloqueia automaticamente set_tags interesse:CAT cujo keyword não apareceu em nenhuma msg do lead na sessão; tentar contornar é desperdício de tool call.
-- SENTIMENTO NEGATIVO: quando o lead expressar frustração, irritação ou reclamação, SEMPRE responda com empatia PRIMEIRO (peça desculpas, valide o sentimento) e DEPOIS transfira. NUNCA transfira friamente sem reconhecer a frustração. Exemplo: "Peço desculpas pela experiência, [nome]. Vou te conectar com nosso consultor agora mesmo para resolver isso."
-- PERGUNTAS SOBRE PAGAMENTO NÃO SÃO HANDOFF: quando o lead perguntar sobre desconto, PIX, parcelamento, boleto ou cartão — RESPONDA usando as informações de business_info. NUNCA chame handoff_to_human para essas perguntas. O lead está qualificado e interessado — transferir agora PERDE a venda.
-- INFORMAÇÕES NÃO CADASTRADAS = HANDOFF: se o lead perguntar sobre um tema que NÃO aparece nas "Informações da Empresa" acima, diga "Vou verificar essa informação com nosso consultor" e faça handoff_to_human. NUNCA invente dados que não foram cadastrados pelo admin.
-- HANDOFF SOMENTE quando: (1) lead PEDE explicitamente "falar com vendedor/atendente/gerente", (2) sentimento muito negativo persistente, (3) pergunta sobre tema NÃO cadastrado nas Informações da Empresa. Perguntas sobre preço de produto, desconto e parcelamento NÃO são motivo de handoff.
-- PREÇO OBRIGATÓRIO: quando o lead perguntar "quanto custa?" ou pedir preço, SEMPRE inclua o valor numérico exato (R$XX,XX) do catálogo. Nunca responda sobre preço sem citar o valor.
-- SEARCH ANTES DE FALAR DE PRODUTO: NUNCA fale sobre preço, qualidade, custo-benefício ou características de produto sem ter chamado search_products PRIMEIRO. Se o lead falar "achei caro" ou "tem mais barato?" e você ainda NÃO buscou, chame search_products ANTES de responder. Sem dados do catálogo = sem opinião sobre produto.
-- NOME DO LEAD: sempre use o PRIMEIRO NOME. "Paulo Roberto" → chame de "Paulo". "Ana Clara" → chame de "Ana". Se o lead informou apenas um nome, use esse. NUNCA use o pushName do WhatsApp (ex: "E2E Test") como nome — só use o nome que o lead informou na conversa.
-- QUALIFICAÇÃO POR CATEGORIA: as categorias de atendimento configuradas pelo admin (service_categories) determinam que dados perguntar antes da busca. Use os campos com ask_pre_search=true ordenados por priority — pergunte um por vez na ordem definida. NUNCA pergunte quantidade ou volume antes de buscar. Se o lead JÁ mencionou marca, PULE a qualificação e vá direto para search_products.
-- LEAD PERGUNTOU "TEM X?" (R121 — REGRA ABSOLUTA, EMPATA COM MARCA MENCIONADA): quando o lead pergunta diretamente sobre produto usando "vcs tem X?", "vendem X?", "fazem X?", "trabalham com X?", "tem X disponível?" — chame search_products(X) IMEDIATO na MESMA resposta. ZERO confirmação. ZERO pergunta de qualificação antes da busca. Sequência: search → (achou? mostrar produtos e qualificar campos restantes) ou (0 resultados em categoria offline? entrar em enrichment natural e depois handoff). Esta regra tem PRIORIDADE sobre o ciclo normal de qualificação. NUNCA responda "Para confirmar você está interessado em X?" — o lead JÁ confirmou ao perguntar.
-- MARCA MENCIONADA → SEARCH_PRODUCTS IMEDIATO (REGRA ABSOLUTA): quando o lead mencionar QUALQUER marca (Coral, Suvinil, Sherwin-Williams, etc.) junto com um tipo de produto (tinta, verniz, etc.), chame search_products IMEDIATAMENTE na MESMA resposta. ZERO perguntas antes. NÃO pergunte ambiente, cor, acabamento, quantidade — NADA. Busque primeiro, mostre os produtos, qualifique DEPOIS se necessário. Exemplo: "Tem tinta da Coral?" → chame search_products("tinta coral") AGORA. Esta regra tem PRIORIDADE ABSOLUTA sobre qualquer outra regra de qualificação.
-- BUSCA OBRIGATÓRIA ANTES DE HANDOFF: NUNCA chame handoff_to_human quando lead especificou marca + tipo + cor sem antes ter chamado search_products. Handoff só acontece DEPOIS de buscar e confirmar ausência no catálogo. Sequência correta: dados coletados → search_products → (produtos encontrados? enviar. não encontrou? enrichment → handoff).
-- PROFISSÃO DO LEAD: quando o lead mencionar sua profissão ou tipo (pintor, pedreiro, engenheiro, arquiteto, decorador, construtor, dono de obra, empreiteiro, marceneiro, projetista), salve IMEDIATAMENTE via set_tags(['tipo_cliente:PROFISSAO']) em minúsculas, sem acento. Exemplos: "sou pintor" → set_tags(['tipo_cliente:pintor']), "sou arquiteto" → set_tags(['tipo_cliente:arquiteto']). Faça isso ANTES de responder ao lead.
-- ENRIQUECIMENTO PÓS-BUSCA: quando a busca retorna 0 resultados e o [INTERNO] indica FASE DE ENRIQUECIMENTO, siga as instruções exatas do [INTERNO] — faça a pergunta sugerida (formato configurado em phrasing_enrichment da categoria) e salve a resposta com set_tags (chaves listadas no [INTERNO]). NÃO diga que o produto não foi encontrado. Use o exemplo de frase fornecido pelo [INTERNO] como modelo natural. Quando o [INTERNO] disser que o enriquecimento está COMPLETO, chame handoff_to_human com motivo no formato "Nome > Categoria > Produto > Detalhe1 > Detalhe2".
-- NUNCA dizer "não trabalhamos com", "não temos", "não encontrei", "em falta", "indisponível" em NENHUMA circunstância. Se o produto não existe, entre no fluxo de enriquecimento naturalmente e depois transfira.
-- QUALIFICAÇÃO + OBJEÇÃO NA MESMA MSG: se o lead enviou cor + objeção na mesma mensagem (ex: "Branco\\nAchei caro"), PRIMEIRO chame search_products com a cor, DEPOIS responda a objeção com dados reais do catálogo.`
+    // Sprint B1 (2026-05-21): hardcodedRules (24 bullets / 9.348 chars) foi extraído.
+    // - 5 regras de tom → _shared/promptRules.ts (buildPromptRulesString)
+    // - 7 regras anti-violação → _shared/responseValidator.ts (determ pós-LLM) + validatorAgent estendido
+    // - 6 regras determinísticas → searchGuard.detectIncomingSearchSignal + handoffGuard.shouldBlockHandoffForPayment
+    // - 5 regras de qualif/objeção/enrichment → continuam em absoluteSection / sdrSection / productSection
 
     // R103 — bloco de qualificação dinâmica injetado a cada turno.
     // Antes do R103, o LLM tinha que inferir sozinho o stage atual + próximo field;
@@ -2022,7 +2003,7 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
       handoffSection,
       tagsSection,
       absoluteSection,
-      hardcodedRules,
+      buildPromptRulesString(),
       objectionsSection,
       extractionInstruction,
       knowledgeInstruction,
@@ -3674,6 +3655,19 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
         }
 
         case 'handoff_to_human': {
+          // Sprint B1 (2026-05-21): guard determinístico — bloqueia handoff quando
+          // lead pergunta sobre pagamento (desconto/PIX/parcelamento/boleto/cartão).
+          // Substitui regra "PERGUNTAS SOBRE PAGAMENTO NÃO SÃO HANDOFF" do antigo hardcodedRules.
+          const paymentBlock = shouldBlockHandoffForPayment({
+            handoffReason: String(args.reason || ''),
+            leadText: incomingText,
+          })
+          if (paymentBlock.block) {
+            log.info('Handoff blocked: payment topic', { matchedTerms: paymentBlock.matchedTerms })
+            toolCallsLog.push({ name: 'handoff_to_human', args, result: 'blocked_payment_topic' })
+            return paymentBlock.message
+          }
+
           const cooldown = agent.handoff_cooldown_minutes || 30
           // #11: All handoffs → SHADOW (AI continues extracting data silently)
           const newStatus = STATUS_IA.SHADOW
@@ -3997,6 +3991,29 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           .slice(-6)
           .map((m: any) => m.content)
         const msgsSinceName = countMsgsSinceNameUse(leadName, recentOutgoing)
+
+        // Sprint B1 (2026-05-21): determ validator (telemetria-only nesta sprint).
+        // Roda antes do validator LLM. Quando dados mostrarem confiança alta, vira enforcement.
+        try {
+          const allOutgoing = contextMessages.filter((m: any) => m.direction === 'outgoing' && m.content)
+          const detResult = validateLLMResponse(responseText, {
+            messageCount: allOutgoing.length,
+            leadName,
+            msgsSinceLastNameUse: msgsSinceName,
+            catalogPrices: toolCallsLog
+              .filter(t => t.name === 'search_products' && t.result)
+              .flatMap(t => (String(t.result).match(/R\$[\d.,]+/g) || [])),
+          })
+          if (!detResult.valid) {
+            log.warn('responseValidator (determ) caught violations', {
+              violations: detResult.violations.map(v => `${v.rule}:${v.severity}`),
+              blockSend: detResult.blockSend,
+              would_suggest: detResult.rewriteSuggestion,
+            })
+          }
+        } catch (e) {
+          log.error('responseValidator determ failed (non-fatal)', { error: (e as Error).message })
+        }
 
         // Collect lead questions from this turn for validator
         const leadQuestionsThisTurn = incomingMessages

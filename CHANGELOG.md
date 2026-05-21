@@ -13,6 +13,40 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.0 (2026-05-21) — Sprint B1: extração `hardcodedRules` (-90% prompt)
+
+**Sprint B1 do plano orquestrador.** Decomposição do monolito `hardcodedRules` (24 bullets / 9.348 chars no prompt principal) em 4 helpers determinísticos/dedicados. **Redução medida: -89,98% no inline (9.348 → 937 chars)** = ~-2.100 tokens por turno.
+
+**5 agentes paralelos + 1 auditor** (sessão 2026-05-21 manhã):
+- Agent 1 → `_shared/promptRules.ts` (NOVO): exporta `buildPromptRulesString()` com 5 regras de tom (LEIA toda msg, NUNCA repita pergunta, NUNCA ECOAR, primeiro nome, profissão→set_tags). 937 chars. 3/3 tests.
+- Agent 2 → `_shared/responseValidator.ts` (NOVO): exporta `validateLLMResponse(text, ctx)` cobrindo 7 regras determinísticas (anti-negative_phrases, anti_internal_error, anti_internal_leak, anti_echo_opener, anti_recumprimento, name_overuse, hallucinated_price). 185 lin. **Modo telemetria** nesta sprint (só `log.warn`). 19/19 tests.
+- Agent 3 → `_shared/searchGuard.ts` (estendido): nova função `detectIncomingSearchSignal({ text, knownBrands })` cobre R121 ("tem X?") e marca→search imediato. +91 lin. 28/28 tests (15 antigos + 13 novos). **Não wirado nesta sprint** (Edit 3 = ALTO RISCO, fica pro Sprint B5 após split).
+- Agent 4 → `_shared/handoffGuard.ts` (estendido): `shouldBlockHandoffForPayment` + `mentionsPaymentTopic`. +87 lin. 23/23 tests (8 antigos + 15 novos). **Wirado** em `case 'handoff_to_human'`.
+- Agent 5 → wire plan em `/tmp/B1_WIRE_PLAN.md` (4 edits, 7 riscos mapeados).
+- Auditor (Agent 6 — pós-edit): verificou 5 destinos + 5 wire points. **Veredito: PASS COM RESSALVAS** (ressalvas esperadas pelo plano).
+
+**Wire aplicado em `ai-agent/index.ts`:**
+1. Import dos 4 helpers novos (linhas 19-25)
+2. Declaração `const hardcodedRules = ...` REMOVIDA (era 25 linhas / 9.3 KB)
+3. `systemPrompt` array agora usa `buildPromptRulesString()` (linha ~2008)
+4. `case 'handoff_to_human'` chama `shouldBlockHandoffForPayment` ANTES da lógica (linha ~3676) — bloqueia handoff quando lead pergunta sobre pagamento (PIX/desconto/parcelamento/boleto/cartão) e devolve mensagem pro LLM responder com business_info
+5. `validateLLMResponse` chamado em modo telemetria antes do validator LLM (linha ~3997-4016)
+6. `validatorAgent.ts` prompt estendido com 4 regras órfãs (INTERNO leak, erro interno, eco genérico, recumprimento mid-convo) — cobre as 7 violações no LLM validator também
+
+**Pipeline:**
+- `npx tsc --noEmit`: ✅ 0 erros
+- `npx vitest run`: ✅ 913 pass / 9 fail pré-existentes (idêntico a Sprint A — FormBuilder + useForms + excludedProducts não-relacionados). **+50 testes novos do B1 todos pass.**
+- Deploy de edge fns: **PENDENTE de aprovação do user** (não foi feito automaticamente)
+
+**Riscos / follow-up:**
+- Edit 3 (searchGuard PRÉ-LLM wire) pulado: requer duplicar ~70 linhas de search inline. Fica pro Sprint B5 após split do `index.ts`. R121/brand→search continuam ativas via `evaluateSearchGuard` (R126) + prompt principal.
+- `responseValidator` em telemetria por 1-2 semanas pra coletar volume real antes de virar enforcement.
+- B2/B3/B4/B5 (Sprint B restante) ainda pendentes.
+
+**Arquivos tocados (10):** 4 novos + 4 estendidos + 1 modificado + 1 ai-agent/index.ts.
+
+---
+
 ### Plano Orquestrador 2026-05-21 (meta — documentação)
 
 Plano completo da transição monolito→orquestrador+specialists documentado em 2 wikis (parte 1 visão+Sprint B, parte 2 Sprint C+D+métricas). Sem código novo — só planejamento detalhado com medições reais.
@@ -28,52 +62,9 @@ Plano completo da transição monolito→orquestrador+specialists documentado em
 
 ---
 
-### v7.39.0 (2026-05-21) — Sprint A da auditoria 2026-05-21 — P0s + I2 + I3
+### v7.39.0 + Auditoria 360° + Plano Orquestrador (2026-05-21) — arquivado
 
-**Execução parcial da Sprint A.** 7 dos 13 itens planejados aplicados; 5 confirmados já-fechados pela investigação; 3 HIGH-RISK deferidos pra Sprint B com justificativa documentada.
-
-**Aplicados:**
-- **#1 CHECK constraints rivais resolvidos:** DROP `ai_agent_logs_event_check` (lista antiga de 20 eventos); `chk_ai_agent_logs_event` (22 eventos) vira fonte única. Inserts de `search_guard_blocked` e `set_tags_duplicate_keys_rejected` voltam a ser persistidos. Migration `20260521200000_consolidate_ai_agent_logs_event_check.sql`.
-- **#7 D34 migration retroativa:** arquivo `20260517000000_d34_conversations_resolved_at_retroactive.sql` commitado. Coluna + index já existiam em prod; agora `supabase db reset` reproduz local.
-- **#8 Whitelist `is_table_protected` ampliada** com 6 tabelas críticas (`user_feature_permissions`, `business_hours_exceptions`, `handoff_queue_events`, `e2e_test_batches`, `e2e_test_runs`, `notification_log`). Migration `20260521200001_extend_is_table_protected_sprint_a.sql`.
-- **#6 `requeue-conversations` migrado** para `handoff_message_outside_hours` + `enrichOutsideHoursMessage`. Fallback pra `out_of_hours_message` preservado até drop column. `requeue-conversations` v6 ACTIVE.
-- **#5 `known_brands` JSDoc enganoso removido** de `brandDetection.ts`. Não era bug — feature nunca foi implementada, comentário sugeria coluna que não existe.
-- **I3 Modelo default migrado** pra `gpt-5-mini` em `_shared/llmProvider.ts` (fallback) e `BrainConfig.tsx` (UI). Agentes existentes com `model` setado mantêm valor. Custo praticamente neutro.
-- **I2 `validateInteresseCategory`** adicionado a `_shared/setTagsValidator.ts` + handler `set_tags` em `ai-agent/index.ts`. Rejeita `interesse:VALUE` fora das `service_categories[].id` antes de persistir. Bug 12 fechado. 9 testes vitest novos (23/23 PASS no arquivo).
-
-**Confirmados já-fechados (auditor errou por falta de MCP):**
-- #2 EXCLUDE USING gist em `handoff_queue_events` — `handoff_queue_events_one_active_per_conv` já existia.
-- #3 Cron `purge_notifications_older` — `purge_notifications_hourly` (jobid 36) ativo.
-- #4 (parcial) `agent.known_brands` — coluna nunca existiu; código consumia `DEFAULT_BRANDS` sempre.
-
-**Deferidos pra Sprint B (HIGH RISK, exigem PR dedicado):**
-- **#4 Migrar `sub_agents` → `agent_profiles` reader** — refator do `ai-agent/index.ts:1532` e `ai-agent-playground:67` exige entender fallback M17 F3 (qual perfil se agente não tem nenhum cadastrado).
-- **#9 Varredura sistemática curto-circuitos R134** — horas de revisão caso-a-caso; mapear achados antes de aplicar.
-- **I1 strict mode em tool schemas** — exige refator das 9 tools (`required` array completo + `null` nas opcionais). 4/9 já estão alinhadas; resto pede PR isolado.
-
-**Pipeline final:**
-- `npx tsc --noEmit`: 0 erros
-- `npx vitest run`: 863/875 PASS + 3 skipped + 9 falhas pré-existentes (Deno-style imports, useForms, FormBuilder, excludedProducts — não relacionadas)
-- 3 migrations aplicadas via MCP em prod
-- ai-agent v74 + requeue-conversations v6 ACTIVE (verify_jwt:false confirmado)
-- Commit + push
-
-**Métricas pós-Sprint A:**
-- Findings P0 da auditoria: 8 → 1 (`I1 strict mode` deferido)
-- DB nota: 6.5 → estimado 8.0 (P0s resolvidos + retroativos)
-- AI Agent: ganho I2 (Bug 12 fechado) + I3 (modelo recomendado novo). Outras dimensões inalteradas.
-
-**Frase de retomada:** *"executar Sprint B da auditoria 2026-05-21"* (refator hardcodedRules + sub_agents migration + strict mode).
-
----
-
-### Auditoria 2026-05-21 (meta — sem release de código)
-
-Auditoria 360° read-only com 5 agentes paralelos. **Veredito geral 5.9/10.** AI Agent 5.7/10 (prompt=3, funcional=6, subagentes=2, orquestrador=3, contexto=5, tools=7). DB 6.5/10 (4 P0s). Paridade 7.2/10. Achados críticos: CHECK constraints rivais R114, prompt 26 KB inflado, ai-agent 4.4k lin, drift D34/D35.
-
-**Recomendação modelo:** gpt-4.1-mini → gpt-5-mini (custo neutro, instruction following melhor). "GPT 5.4" existe mas 2.3× mais caro. Flagship atual GPT-5.5.
-
-**Artefatos:** [[wiki/auditoria-2026-05-21-veredito]], [[wiki/auditoria-2026-05-21-melhorias]], [[wiki/auditoria-2026-05-21-db]], [[wiki/auditoria-2026-05-21-ai-agent]], [[wiki/auditoria-2026-05-21-prompts]], [[wiki/auditoria-2026-05-21-paridade]], [[wiki/auditoria-2026-05-21-research]].
+> Movido para [[wiki/changelog/2026-05-part8]] em 2026-05-21 (hard limit 300 linhas). Conteúdo: Sprint A da auditoria (7 P0s fechados + I2 + I3, ai-agent v74), Auditoria 360° 5 ondas (veredito 5.9/10), Plano Orquestrador (3 sprints / 6 semanas).
 
 ---
 
@@ -272,19 +263,7 @@ Auditoria 360° read-only com 5 agentes paralelos. **Veredito geral 5.9/10.** AI
 
 ---
 
-### v7.38.1 (2026-05-20) — Fix R123: toggle IA na lista de leads falhava silencioso pra gerente/atendente
-
-**Bug.** Televendas (`gerente`) clicou "desativar IA" pra Slone → ícone seguia verde. Causa: policy de UPDATE em `contacts` só permite `is_super_admin` — UPDATE direto via `supabase.from('contacts').update()` cai em RLS silent filter (0 rows affected, sem erro), refetch traz estado antigo.
-
-**Fix — migration `set_contact_ia_blocked_rpc`:** RPC SECURITY DEFINER `set_contact_ia_blocked(p_contact_id, p_blocked)` valida `has_inbox_access` em alguma inbox do contato (super_admin bypassa), atualiza só a coluna `ia_blocked_instances`. GRANT EXECUTE pra `authenticated`. RAISE `forbidden_no_inbox_access` quando bloqueado.
-
-**Frontend `src/pages/dashboard/Leads.tsx:183-215`:** mutationFn agora chama `supabase.rpc('set_contact_ia_blocked', ...)`. Adicionado `onMutate` optimistic (cancel inflight + snapshot + setQueryData → ícone responde na hora) + `onError` rollback do snapshot + `onSettled` invalidate.
-
-**Lição R123:** UPDATE direto em tabela com RLS-só-super_admin falha silencioso. Pra toggles single-column em tabela protegida, usar RPC SECURITY DEFINER validando relação (ex: `has_inbox_access`). Optimistic update mascara latência.
-
----
-
-### v7.38.0 + v7.37.21 (2026-05-20) — D36 permissões granulares + prefixo `*Nome*` helpdesk (arquivado)
+### v7.38.1 + v7.38.0 + v7.37.21 (2026-05-20) — R123 toggle IA + D36 permissões + prefixo `*Nome*` (arquivado)
 
 > Movido para [[wiki/changelog/2026-05-part7]] em 2026-05-21 (hard limit 300 linhas).
 
@@ -294,6 +273,8 @@ Auditoria 360° read-only com 5 agentes paralelos. **Veredito geral 5.9/10.** AI
 
 Releases anteriores foram movidas para [[wiki/changelog/]] para manter este arquivo dentro do hard limit de 300 linhas (D31). Arquivos mais recentes:
 
+- [[wiki/changelog/2026-05-part8]] — v7.39.0 Sprint A + Auditoria 360° + Plano Orquestrador (release 2026-05-21)
+- [[wiki/changelog/2026-05-part7]] — v7.38.0 a v7.38.1 + v7.37.21 (release 2026-05-20)
 - [[wiki/changelog/2026-05-part6]] — v7.37.20 a v7.36.5 (release 2026-05-19 → 2026-05-17)
 - [[wiki/changelog/2026-05-part5]] — v7.36.4 a v7.35.1 (release 2026-05-17 → 2026-05-11)
 - [[wiki/changelog/]] — diretório completo (partes mais antigas)

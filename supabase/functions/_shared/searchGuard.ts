@@ -108,3 +108,87 @@ export function evaluateSearchGuard(input: SearchGuardInput): SearchGuardVerdict
 
   return { allowed: true, reason: input.expectedCategoryId ? 'category_digital' : 'specific_query' }
 }
+
+// detectIncomingSearchSignal — Sprint B auditoria 2026-05-21.
+//
+// Substitui 2 das 23 regras de `hardcodedRules` em ai-agent/index.ts (pré-Sprint B):
+//   - R121: pergunta direta "tem X?", "vendem X?", "trabalham com X?" → search_products imediato
+//   - brand→search: lead menciona marca conhecida → search_products imediato com brand na query
+//
+// Roda no caminho INCOMING (msg do lead), antes do LLM decidir tool calls. Quando
+// devolve force=true, o orquestrador chama search_products determinístico com a
+// query sugerida — eliminando alucinação de "vou enviar o carrossel" sem chamar
+// a tool de fato.
+
+export interface IncomingSearchSignal {
+  /** Texto da última msg do lead (já agregada / normalizada). */
+  text: string
+  /** Marcas conhecidas pelo agente (de agent.brands ou DEFAULT_BRANDS). Lowercase comparison. */
+  knownBrands: string[]
+}
+
+export interface IncomingSearchVerdict {
+  force: boolean
+  /** Query sugerida pra search_products quando force=true. */
+  query: string | null
+  reason:
+    | 'r121_direct_question'
+    | 'brand_mentioned'
+    | 'no_signal'
+}
+
+const R121_PATTERNS: ReadonlyArray<RegExp> = [
+  // "vc tem X?", "vocês vendem X?", "trabalham com X?", "fazem X?", "possui X?"
+  /\b(?:voce|vc|vcs|voces)?\s*(?:tem|vendem|vende|trabalham\s+com|trabalha\s+com|fazem|faze|faz|possui|possuem)\s+(.{2,80}?)\s*\??\s*$/,
+  // "tem X disponivel"
+  /\b(?:tem|tem\s+a|tem\s+o)\s+(.{2,80}?)\s+disponivel\b/,
+  // "preciso de X", "estou procurando X", "quero X", "gostaria de X"
+  /\b(?:preciso\s+de|estou\s+procurando|procuro|quero|queria|gostaria\s+de|estou\s+atras\s+de)\s+(.{2,80}?)\s*\??\s*$/,
+]
+
+function cleanCapture(raw: string): string {
+  return raw
+    .replace(/^(?:um|uma|uns|umas|o|a|os|as|da|de|do|dos|das)\s+/i, '')
+    .replace(/[?.!,;]+$/g, '')
+    .replace(/\s+ai$/i, '')
+    .trim()
+}
+
+export function detectIncomingSearchSignal(input: IncomingSearchSignal): IncomingSearchVerdict {
+  const rawText = (input.text ?? '').trim()
+  if (!rawText) {
+    return { force: false, query: null, reason: 'no_signal' }
+  }
+
+  const normalized = stripAccentsLower(rawText)
+
+  // 1. R121 tem prioridade — "tem coral?" vai como direct_question com query="coral"
+  for (const pattern of R121_PATTERNS) {
+    const match = normalized.match(pattern)
+    if (match && match[1]) {
+      const query = cleanCapture(match[1])
+      if (query.length >= 2) {
+        return { force: true, query, reason: 'r121_direct_question' }
+      }
+    }
+  }
+
+  // 2. Marca mencionada como palavra inteira
+  const brands = (input.knownBrands ?? [])
+    .map((b) => stripAccentsLower(b))
+    .filter((b) => b.length >= 2)
+
+  for (const brand of brands) {
+    const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const brandRegex = new RegExp(`\\b${escaped}\\b`)
+    if (brandRegex.test(normalized)) {
+      // Mantém o texto original limpo na query (sem acento, lowercase) — search_products
+      // já aplica fuzzy. Concatena brand garantindo que aparece primeiro.
+      const rest = normalized.replace(brandRegex, '').replace(/\s+/g, ' ').trim()
+      const query = rest ? `${brand} ${rest}` : brand
+      return { force: true, query, reason: 'brand_mentioned' }
+    }
+  }
+
+  return { force: false, query: null, reason: 'no_signal' }
+}
