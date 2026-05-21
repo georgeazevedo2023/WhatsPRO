@@ -9,6 +9,49 @@ type: log
 
 ---
 
+## 2026-05-21 (madrugada II) — Sprint A da auditoria (v7.39.0)
+
+**Trigger:** user pediu "executar Sprint A da auditoria 2026-05-21". Aprovou HIGH RISK em ai-agent/index.ts (com testes vitest) + deploy de edge fns ao final.
+
+**Execução por ondas (1-5):**
+
+- **Onda 9 (investigação):** MCP queries pra confirmar findings da auditoria. Descobriu que 3 P0s já estavam fechados (auditor sem MCP):
+  - #2 EXCLUDE USING gist em handoff_queue_events: JÁ EXISTE (`handoff_queue_events_one_active_per_conv`)
+  - #3 cron purge_notifications: JÁ EXISTE (`purge_notifications_hourly` jobid 36)
+  - #4 known_brands: coluna nunca existiu; código usava só DEFAULT_BRANDS — bug fantasma
+
+- **Onda 10 (DB migrations):** 3 migrations aplicadas via MCP + arquivos retroativos commitados:
+  - `20260521200000_consolidate_ai_agent_logs_event_check.sql` — DROP `ai_agent_logs_event_check` (lista antiga 20 eventos), `chk_ai_agent_logs_event` (22) vira único
+  - `20260521200001_extend_is_table_protected_sprint_a.sql` — whitelist +6 tabelas
+  - `20260517000000_d34_conversations_resolved_at_retroactive.sql` — arquivo retroativo (coluna já existia em prod)
+
+- **Onda 11 (requeue-conversations):** trocar `agent.out_of_hours_message` (legado D32 B30) por `agent.handoff_message_outside_hours` + `enrichOutsideHoursMessage` helper. Fallback pro legado preservado. Deploy v6.
+
+- **Onda 12 (paridade lite):** JSDoc enganoso `agent.known_brands` removido de `brandDetection.ts` (feature nunca implementada). Rename de string em teste pra refletir realidade.
+
+- **Onda 13 (HIGH RISK ai-agent):** escopo reduzido honestamente:
+  - ✅ I3: fallback default `gpt-5-mini` em `_shared/llmProvider.ts` + `BrainConfig.tsx` UI (3 agents ativos com `model` setado → não afetados)
+  - ✅ I2: novo `validateInteresseCategory` em `_shared/setTagsValidator.ts` + wire no handler `set_tags` em `ai-agent/index.ts:3145+` (chamado APÓS `aliasConfig` ser declarado). 9 testes novos — 23/23 PASS.
+  - ⏸️ I1 (strict mode 9 tools): exige refator coordenado das 9 schemas (required arrays + null em opcionais). PR dedicado em Sprint B.
+  - ⏸️ #4 (sub_agents → agent_profiles): exige entender M17 F3 fallback. Sprint B.
+  - ⏸️ #9 (varredura curto-circuitos R134): horas de revisão caso-a-caso. Sprint B.
+
+- **Onda 14 (pipeline):**
+  - `npx tsc --noEmit`: 0 erros
+  - `npx vitest run`: 863/875 PASS, 9 falhas pré-existentes (Deno-style + useForms + FormBuilder + excludedProducts — não relacionadas)
+  - Deploy CLI: `requeue-conversations` v6 + `ai-agent` v74 ACTIVE com `verify_jwt:false`
+  - Commit + push
+
+**Resultados:**
+- 8 P0s da auditoria: 7 fechados, 1 deferido (I1)
+- 5 migrations: 3 aplicadas + 2 confirmadas já-existentes + 1 retroativa
+- 2 edge fns deployadas
+- 9 testes novos passando (validateInteresseCategory)
+
+**Frase de retomada:** *"executar Sprint B da auditoria 2026-05-21"* (refator hardcodedRules + sub_agents migration + strict mode + varredura R134).
+
+---
+
 ## 2026-05-21 (noite) — Auditoria completa 5 ondas paralelas + 30+20 melhorias
 
 **Trigger:** user pediu auditoria 360° (projeto, DB, AI Agent, regras, prompts, paridade UI admin) + análise do agente em 5 pontos específicos (tamanho prompt, funcional, subagentes, orquestrador, contexto) com **nota 0-10 em cada** + research best practices + 30 sugestões gerais + 20 de inteligência (mirando migração pra GPT-5). Deploy = git push (sem deploy de edge function, é auditoria read-only).
@@ -97,68 +140,10 @@ type: log
 
 ---
 
-## 2026-05-21 (manhã) — R131: phrasing curto na 2ª+ pergunta do stage (v7.38.6)
+## 2026-05-21 (manhã) — R131 + (madrugada) R127/R128/R129/R130 — arquivado
 
-**Trigger:** print do helpdesk Eletropiso — IA repetindo "Para encontrar a melhor opção, qual X?" 3x na qualif de tintas (ambiente, tipo, cor). User: "não gostei do agente ficar repetindo, de onde veio isso?"
-
-**Diagnóstico:**
-- Origem em `_shared/serviceCategories.ts:107` (template `phrasing` do stage `identificacao` da categoria `tintas`)
-- `formatPhrasing(stage.phrasing, field)` aplica o MESMO template pra cada field não respondido do stage → preâmbulo repete
-
-**Decisão (recomendação minha):** opção híbrida cosmética em vez de "deixar LLM reformular" (opção 4 inicial). Razão: últimos 5 commits (R124-R130) reforçaram determinismo; soltar a abertura agora arriscaria regressão. Cosmético resolve queixa com risco zero.
-
-**Fix:** `formatPhrasing` aceita 3º parâmetro `answeredCountInStage` (default 0, backward compat). `>= 1` → template curto. 3 call sites no `ai-agent/index.ts` passam o count.
-
-**Testes:** +4 testes R131 em `serviceCategories.test.ts` (120/120 PASS). Suite completa: 9 falhas pré-existentes não relacionadas (5 suites Deno-style `import "https://..."` + useForms/excludedProducts/FormBuilder).
-
-**Deploy:** `npx supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✅ (PAT eletropiso.wsmart).
-
-**Observação do user pra próxima sprint:** o caso de hoje também mostra que o agente NÃO detecta quando o lead demonstra desconhecimento técnico ("a melhor que vc tiver", "n sei qual"). Continuou perguntando "qual tipo? (acrílica/esmalte/epóxi)" assumindo vocabulário. Sprint dedicada aberta (memory `project_sprint_agente_consultivo.md`).
-
----
-
-## 2026-05-21 (madrugada) — R127/R128/R129/R130 + E2E 10 jornadas sandbox (v7.38.5)
-
-**Sessão E2E real de 4 bugs novos descobertos + fixados via sandbox UAZAPI 558185749970 → EletropisoV2 558781592373.**
-
-**Trigger:** user mandou print do helpdesk mostrando loop "Para qual ambiente você precisa da janela?" 3x mesmo lead respondendo "para a cozinha" 3x. Diagnóstico: lead pediu porta+janela alumínio, sistema esqueceu portas silenciosamente (R127), depois LLM inventou field inexistente (R130).
-
-**Bugs descobertos durante a sessão:**
-- **R127** (multi → mergeTags REPLACE silencioso) — fix com `_shared/setTagsValidator.ts` (14 testes)
-- **R128** (sale_closed false positive em "quero comprar") — removido regex ambíguo em `saleClosedDetection.ts`
-- **R129** (auto-extract pega 1ª categoria silenciosamente) — fix `matchAllCategoriesBySearchText` + curto-circuito LLM com pergunta "qual começar primeiro"
-- **R130** (LLM improvisa field inválido pós-set_tags) — flag `pendingForcedNextQuestion` + OVERRIDE pós-LLM determinístico
-
-**E2E real validado (10 cenários, 9/10 PASS):**
-- C1 bom dia ✅
-- C2 porta alumínio ✅ (R126 Camada 2 reconfirmada)
-- C3 indireto Maria ✅ (R128 fix funcionando)
-- C4 porta+janela ✅ (R127+R129)
-- C5 multi+escolha ✅ (R130 override decidiu — LLM tentou send_poll com ambiente, override substituiu pela frase correta)
-- C6 tinta acrílica branca ✅
-- C7 preço genérico ✅
-- C8 saudação + vaso ⚠️ (LLM ignorou 2ª parte — bug Camada 3 debounce, tracked como backlog)
-- C9 3 categorias ✅
-- C10 greeting+intent fechadura ✅
-
-**Pipeline:**
-- typecheck 0 erros
-- testes novos: 14 setTagsValidator + 15 searchGuard + 8 handoffGuard = 37 PASS
-- ai-agent v62 → v63 ACTIVE (4 deploys: R127, R128, R129, R130 v1 + v2)
-- 1 migration aplicada (`set_tags_duplicate_keys_rejected` no CHECK constraint)
-
-**Docs:**
-- CHANGELOG v7.38.5
-- erros-e-licoes — entry R127/R128/R129/R130 combined
-- regras-preventivas — entries 127, 128, 129, 130
-- log.md (este)
-
-**Nota 0-10: 9/10.**
-- Conteúdo: 10 (4 bugs distintos descobertos via E2E real, fixes determinísticos com helpers testáveis + override pós-LLM, regras preventivas precisas)
-- Orquestração: 9 (incremental — descobrir, fix, deploy, retest, próximo. Migration aplicada antes do código depender. Vault healthcheck respeitado)
-- Estado: 8 (9/10 cenários PASS; C8 documentado como backlog Camada 3; sessão E2E real custou ~1.5h vs horas de debug em prod se shipasse sem teste)
-
-**Frase de retorno**: "continuar bug C8 multi-msg combined Camada 3 2026-05-21".
+> Movido para [[wiki/log-arquivo-2026-05-21-r127-r131]] em 2026-05-21 (hard limit 300 linhas).
+> Conteúdo: phrasing curto R131 (v7.38.6) + sessão E2E sandbox 4 bugs descobertos R127-R130 (v7.38.5, 9/10 cenários PASS).
 
 ---
 

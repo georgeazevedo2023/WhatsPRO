@@ -123,6 +123,67 @@ export function validateSetTagsInput(tags: string[]): SetTagsValidationResult {
   }
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Sprint A I2 (2026-05-21, Bug 12 fix) — anti-hallucination:
+ *   `interesse:VALUE` exige que VALUE seja um id válido em service_categories.
+ *
+ * LLM crava interesse com value inventado (ex: "interesse:hidraulica" em
+ * agente sem essa categoria) — backend persiste lixo + qualif/search caem
+ * no default. Defesa determinística: rejeitar valores fora das category ids.
+ *
+ * Hoje o ai-agent tem mitigação via fallback chain (D33), mas o tag
+ * inválido fica persistido na conv até clear_context. Esta validação
+ * BLOQUEIA a persistência logo na entrada do set_tags handler.
+ * ────────────────────────────────────────────────────────────────────── */
+
+export interface InteresseCategoryValidation {
+  ok: boolean
+  /** Tag rejeitada (ex: "interesse:hidraulica") quando ok=false */
+  invalidTag?: string
+  /** Mensagem pro LLM com lista válida quando ok=false */
+  message: string
+}
+
+/**
+ * Valida que cada tag `interesse:VALUE` tem VALUE ∈ validCategoryIds.
+ * Retorna OK se não há tag interesse: ou se todas batem.
+ *
+ * Argumentos:
+ *  - tags: array que será passado para mergeTags
+ *  - validCategoryIds: ids permitidos derivados de agent.service_categories.
+ *    Ex: ['tintas', 'portas', 'janelas', ...]. Caso vazio, valida sempre OK
+ *    (agente sem categories configurado — preserva compat).
+ */
+export function validateInteresseCategory(
+  tags: string[],
+  validCategoryIds: string[],
+): InteresseCategoryValidation {
+  if (!Array.isArray(validCategoryIds) || validCategoryIds.length === 0) {
+    return { ok: true, message: '' }
+  }
+  if (!Array.isArray(tags)) {
+    return { ok: true, message: '' }
+  }
+  const validSet = new Set(validCategoryIds.map((id) => id.toLowerCase()))
+  for (const raw of tags) {
+    if (typeof raw !== 'string') continue
+    if (!raw.toLowerCase().startsWith('interesse:')) continue
+    const value = raw.slice('interesse:'.length).trim().toLowerCase()
+    if (!value) continue
+    if (validSet.has(value)) continue
+    return {
+      ok: false,
+      invalidTag: raw,
+      message:
+        `[INTERNO — não mostre ao lead] interesse:${value} não existe nas categorias do agente. ` +
+        `Categorias válidas: ${validCategoryIds.join(', ')}. ` +
+        `AÇÃO: pergunte ao lead com qual produto você pode ajudar (use a lista acima) — ` +
+        `NÃO use set_tags com interesse: até saber.`,
+    }
+  }
+  return { ok: true, message: '' }
+}
+
 /**
  * Formata um slug de interesse pra texto amigável.
  * Ex: "portas" → "porta", "vasos_sanitarios" → "vaso sanitário",

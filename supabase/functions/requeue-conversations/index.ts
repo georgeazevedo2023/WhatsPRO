@@ -29,7 +29,7 @@ import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import { assignHandoff } from '../_shared/handoffQueue.ts'
-import { isOutsideBusinessHours } from '../_shared/businessHours.ts'
+import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -119,7 +119,9 @@ async function loadAgentForConversation(supabase: SupabaseClient, conversationId
 
   const [{ data: agent }, { data: instance }] = await Promise.all([
     supabase.from('ai_agents')
-      .select('id, business_hours, extended_hours_until, out_of_hours_message')
+      // Sprint A #6 (2026-05-21): handoff_message_outside_hours é canônico (D32);
+      // out_of_hours_message preservado como fallback backward-compat até drop column.
+      .select('id, business_hours, extended_hours_until, handoff_message_outside_hours, out_of_hours_message')
       .eq('instance_id', inbox.instance_id)
       .eq('enabled', true)
       .maybeSingle(),
@@ -222,7 +224,13 @@ Deno.serve(async (req: Request) => {
         const updates: Record<string, unknown> = { paused_at: new Date().toISOString() }
         let oofMessageSent = false
 
-        if (!ev.out_of_hours_msg_sent && agent.out_of_hours_message && instance?.token) {
+        // Sprint A #6 (2026-05-21): D32 canonização — usa handoff_message_outside_hours;
+        // fallback pro legado out_of_hours_message durante período de migração.
+        const rawOofMessage = agent.handoff_message_outside_hours || agent.out_of_hours_message
+        const oofMessage = rawOofMessage
+          ? enrichOutsideHoursMessage(rawOofMessage, agent.business_hours)
+          : null
+        if (!ev.out_of_hours_msg_sent && oofMessage && instance?.token) {
           // Busca contato + envia via UAZAPI
           const { data: contact } = await supabase
             .from('contacts').select('jid').eq('id', conv.contact_id ?? '').maybeSingle()
@@ -231,13 +239,13 @@ Deno.serve(async (req: Request) => {
               const res = await fetchWithTimeout(`${UAZAPI_URL}/send/text`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', token: instance.token },
-                body: JSON.stringify({ number: contact.jid, text: agent.out_of_hours_message }),
+                body: JSON.stringify({ number: contact.jid, text: oofMessage }),
               }, 10000)
               if (res.ok) {
                 oofMessageSent = true
                 await supabase.from('conversation_messages').insert({
                   conversation_id: ev.conversation_id, direction: 'outgoing',
-                  content: agent.out_of_hours_message, media_type: 'text',
+                  content: oofMessage, media_type: 'text',
                   external_id: `queue_oof_${ev.id}`,
                 })
               }

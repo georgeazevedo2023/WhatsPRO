@@ -9,10 +9,12 @@
  * manager dashboard can rank top brands customers ask about (drives stocking
  * decisions).
  *
- * The brand list is intentionally a function parameter so the agent can pass
- * its own dynamic list (from agent.known_brands) without recompiling. A
- * fallback DEFAULT_BRANDS export covers the most common Brazilian construction
- * material brands.
+ * The brand list is exposed as a function parameter so future tenants can
+ * pass a custom list. Today, all callers use the DEFAULT_BRANDS export below,
+ * which covers the most common Brazilian construction material brands.
+ *
+ * Note (Sprint A 2026-05-21): the previous JSDoc mentioned `agent.known_brands`
+ * but that column never existed in the schema; removed to avoid confusion.
  */
 export const DEFAULT_BRANDS: string[] = [
   // Tintas

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateSetTagsInput } from './setTagsValidator.ts'
+import { validateSetTagsInput, validateInteresseCategory } from './setTagsValidator.ts'
 
 describe('validateSetTagsInput', () => {
   it('permite array vazio', () => {
@@ -109,5 +109,68 @@ describe('validateSetTagsInput', () => {
   it('preserva ordem em cleanedTags quando não há conflict', () => {
     const r = validateSetTagsInput(['lead_score:20', 'interesse:portas', 'material_porta:alumínio'])
     expect(r.cleanedTags).toEqual(['lead_score:20', 'interesse:portas', 'material_porta:alumínio'])
+  })
+})
+
+/* ──────────────────────────────────────────────────────────
+ * I2 (Sprint A 2026-05-21, Bug 12 fix) — validateInteresseCategory
+ * ────────────────────────────────────────────────────────── */
+
+describe('validateInteresseCategory', () => {
+  const VALID = ['tintas', 'portas', 'janelas', 'chuveiros', 'vasos_sanitarios']
+
+  it('aceita interesse: dentro da lista (caso comum)', () => {
+    const r = validateInteresseCategory(['interesse:portas'], VALID)
+    expect(r.ok).toBe(true)
+    expect(r.message).toBe('')
+  })
+
+  it('aceita case-insensitive (LLM escreve em maiúsculo)', () => {
+    const r = validateInteresseCategory(['interesse:PORTAS'], VALID)
+    expect(r.ok).toBe(true)
+  })
+
+  it('Bug 12 — REJEITA interesse:hidraulica em agente sem essa categoria', () => {
+    const r = validateInteresseCategory(['interesse:hidraulica'], VALID)
+    expect(r.ok).toBe(false)
+    expect(r.invalidTag).toBe('interesse:hidraulica')
+    expect(r.message).toContain('hidraulica')
+    expect(r.message).toContain('tintas, portas, janelas, chuveiros, vasos_sanitarios')
+  })
+
+  it('aceita quando tags não contém interesse:', () => {
+    const r = validateInteresseCategory(['material_porta:alumínio', 'lead_score:20'], VALID)
+    expect(r.ok).toBe(true)
+  })
+
+  it('rejeita primeira inválida quando há múltiplas tags', () => {
+    const r = validateInteresseCategory(
+      ['material_porta:alumínio', 'interesse:eletrica', 'lead_score:20'],
+      VALID,
+    )
+    expect(r.ok).toBe(false)
+    expect(r.invalidTag).toBe('interesse:eletrica')
+  })
+
+  it('compat: validCategoryIds vazio sempre passa (agente sem categories)', () => {
+    const r = validateInteresseCategory(['interesse:qualquer_coisa'], [])
+    expect(r.ok).toBe(true)
+  })
+
+  it('input inválido (não-array) passa por default', () => {
+    // deno-lint-ignore no-explicit-any
+    const r = validateInteresseCategory(null as any, VALID)
+    expect(r.ok).toBe(true)
+  })
+
+  it('ignora interesse com value vazio', () => {
+    const r = validateInteresseCategory(['interesse:', 'interesse:portas'], VALID)
+    expect(r.ok).toBe(true)
+  })
+
+  it('ignora tags que não são strings', () => {
+    // deno-lint-ignore no-explicit-any
+    const r = validateInteresseCategory(['interesse:portas', 42 as any, null as any], VALID)
+    expect(r.ok).toBe(true)
   })
 })

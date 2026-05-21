@@ -207,14 +207,16 @@ Informações da empresa:
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs">Modelo</Label>
-              <Select value={config.model || 'gpt-4.1-mini'} onValueChange={(v) => onChange({ model: v })}>
+              <Select value={config.model || 'gpt-5-mini'} onValueChange={(v) => onChange({ model: v })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gpt-4.1-mini">GPT-4.1 Mini (principal, rápido)</SelectItem>
-                  <SelectItem value="gpt-4.1-nano">GPT-4.1 Nano (ultra-rápido, econômico)</SelectItem>
-                  <SelectItem value="gpt-4.1">GPT-4.1 (avançado)</SelectItem>
+                  <SelectItem value="gpt-5-mini">GPT-5 Mini (recomendado — rápido, instruction-following melhor)</SelectItem>
+                  <SelectItem value="gpt-5-nano">GPT-5 Nano (ultra-rápido, ideal pra router/classify)</SelectItem>
+                  <SelectItem value="gpt-4.1-mini">GPT-4.1 Mini (legado)</SelectItem>
+                  <SelectItem value="gpt-4.1-nano">GPT-4.1 Nano (legado)</SelectItem>
+                  <SelectItem value="gpt-4.1">GPT-4.1 (legado, mais caro)</SelectItem>
                   <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (fallback)</SelectItem>
                   <SelectItem value="gemini-2.5-pro">Gemini 2.5 Pro (avançado)</SelectItem>
                 </SelectContent>

@@ -13,6 +13,45 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.39.0 (2026-05-21) — Sprint A da auditoria 2026-05-21 — P0s + I2 + I3
+
+**Execução parcial da Sprint A.** 7 dos 13 itens planejados aplicados; 5 confirmados já-fechados pela investigação; 3 HIGH-RISK deferidos pra Sprint B com justificativa documentada.
+
+**Aplicados:**
+- **#1 CHECK constraints rivais resolvidos:** DROP `ai_agent_logs_event_check` (lista antiga de 20 eventos); `chk_ai_agent_logs_event` (22 eventos) vira fonte única. Inserts de `search_guard_blocked` e `set_tags_duplicate_keys_rejected` voltam a ser persistidos. Migration `20260521200000_consolidate_ai_agent_logs_event_check.sql`.
+- **#7 D34 migration retroativa:** arquivo `20260517000000_d34_conversations_resolved_at_retroactive.sql` commitado. Coluna + index já existiam em prod; agora `supabase db reset` reproduz local.
+- **#8 Whitelist `is_table_protected` ampliada** com 6 tabelas críticas (`user_feature_permissions`, `business_hours_exceptions`, `handoff_queue_events`, `e2e_test_batches`, `e2e_test_runs`, `notification_log`). Migration `20260521200001_extend_is_table_protected_sprint_a.sql`.
+- **#6 `requeue-conversations` migrado** para `handoff_message_outside_hours` + `enrichOutsideHoursMessage`. Fallback pra `out_of_hours_message` preservado até drop column. `requeue-conversations` v6 ACTIVE.
+- **#5 `known_brands` JSDoc enganoso removido** de `brandDetection.ts`. Não era bug — feature nunca foi implementada, comentário sugeria coluna que não existe.
+- **I3 Modelo default migrado** pra `gpt-5-mini` em `_shared/llmProvider.ts` (fallback) e `BrainConfig.tsx` (UI). Agentes existentes com `model` setado mantêm valor. Custo praticamente neutro.
+- **I2 `validateInteresseCategory`** adicionado a `_shared/setTagsValidator.ts` + handler `set_tags` em `ai-agent/index.ts`. Rejeita `interesse:VALUE` fora das `service_categories[].id` antes de persistir. Bug 12 fechado. 9 testes vitest novos (23/23 PASS no arquivo).
+
+**Confirmados já-fechados (auditor errou por falta de MCP):**
+- #2 EXCLUDE USING gist em `handoff_queue_events` — `handoff_queue_events_one_active_per_conv` já existia.
+- #3 Cron `purge_notifications_older` — `purge_notifications_hourly` (jobid 36) ativo.
+- #4 (parcial) `agent.known_brands` — coluna nunca existiu; código consumia `DEFAULT_BRANDS` sempre.
+
+**Deferidos pra Sprint B (HIGH RISK, exigem PR dedicado):**
+- **#4 Migrar `sub_agents` → `agent_profiles` reader** — refator do `ai-agent/index.ts:1532` e `ai-agent-playground:67` exige entender fallback M17 F3 (qual perfil se agente não tem nenhum cadastrado).
+- **#9 Varredura sistemática curto-circuitos R134** — horas de revisão caso-a-caso; mapear achados antes de aplicar.
+- **I1 strict mode em tool schemas** — exige refator das 9 tools (`required` array completo + `null` nas opcionais). 4/9 já estão alinhadas; resto pede PR isolado.
+
+**Pipeline final:**
+- `npx tsc --noEmit`: 0 erros
+- `npx vitest run`: 863/875 PASS + 3 skipped + 9 falhas pré-existentes (Deno-style imports, useForms, FormBuilder, excludedProducts — não relacionadas)
+- 3 migrations aplicadas via MCP em prod
+- ai-agent v74 + requeue-conversations v6 ACTIVE (verify_jwt:false confirmado)
+- Commit + push
+
+**Métricas pós-Sprint A:**
+- Findings P0 da auditoria: 8 → 1 (`I1 strict mode` deferido)
+- DB nota: 6.5 → estimado 8.0 (P0s resolvidos + retroativos)
+- AI Agent: ganho I2 (Bug 12 fechado) + I3 (modelo recomendado novo). Outras dimensões inalteradas.
+
+**Frase de retomada:** *"executar Sprint B da auditoria 2026-05-21"* (refator hardcodedRules + sub_agents migration + strict mode).
+
+---
+
 ### Auditoria 2026-05-21 (meta — sem release de código)
 
 **Tipo:** auditoria 360° read-only. 5 agentes paralelos (DB, AI Agent core, prompts/regras, paridade UI↔backend, research best practices 2026) + síntese + 30 melhorias gerais + 20 de inteligência. Nenhum código alterado.
@@ -243,41 +282,9 @@ audited_at: 2026-05-21
 
 ---
 
-### v7.38.0 (2026-05-20) — Permissões granulares por feature + redesign Categorias/Excluded
+### v7.38.0 + v7.37.21 (2026-05-20) — D36 permissões granulares + prefixo `*Nome*` helpdesk (arquivado)
 
-**Feature D36 — Sistema de permissões granulares (F1).** Atendentes e gerentes podem receber acesso a features específicas do AI Agent. Migration `user_feature_permissions` + função `has_feature_permission(user, feature)` SECURITY DEFINER no DB resolve a permissão (super_admin sempre true, gerente true por padrão, atendente false por padrão). 5 features iniciais: `manage_catalog`, `manage_faq`, `manage_qualification`, `manage_excluded_products`, `manage_blocked_numbers`.
-
-**UI/UX.** Botão Shield no card de usuário (UsersTab) abre `UserPermissionsDialog` com 5 toggles + reset pro padrão do role. Gerentes agora acessam `/dashboard/admin/users` (era só super_admin). Hooks `useFeaturePermission` + componentes `<FeatureRoute>` e `<AnyFeatureRoute>` guardam rotas e tabs internas. Tabs Categorias/Excluded/Catálogo/Conhecimento/Bloqueados do AIAgentTab mostram empty state "Sem permissão" se atendente sem acesso. Sidebar "Agente IA" agora aparece pra quem tem qualquer feature AI.
-
-**Fixed.** 3 guards `isSuperAdmin` internos duplicados em AIAgentConfig/AIAgentCatalog/AIAgentKnowledge removidos (controle agora vive 100% nos route guards).
-
-**Redesign Categorias de atendimento + Produtos NÃO vendemos.** Grid responsivo 1/2/3 cols (sm/md/xl), toolbar com busca/sort/paginação 12-por-página, stats bar 4-cards compactos, tiles com avatar colorido (paleta determinística por hash do label), mini funil visual por exit_action, click abre editor em Sheet lateral. Mobile-first (avatares 32px / padding p-3 mobile). Badge "Sem catalogo digital" removida.
-
-**Arquivos:**
-- Migration `20260520120000_user_feature_permissions.sql` (aplicada em prod via MCP)
-- `src/hooks/useFeaturePermission.ts` (90 lin) — hook + FEATURE_KEYS + FEATURE_LABELS
-- `src/components/routes/FeatureRoute.tsx` + `AnyFeatureRoute.tsx`
-- `src/components/admin/UserPermissionsDialog.tsx` (233 lin)
-- `src/components/admin/UsersTab.tsx` — botão Shield no card
-- `src/components/admin/AIAgentTab.tsx` — 5 guards de tab
-- `src/components/dashboard/Sidebar.tsx` — Agente IA visível pra atendentes com features
-- `src/App.tsx` — rotas catalog/knowledge via FeatureRoute, ai-agent via AnyFeatureRoute, admin/users via CrmRoute (gerente acessa)
-- `src/pages/dashboard/AIAgentConfig.tsx` + `AIAgentCatalog.tsx` + `AIAgentKnowledge.tsx` — guards internos removidos
-- `src/components/admin/ai-agent/ServiceCategoriesConfig.tsx` (+~250 lin) e `ExcludedProductsConfig.tsx` (redesign completo)
-- `src/integrations/supabase/types.ts` — regen
-
-**Backlog próxima sessão:** F2 (BlockedNumbersConfig já existe — só validar UX) + ações destrutivas do gerente no UsersTab (esconder delete/role select).
-
----
-
-### v7.37.21 (2026-05-20) — Prefixo `*Nome*` do atendente em msgs humanas (helpdesk)
-
-**UX.** Atendente envia texto pelo helpdesk → lead recebe `*Lucas*\nOi Maria...` no WhatsApp. Aplicado em **toda** msg outgoing (decisão validada via AskUserQuestion — evita confusão de identidade em conversas longas com troca humano↔IA↔humano).
-
-**`src/components/helpdesk/ChatInput.tsx`:**
-- State `agentName` carregado 1x no mount via `user_profiles.full_name` (primeiro nome; fallback `user.email`).
-- `handleSend` prefixa `*${agentName}*\n` antes do `quoted` (citação do replyTo segue após o nome). Prefixo vai pro UAZAPI **E** pro INSERT em `conversation_messages` → card outgoing no helpdesk mostra exatamente o que o lead recebeu.
-- Notas privadas (`private_note`) e mídia (imagem/áudio/doc) **não** recebem prefixo — escopo intencional.
+> Movido para [[wiki/changelog/2026-05-part7]] em 2026-05-21 (hard limit 300 linhas).
 
 ---
 

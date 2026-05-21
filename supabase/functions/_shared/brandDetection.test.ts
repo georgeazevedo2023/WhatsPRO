@@ -37,7 +37,7 @@ Deno.test('detectBrand — null em texto sem marca', () => {
   assertEquals(detectBrand(''), null)
 })
 
-Deno.test('detectBrand — lista customizada (agent.known_brands)', () => {
+Deno.test('detectBrand — lista customizada via segundo parâmetro', () => {
   const customBrands = ['Acme Tintas', 'Globex']
   assertEquals(detectBrand('quero da acme tintas', customBrands), 'acme_tintas')
   assertEquals(detectBrand('Globex disponível?', customBrands), 'globex')

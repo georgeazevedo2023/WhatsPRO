@@ -18,7 +18,7 @@ import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
 import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG } from '../_shared/handoffGuard.ts'
 import { evaluateSearchGuard } from '../_shared/searchGuard.ts'
-import { validateSetTagsInput } from '../_shared/setTagsValidator.ts'
+import { validateSetTagsInput, validateInteresseCategory } from '../_shared/setTagsValidator.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import {
   getCategoriesOrDefault,
@@ -3154,6 +3154,33 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           const aliasInteresse = extractInteresseFromTags(conversation.tags || [])
           const aliasConfig = getCategoriesOrDefault(agent)
           const aliasCategory = matchCategory(aliasInteresse, aliasConfig)
+
+          // Sprint A I2 (2026-05-21, Bug 12 fix): valida interesse:VALUE ∈ category.id.
+          // LLM crava interesse com value fora das categorias do agente (ex: interesse:hidraulica
+          // em agente sem essa cat). Backend hoje mitiga via fallback chain (D33) mas o tag
+          // inválido fica persistido na conv. Defesa determinística rejeita antes de persistir.
+          {
+            const validCategoryIds = (Array.isArray((aliasConfig as any)?.categories) ? (aliasConfig as any).categories : [])
+              .map((c: any) => String(c?.id || '').trim().toLowerCase())
+              .filter(Boolean)
+            const interesseValidation = validateInteresseCategory(sanitizedRawTags, validCategoryIds)
+            if (!interesseValidation.ok) {
+              await supabase.from('ai_agent_logs').insert({
+                agent_id, conversation_id, event: 'interesse_hallucination_blocked',
+                metadata: {
+                  invalid_tag: interesseValidation.invalidTag,
+                  valid_category_ids: validCategoryIds,
+                  raw_tags: sanitizedRawTags,
+                  source: 'i2_category_id_check',
+                },
+              })
+              log.info('I2: interesse value not in agent categories', {
+                invalid: interesseValidation.invalidTag,
+                valid_ids: validCategoryIds,
+              })
+              return interesseValidation.message
+            }
+          }
 
           // #25 + R84 (2026-04-30): Enforcement de keys/motivo/objecao.
           // VALID_KEYS = base (sistema) ∪ stages.fields[].key dinamicas do agente.

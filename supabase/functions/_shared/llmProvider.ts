@@ -67,7 +67,10 @@ export interface LLMResponse {
 
 async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
   const startMs = Date.now()
-  const model = req.model || 'gpt-4.1-mini'
+  // Sprint A I3 (2026-05-21): fallback default migrado pra gpt-5-mini.
+  // Custo praticamente neutro ($6 vs $6.40/10k msgs), instruction following melhor,
+  // structured outputs nativos. Agentes com agent.model setado mantêm o valor.
+  const model = req.model || 'gpt-5-mini'
 
   const openaiMessages: any[] = [
     { role: 'system', content: req.systemPrompt },
