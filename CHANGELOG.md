@@ -13,6 +13,19 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.6 (2026-05-21) — Sprint B5 Onda 2b: extrai buildQualificationContext
+
+Continua o split. Onda 2b extrai a função `buildQualificationContext` (R134/R135/R136/R129/R131 acoplados) — ~127 lin puras movidas pra `_shared/agent/qualificationContext.ts`.
+
+**Mudanças:**
+- Novo `_shared/agent/qualificationContext.ts` — função pura recebendo currentTags + agentCfg + recentMessages, retornando string do bloco prompt. Cobre 4 caminhos: (1) R136 horizontalPending → handoff multi-item, (2) R129/R134 multi_interesse_pending → pergunta qual começar, (3) qualif stage normal com R131 phrasing + R135 anti-loop, (4) fallback vazio.
+- `ai-agent/index.ts:1460-1578` (~120 lin in-line) → 1 linha de comentário. index.ts: 4390 → **4265 lin** (-125). Acumulado B5: -279 lin (4544 inicial).
+- +15 testes cobrindo prioridade R136 > R129, fallback id quando label inexistente, DEFAULT_SERVICE_CATEGORIES_V2 (tinta casa em 'tinta|esmalte|verniz'), nudge R135 anti-loop.
+
+**Pipeline:** tsc 0 · vitest **1023 pass (+15 novos)** / 9 fail pré-existentes. Deploy ai-agent v80→v81 ACTIVE.
+
+---
+
 ### v7.40.5 (2026-05-21) — Sprint B5 Onda 2a: extrai promptSections puras
 
 Continuação do split estrutural do `ai-agent/index.ts`. Onda 2a extrai as 9 prompt sections in-line + leadContextBlock + dynamicContext (com R121 facts block humanizado) — bloco PURO sem side effect.
@@ -159,36 +172,7 @@ Phrasing curto na 2ª+ pergunta do stage (sem repetir "Para encontrar a melhor o
 
 ### v7.38.5 (2026-05-21) — R127/R128/R129/R130: multi-categoria, loop "ambiente da janela", sale_closed false positive
 
-**4 bugs descobertos por E2E real (10 jornadas via Sandbox UAZAPI → EletropisoV2). 9/10 PASS.**
-
-**R127 — loop "Para qual ambiente você precisa da janela?":** lead pediu porta+janela, `mergeTags` fazia REPLACE-by-key silencioso (`interesse:portas` sobrescrito por `interesse:janelas`), depois LLM inventava field `ambiente_janela` que não existe na categoria janelas. Fix: `_shared/setTagsValidator.ts` (14 testes) rejeita 2+ valores em mesma key; caso especial `interesse:` devolve instrução pra LLM perguntar ao lead qual começar.
-
-**R128 — `sale_closed_detected` false positive em "quero comprar":** regex `\bquero\s+(comprar|levar|fechar)\b` em `saleClosedDetection.ts` pegava INTENÇÃO de compra no início da conversa como SALE CLOSED. Resultado: handoff prematuro com `venda:fechada` + `ia:shadow` antes de qualquer qualif. Fix: removido o padrão ("bora comprar" idem); só "bora fechar", "fechei", "combinado", "comprovante", "pix" disparam agora.
-
-**R129 — auto-extract escolhe 1ª categoria silenciosamente em multi:** `matchCategoryBySearchText` retorna PRIMEIRO match. Lead diz "porta + janela" → setou só `interesse:portas`, ignorou janela. Fix: novo `matchAllCategoriesBySearchText` + curto-circuita o LLM se 2+ categorias detectadas: envia direto "Posso te ajudar com X e Y. Por qual prefere começar?" + seta tag `multi_interesse_pending:CSV`.
-
-**R130 — após escolha lead, LLM improvisa field inválido:** depois do `set_tags(interesse:NEW)`, qualificationContext do prompt fica stale → LLM perguntava "ambiente da janela" mesmo sem field existir (chegou a usar `send_poll` com opções inventadas "sala/cozinha/quarto/banheiro" pra janelas!). Fix: flag `pendingForcedNextQuestion` setada no handler set_tags; após LLM gerar resposta, se LLM divergiu (não menciona o phrasing OU usou send_poll), OVERRIDE com a frase exata da próxima pergunta da categoria nova.
-
-**Arquivos:**
-- `supabase/functions/_shared/setTagsValidator.ts` (helper testável + 14 testes)
-- `supabase/functions/_shared/saleClosedDetection.ts` (remove `\bquero\s+(comprar|levar|fechar)\b`)
-- `supabase/functions/_shared/serviceCategories.ts` (`matchAllCategoriesBySearchText` + `multi_interesse_pending` em BASE_VALID_TAG_KEYS)
-- `supabase/functions/ai-agent/index.ts` (~80 lin: integração 4 fixes + flag override pós-LLM)
-- Migration `20260521003000_*` adiciona `set_tags_duplicate_keys_rejected` ao CHECK constraint
-
-**E2E real (10 cenários sandbox 558185749970 → 558781592373):**
-- C1 ✅ "bom dia" → greeting + para
-- C2 ✅ "porta alumínio" → qualif portas (R126 Camada 2)
-- C3 ✅ "oi/Maria/comprar material" → sem sale_closed false positive (R128)
-- C4 ✅ "porta+janela alumínio" → "Posso te ajudar com portas e janelas..." (R127+R129)
-- C5 ✅ "janela primeiro" → "Pra encontrar a janela certa, material?" (R130 override)
-- C6 ✅ "tinta acrílica branca pra parede" → qualif + handoff outside hours
-- C7 ✅ "qual o preço?" → não chuta carrossel (R126)
-- C8 ⚠️ "oi tudo bem? + vaso sanitário" → LLM ignorou 2ª parte (Camada 3 backlog)
-- C9 ✅ "tinta, fechadura e torneira" → R129 com 3 categorias
-- C10 ✅ "bom dia! comprar fechadura digital" → qualif fechaduras (R128 não disparou)
-
-**Pipeline:** typecheck 0 erros. searchGuard 15 + setTagsValidator 14 + handoffGuard 8 = 37 testes novos.
+**R127-R130 arquivados.** 4 bugs descobertos por E2E real, 9/10 PASS. Detalhe em [[wiki/changelog/2026-05-part8]] · [[wiki/erros/historico-2026-05-part3]].
 
 **Deploy:** `supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓ → v63 ACTIVE.
 

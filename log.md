@@ -9,6 +9,25 @@ type: log
 
 ---
 
+## 2026-05-21 (noite IV) — Sprint B5 Onda 2b shipped (v7.40.6) — extrai buildQualificationContext
+
+**Trigger:** user pediu pra prosseguir após Onda 2a + reportar %. Onda 2b é função pura (~127 lin) com R134/R135/R136/R129/R131 acoplados, baixo risco.
+
+**Execução:**
+1. `_shared/agent/qualificationContext.ts` — função pura única recebendo currentTags + agentCfg + recentMessages. Importa deps de `serviceCategories`, `qualificationAntiLoop`, `horizontalQualif`.
+2. `qualificationContext.test.ts` — 15 testes cobrindo prioridade R136 > R129, fallback id quando label inexistente, DEFAULT_SERVICE_CATEGORIES_V2 (`interesse:tinta` casa em `tinta|esmalte|verniz`), nudge anti-loop R135.
+3. `ai-agent/index.ts`: remove função local inteira (linhas 1460-1578, ~120 lin) → 1 comentário. index.ts: 4390 → 4265 (-125 lin). Acumulado B5: -279 lin desde 4544.
+
+**Hiccup:** primeira passada dos testes falhou em 4/16 — eu havia montado agentCfg "inválido" (stages sem campos required `id/min_score/max_score`), então `getCategoriesOrDefault` caía no DEFAULT silenciosamente. Refatorei testes pra usar DEFAULT direto (`{}` como agent) ou IDs unknown pra testar fallback. 15/15 passam.
+
+**Pipeline:** tsc 0 · vitest 1023 pass (+15 novos) / 9 fail pré-existentes idênticos. Deploy ai-agent v80→v81 ACTIVE.
+
+**Andamento Plano Orquestrador:** 35% → **38%**. Próxima: Onda 2c (pre-LLM decisions, ~400 lin HIGH RISK — early returns + DB writes + broadcasts). Vai exigir sessão dedicada.
+
+**Frase de retomada:** *"executar B5 Onda 2c pre-LLM decisions"*.
+
+---
+
 ## 2026-05-21 (noite III) — Sprint B5 Onda 2a shipped (v7.40.5) — extrai promptSections puras
 
 **Trigger:** user pediu pra documentar andamento no CLAUDE.md + prosseguir + reportar %. Adicionei painel de andamento (30%→35%) e prossegui com Onda 2a do B5.
@@ -142,40 +161,7 @@ type: log
 
 ## 2026-05-21 (manhã) — Sprint B1 shipped (v7.40.0) — extração hardcodedRules
 
-**Trigger:** user pediu "executar Sprint B do orquestrador 2026-05-21". Escolheu: B1 sozinho, 5 agentes paralelos, HIGH RISK aprovado em ai-agent/index.ts, categorização 5/7/6/5 aceita.
-
-**5 agentes paralelos Wave 1:**
-- Agent 1 → `_shared/promptRules.ts` (NOVO): 937 chars / 5 regras de tom (vs 9.348 / 24 bullets do hardcodedRules). 3/3 tests pass.
-- Agent 2 → `_shared/responseValidator.ts` (NOVO): 7 checks determinísticos (anti-negative/internal-error/leak/eco/recumprimento/name-overuse/hallucinated-price). 185 lin. 19/19 tests pass. Modo telemetria nesta sprint.
-- Agent 3 → `_shared/searchGuard.ts` (estendido): nova `detectIncomingSearchSignal` cobre R121 + brand→search. +91 lin. 28/28 tests. **NÃO wirado** (Edit 3 ALTO RISCO, defer Sprint B5).
-- Agent 4 → `_shared/handoffGuard.ts` (estendido): `shouldBlockHandoffForPayment` + `mentionsPaymentTopic`. +87 lin. 23/23 tests. **Wirado** no case handoff_to_human.
-- Agent 5 → wire plan `/tmp/B1_WIRE_PLAN.md` (4 edits + 7 riscos mapeados).
-
-**Wave 2 (orquestrador):** apliquei 4 edits no `ai-agent/index.ts`:
-1. Imports dos 4 helpers (linhas 19-25)
-2. Declaração `hardcodedRules` removida (era linhas 1644-1668)
-3. `systemPrompt` array usa `buildPromptRulesString()` (linha ~2008)
-4. `case 'handoff_to_human'` chama `shouldBlockHandoffForPayment` (linha ~3676)
-5. `responseValidator.validateLLMResponse` chamado em telemetria antes do validator LLM (linha ~3997)
-6. `validatorAgent.ts` prompt estendido com 4 regras órfãs (INTERNO/erro-interno/eco/recumprimento)
-
-**Wave 3 (auditor — general-purpose agent):**
-- 10 arquivos exatos esperados ✅
-- 5 destinos verificados com evidência por linha ✅
-- 5 wire points OK ✅
-- Impacto medido: **-89,98% no prompt** (9.348 → 937 chars / ~-2.100 tokens por turno)
-- **Veredito: PASS COM RESSALVAS** (ressalvas esperadas pelo plano)
-
-**Pipeline:** tsc 0 erros ✅. Vitest 913 pass / 9 fail pré-existentes (idêntico Sprint A — FormBuilder + useForms + excludedProducts não-relacionados). **+50 testes novos B1 todos pass.**
-
-**Deploy:** PENDENTE de aprovação. Edge fn `ai-agent` v74 ainda em produção (não modificado nesta sessão).
-
-**Follow-up:**
-- Edit 3 (searchGuard PRÉ-LLM wire) defer Sprint B5
-- responseValidator em telemetria por 1-2 sem antes de enforcement
-- B2/B3/B4/B5 pendentes — próxima sessão
-
-**Frase de retomada:** *"executar Sprint B2 strict mode 2026-05-21"* (B2 = strict mode 9 tool schemas, ~2 dias).
+5 agentes paralelos + auditor. **-89,98% no prompt** (9.348→937 chars). 10 arquivos, 4 helpers novos, +50 testes. Detalhe em [[wiki/changelog/2026-05-part8]].
 
 ---
 
