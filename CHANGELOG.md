@@ -13,6 +13,25 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.4 (2026-05-21) — Sprint B5 Onda 0+1: extrai loadContextDocuments
+
+Início do split estrutural do `ai-agent/index.ts` (4544 lin) — pré-requisito do Sprint C (router + specialists). Onda 1 extrai as 4 fontes de context text (campaign + form + bio + funnel + profile/funnel_instructions) que estavam in-line nas linhas 1066-1170.
+
+**Mudanças:**
+- Nova pasta `_shared/agent/` com:
+  - `context.ts` (tipos compartilhados: Logger, FunnelData, ProfileData, ConversationTagsCarrier — vão crescer ondas futuras).
+  - `contextDocuments.ts` (5 funções puras: `loadCampaignContext`, `loadFormContext`, `loadBioContext`, `buildFunnelSections`, orchestrador `buildContextDocuments`). +22 testes.
+- `ai-agent/index.ts`: 105 linhas in-line → 13 linhas de chamada única. -90 lin no total (4544 → 4454).
+- Strings de output **idênticas char-a-char** ao código original — testes confirmam cada caminho condicional (sem campanha, sem profile, profile vs funnel_prompt, etc.).
+
+**Pipeline:** tsc 0 erros · vitest **980 pass (+22 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v78→v79 ACTIVE.
+
+**Sprint B5 wave-based:** Onda 0+1 ✅. Próximas ondas (sessões futuras): Onda 2 buildSystemPrompt (~600 lin), Onda 3 toolExecution (~1500 lin — alto risco, vai subdividir), Onda 4 llmCallLoop, Onda 5 dispatchResponse.
+
+**Target final:** index.ts ~1200-1500 lin (originalmente o plano falava em <300, mas pro tamanho real isso é irrealista sem 8+ ondas). O importante é deixar o terreno pronto pra Sprint C extrair 1 specialist com diff de ~300 lin, não 1000+.
+
+---
+
 ### v7.40.3 (2026-05-21) — Sprint B3: reader sub_agents → agent_profiles
 
 Reader único pra perfil de atendimento. UI já tinha migrado na M17 F3 (2026-04-09); agora o `ai-agent` e o `ai-agent-playground` também. Pré-requisito do Sprint C — cada specialist futuro vai ter `agent_profiles` row própria.
@@ -110,29 +129,9 @@ Regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca). Detalhe em 
 
 ---
 
-### v7.38.7 (2026-05-21) — R132: IA ignorou transcrição de áudio (Edson, EletropisoV2)
+### v7.38.7 (2026-05-21) — R132 arquivado
 
-**Lead Edson (558781302237) mandou "Bom dia" → "Edson" → áudio "Você tem a quartisolite rejunto pra piscina?" → IA respondeu pergunta genérica "Edson, em que tipo de material...".** Logs mostraram `incoming_text="Edson"` + `incoming_has_audio=false` — ai-agent processou só o texto, ignorou a transcrição que já estava populada na tabela.
-
-**Causa raiz (família Camada 3 — 4º incidente):** o pipeline áudio é assíncrono. Texto entra no debounce queue imediato; áudio passa por transcribe-audio (~5-10s extra) e chega tarde demais — vira queue paralelo órfão, ou marca `processed=false` mas é pulado. Bug `ai-agent/index.ts:308-322` lia só `m.content` do queue, e como `content=""` pra áudio (transcrição vive em coluna separada `conversation_messages.transcription`), `.filter(Boolean)` removia a mensagem áudio inteira do contexto do LLM.
-
-**Mesma família que:** R126 Camada 3 (msgs chegando durante processamento — Guttemberg), C8 multi-msg combined (saudação+intent), R50 race debounce (backlog).
-
-**Fix B (re-leitura DB antes do LLM):**
-- Novo `_shared/incomingMessagesLoader.ts` (110 lin) — helper testável com 4 funções puras (`buildIncomingFromDbRows`, `buildIncomingFromQueue`, `calcLowerBoundTs`, `loadIncomingMessages`).
-- Estratégia: usar `queuedMessages[0].timestamp - 2s` como lower-bound, query `conversation_messages WHERE direction='incoming'` no intervalo, priorizar `transcription` sobre `content`. Quando DB retorna ≥1 row útil, substitui `incomingMessages` inteiro pelo array normalizado; senão fallback pro queue (comportamento pré-R132).
-- Log estruturado `R132 db-vs-queue divergence resolved` registra quando DB enriquece resultado (auditoria/debug).
-
-**Arquivos:**
-- `supabase/functions/_shared/incomingMessagesLoader.ts` (helper, 110 lin)
-- `supabase/functions/_shared/incomingMessagesLoader.test.ts` (14 testes — Edson repro, áudio+texto combinados, fallback DB error, empty queue, exceções)
-- `supabase/functions/ai-agent/index.ts` (import + integração no bloco 308-322, ~30 lin com log)
-
-**Pipeline:** typecheck 0 erros. Vitest 849 pass / +14 novos / 9 falhas pré-existentes (URL imports Deno + FormBuilder/useForms intocadas).
-
-**Deploy:** `supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓ → v64 ACTIVE.
-
-**Lição R132.** Pipeline assíncrono multi-canal (texto+áudio, texto+imagem-OCR-future, etc.) precisa de defesa em profundidade no consumidor final, não confiar que o queue produzido pelos webhooks captura 100% do estado real. **Re-ler a fonte de verdade (tabela) antes da decisão crítica** é o padrão que cobre toda a família Camada 3.
+IA ignorou transcrição de áudio (Edson, EletropisoV2). Fix re-leitura DB antes do LLM via `_shared/incomingMessagesLoader.ts`. Detalhe em [[wiki/changelog/2026-05-part8]] · [[wiki/erros-e-licoes#R132]].
 
 ---
 

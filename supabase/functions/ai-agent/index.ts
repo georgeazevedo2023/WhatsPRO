@@ -46,6 +46,7 @@ import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedP
 import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
 import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
 import { loadActiveProfile, type ProfileRow as ActiveProfileRow } from '../_shared/profileReader.ts'
+import { buildContextDocuments } from '../_shared/agent/contextDocuments.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
 
@@ -1063,111 +1064,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 8.5 Load campaign context (if conversation has campaign attribution)
-    let campaignContext = ''
-    const campaignTag = (conversation.tags || []).find((t: string) => t.startsWith('campanha:'))
-    if (campaignTag) {
-      const campaignName = campaignTag.split(':').slice(1).join(':')
-      const { data: campaignData } = await supabase
-        .from('utm_campaigns')
-        .select('name, campaign_type, ai_template, ai_custom_text, utm_source, utm_medium')
-        .eq('instance_id', instance_id)
-        .eq('name', campaignName)
-        .maybeSingle()
-
-      if (campaignData) {
-        const parts: string[] = [
-          `\n\n<campaign_context>`,
-          `Este lead chegou pela campanha "${campaignData.name}" (tipo: ${campaignData.campaign_type}).`,
-          `Origem: ${campaignData.utm_source || 'direto'}${campaignData.utm_medium ? ` / ${campaignData.utm_medium}` : ''}`,
-        ]
-        if (campaignData.ai_template) parts.push(`Instrução da campanha: ${campaignData.ai_template}`)
-        if (campaignData.ai_custom_text) parts.push(`Detalhes: ${campaignData.ai_custom_text}`)
-        parts.push('Adapte seu atendimento ao contexto desta campanha.')
-        parts.push('</campaign_context>')
-        campaignContext = parts.join('\n')
-      }
-    }
-
-    // 8.6 Load form data context (if conversation has formulario: tag)
-    const formTag = (conversation.tags || []).find((t: string) => t.startsWith('formulario:'))
-    if (formTag) {
-      const formSlug = formTag.split(':').slice(1).join(':')
-      try {
-        const { data: submissions } = await supabase
-          .from('form_submissions')
-          .select('data, submitted_at, whatsapp_forms(name)')
-          .eq('whatsapp_forms.slug', formSlug)
-          .eq('contact_id', contact?.id)
-          .order('submitted_at', { ascending: false })
-          .limit(1)
-        const sub = submissions?.[0]
-        if (sub?.data) {
-          const formName = (sub as any).whatsapp_forms?.name || formSlug
-          const entries = Object.entries(sub.data as Record<string, unknown>)
-            .map(([k, v]) => `  - ${k}: ${v}`)
-            .join('\n')
-          campaignContext += `\n\n<form_data>\nEste lead preencheu o formulário "${formName}":\n${entries}\nNÃO pergunte novamente informações que já foram coletadas acima.\n</form_data>`
-        }
-      } catch (err) {
-        log.warn('Form data load error (non-critical)', { error: (err as Error).message })
-      }
-    }
-
-    // 8.7 Load bio link context (if conversation has bio_page: tag)
-    const bioPageTag = (conversation.tags || []).find((t: string) => t.startsWith('bio_page:'))
-    if (bioPageTag) {
-      const bioSlug = bioPageTag.split(':').slice(1).join(':')
-      try {
-        const { data: bioPage } = await supabase
-          .from('bio_pages')
-          .select('title, slug, description')
-          .eq('slug', bioSlug)
-          .maybeSingle()
-
-        if (bioPage) {
-          const bioParts: string[] = [
-            `\n\n<bio_context>`,
-            `Este lead chegou pela página Bio Link "${bioPage.title}".`,
-          ]
-          if (bioPage.description) bioParts.push(`Descrição da página: ${bioPage.description}`)
-          bioParts.push('Adapte a conversa ao contexto da página bio.')
-          bioParts.push('</bio_context>')
-          campaignContext += bioParts.join('\n')
-        }
-      } catch (err) {
-        log.warn('Bio context load error (non-critical)', { error: (err as Error).message })
-      }
-    }
-
-    // 8.8 Inject funnel context into prompt (funnelData loaded early in 5.4.1)
-    // #M17 F2: Also injects funnel_instructions when funnel_prompt is configured (Funis Agênticos)
-    let funnelInstructionsSection = ''
-    if (funnelData) {
-      const fParts: string[] = [
-        `\n\n<funnel_context>`,
-        `Este lead está no funil "${funnelData.name}" (tipo: ${funnelData.type}).`,
-      ]
-      if (funnelData.ai_template) fParts.push(funnelData.ai_template)
-      if (funnelData.ai_custom_text) fParts.push(funnelData.ai_custom_text)
-      fParts.push('Adapte suas respostas ao objetivo do funil.')
-      fParts.push('</funnel_context>')
-      campaignContext += fParts.join('\n')
-
-      // #M17 F3: Profile instructions > Funnel instructions (legacy fallback)
-      // Injected as the LAST section in systemPrompt (highest priority — placed last)
-      if (profileData?.prompt?.trim()) {
-        funnelInstructionsSection = `\n\n<profile_instructions>\nROTEIRO OBRIGATÓRIO DO PERFIL — PRIORIDADE MÁXIMA:\nVocê DEVE seguir este roteiro à risca. Ele tem prioridade sobre qualquer instrução geral.\n\n${profileData.prompt}\n</profile_instructions>`
-        log.info('Profile instructions injected', { profileId: profileData.id, funnelName: funnelData.name, promptLength: profileData.prompt.length })
-      } else if (funnelData.funnel_prompt?.trim()) {
-        funnelInstructionsSection = `\n\n<funnel_instructions>\nROTEIRO OBRIGATÓRIO DESTE FUNIL — PRIORIDADE MÁXIMA:\nVocê DEVE seguir este roteiro à risca. Ele tem prioridade sobre qualquer instrução geral.\n\n${funnelData.funnel_prompt}\n</funnel_instructions>`
-        log.info('Funnel instructions injected (legacy)', { funnelName: funnelData.name, promptLength: funnelData.funnel_prompt.length })
-      }
-    } else if (profileData?.prompt?.trim()) {
-      // M17 F3: No funnel but default profile exists — inject profile instructions
-      funnelInstructionsSection = `\n\n<profile_instructions>\nROTEIRO OBRIGATÓRIO DO PERFIL — PRIORIDADE MÁXIMA:\nVocê DEVE seguir este roteiro à risca. Ele tem prioridade sobre qualquer instrução geral.\n\n${profileData.prompt}\n</profile_instructions>`
-      log.info('Default profile instructions injected (no funnel)', { profileId: profileData.id, promptLength: profileData.prompt.length })
-    }
+    // 8.5-8.8 Context documents (campaign + form + bio + funnel + profile/funnel_instructions)
+    // Sprint B5 Onda 1 (2026-05-21): bloco de 105 lin extraído pra _shared/agent/contextDocuments.ts.
+    const { campaignContext: ctxCampaignContext, funnelInstructionsSection } = await buildContextDocuments(
+      supabase,
+      {
+        conversation,
+        instanceId: instance_id,
+        contactId: contact?.id ?? null,
+        funnelData,
+        profileData,
+      },
+      log,
+    )
+    let campaignContext = ctxCampaignContext
 
     // ── SHADOW MODE ──────────────────────────────────────────────────────
     // Bilateral: lead side (status_ia='shadow') OR vendor side (shadow_only=true from webhook)

@@ -9,6 +9,37 @@ type: log
 
 ---
 
+## 2026-05-21 (noite II) — Sprint B5 Onda 0+1 shipped (v7.40.4) — extrai loadContextDocuments
+
+**Trigger:** user pediu pra prosseguir Sprint B5 (split index.ts) wave-based, escopo desta sessão = Ondas 0+1. Pré-requisito real do Sprint C (orquestrador + specialists) — sem split, extrair specialist do monolito 4.4k lin é diff de 1000+.
+
+**Diagnóstico do terreno antes de codar:**
+- index.ts cresceu pra **4544 lin** (137 lin a mais que o plano original).
+- Tool execution switch sozinho tem **1753 lin** (>3× as outras fases) — Onda 3 vai subdividir.
+- Closure `runQueueAssignment` capturada em 6 paths de handoff diferentes — refator vai precisar de context object.
+- Mapeado 9 blocos com tamanhos reais (linhas exatas no resumo do CHANGELOG).
+
+**Re-escopo Onda 1:** o plano original dizia ~360 lin extraídas (campaign + form + bio + funnel context). Após leitura real, esses 4 blocos são só 105 linhas (1066-1170). Shadow mode (1171-1370) é outra fase, fica pra Onda futura.
+
+**Execução (cirúrgica):**
+1. Pasta nova `_shared/agent/` criada.
+2. `context.ts` — tipos compartilhados (Logger, FunnelData, ProfileData, ConversationTagsCarrier). Crescerá em ondas futuras.
+3. `contextDocuments.ts` — 5 funções puras: `loadCampaignContext`, `loadFormContext`, `loadBioContext`, `buildFunnelSections`, `buildContextDocuments` (orquestrador).
+4. `contextDocuments.test.ts` — 22 testes mockando supabase com builder fluent. Cobre todos os caminhos condicionais (sem tag, DB vazio, profile prioritário sobre funnel_prompt, erro DB capturado, etc.).
+5. `ai-agent/index.ts:1066-1170` (105 lin) → substituídas por chamada única `buildContextDocuments(supabase, {conversation, instanceId, contactId, funnelData, profileData}, log)`. Saldo: index.ts 4544 → 4454 (-90 lin, parte recuperada pela chamada).
+
+**Pipeline:** tsc 0 erros · vitest **980 pass (+22 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v78→v79 ACTIVE via CLI (sha novo confirmado).
+
+**Equivalência semântica garantida:** strings de output idênticas char-a-char ao código original. Caminhos condicionais cobertos por teste com `expect.toContain` nos blocos XML-like (`<campaign_context>`, `<form_data>`, `<bio_context>`, `<funnel_context>`, `<profile_instructions>`, `<funnel_instructions>`).
+
+**Onda 0 colapsada na Onda 1:** decidi não fazer Onda 0 isolada (criar context.ts vazio) — em vez disso o context.ts nasce já com tipos QUE SÃO USADOS no contextDocuments. Evita PR meaningless.
+
+**Sprint B5 status:** Onda 0+1 ✅. Próximas: Onda 2 buildSystemPrompt (~600 lin, médio risco), Onda 3 toolExecution (~1500 lin, alto risco — provavelmente vai subdividir em 2-3), Onda 4 llmCallLoop, Onda 5 dispatchResponse.
+
+**Frase de retomada:** *"executar B5 Onda 2 buildSystemPrompt 2026-05-21"* (ou data futura).
+
+---
+
 ## 2026-05-21 (noite) — Sprint B3 shipped (v7.40.3) — reader sub_agents → agent_profiles
 
 **Trigger:** user pediu pra prosseguir Sprint B3 ("executar Sprint B3 sub_agents reader 2026-05-21"). Pré-requisito Sprint C — cada specialist precisa de 1 ponto de leitura de perfil.
@@ -139,18 +170,9 @@ Regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca, v7.38.8). De
 
 ---
 
-## 2026-05-21 (manhã II) — R132: IA ignorou transcrição de áudio (Edson EletropisoV2 v7.38.7)
+## 2026-05-21 (manhã II) — R132 arquivado
 
-**Bug ao vivo prod.** Lead Edson (558781302237) mandou "Bom dia" → "Edson" → áudio "Você tem a quartisolite rejunto pra piscina?". IA respondeu pergunta GENÉRICA "Edson, em que tipo de material ou produto…". User mandou print perguntando "pq o agente de ia nao respondeu a transcrição".
-
-**Investigação:**
-- Conv `353e5b4d-fe1c-4634-a38d-04ba1e90e912` — auditei `conversation_messages` + `ai_agent_logs`
-- Bug: `ai-agent:308-322` lia só `m.content` do queue; áudio com content="" sumia em `.filter(Boolean)`
-- 4º incidente família Camada 3 (R126 + C8 + R50 + R132). Causa comum: queue não captura estado real.
-
-**Fix v7.38.7 (opção B re-leitura DB):** `_shared/incomingMessagesLoader.ts` (4 funções puras, 14 testes) + integração no `ai-agent/index.ts:308-340`. Deploy CLI v64. Detalhe completo: `CHANGELOG.md` v7.38.7. Renomeação R131→R132 por colisão com sessão paralela do phrasing.
-
-**Frase de retorno**: "validar R132 áudio em prod 2026-05-21".
+IA ignorou transcrição áudio (Edson EletropisoV2 v7.38.7). Fix incomingMessagesLoader. Detalhe em [[wiki/changelog/2026-05-part8]] · [[wiki/erros-e-licoes#R132]].
 
 ---
 
@@ -161,47 +183,9 @@ Regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca, v7.38.8). De
 
 ---
 
-## 2026-05-20 (noite III) — Fix R126: cross-categoria `search_products({query:"material"})` (v7.38.4)
+## 2026-05-20 (noite III) — R126 arquivado
 
-**Bug em prod (Guttemberg, Eletropiso 558781592373, conv `529f51f8`).** Lead pediu "Porta em alumínio e janela em alumínio, só uma de 139" → IA respondeu com **carrossel de Telha de PVC R$62**. Cross-categoria absoluta.
-
-**Investigação (logs DB):**
-- 21:41:14 msg1 "Olá gostaria…material" → debounce processa → ai-agent envia greeting (21:41:33)
-- 21:41:37 msg2 "Porta alumínio…" chega WEBHOOK enquanto ai-agent ainda roda LLM da msg1 → entra em queue separada
-- 21:41:45 LLM da msg1 termina → `search_products({query:"material"})` → carrossel Telha PVC (único produto digital cadastrado tem "material" na desc)
-- Log `response_sent` mostra `incoming_text="Olá gostaria…material"` + `message_count: 1` — confirma que LLM nunca viu "porta/janela/alumínio"
-
-**Causa raiz tripla:**
-1. Gap debounce (msg2 chegou entre greeting e LLM)
-2. Query genérica escapa Bug 27 fix — `matchCategoryBySearchText("material")` não casa nenhuma das 24 regex → `expectedCategory=null` → `filterProductsByExpectedCategory` no-op
-3. Categorias `portas`/`janelas` estão como `catalog_status:offline` mas LLM-driven search NÃO checa isso (só auto-extract `r121_*` checa)
-
-**Fix v7.38.4 (Camadas 1+2):**
-- `_shared/searchGuard.ts` (96 lin) com `evaluateSearchGuard()` — guard determinístico ANTES do query DB: recusa query genérica sem categoria + recusa categoria offline
-- `_shared/searchGuard.test.ts` — 15 cenários incluindo repro EXATO Guttemberg
-- `ai-agent/index.ts` integra helper após cálculo de `expectedCategory` (linha ~2204) + log estruturado `search_guard_blocked`
-- Migration `20260520210000_*` adiciona `search_guard_blocked` ao CHECK constraint (R88: silent INSERT fail)
-
-**Camada 3 (debounce gap) — backlog.** HIGH RISK (mexe em fluxo greeting→LLM), merece sprint próprio. Plano documentado: re-check `ai_debounce_queue` antes do LLM rodar + merge mensagens não-processadas + cancelar timer mergeado.
-
-**Pipeline:**
-- 15/15 testes PASS em `searchGuard.test.ts`
-- typecheck 0 erros
-- npm test: 817 pass / 9 falhas pré-existentes (intocadas, mesmo padrão R124/R125)
-- Deploy `supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓ → v56 → v62 ACTIVE, `verify_jwt:false`
-
-**Docs:**
-- CHANGELOG v7.38.4
-- erros-e-licoes — R126 (Top recente, antigas PostgREST/UAZAPI≠Business movidas pra historico)
-- regras-preventivas — entrada R126
-- log.md (este)
-
-**Nota 0-10: 9/10.**
-- Conteúdo: 10 (causa raiz tripla precisa via logs DB + queue + catálogo; helper testável + 15 cenários; doc completa)
-- Orquestração: 9 (refactor `_shared/`, migration aplicada antes do código depender dela, vault healthcheck respeitado <300lin)
-- Estado: 8 (Camadas 1+2 cobrem 90%; Camada 3 documentada como backlog. E2E real via WhatsApp não foi feito — user vai testar agora)
-
-**Frase de retorno**: "continuar bug R126 Camada 3 debounce 2026-05-20".
+Fix cross-categoria `search_products({query:"material"})` Guttemberg (v7.38.4): `_shared/searchGuard.ts` recusa query genérica + categoria offline. Camada 3 (debounce gap) backlog. Detalhe em [[wiki/changelog/2026-05-part8]] · [[wiki/erros/historico-2026-05-part3]].
 
 ---
 
