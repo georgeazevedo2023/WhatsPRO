@@ -140,6 +140,13 @@ audited_at: 2026-05-11
 
 | Página | Conteúdo |
 |--------|----------|
+| [[wiki/auditoria-2026-05-21-veredito]] | **Veredito 5.9/10** — síntese 5 ondas, notas oficiais nos 5 pontos pedidos, top-20 findings |
+| [[wiki/auditoria-2026-05-21-melhorias]] | **30 melhorias gerais + 20 de inteligência** priorizadas P0-P3, 3 sprints recomendados |
+| [[wiki/auditoria-2026-05-21-db]] | DB 6.5/10 — 4 P0s (constraints rivais, sem EXCLUDE gist, purge_notifications missing, drift D34/D35) |
+| [[wiki/auditoria-2026-05-21-ai-agent]] | AI Agent 5.7/10 — 4.407 lin, prompt 20-30 KB, sem orquestrador (D1=3 D3=2 D4=3 D5=5) |
+| [[wiki/auditoria-2026-05-21-prompts]] | Prompts 5.2/10 — 24 regras hardcoded, exemplos cross-domain, few-shot inexistente |
+| [[wiki/auditoria-2026-05-21-paridade]] | Paridade 7.2/10 — sub_agents/known_brands/out_of_hours_message órfãos |
+| [[wiki/auditoria-2026-05-21-research]] | Best practices 2026 — GPT-5-mini custo neutro, strict mode, router pattern, memória hierárquica |
 | [[wiki/auditoria-completa-2026-05-05]] | 5 ondas paralelas, 0 P0 / 8 P1 / 11 P2 / 7 P3, 6 sprints |
 | [[wiki/auditoria-admin-2026-05-04]] | Módulo Admin: nota 6.5/10, 7 sprints |
 | [[wiki/auditoria-helpdesk-2026-05-02]] | Helpdesk + Banco: nota 7.4/10, 6 sprints |

@@ -9,6 +9,58 @@ type: log
 
 ---
 
+## 2026-05-21 (noite) — Auditoria completa 5 ondas paralelas + 30+20 melhorias
+
+**Trigger:** user pediu auditoria 360° (projeto, DB, AI Agent, regras, prompts, paridade UI admin) + análise do agente em 5 pontos específicos (tamanho prompt, funcional, subagentes, orquestrador, contexto) com **nota 0-10 em cada** + research best practices + 30 sugestões gerais + 20 de inteligência (mirando migração pra GPT-5). Deploy = git push (sem deploy de edge function, é auditoria read-only).
+
+**Execução:** 5 agentes paralelos (background, ~8min). Cada um escreveu seu wiki direto:
+- Onda 1 DB (gsd-codebase-mapper) — `wiki/auditoria-2026-05-21-db.md` (288 lin)
+- Onda 2 AI Agent (gsd-codebase-mapper) — `wiki/auditoria-2026-05-21-ai-agent.md` (229 lin)
+- Onda 3 Prompts (gsd-codebase-mapper) — `wiki/auditoria-2026-05-21-prompts.md` (173 lin)
+- Onda 4 Paridade (gsd-codebase-mapper) — `wiki/auditoria-2026-05-21-paridade.md` (275 lin)
+- Onda 5 Research (general-purpose + WebSearch) — `wiki/auditoria-2026-05-21-research.md` (175 lin)
+
+**Síntese (eu):** `wiki/auditoria-2026-05-21-veredito.md` (142 lin) + `wiki/auditoria-2026-05-21-melhorias.md` (167 lin).
+
+**Nota oficial nos 5 pontos pedidos (sobre AI Agent):**
+- Tamanho do prompt: **3/10** (catastrófico — 20-30 KB assembled, hardcodedRules 9.3 KB monolito, cresceu 3-4× em 30d)
+- Funcional / está funcionando? **6/10** (10 incidentes em 14d, 4ª recidiva família Camada 3)
+- Subagentes / prompts curtos? **2/10** (NÃO existem — 1 mega-LLM call faz tudo)
+- Orquestrador / router? **3/10** (NÃO — pipeline procedural de detectors sedimentados)
+- Contexto (memória longa, RAG)? **5/10** (contexto dinâmico OK, memória longa NULA)
+- **Média ponderada: 3.8/10** → ajustado por "está em prod, time corrige rápido": **5.7/10**
+
+**Nota geral (4 áreas):** DB 6.5 · AI Agent 5.7 · Prompts 5.2 · Paridade 7.2 · Maturidade 2026 4.0 → **5.9/10 global**
+
+**Top-8 P0s (8 melhorias gerais críticas):**
+1. Resolver CHECK constraints rivais em `ai_agent_logs.event` (R88 de novo — bloqueio silente de inserts dos eventos novos R126/R127)
+2. `handoff_queue_events` sem `EXCLUDE USING gist` — promessa pós-incidente 9h não cumprida
+3. Cron `purge_notifications_older` não existe — promessa não cumprida
+4. Migrar leitor `sub_agents` → `agent_profiles` (M17 F3 migrou UI sem migrar reader)
+5. `agent.known_brands` lido em `brandDetection.ts` mas coluna não existe no schema
+6. Migrar `requeue-conversations` de `out_of_hours_message` (legado D32 B30) pra `handoff_message_outside_hours`
+7. Commitar migrations retroativas D34 (`conversations.resolved_at`) + D35 (`service_categories.catalog_status`)
+8. Inflação de prompt sem teto (`hardcodedRules` 9.3 KB precisa virar `_shared/promptRules.ts` testável)
+
+**Top-4 P0s de inteligência (20 melhorias I1-I20):**
+- I1 `strict: true` + `additionalProperties: false` em todas as 9 tool schemas (resolve R125-R127, sprint 2d)
+- I2 enum dinâmica em `set_tags.interesse` derivada de `service_categories` (resolve Bug 12)
+- I3 migrar `gpt-4.1-mini` → `gpt-5-mini` (custo neutro $6 vs $6.40/10k msgs, instruction following melhor)
+- I4 extrair `hardcodedRules` (9.3 KB) → `_shared/promptRules.ts` (meta: prompt < 4 KB)
+
+**Achado crucial sobre modelo:** user mencionou "GPT 5.4" — existe (lançado 2026-04-18) mas é **2.3× mais caro** que gpt-5-mini sem ganho relevante em chat WhatsApp. Flagship atual é **GPT-5.5** (2026-04-24). Recomendação: gpt-5-mini (research §1).
+
+**3 Sprints recomendados:**
+- Sprint A (1 sem) — fechar 8 P0s acumulados + I1/I2/I3 (strict + enum + migração modelo)
+- Sprint B (1 sem) — refator estrutural: I4 (extract hardcodedRules) + I5 (XML blocks) + I7/I8 (lead_memory + conversation_summary)
+- Sprint C+ (2-4 sem) — orquestrador: I13 (Router POC) + I14 (specialist product_search) + I15 (specialist handoff)
+
+**Métricas target 90d:** prompt <8 KB (hoje 20-30), index.ts <2.000 lin (hoje 4.407), incidentes/14d <3 (hoje 10), args alucinados <0.1% (hoje ~3%).
+
+**Frase de retomada:** *"executar Sprint A da auditoria 2026-05-21"*.
+
+---
+
 ## 2026-05-21 (tarde) — R133+R134: regex overlap tintas + loop R129 (caso Branca, v7.38.8)
 
 **Trigger:** print Branca (558781754008) — IA respondeu "Posso te ajudar com **tintas e vernizes**, impermeabilizantes e mantas e caixas d'água…" mesmo lead nunca pedindo tinta, e repetiu MESMA pergunta 2x.
@@ -162,46 +214,10 @@ type: log
 
 ---
 
-## 2026-05-19 (tarde) — Migração Eletropiso → nova instância +558781592373
+## 2026-05-19 — Migração Eletropiso v2 + DB Reset (arquivado)
 
-**Migração aditiva.** Nova instância UAZAPI criada com número +558781592373 (id `re662a6d32de7e0`, token `aaae9607-...`). Eletropiso atual (`r466a98889b5809`) preservada e segue operando em paralelo.
-
-**Estrutura criada:**
-- inbox `01a9c21d-98c8-4225-805a-18e79e7df719` (nome "Eletropiso 558781592373")
-- department `5240c457-762d-4adc-868c-71c1d82b7f57` ("Vendas", is_default=true, **queue_mode_enabled=false**, **default_assignee_id=Lucas**)
-- 6 inbox_users (clone integral) — mas SO Lucas em department_members (qp=10)
-- 6 user_instance_access
-- ai_agent `1062059a-b5b2-49cf-9032-098cf6875d73` (clone integral 56 colunas — service_categories, excluded_products, prompt_sections, business_info, business_hours, handoff_message, etc.)
-- 7 ai_agent_products clonados (URLs de imagem compartilhadas, sem duplicação no storage)
-
-**Fila desligada — Opção C** (recomendação do audit em 5 agentes): com `queue_mode_enabled=false` + `default_assignee_id=Lucas`, todo handoff vai direto pra ele (handoffQueue.ts:166-174). Outros 5 atendentes têm acesso à inbox mas não recebem handoff automático.
-
-**Pendências do usuário:**
-1. Criar fluxo n8n novo (path único, ex: `eletropiso_558781592373`)
-2. Configurar webhook UAZAPI da nova instância → URL n8n
-3. Teste E2E
-
-**Doc:** [[wiki/migracao-eletropiso-558781592373]] (procedimento + IDs + rollback).
-
-**Lição:** `instances.id` é gerado pelo UAZAPI, não pelo DB. Buscar via `GET /instance/status` com token quando o painel não mostra. Clone de ai_agent via INSERT...SELECT listando ~56 colunas explicitamente é mais robusto que `SELECT *`.
-
----
-
-## 2026-05-19 — DB Reset total pré-nova-instância
-
-**Operação destrutiva autorizada.** Usuário vai cadastrar uma nova instância e pediu limpeza completa de dados operacionais para evitar cruzamento com Eletropiso (contacts/leads/conversations/logs).
-
-**Auditoria antes:** 21 contatos, 24 conversas, 1941 msgs, 18 lead_profiles, 551 handoff events, 44 lead_db_entries, 1 lead_database, 47 score_history, 2 lead_memory, 1 poll_message — todos da Eletropiso. Sandbox IA já vazia.
-
-**Decisões do usuário:** (1) escopo TOTAL todas instâncias, (2) apagar lead_databases também, (3) SEM backup.
-
-**Executado:** `TRUNCATE ... RESTART IDENTITY CASCADE` em transação única, listando 32 tabelas explicitamente (contacts/conversations/messages + ~20 FK-dependentes: ai_agent_logs, ai_debounce_queue, flow_states, intent_detections, handoff_queue_events, validator_logs, shadow_extractions, etc.). 0 erros. Validado com COUNT em 19 tabelas — todas em 0.
-
-**Preservado intencionalmente:** instances (2), inboxes (2), departments (2), inbox_users (7), user_roles (7), auth.users (7), whatsapp_forms (6), ai_agent_configs, products, flows, funnels, labels.
-
-**Doc:** [[wiki/db-reset-2026-05-19]] (procedimento + tabelas + comando + lição).
-
-**Lição:** Reset total seguro = TRUNCATE em transação única com lista explícita de todas as filhas + RESTART IDENTITY. Não confiar só no CASCADE da FK — auditar `information_schema.table_constraints` antes pra evitar tabela órfã.
+> Movido para [[wiki/log-arquivo-2026-05-19-eletropiso-reset]] em 2026-05-21 (hard limit 300 linhas).
+> Conteúdo: criação instância +558781592373 (aditiva, fila OFF, Lucas único assignee), clone integral do ai_agent (56 colunas), TRUNCATE 32 tabelas pré-migração com 0 erros.
 
 ---
 

@@ -13,6 +13,29 @@ audited_at: 2026-05-21
 
 ---
 
+### Auditoria 2026-05-21 (meta — sem release de código)
+
+**Tipo:** auditoria 360° read-only. 5 agentes paralelos (DB, AI Agent core, prompts/regras, paridade UI↔backend, research best practices 2026) + síntese + 30 melhorias gerais + 20 de inteligência. Nenhum código alterado.
+
+**Veredito geral: 5.9/10.** AI Agent em **5.7/10** (D1 prompt=3, D2 funcional=6, D3 subagentes=2, D4 orquestrador=3, D5 contexto=5, D6 tools=7). DB 6.5/10 (4 P0s herdados). Paridade UI↔backend 7.2/10 (3 paths divergentes).
+
+**Achados críticos:**
+- 2 CHECK constraints rivais em `ai_agent_logs.event` bloqueando silenciosamente inserts dos eventos novos (R114 de novo)
+- `handoff_queue_events` sem `EXCLUDE USING gist` + cron `purge_notifications_older` inexistente (promessas pós-incidente 9h não cumpridas)
+- `agent.known_brands` lido em `brandDetection.ts` mas coluna não existe no schema
+- `sub_agents` ainda lido apesar de UI ter migrado pra `agent_profiles` (M17 F3)
+- Prompt assembled 20-30 KB / 5-8k tokens (`hardcodedRules` sozinho 9.3 KB monolito)
+- `ai-agent/index.ts` 4.407 lin (cresceu +33% em 30d), 12 paths de handoff no mesmo arquivo
+- Drift D34 (`conversations.resolved_at`) e D35 (`service_categories.catalog_status`) não commitados
+
+**Recomendação modelo:** migrar `gpt-4.1-mini` → `gpt-5-mini` (custo neutro $6 vs $6.40/10k msgs, instruction following melhor, structured outputs nativos). "GPT 5.4" mencionado pelo user existe mas é 2.3× mais caro; flagship atual é GPT-5.5 (2026-04-24).
+
+**Próximos passos:** Sprint A (1 sem) fecha 8 P0s + I1/I2/I3 (strict + enum + modelo). Sprint B (1 sem) refator I4/I5/I7/I8. Sprint C+ orquestrador router + specialists.
+
+**Artefatos:** [[wiki/auditoria-2026-05-21-veredito]], [[wiki/auditoria-2026-05-21-melhorias]], [[wiki/auditoria-2026-05-21-db]], [[wiki/auditoria-2026-05-21-ai-agent]], [[wiki/auditoria-2026-05-21-prompts]], [[wiki/auditoria-2026-05-21-paridade]], [[wiki/auditoria-2026-05-21-research]].
+
+---
+
 ### v7.38.8 (2026-05-21) — R133+R134: regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca)
 
 **Queixa do user:** print Branca (558781754008) — IA respondeu "Posso te ajudar com **tintas e vernizes**, impermeabilizantes e mantas e caixas d'água..." (lead nunca pediu tinta) e repetiu a MESMA pergunta 2x.
