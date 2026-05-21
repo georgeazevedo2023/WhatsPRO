@@ -13,6 +13,27 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.3 (2026-05-21) — Sprint B3: reader sub_agents → agent_profiles
+
+Reader único pra perfil de atendimento. UI já tinha migrado na M17 F3 (2026-04-09); agora o `ai-agent` e o `ai-agent-playground` também. Pré-requisito do Sprint C — cada specialist futuro vai ter `agent_profiles` row própria.
+
+**Mudanças:**
+- Migration `20260521000001_sprint_b3_backfill_agent_profiles.sql`: backfill `agent_profiles` (4 rows × 2 agentes ativos = 8) + trigger AFTER INSERT em `ai_agents` cria default profile automático em novos agentes.
+- Novo `_shared/profileReader.ts`: `loadActiveProfile(supabase, {agentId, funnelProfileId})` cascade funnel→default. 9 testes unitários.
+- `ai-agent/index.ts`: substitui 24 lin de load manual (666-688) + 29 lin de reader legado (1532-1560) por chamadas ao helper. Telemetria `sub_agent` agora grava `profileData?.id || 'no_profile'`.
+- `ai-agent-playground/index.ts:67`: usa helper compartilhado em vez de `buildSubAgentInstruction(agent.sub_agents)`.
+- `buildSubAgentInstruction` em `agentHelpers.ts` continua exportado por 1 sprint (dívida pra B5 + drop coluna).
+
+**Resultado:** -53 linhas no `ai-agent/index.ts`. 1 ponto de leitura de perfil em vez de 2 schemas competindo. `subAgentInstruction` agora sempre `''` (prompt do perfil já injetado em `funnelInstructionsSection`).
+
+**Pipeline:** tsc 0 erros · vitest 958 pass (+9 novos) / 9 fail pré-existentes. Deploy ai-agent v77→v78 ACTIVE + ai-agent-playground v2→v3 ACTIVE via CLI.
+
+**Sprint B status:** B1 ✅, B1.5 ✅, B2 ✅, B3 ✅. Restante: B4 (varredura R134), B5 (split index.ts — pré-req Sprint C).
+
+**Deferred pra B5/B6:** drop coluna `ai_agents.sub_agents` · aposentar `SubAgentsConfig.tsx` da UI · remover `buildSubAgentInstruction` helper · atualizar `nicheTemplates.ts` pra seedar `agent_profiles` em vez de `sub_agents`.
+
+---
+
 ### v7.40.2 (2026-05-21) — Sprint B2: strict mode em 9 tool schemas
 
 `strict: true` + `additionalProperties: false` nas 9 tool schemas. Pré-req gpt-5-mini ✅ (Sprint A). Esperado: **alucinação args 3% → <0,1%** (R125-R127 família dissolvida no schema, não no prompt).
@@ -83,33 +104,9 @@ Handlers downstream JÁ defensivos contra null (`if (args.X)`, `X || default`). 
 
 ---
 
-### v7.38.8 (2026-05-21) — R133+R134: regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca)
+### v7.38.8 (2026-05-21) — R133+R134 arquivado
 
-**Queixa do user:** print Branca (558781754008) — IA respondeu "Posso te ajudar com **tintas e vernizes**, impermeabilizantes e mantas e caixas d'água..." (lead nunca pediu tinta) e repetiu a MESMA pergunta 2x.
-
-**Auditoria via SQL confirmou:**
-- Tag conv: `multi_interesse_pending:tintas,impermeabilizantes,caixas_dagua` (3 cats — `tintas` fantasma)
-- `ai_agent_logs` mostrou 2 `response_sent` idênticos com `source: r129_multi_interesse_ask`
-- Único overlap do banco todo: termo `impermeabilizante` aparecia em ambas regex `tintas` E `impermeabilizantes` (3 agents Eletropiso afetados)
-
-**R133 (regex overlap):**
-- Migration `20260521120000_R133_remove_impermeabilizante_from_tintas_regex.sql` faz UPDATE jsonb em `ai_agents.service_categories` removendo `|impermeabilizante` da regex `tintas` (3 agents atualizados, idempotente)
-- Seed default em `_shared/serviceCategories.ts:95` corrigido (`tinta|esmalte|verniz|~~impermeabilizante~~` → `tinta|esmalte|verniz`) — novos tenants nascem corretos
-- 6 testes novos em `serviceCategories.test.ts` (125/125 PASS) cobrindo: matchCategory direto, matchCategoryBySearchText, matchAllCategoriesBySearchText com seed default + config Eletropiso realista
-
-**R134 (loop R129):**
-- `ai-agent/index.ts:1771` guarda `!alreadyHasMultiPending` adicionada antes do bloco curto-circuito R129 — quando tag já existe, deixa LLM processar resposta do lead via `buildQualificationContext` em vez de re-enviar mesma pergunta
-- `buildQualificationContext` reforçado com regras explícitas pra LLM lidar com resposta do lead à pergunta multi: (a) escolha clara → set_tags 1 valor, (b) "ambos" → escolhe 1ª categoria + diz "vou começar com X", (c) vago → primeira da lista
-
-**Cleanup manual:** tag corrompida `multi_interesse_pending:tintas,...` removida da conv Branca (176f7c6f). Tags `interesse:tintas` + `ambiente:interno` (também erradas) limpas. Próxima msg da lead vai re-processar do zero com regex corrigida.
-
-**Arquivos:**
-- `supabase/migrations/20260521120000_R133_*.sql` (UPDATE jsonb idempotente)
-- `supabase/functions/_shared/serviceCategories.ts` (seed regex)
-- `supabase/functions/_shared/serviceCategories.test.ts` (+6 testes; 125/125)
-- `supabase/functions/ai-agent/index.ts` (guarda R134 + qualificationContext reforçado)
-
-**Deploy:** `npx supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓
+Regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca). Detalhe em [[wiki/changelog/2026-05-part8]].
 
 ---
 

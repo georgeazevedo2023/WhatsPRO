@@ -88,16 +88,15 @@ audited_at: 2026-05-21
 
 **Esforço:** M (2 dias). Esperado: alucinação **3% → <0.1%**.
 
-### B3 — Migrar leitor `sub_agents` → `agent_profiles`
+### B3 — Migrar leitor `sub_agents` → `agent_profiles` ✅ SHIPPED v7.40.3 (2026-05-21)
 
-**Hoje:** `ai-agent/index.ts:1532` e `ai-agent-playground:67` leem `agent.sub_agents` (jsonb legado). UI já migrou (M17 F3) mas reader nunca migrou.
+**Resultado real:** novo helper `_shared/profileReader.ts` (cascade funnel.profile_id → agent.is_default), -53 linhas no `ai-agent/index.ts`, playground migrado, telemetria atualizada. Migration backfill cobriu 2 agentes ativos (EletropisoV2 + Sandbox, 0→4 rows cada) + trigger `ensure_default_agent_profile` em `ai_agents` cobre futuros. +9 testes novos. Detalhe em [[CHANGELOG.md]] e [[log.md]].
 
-**Mudanças:**
-- Buscar perfil ativo via `agent_profiles WHERE agent_id=X ORDER BY position LIMIT 1`
-- Fallback se nenhum: comportamento padrão (sem profile override)
-- Drop coluna `sub_agents` após 1 sprint sem regressão
-
-**Esforço:** M (1-2 dias). Pré-req pros specialists (cada um pode ter profile próprio).
+**Cleanup deferred pra B5/B6:**
+- Drop coluna `ai_agents.sub_agents`
+- Aposentar `SubAgentsConfig.tsx` da UI
+- Remover helper `buildSubAgentInstruction` de `agentHelpers.ts`
+- Atualizar `nicheTemplates.ts` pra seedar `agent_profiles` (não mais `sub_agents`)
 
 ### B4 — Varredura curto-circuitos R134
 

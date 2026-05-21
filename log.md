@@ -9,6 +9,34 @@ type: log
 
 ---
 
+## 2026-05-21 (noite) — Sprint B3 shipped (v7.40.3) — reader sub_agents → agent_profiles
+
+**Trigger:** user pediu pra prosseguir Sprint B3 ("executar Sprint B3 sub_agents reader 2026-05-21"). Pré-requisito Sprint C — cada specialist precisa de 1 ponto de leitura de perfil.
+
+**Diagnóstico via MCP antes do plano (decisivo):**
+- 3 agentes em prod: **EletropisoV2 + Sandbox** (ativos, ambos com `sub_agents` 4 modos enabled MAS 0 rows em `agent_profiles`) + Eletropiso antiga (disabled, com 4 rows). Migration M17 F3 só rodou na antiga.
+- Conteúdo do `sub_agents` é template idêntico dos 2 ativos (vem do `nicheTemplates.ts`, não customizado por cliente).
+- Implicação: cortar reader cru = regressão silenciosa nos 2 ativos.
+
+**Plano formato discussão + AskUserQuestion (3 perguntas):** user aprovou todas as recomendações:
+1. Backfill só nos 2 ativos via migration idempotente
+2. Trigger DB cria default profile no INSERT (cobre agentes futuros)
+3. Manter UI `SubAgentsConfig.tsx` + helper `buildSubAgentInstruction` por 1 sprint (cleanup deferred pra B5)
+
+**Execução (sequencial, 6 tasks):**
+1. Migration `20260521000001_sprint_b3_backfill_agent_profiles.sql` — INSERT...SELECT idempotente (ON CONFLICT DO NOTHING, clone da M17 F3) + trigger `ensure_default_agent_profile()` AFTER INSERT em `ai_agents`. Aplicada via MCP. Verificado: 3 agentes têm 4 rows × 1 default cada.
+2. `_shared/profileReader.ts` (novo): `loadActiveProfile(supabase, {agentId, funnelProfileId})` cascade funnel→default. 9 testes mocking builders fluent.
+3. `ai-agent/index.ts`: -24 lin do load manual (666-688), -29 lin do reader legado DEPRECATED (1532-1560), +1 chamada `loadActiveProfile`. Telemetria `sub_agent` em `response_sent` log agora grava ID do profile ou `no_profile`. `subAgentInstruction = ''` permanente (prompt do perfil já injetado em `funnelInstructionsSection`).
+4. `ai-agent-playground/index.ts:67`: usa helper compartilhado. Backward compat — playground continua super_admin only.
+5. tsc 0 erros · vitest 958 pass (+9 novos do profileReader) / 9 fail pré-existentes (excludedProducts/FormBuilder/useForms — idênticos B2). Deploy CLI: ai-agent v77→v78 + ai-agent-playground v2→v3, ambos verify_jwt=false.
+6. Documentação: CHANGELOG v7.40.3 entry, esta entrada, plano-orquestrador B3✅, memory.
+
+**Sprint B status:** B1 ✅, B1.5 ✅, B2 ✅, B3 ✅. Restante: B4 (varredura R134 idempotência), B5 (split index.ts <300 lin — pré-req Sprint C).
+
+**Frase de retomada:** *"executar Sprint B4 varredura curto-circuitos R134 2026-05-21"* (1-2 dias, baixo risco — só inventário + classificação de chamadas idempotentes vs não).
+
+---
+
 ## 2026-05-21 (tarde III) — Sprint B2 shipped (v7.40.2) — strict mode 9 tool schemas
 
 **Trigger:** user pediu pra atacar Sprint B2 (strict mode) logo após B1.5. Esperado: alucinação args 3% → <0,1%.
@@ -105,24 +133,9 @@ type: log
 
 ---
 
-## 2026-05-21 (tarde) — R133+R134: regex overlap tintas + loop R129 (caso Branca, v7.38.8)
+## 2026-05-21 (tarde) — R133+R134 arquivado
 
-**Trigger:** print Branca (558781754008) — IA respondeu "Posso te ajudar com **tintas e vernizes**, impermeabilizantes e mantas e caixas d'água…" mesmo lead nunca pedindo tinta, e repetiu MESMA pergunta 2x.
-
-**Auditoria via SQL (`supabase db query --linked`):**
-- Conv 176f7c6f tags: `multi_interesse_pending:tintas,impermeabilizantes,caixas_dagua` (tintas fantasma)
-- Logs `ai_agent_logs`: 2 `response_sent` idênticos `source=r129_multi_interesse_ask` confirmando loop
-- Único overlap do banco: termo `impermeabilizante` em AMBAS regex `tintas` E `impermeabilizantes` (3 agents Eletropiso)
-
-**R133 (regex DB overlap):** UPDATE jsonb idempotente em `ai_agents.service_categories` removendo `|impermeabilizante` da regex `tintas`. Aplicado nos 3 agents via `db query`. Migration `20260521120000_*.sql` versionada. Seed default em `_shared/serviceCategories.ts:95` também corrigido.
-
-**R134 (loop R129):** guarda `!alreadyHasMultiPending` antes do curto-circuito em `ai-agent/index.ts:1771`. `buildQualificationContext` reforçado com 3 regras pra LLM lidar com resposta do lead: (a) escolha clara → set_tags 1 valor, (b) "ambos" → escolhe 1ª categoria e avisa, (c) vago → primeira da lista.
-
-**Cleanup Branca:** removidas tags `multi_interesse_pending:...`, `interesse:tintas` (errado), `ambiente:interno` (errado). Só restou `marca_citada:fortlev`. Próxima msg re-processa limpo.
-
-**Testes:** 6 novos em `serviceCategories.test.ts` (125/125 PASS). Cobertura: matchCategory, matchCategoryBySearchText, novo describe `matchAllCategoriesBySearchText` com caso Branca realista.
-
-**Deploy:** `npx supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓
+Regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca, v7.38.8). Detalhe em [[wiki/changelog/2026-05-part8]] · [[wiki/erros/historico-2026-05-part3]].
 
 ---
 

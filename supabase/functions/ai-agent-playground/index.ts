@@ -2,7 +2,8 @@
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
 import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
-import { isJustGreeting, buildBusinessInfoSection, buildKnowledgeInstruction, buildExtractionInstruction, buildSubAgentInstruction, buildGeminiContents, validateSetTags, validateLeadProfileUpdate, normalizeCarouselProductIds, escapeLike } from '../_shared/agentHelpers.ts'
+import { isJustGreeting, buildBusinessInfoSection, buildKnowledgeInstruction, buildExtractionInstruction, buildGeminiContents, validateSetTags, validateLeadProfileUpdate, normalizeCarouselProductIds, escapeLike } from '../_shared/agentHelpers.ts'
+import { loadActiveProfile } from '../_shared/profileReader.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
@@ -64,7 +65,11 @@ Deno.serve(async (req) => {
     const docItems = (knowledgeItems || []).filter((k: { type: string; content: string }) => k.type === 'document' && k.content)
     const knowledgeInstruction = buildKnowledgeInstruction(faqItems, docItems)
     const extractionInstruction = buildExtractionInstruction(agent.extraction_fields || [])
-    const subAgentInstruction = buildSubAgentInstruction(agent.sub_agents || {})
+    // Sprint B3: load default profile via shared helper (replaces legacy sub_agents reader).
+    const profileData = await loadActiveProfile(supabase, { agentId: agent_id })
+    const subAgentInstruction = profileData?.prompt?.trim()
+      ? `\n\n<profile_instructions>\nROTEIRO OBRIGATÓRIO DO PERFIL — PRIORIDADE MÁXIMA:\nVocê DEVE seguir este roteiro à risca. Ele tem prioridade sobre qualquer instrução geral.\n\n${profileData.prompt}\n</profile_instructions>`
+      : ''
 
     // ── Determine greeting context ──
     const hasAssistantMsg = (chatMessages || []).some((m: { direction: string }) => m.direction === 'outgoing')
