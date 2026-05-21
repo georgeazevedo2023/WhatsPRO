@@ -9,6 +9,27 @@ type: log
 
 ---
 
+## 2026-05-21 (noite III) — Sprint B5 Onda 2a shipped (v7.40.5) — extrai promptSections puras
+
+**Trigger:** user pediu pra documentar andamento no CLAUDE.md + prosseguir + reportar %. Adicionei painel de andamento (30%→35%) e prossegui com Onda 2a do B5.
+
+**Re-escopo Onda 2 (decidido após leitura real):**
+- Plano original: extrair tudo de 1499-2104 (~600 lin) em 1 onda. Risco alto demais.
+- Re-escopo: 2a (sections puras ~85 lin, ✅ esta sessão), 2b (buildQualificationContext função pura ~127 lin, próxima), 2c (pre-LLM decisions com side effects ~400 lin, sessão dedicada HIGH RISK).
+
+**Execução:**
+1. `_shared/agent/promptSections.ts` (novo): 7 funções puras — `replaceVars`, `buildIdentitySection`, `buildBusinessSection`, `buildLeadContextBlock`, `buildDynamicContext`, `buildFactsBlock`, `buildAgentPromptSections` bundle.
+2. `promptSections.test.ts` (novo): 28 testes — humanização META_KEYS_FACTS, missing fields business, lead recorrente vs novo, aviso aceleração handoff, tags malformadas, valor com `:` interno.
+3. `ai-agent/index.ts:1431-1515` (~85 lin in-line) → 3 chamadas únicas. index.ts: 4454 → 4390 lin (-64). Acumulado B5: -154 lin.
+
+**Pipeline:** tsc 0 · vitest **1008 pass (+28 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v79→v80 ACTIVE.
+
+**Andamento Plano Orquestrador:** 30% → **35%**. Próxima onda crítica: Onda 2b (buildQualificationContext função pura, R134/R135/R136/R129/R131 acoplados).
+
+**Frase de retomada:** *"executar B5 Onda 2b buildQualificationContext"*.
+
+---
+
 ## 2026-05-21 (noite II) — Sprint B5 Onda 0+1 shipped (v7.40.4) — extrai loadContextDocuments
 
 **Trigger:** user pediu pra prosseguir Sprint B5 (split index.ts) wave-based, escopo desta sessão = Ondas 0+1. Pré-requisito real do Sprint C (orquestrador + specialists) — sem split, extrair specialist do monolito 4.4k lin é diff de 1000+.
@@ -176,10 +197,9 @@ IA ignorou transcrição áudio (Edson EletropisoV2 v7.38.7). Fix incomingMessag
 
 ---
 
-## 2026-05-21 (manhã) — R131 + (madrugada) R127/R128/R129/R130 — arquivado
+## 2026-05-21 (manhã+madrugada) — R127/R128/R129/R130/R131 arquivado
 
-> Movido para [[wiki/log-arquivo-2026-05-21-r127-r131]] em 2026-05-21 (hard limit 300 linhas).
-> Conteúdo: phrasing curto R131 (v7.38.6) + sessão E2E sandbox 4 bugs descobertos R127-R130 (v7.38.5, 9/10 cenários PASS).
+R131 phrasing curto + sessão E2E sandbox R127-R130 (9/10 PASS). Detalhe em [[wiki/log-arquivo-2026-05-21-r127-r131]].
 
 ---
 
@@ -210,30 +230,13 @@ Fix cross-categoria `search_products({query:"material"})` Guttemberg (v7.38.4): 
 
 ---
 
-## 2026-05-17 (noite) — Bug 24 fix exit_action auto-extract (v7.37.7) — arquivado
+## 2026-05-17 — Bugs 19, 21+22, 24 — arquivados
 
-> Movido para [[wiki/log-arquivo-2026-05-17-bug24-exit-action]] em 2026-05-20 (hard limit 300 linhas).
-
----
-
-## 2026-05-17 (noite-inicio) — Bug 21+22 validator BLOCK (v7.37.6) — arquivado
-
-> Movido para [[wiki/log-arquivo-2026-05-17-bug21-22]] em 2026-05-18 (hard limit 300 linhas).
-
----
-
-## 2026-05-17 (fim tarde) — Bug 19 IA alucina interesse:CAT (v7.37.5) — arquivado
-
-> Movido para [[wiki/log-arquivo-2026-05-17-bug19]] em 2026-05-18 (hard limit 300 linhas).
-
----
-
-
----
+- [[wiki/log-arquivo-2026-05-17-bug19]] · [[wiki/log-arquivo-2026-05-17-bug21-22]] · [[wiki/log-arquivo-2026-05-17-bug24-exit-action]]
 
 ## 2026-05-11 — Dashboard do Gestor 3 fases (arquivado)
 
-> Movido para [[wiki/log-arquivo-2026-05-11-dashboard]] em 2026-05-14 (hard limit). Inclui Fase 1 (unificado), Fase 2 (métricas avançadas), Fase 3 (pivô comercial).
+[[wiki/log-arquivo-2026-05-11-dashboard]]
 
 ---
 

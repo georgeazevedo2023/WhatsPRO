@@ -47,6 +47,7 @@ import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
 import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
 import { loadActiveProfile, type ProfileRow as ActiveProfileRow } from '../_shared/profileReader.ts'
 import { buildContextDocuments } from '../_shared/agent/contextDocuments.ts'
+import { buildAgentPromptSections, buildLeadContextBlock, buildDynamicContext } from '../_shared/agent/promptSections.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
 
@@ -1428,91 +1429,26 @@ ${contextBlock}`
     // funnelInstructionsSection (~line 1175) injects profileData.prompt; nothing more needed here.
     const subAgentInstruction = ''
 
-    // 11. Build system prompt from prompt_sections (editable in Prompt Studio)
-    const ps = agent.prompt_sections || {}
+    // 11. Build system prompt sections — Sprint B5 Onda 2a (2026-05-21)
+    // Antes: ~85 lin in-line. Depois: 3 helpers puros em _shared/agent/promptSections.ts.
+    const {
+      identitySection, businessSection, sdrSection, productSection,
+      handoffSection, tagsSection, absoluteSection, objectionsSection, additionalSection,
+    } = buildAgentPromptSections(agent)
 
-    // Replace template variables in prompt sections
-    const replaceVars = (text: string) => text
-      .replace(/\{agent_name\}/g, agent.name || 'Assistente')
-      .replace(/\{personality\}/g, agent.personality || 'Profissional, simpático e objetivo')
-      .replace(/\{max_pre_search_questions\}/g, String(agent.max_pre_search_questions || 3))
-      .replace(/\{max_qualification_retries\}/g, String(agent.max_qualification_retries || 2))
-      .replace(/\{max_enrichment_questions\}/g, String(agent.max_enrichment_questions || 2))
-      .replace(/\{max_discount_percent\}/g, agent.max_discount_percent ? `${agent.max_discount_percent}%` : 'NUNCA ofereça desconto')
+    const leadContextBlock = buildLeadContextBlock({ isReturningLead, leadName, leadContext })
 
-    // Section 1: Identity
-    const identitySection = replaceVars(ps.identity || `Você é ${agent.name}, um assistente virtual de WhatsApp.\nPersonalidade: ${agent.personality || 'Profissional, simpático e objetivo'}`)
-
-    // Section 2: Business context (auto-generated)
-    const businessSection = (() => {
-      const bi = agent.business_info
-      if (!bi) return 'Nenhuma informação da empresa cadastrada. Se o lead perguntar horário, endereço, formas de pagamento ou entrega: faça handoff_to_human.'
-      const parts: string[] = ['Informações da Empresa (SOMENTE estas informações foram cadastradas pelo admin):']
-      if (bi.hours) parts.push(`- Horário de funcionamento: ${bi.hours}`)
-      if (bi.address) parts.push(`- Endereço: ${bi.address}`)
-      if (bi.phone) parts.push(`- Telefone: ${bi.phone}`)
-      if (bi.payment_methods) parts.push(`- Formas de pagamento: ${bi.payment_methods}`)
-      if (bi.delivery_info) parts.push(`- Entrega: ${bi.delivery_info}`)
-      if (bi.extra) parts.push(`- Outras informações: ${bi.extra}`)
-      // List what's NOT configured so agent knows to handoff
-      const missing: string[] = []
-      if (!bi.hours) missing.push('horário')
-      if (!bi.address) missing.push('endereço')
-      if (!bi.payment_methods) missing.push('formas de pagamento')
-      if (!bi.delivery_info) missing.push('entrega/frete')
-      if (missing.length > 0) {
-        parts.push(`\nINFORMAÇÕES NÃO CADASTRADAS: ${missing.join(', ')}. Se o lead perguntar sobre esses temas, diga "Vou verificar com nosso consultor" e faça handoff_to_human. NUNCA invente informações sobre ${missing.join('/')}.`)
-      }
-      parts.push('\nREGRA ABSOLUTA: responda SOMENTE com as informações listadas acima. Se a informação NÃO está aqui, NÃO invente. Transfira para consultor.')
-      return parts.join('\n')
-    })()
-
-    // Section 3-8: From prompt_sections (editable in admin Prompt Studio)
-    const sdrSection = replaceVars(ps.sdr_flow || '')
-    const productSection = replaceVars(ps.product_rules || '')
-    const handoffSection = replaceVars(ps.handoff_rules || '')
-    const tagsSection = replaceVars(ps.tags_labels || '')
-    const absoluteSection = replaceVars(ps.absolute_rules || '')
-    const objectionsSection = replaceVars(ps.objections || '')
-    const additionalSection = ps.additional || ''
-
-    // Dynamic context (injected by code, not editable)
-    const leadContextBlock = isReturningLead
-      ? `CONTEXTO: Lead RECORRENTE. Nome COMPLETO do lead: "${leadName}" — use EXATAMENTE assim, nunca encurte. Cumprimente pelo nome e vá direto ao ponto.`
-      : `CONTEXTO: Lead NOVO. A saudação já foi enviada separadamente. NÃO cumprimente de novo.${leadName ? ` Chame o lead de "${leadName}".` : ' Quando o lead informar seu nome, use o PRIMEIRO NOME para se dirigir a ele.'} Se informar nome, salve com update_lead_profile e vá DIRETO ao assunto.`
-
-    const dynamicContext = [
-      leadContext || '\nNenhum histórico anterior deste lead. Trate como NOVO cliente.',
+    const dynamicContext = buildDynamicContext({
+      leadContext,
       campaignContext,
-      `\nLIMITE DE MENSAGENS: Este lead já enviou ${leadMsgCount || 0}/${MAX_LEAD_MESSAGES} mensagens.`,
-      leadMsgCount >= MAX_LEAD_MESSAGES - 2 ? 'Acelere a qualificação e faça handoff proativamente.' : '',
-      `\nLabels disponíveis: ${availableLabelNames.length > 0 ? availableLabelNames.join(', ') : '(nenhuma)'}`,
-      currentLabelNames.length > 0 ? `Labels atuais: ${currentLabelNames.join(', ')}` : '',
-      // R121 (2026-05-19): bloco semantico "FATOS JA ESTABELECIDOS".
-      // Substitui a listagem crua "Tags atuais: interesse:mesas, material_mesa:plástico"
-      // por frases legiveis tipo "JA SABEMOS: Interesse = Mesas | Material = plástico".
-      // Reforca que LLM NAO deve reperguntar nem confirmar o que ja esta aqui.
-      // Tags meta (ia, ia_cleared, lead_score, motivo, enrich_count, search_fail) ficam ocultas.
-      conversation.tags?.length ? (() => {
-        const META_KEYS_FACTS = new Set(['ia','ia_cleared','lead_score','enrich_count','search_fail','aguardando_upsell','produto','motivo'])
-        const facts: string[] = []
-        for (const t of conversation.tags || []) {
-          if (typeof t !== 'string') continue
-          const idx = t.indexOf(':')
-          if (idx <= 0) continue
-          const k = t.slice(0, idx)
-          const v = t.slice(idx + 1)
-          if (META_KEYS_FACTS.has(k)) continue
-          // Humanizar key: material_mesa -> Material mesa; interesse -> Interesse
-          const labelKey = k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' ')
-          facts.push(`${labelKey} = ${v}`)
-        }
-        if (facts.length === 0) return ''
-        return `\n[FATOS JA ESTABELECIDOS pelo lead nesta sessao — NAO PERGUNTE NEM CONFIRME O QUE ESTA AQUI]\n${facts.join(' | ')}\n(Use estes fatos diretamente. Se algum campo de qualificacao esta faltando, pergunte SO o que falta — sem reperguntar/confirmar o que ja foi dito acima.)`
-      })() : '',
-      agent.blocked_topics?.length ? `\nTópicos PROIBIDOS: ${agent.blocked_topics.join(', ')}` : '',
-      agent.blocked_phrases?.length ? `Frases PROIBIDAS: ${agent.blocked_phrases.join(', ')}` : '',
-    ].filter(Boolean).join('\n')
+      leadMsgCount,
+      maxLeadMessages: MAX_LEAD_MESSAGES,
+      availableLabelNames,
+      currentLabelNames,
+      conversationTags: conversation.tags,
+      blockedTopics: agent.blocked_topics,
+      blockedPhrases: agent.blocked_phrases,
+    })
 
     // Sprint B1 (2026-05-21): hardcodedRules (24 bullets / 9.348 chars) foi extraído.
     // - 5 regras de tom → _shared/promptRules.ts (buildPromptRulesString)

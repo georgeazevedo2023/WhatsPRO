@@ -13,6 +13,22 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.5 (2026-05-21) — Sprint B5 Onda 2a: extrai promptSections puras
+
+Continuação do split estrutural do `ai-agent/index.ts`. Onda 2a extrai as 9 prompt sections in-line + leadContextBlock + dynamicContext (com R121 facts block humanizado) — bloco PURO sem side effect.
+
+**Mudanças:**
+- Novo `_shared/agent/promptSections.ts` (5 funções puras + bundle): `replaceVars`, `buildIdentitySection`, `buildBusinessSection`, `buildLeadContextBlock`, `buildDynamicContext`, `buildFactsBlock`, `buildAgentPromptSections`.
+- `ai-agent/index.ts:1431-1515` (~85 lin in-line) → 3 chamadas (`buildAgentPromptSections`, `buildLeadContextBlock`, `buildDynamicContext`).
+- index.ts: 4454 → **4390 lin** (-64). Acumulado da B5: -154 lin.
+- +28 testes (META_KEYS_FACTS humanização, business missing fields, lead recorrente vs novo, dynamic context com aviso de aceleração, etc.).
+
+**Pipeline:** tsc 0 erros · vitest **1008 pass (+28 novos)** / 9 fail pré-existentes. Deploy ai-agent v79→v80 ACTIVE.
+
+**Onda 2 sub-dividida:** o plano original previa Onda 2 inteira (600 lin). Após leitura, decidi sub-dividir em 2a (sections puras, ✅), 2b (buildQualificationContext função, ~127 lin pura, próxima), 2c (pre-LLM decisions com side effects, ~400 lin HIGH RISK — vai pra sessão dedicada).
+
+---
+
 ### v7.40.4 (2026-05-21) — Sprint B5 Onda 0+1: extrai loadContextDocuments
 
 Início do split estrutural do `ai-agent/index.ts` (4544 lin) — pré-requisito do Sprint C (router + specialists). Onda 1 extrai as 4 fontes de context text (campaign + form + bio + funnel + profile/funnel_instructions) que estavam in-line nas linhas 1066-1170.
@@ -135,25 +151,9 @@ IA ignorou transcrição de áudio (Edson, EletropisoV2). Fix re-leitura DB ante
 
 ---
 
-### v7.38.6 (2026-05-21) — R131: phrasing curto na 2ª+ pergunta do stage (sem "Para encontrar a melhor opção" repetido)
+### v7.38.6 (2026-05-21) — R131 arquivado
 
-**Queixa do user:** print do helpdesk Eletropiso mostrando IA repetindo "Para encontrar a melhor opção, qual X?" 3x seguidas (ambiente, tipo, cor) na qualif de tintas — soa robótico.
-
-**Causa:** `formatPhrasing(stage.phrasing, field)` em `_shared/serviceCategories.ts` aplicava o MESMO template do stage pra cada field. Stage `identificacao` da categoria `tintas` tem 1 só `phrasing` ("Para encontrar a melhor opção, qual {label}? ({examples})"), então cada slot reusa o preâmbulo.
-
-**Fix híbrido (não mexe em DB nem comportamento do LLM, só no formatter):** `formatPhrasing` aceita 3º parâmetro `answeredCountInStage` (default 0). Se `>= 1`, substitui o template pela variante curta `"Qual {label}? ({examples})"` (ou `"Qual {label}?"` quando sem examples). Mantém determinismo (LLM continua copiando phrasing literal), só varia a abertura.
-
-**Resultado caso Eletropiso:**
-- 1ª: "Para encontrar a melhor opção, qual ambiente? (interno ou externo)"
-- 2ª: "Qual tipo de tinta? (acrílica, esmalte sintético, epóxi)"
-- 3ª: "Qual cor? (branco, cinza, etc.)"
-
-**Arquivos:**
-- `supabase/functions/_shared/serviceCategories.ts` (+8 lin no `formatPhrasing`)
-- `supabase/functions/_shared/serviceCategories.test.ts` (+4 testes R131; 120/120 passam)
-- `supabase/functions/ai-agent/index.ts` (3 call sites passam `answeredCountInStage`: linhas ~1687, ~2182, ~3407)
-
-**Considerada e rejeitada:** opção "deixar LLM reformular" — desfaria determinismo conquistado em R124-R130. Híbrido cosmético é o trade-off certo.
+Phrasing curto na 2ª+ pergunta do stage (sem repetir "Para encontrar a melhor opção"). Fix híbrido em `formatPhrasing(_, _, answeredCountInStage)`. Detalhe em [[wiki/changelog/2026-05-part8]].
 
 ---
 
