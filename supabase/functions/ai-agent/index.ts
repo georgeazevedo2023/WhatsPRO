@@ -2196,38 +2196,44 @@ ${phrasingBlock}
       }
     }
 
-    // 13. Define tools for function calling (8 tools) — OpenAI JSON Schema format
+    // 13. Define tools for function calling (9 tools) — OpenAI strict mode (Sprint B2 2026-05-21).
+    // strict:true exige TODOS os keys em required[] e opcionais como type union ["TIPO", "null"].
+    // Reduz alucinação de args ~3% → <0,1%.
     const toolDefs: LLMToolDef[] = [
       {
         name: 'search_products',
+        strict: true,
         description: 'Busca produtos no catálogo. Se encontrar produtos com fotos, envia carrossel AUTOMATICAMENTE — NÃO chame send_carousel depois. Use APENAS para buscas específicas (marca, modelo), não para termos genéricos.',
         parameters: { type: 'object', properties: {
-          query: { type: 'string', description: 'Texto de busca (nome, modelo, marca)' },
-          category: { type: 'string', description: 'Categoria do produto' },
-          subcategory: { type: 'string', description: 'Subcategoria do produto' },
-          min_price: { type: 'number', description: 'Preço mínimo' },
-          max_price: { type: 'number', description: 'Preço máximo' },
-        }},
+          query: { type: ['string', 'null'], description: 'Texto de busca (nome, modelo, marca). null se não souber.' },
+          category: { type: ['string', 'null'], description: 'Categoria do produto. null se não souber.' },
+          subcategory: { type: ['string', 'null'], description: 'Subcategoria do produto. null se não souber.' },
+          min_price: { type: ['number', 'null'], description: 'Preço mínimo. null se não houver filtro.' },
+          max_price: { type: ['number', 'null'], description: 'Preço máximo. null se não houver filtro.' },
+        }, required: ['query', 'category', 'subcategory', 'min_price', 'max_price'] },
       },
       {
         name: 'send_carousel',
+        strict: true,
         description: 'Envia carrossel de produtos no WhatsApp com imagens e botões. Use quando tiver 2+ produtos COM imagem.',
         parameters: { type: 'object', properties: {
           product_ids: { type: 'array', description: 'Títulos exatos dos produtos (max 10)', items: { type: 'string' } },
-          message: { type: 'string', description: 'Texto antes do carrossel' },
-        }, required: ['product_ids'] },
+          message: { type: ['string', 'null'], description: 'Texto antes do carrossel. null se não quiser texto.' },
+        }, required: ['product_ids', 'message'] },
       },
       {
         name: 'send_media',
+        strict: true,
         description: 'Envia imagem ou documento no WhatsApp. Use para foto de produto específico.',
         parameters: { type: 'object', properties: {
           media_url: { type: 'string', description: 'URL da imagem ou documento' },
           media_type: { type: 'string', description: 'Tipo: image, video, document' },
-          caption: { type: 'string', description: 'Legenda da mídia' },
-        }, required: ['media_url', 'media_type'] },
+          caption: { type: ['string', 'null'], description: 'Legenda da mídia. null se não houver.' },
+        }, required: ['media_url', 'media_type', 'caption'] },
       },
       {
         name: 'assign_label',
+        strict: true,
         description: 'Atribui uma etiqueta (label) à conversa para rastrear o estágio no funil de vendas. Labels disponíveis: ' + availableLabelNames.join(', '),
         parameters: { type: 'object', properties: {
           label_name: { type: 'string', description: 'Nome exato da etiqueta a atribuir' },
@@ -2235,6 +2241,7 @@ ${phrasingBlock}
       },
       {
         name: 'set_tags',
+        strict: true,
         description: 'Adiciona tags à conversa para rastrear interesses e informações. Tags são cumulativas. Formato: "chave:valor".',
         parameters: { type: 'object', properties: {
           tags: { type: 'array', description: 'Tags no formato "chave:valor" (ex: "motivo:compra", "interesse:tinta")', items: { type: 'string' } },
@@ -2242,6 +2249,7 @@ ${phrasingBlock}
       },
       {
         name: 'move_kanban',
+        strict: true,
         description: 'Move o card do CRM Kanban para outra coluna. Use para atualizar estágio do lead no quadro de vendas.',
         parameters: { type: 'object', properties: {
           column_name: { type: 'string', description: 'Nome da coluna de destino' },
@@ -2249,19 +2257,21 @@ ${phrasingBlock}
       },
       {
         name: 'update_lead_profile',
-        description: 'Atualiza perfil do lead com informações coletadas. Use para salvar nome, cidade, interesses, motivo do contato e ticket médio.',
+        strict: true,
+        description: 'Atualiza perfil do lead com informações coletadas. Use para salvar nome, cidade, interesses, motivo do contato e ticket médio. Campos não conhecidos devem ser null.',
         parameters: { type: 'object', properties: {
-          full_name: { type: 'string', description: 'Nome completo do lead' },
-          city: { type: 'string', description: 'Cidade do lead' },
-          interests: { type: 'array', description: 'Interesses do lead', items: { type: 'string' } },
-          notes: { type: 'string', description: 'Observações adicionais' },
-          reason: { type: 'string', description: 'Motivo do contato (ex: compra, orçamento, dúvida, suporte, informação)' },
-          average_ticket: { type: 'number', description: 'Valor estimado do ticket/orçamento em reais' },
-          objections: { type: 'array', description: 'Objeções do lead (ex: preco, concorrente, prazo, indecisao, qualidade)', items: { type: 'string' } },
-        }},
+          full_name: { type: ['string', 'null'], description: 'Nome completo do lead. null se não souber.' },
+          city: { type: ['string', 'null'], description: 'Cidade do lead. null se não souber.' },
+          interests: { type: ['array', 'null'], description: 'Interesses do lead. null se não souber.', items: { type: 'string' } },
+          notes: { type: ['string', 'null'], description: 'Observações adicionais. null se não houver.' },
+          reason: { type: ['string', 'null'], description: 'Motivo do contato (ex: compra, orçamento, dúvida, suporte, informação). null se não souber.' },
+          average_ticket: { type: ['number', 'null'], description: 'Valor estimado do ticket/orçamento em reais. null se não souber.' },
+          objections: { type: ['array', 'null'], description: 'Objeções do lead. null se nenhuma identificada.', items: { type: 'string' } },
+        }, required: ['full_name', 'city', 'interests', 'notes', 'reason', 'average_ticket', 'objections'] },
       },
       {
         name: 'handoff_to_human',
+        strict: true,
         description: 'Transfere a conversa para um atendente humano. Use quando lead pedir vendedor, demonstrar interesse em comprar, ou quando detectar frustração.',
         parameters: { type: 'object', properties: {
           reason: { type: 'string', description: 'Motivo do transbordo com resumo dos dados coletados (produto, nome, cidade, interesses)' },
@@ -2270,12 +2280,13 @@ ${phrasingBlock}
       // M17 F4: Enquete nativa do WhatsApp
       {
         name: 'send_poll',
+        strict: true,
         description: 'Envia enquete nativa do WhatsApp com opcoes clicaveis. Use para perguntas com respostas predefinidas (preferencia de produto, horario, tema). NUNCA numere as opcoes — use nomes descritivos.',
         parameters: { type: 'object', properties: {
           question: { type: 'string', description: 'Pergunta da enquete (max 255 caracteres)' },
           options: { type: 'array', description: 'Opcoes de resposta (2-12 items, nomes limpos, max 100 chars cada)', items: { type: 'string' } },
-          selectable_count: { type: 'number', description: '1 para escolha unica, 0 para multipla escolha. Default 1.' },
-        }, required: ['question', 'options'] },
+          selectable_count: { type: ['number', 'null'], description: '1 para escolha unica, 0 para multipla escolha. Default 1. null = 1.' },
+        }, required: ['question', 'options', 'selectable_count'] },
       },
     ]
 

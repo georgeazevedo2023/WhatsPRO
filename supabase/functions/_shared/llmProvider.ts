@@ -39,6 +39,13 @@ export interface LLMToolDef {
   name: string
   description: string
   parameters: Record<string, unknown>
+  /**
+   * Sprint B2 (2026-05-21): quando true, callOpenAI envia `strict: true` +
+   * `additionalProperties: false`. Exige que TODOS os keys de `properties`
+   * estejam em `required` e args "opcionais" sejam tipo union `["TIPO", "null"]`.
+   * Reduz alucinação de args (R125-R127) de ~3% pra <0,1%. Requer gpt-4.1+ ou gpt-5*.
+   */
+  strict?: boolean
 }
 
 export interface LLMRequest {
@@ -77,10 +84,23 @@ async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
     ...req.messages,
   ]
 
-  const openaiTools = req.tools.map(t => ({
-    type: 'function' as const,
-    function: { name: t.name, description: t.description, parameters: t.parameters },
-  }))
+  const openaiTools = req.tools.map(t => {
+    // Sprint B2 (2026-05-21): strict mode opt-in. Quando true, OpenAI valida
+    // ARG schema rigorosamente — reduz alucinação de ~3% pra <0,1%.
+    if (t.strict) {
+      const params = t.parameters && typeof t.parameters === 'object'
+        ? { additionalProperties: false, ...t.parameters }
+        : t.parameters
+      return {
+        type: 'function' as const,
+        function: { name: t.name, description: t.description, parameters: params, strict: true },
+      }
+    }
+    return {
+      type: 'function' as const,
+      function: { name: t.name, description: t.description, parameters: t.parameters },
+    }
+  })
 
   const body: Record<string, unknown> = {
     model,

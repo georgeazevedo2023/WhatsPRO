@@ -13,6 +13,22 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.2 (2026-05-21) — Sprint B2: strict mode em 9 tool schemas
+
+`strict: true` + `additionalProperties: false` nas 9 tool schemas. Pré-req gpt-5-mini ✅ (Sprint A). Esperado: **alucinação args 3% → <0,1%** (R125-R127 família dissolvida no schema, não no prompt).
+
+**Mudanças:**
+- `_shared/llmProvider.ts`: `LLMToolDef` ganha `strict?: boolean`. `callOpenAI` injeta `strict:true` + `additionalProperties:false` quando flag setada (opt-in seguro pras outras edge fns).
+- `ai-agent/index.ts:2097-2186`: 9 toolDefs ganham `strict: true`. As 5 desalinhadas (`search_products`, `send_carousel`, `send_media`, `update_lead_profile`, `send_poll`) reformuladas — opcionais → `["TIPO","null"]` + todos args em `required[]`. 4 já alinhadas (`assign_label`, `set_tags`, `move_kanban`, `handoff_to_human`) só ganham flag.
+
+Handlers downstream JÁ defensivos contra null (`if (args.X)`, `X || default`). Sem ajuste.
+
+**Pipeline:** tsc 0 erros · vitest 949 pass / 9 fail pré-existentes. Deploy ai-agent v76→v77 ACTIVE.
+
+**Sprint B status:** B1 ✅, B1.5 ✅, B2 ✅. Restante: B3 (sub_agents reader), B4 (varredura R134), B5 (split index.ts — pré-req Sprint C).
+
+---
+
 ### v7.40.1 (2026-05-21) — Sprint B1.5: fix R135 (anti-loop qualif) + R136 (multi-item horizontal)
 
 **2 bugs reais em prod fixados** após v7.40.0 (paz + Paloma, ambos EletropisoV2):

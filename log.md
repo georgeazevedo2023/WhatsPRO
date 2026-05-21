@@ -9,6 +9,26 @@ type: log
 
 ---
 
+## 2026-05-21 (tarde III) — Sprint B2 shipped (v7.40.2) — strict mode 9 tool schemas
+
+**Trigger:** user pediu pra atacar Sprint B2 (strict mode) logo após B1.5. Esperado: alucinação args 3% → <0,1%.
+
+**Execução (cirúrgica, sequencial):**
+1. `_shared/llmProvider.ts` — `LLMToolDef` ganha `strict?: boolean`. `callOpenAI` injeta `strict:true` + `additionalProperties:false` quando flag setada. Opt-in seguro (outras edge fns inalteradas).
+2. `ai-agent/index.ts:2097-2186` — refator das 9 toolDefs:
+   - Todas ganham `strict: true`
+   - 5 desalinhadas (search_products, send_carousel, send_media, update_lead_profile, send_poll): opcionais → type union `["TIPO","null"]` + todos args em `required[]`
+   - 4 já alinhadas (assign_label, set_tags, move_kanban, handoff_to_human): só ganham `strict: true`
+3. Handlers verificados defensivos contra null: cases `search_products`, `send_carousel`, `send_media`, `send_poll`, `update_lead_profile` JÁ usam `if (args.X)` ou `X || default`. Sem ajuste.
+
+**Pipeline:** tsc 0 erros, vitest 949 pass / 9 fail pré-existentes. Deploy ai-agent v76→v77 ACTIVE.
+
+**Sprint B status:** B1 ✅, B1.5 ✅, B2 ✅. Restante: B3 (sub_agents reader), B4 (varredura R134), B5 (split index.ts).
+
+**Frase de retomada:** *"executar Sprint B3 sub_agents reader 2026-05-21"* (1-2 dias, médio risco).
+
+---
+
 ## 2026-05-21 (tarde II) — R135 + R136 em prod (paz + Paloma) — Sprint B1.5 fix tático
 
 **Trigger:** user mandou 2 prints de prod — caso 1 (paz/558791319539): IA repetiu LITERAL "Qual material? (granito, mármore, inox ou sintético)" depois do lead responder "Mas simples mesmo". Caso 2 (Paloma/558182563943): IA ignorou lista "1 massa PVA / 1 Latão de tinta branco neve / 15 lixas d'água N° 150" e perguntou "para qual produto?" depois do lead já ter mandado. User pediu "por que erraram + como corrigir definitivamente + onde documentar".
