@@ -17,6 +17,7 @@ import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '.
 import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
 import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG } from '../_shared/handoffGuard.ts'
+import { evaluateSearchGuard } from '../_shared/searchGuard.ts'
 import {
   getCategoriesOrDefault,
   matchCategory,
@@ -2201,6 +2202,32 @@ Stage: ${stage.label} (score ${score}/${stage.max_score})
             matchCategory(categoryText, v2ConfigForFilter) ||
             matchCategory(extractInteresseFromTags(conversation.tags || []), v2ConfigForFilter) ||
             matchCategory(searchText, v2ConfigForFilter)
+
+          // R126 (2026-05-20): guard determinístico ANTES do query DB.
+          // Recusa query genérica ("material", "produto", "preço") sem expectedCategory
+          // — ILIKE retornaria QUALQUER produto com a palavra na descrição (Eletropiso v2
+          // só tem Telha PVC com "material" no texto → carrossel cross-categoria pra
+          // lead que pediu porta/janela alumínio). Também recusa quando categoria está
+          // marcada como catalog_status=offline (vendemos sem catálogo digital — fluxo
+          // correto é qualif + handoff, NÃO retornar carrossel).
+          const searchGuard = evaluateSearchGuard({
+            query: searchText,
+            expectedCategoryId: expectedCategory?.id ?? null,
+            expectedCategoryStatus: expectedCategory?.catalog_status,
+          })
+          if (!searchGuard.allowed) {
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'search_guard_blocked',
+              metadata: {
+                reason: searchGuard.reason,
+                query: searchText,
+                category_id: expectedCategory?.id ?? null,
+                catalog_status: expectedCategory?.catalog_status ?? null,
+              },
+            })
+            log.info('R126: search_guard blocked tool call', { reason: searchGuard.reason, query: searchText, category: expectedCategory?.id })
+            return searchGuard.message
+          }
 
           if (searchText) {
             const safeSearch = escapeLike(searchText)

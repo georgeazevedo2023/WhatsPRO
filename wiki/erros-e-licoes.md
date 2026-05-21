@@ -19,6 +19,27 @@ audited_at: 2026-05-20
 
 ---
 
+## 🚨 R126 — `search_products({query:"material"})` cross-categoria → enviou Telha PVC pra lead pedindo porta/janela alumínio (Guttemberg, Eletropiso 558781592373) — incidente 2026-05-20
+
+**Erro:** lead msg1 "Olá gostaria de saber mais informações sobre um **material**" (genérico) → IA respondeu greeting. Msg2 4s depois: "**Porta em alumínio e janela em alumínio**, só uma de 139" → IA enviou carrossel **Telha de PVC R$62**. Categoria errada absoluta (lead pediu portas/janelas, recebeu telha).
+
+**Causa raiz (3 falhas em cascata):**
+1. **Debounce não agregou msgs.** Log `ai_agent_logs.response_sent` mostrou `incoming_text="Olá gostaria…material"` + `message_count: 1` — a segunda msg ("Porta em alumínio…") chegou enquanto o ai-agent já processava a primeira. LLM nunca viu as palavras "porta/janela/alumínio".
+2. **Query genérica escapa do guard de categoria.** LLM chamou `search_products({query: "material"})`. Bug 27 fix (`ai-agent/index.ts:2145`) tenta deduzir categoria via `matchCategoryBySearchText("material…")` mas nenhuma regex de categoria casa "material" → `cat27=null` → tag `interesse:` não setada → `expectedCategory=null` → `filterProductsByExpectedCategory` vira no-op.
+3. **Catálogo embrionário.** EletropisoV2 tem só 1 produto cadastrado (Telha PVC) com palavra "material" na descrição → ILIKE `%material%` retornou ele. Carrossel enviado mesmo com `portas`/`janelas` configuradas como `catalog_status:offline`.
+
+**Fix proposto (v7.38.4) — 3 camadas:**
+1. Novo `_shared/searchGuard.ts` (testável): recusa `search_products` quando query é genérica (`material|produto|item|coisa|preço|valor`) E `expectedCategory=null` — devolve [INTERNO] pedindo qualificação primeiro.
+2. Handler `search_products` respeita `expectedCategory.catalog_status === 'offline'` — pula query DB, devolve instrução pra qualificar + handoff (mesma rota do auto-extract `r121_auto_extract_inline`).
+3. (Sprint separado) Investigar debounce: por que msg2 não agregou.
+
+**Regras preventivas:**
+1. **Tool call do LLM com payload genérico (`query: "material/produto"`) DEVE ser recusado pelo backend** quando não há categoria semântica derivável. LLM em input ambíguo "chuta" — defesa é determinística no handler, não no prompt.
+2. **`catalog_status:offline` é um contrato — o backend tem que enforcar em TODAS as portas de entrada** (auto-extract, LLM-driven search, fallback). Hoje só o auto-extract checa; LLM-driven entra direto na query DB.
+3. **Catálogo embrionário (<5 produtos digitais) é alto risco de cross-categoria** — ILIKE genérica retorna o único produto que tem a palavra na descrição. Admin deve marcar agente como "handoff-first" até atingir threshold (D27 já sugere).
+
+---
+
 ## 🚨 R125 — badge "Em fila" aparecia mesmo com Modo Fila OFF (dinho, Eletropiso 558781592373) — incidente 2026-05-20
 
 **Erro:** atendente desligou Modo Fila no QueueConfig (toggle off → `queue_mode_enabled=false`, default_assignee=Lucas), mas helpdesk continuava mostrando badge `⏱ Em fila — Lucas (2:10)` em conversas novas. "Se desliguei a fila, por que aparece?"
@@ -246,34 +267,7 @@ Fonte: OpenAPI spec oficial em `https://docs.uazapi.com/openapi-bundled.json`, s
 
 ---
 
-## ⚠️ PostgREST `.maybeSingle()` mascara erro de coluna inexistente — incidente 2026-05-09
-
-**Erro:** edge function `notify-vendor-assignment` selecionava `instance_id, contact_name, contact_phone` direto em `conversations` — colunas que **não existem** (acessíveis só via JOIN: `inboxes` para `instance_id`, `contacts` para `name`/`phone`). PostgREST retornou erro, mas `.maybeSingle()` engoliu e devolveu `data=null`. Resultado: a função sempre logava `skip_reason='conv_not_found'` e **nunca chegou a entregar uma notif em prod desde o shipping da v7.32.0**.
-
-**Por que ninguém viu antes:** outro guard parava antes — nenhum vendor da Eletropiso tinha `personal_whatsapp` cadastrado, então o pipeline batia em `skip_no_number` antes de tentar enviar. Bug oculto por seleção dupla de skips silenciosos.
-
-**Fix:** select reescrito com PostgREST embedding:
-```ts
-.select('id, inbox_id, contact_id, assigned_at, contact:contacts(name, phone, jid), inbox:inboxes(instance_id)')
-```
-
-**Regra preventiva:**
-1. **Edge function que envia mensagem/notif PRECISA validação E2E real** — chamar a função com dado válido e verificar entrega.
-2. **Skip silencioso é dívida técnica disfarçada** — quando uma função tem múltiplos `skip_*`, pelo menos um teste E2E deve forçar o caminho de sucesso até `status='sent'`.
-3. **`.maybeSingle()` não substitui validação de schema** — preferir embedding PostgREST a duplo-fetch.
-
----
-
-## ⚠️ UAZAPI ≠ WhatsApp Business API oficial (Meta) — incidente 2026-05-07
-
-**Erro:** ao implementar v7.32.0 (notif handoff), apliquei a **regra de janela 24h** que é da **Business API oficial Meta** ao código que usa **UAZAPI**. UAZAPI é proxy não-oficial sobre WhatsApp Web (chip) — **não tem janela 24h formal**. Resultado: implementei ~80 linhas vestigiais (handshake, auto-resposta, guard `skip_session_expired`, banner amarelo/vermelho, 2 colunas DB) que tive que remover na v7.32.2.
-
-**Causa raiz:** quando vi `uazapi-proxy` no código, mentalmente tratei como "WhatsApp Business API oficial" (regra default do meu treinamento). Não questionei a premissa.
-
-**Regra preventiva:**
-1. **WhatsPRO usa UAZAPI** (não Business API Meta). Sempre que mexer com WhatsApp, lembrar: **chip via Web protocol**, sem regras formais Meta.
-2. Antes de aplicar qualquer regra "padrão" do WhatsApp pra empresas (HSM templates, janela 24h, opt-in formal, message_status callbacks), perguntar: **isso é da API oficial ou do WhatsApp em geral?**.
-3. Risco real do UAZAPI: **banimento de chip** por uso abusivo. Mitigado por rate limit, batching, business_hours, opt-in. NÃO por handshake.
+> **Incidentes mais antigos:** PostgREST `.maybeSingle()` mascara erro (2026-05-09) e UAZAPI ≠ Business API Meta (2026-05-07) movidos para [[wiki/erros/historico-2026-05-part2]] para respeitar 300-line limit.
 
 ---
 
