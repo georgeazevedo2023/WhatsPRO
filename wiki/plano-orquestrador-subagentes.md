@@ -110,18 +110,21 @@ audited_at: 2026-05-21
 
 ### B5 — Split `index.ts` em fases
 
-**Hoje:** 4.407 linhas, 12 paths de handoff, 17 seções de prompt no mesmo arquivo.
+**Hoje:** índex.ts está em **4153 lin** (era 4544 no início — -391 já extraídas em 5 ondas).
 
-**Mudanças:**
-- `phase1-detectors.ts` — detectors pré-LLM (saleClosed, brand, objection, payment, clientType, excludedProducts)
-- `phase2-pre-llm.ts` — autoExtract, R121 inline search, R129 multi-interesse, R132 re-leitura
-- `phase3-prompt-build.ts` — construção das seções
-- `phase4-llm-call.ts` — callLLM + tool round loop
-- `phase5-post-llm.ts` — override R130, validator, send
-- `phase6-handoff.ts` — runQueueAssignment, fallback handoff
-- `index.ts` vira **<300 linhas** — só orquestra as fases
+**Ondas:**
+- ✅ **Onda 0+1** v7.40.4 — `_shared/agent/{context, contextDocuments}` (-90 lin)
+- ✅ **Onda 2a** v7.40.5 — `_shared/agent/promptSections` (-64 lin)
+- ✅ **Onda 2b** v7.40.6 — `_shared/agent/qualificationContext` (-125 lin)
+- ✅ **Onda 2c-i** v7.40.7 — `_shared/agent/preLLMShortCircuits` (R136 + R129) (-112 lin)
+- ⏳ **Onda 2c-ii** (HIGH RISK) — autoExtract + score progressivo + exit_action handoff (Bug 24) + R121 inline search (~180 lin com closure `runQueueAssignment`)
+- ⏳ **Onda 3** — toolExecution switch (~1500 lin, vai subdividir por capacidade — pré-req real do Sprint C)
+- ⏳ **Onda 4** — llmCallLoop (~370 lin)
+- ⏳ **Onda 5** — dispatchResponse + handoff fallback (~240 lin)
 
-**Esforço:** L (3-4 dias). Pré-req pro Sprint C: sem split, refator pra extrair specialists é HIGH RISK.
+**Target final:** index.ts ~1200-1500 lin (não <300 como dizia o plano original — irrealista pro tamanho atual). Pré-req pro Sprint C real: Onda 3 (separação por capacidade = boundary dos specialists).
+
+**Esforço restante:** M (~2 dias) pra fechar Ondas 2c-ii + 3 + 4 + 5.
 
 ### Subtotal Sprint B
 

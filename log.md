@@ -9,6 +9,31 @@ type: log
 
 ---
 
+## 2026-05-21 (noite V) — Sprint B5 Onda 2c-i shipped (v7.40.7) — extrai R136 + R129 short-circuits
+
+**Trigger:** user pediu pra prosseguir nesta sessão a partir da frase de retomada "executar B5 Onda 2c pre-LLM decisions". Confirmação via AskUserQuestion: escopo da sessão = só 2c-i (R136 + R129), deixando 2c-ii (autoExtract + exit_action + inline search, HIGH RISK) pra sessão dedicada.
+
+**Diagnóstico do bloco antes de codar:**
+- Pre-LLM decisions hoje ocupa linhas 1480-1782 (~302 lin), 5 sub-blocos com risco gradual.
+- 2c-i ataca **só os 2 short-circuits espelhados** (1486-1547 R136, 1549-1609 R129) — mesma estrutura: detectar → persistir tag → enviar mensagem → log → return Response. Helper privado `persistAndBroadcastReply` recolhe a parte duplicada.
+- Closures críticos `runQueueAssignment` ficam INTOCADOS — só são usados no path 2c-ii (Bug 24 handoff).
+
+**Execução:**
+1. `_shared/agent/preLLMShortCircuits.ts` — função orquestradora `runPreLLMShortCircuits(ctx, log)` retornando `{ shortCircuited, response, suppressAutoExtractForMulti }`. R136 internamente vence R129 quando ambos batem (lista multi-item já carrega o sinal de R129).
+2. `preLLMShortCircuits.test.ts` — 13 testes mockando supabase (builder fluent + insert chain p/ conversation_messages.select().single()) + sendTextMsg + broadcastEvent. Cobre: guards de input (texto vazio/espaços), R136 happy + already-pending + fallback send-fail + lista all-matched-not-mixed, R129 happy + 3 categorias + interesse-set + multi-pending-set + 1 categoria + fallback, ordem R136 > R129.
+3. `ai-agent/index.ts`: 1486-1609 (124 lin in-line) → 9 lin (chamada + retorno). Movi `suppressAutoExtractForMulti` pra `const` no escopo do `if`. Removi 4 imports órfãos pós-extração (`detectMultiItem`, `buildHorizontalQuestion`, `HORIZONTAL_QUALIF_PENDING_TAG`, `matchAllCategoriesBySearchText`).
+4. index.ts: 4265 → **4153 lin** (-112). Acumulado B5: **-391 lin** desde 4544.
+
+**Hiccup:** primeiro pass dos testes 4/13 fail. Causa: config de teste sem `phrasing` no stage → `isValidConfig` retorna false → `getCategoriesOrDefault` cai no DEFAULT (só tintas+impermeabilizantes). Como o texto dos testes era "porta e janela", não casava ninguém. Fix: stage com `phrasing: 'me conta {label}?'` válido. 13/13 pass.
+
+**Pipeline:** tsc 0 · vitest **1036 pass (+13 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v81→**v82** ACTIVE via CLI (`SUPABASE_ACCESS_TOKEN=sbp_... npx supabase functions deploy ai-agent --no-verify-jwt`).
+
+**Andamento Plano Orquestrador:** 38% → **41%**. Próxima onda crítica: **2c-ii** (autoExtract + score progressivo + exit_action handoff Bug 24 + R121 inline search, ~180 lin HIGH RISK).
+
+**Frase de retomada:** *"executar B5 Onda 2c-ii autoExtract + exit_action handoff"*.
+
+---
+
 ## 2026-05-21 (noite IV) — Sprint B5 Onda 2b shipped (v7.40.6) — extrai buildQualificationContext
 
 **Trigger:** user pediu pra prosseguir após Onda 2a + reportar %. Onda 2b é função pura (~127 lin) com R134/R135/R136/R129/R131 acoplados, baixo risco.

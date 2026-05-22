@@ -22,14 +22,12 @@ import { validateSetTagsInput, validateInteresseCategory } from '../_shared/setT
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
-import { detectMultiItem } from '../_shared/multiItemDetector.ts'
-import { buildHorizontalQuestion, buildHorizontalHandoffReason, HORIZONTAL_QUALIF_PENDING_TAG } from '../_shared/horizontalQualif.ts'
+import { buildHorizontalHandoffReason } from '../_shared/horizontalQualif.ts'
 import { detectQualifLoop } from '../_shared/qualificationAntiLoop.ts'
 import {
   getCategoriesOrDefault,
   matchCategory,
   matchCategoryBySearchText,
-  matchAllCategoriesBySearchText,
   getQualificationFields,
   formatPhrasing,
   extractInteresseFromTags,
@@ -49,6 +47,7 @@ import { loadActiveProfile, type ProfileRow as ActiveProfileRow } from '../_shar
 import { buildContextDocuments } from '../_shared/agent/contextDocuments.ts'
 import { buildAgentPromptSections, buildLeadContextBlock, buildDynamicContext } from '../_shared/agent/promptSections.ts'
 import { buildQualificationContext } from '../_shared/agent/qualificationContext.ts'
+import { runPreLLMShortCircuits } from '../_shared/agent/preLLMShortCircuits.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
 
@@ -1483,130 +1482,19 @@ ${contextBlock}`
         const interesseTagPre = (conversation.tags || []).find((t: string) => typeof t === 'string' && t.startsWith('interesse:'))
         const interesseValue = interesseTagPre ? (interesseTagPre.split(':')[1] || '') : ''
 
-        // R136 (2026-05-21 B1.5): detector de lista multi-item mista (cadastrado + não-cadastrado).
-        // Quando o lead manda uma lista numerada e há mistura de categorias cadastradas vs
-        // não-cadastradas (orphans), o R129 não cobre — afunilaria na única categoria casada
-        // e ignoraria os items órfãos. Solução: 1 pergunta horizontal cobrindo ambiente +
-        // marca/tipo + qualidade. Depois handoff rico via buildQualificationContext.
-        const alreadyHasHorizontalPending = (conversation.tags || []).some(
-          (t: string) => typeof t === 'string' && (t === HORIZONTAL_QUALIF_PENDING_TAG || t.startsWith(HORIZONTAL_QUALIF_PENDING_TAG + ':')),
-        )
-        if (!alreadyHasHorizontalPending) {
-          const multiItem = detectMultiItem({ text: incomingText, categoriesConfig: cfgPre })
-          if (multiItem.detected && multiItem.mixed) {
-            const question = buildHorizontalQuestion({
-              detector: multiItem,
-              leadName,
-              originalText: incomingText,
-            })
-            const mergedTagsHorizontal = [...(conversation.tags || []), question.pendingTag]
-            conversation.tags = mergedTagsHorizontal
-            await supabase.from('conversations').update({ tags: mergedTagsHorizontal }).eq('id', conversation_id)
-            await supabase.from('ai_agent_logs').insert({
-              agent_id, conversation_id, event: 'auto_field_extracted',
-              metadata: {
-                source: 'r136_multi_item_horizontal',
-                new_tags: [question.pendingTag],
-                items: multiItem.items,
-                orphan_count: multiItem.orphanCount,
-                reason: multiItem.reason,
-              },
-            })
-            log.info('R136: multi-item misto detectado — enviando pergunta horizontal', {
-              items: multiItem.items.length,
-              orphans: multiItem.orphanCount,
-              reason: multiItem.reason,
-            })
-            try {
-              await sendTextMsg(question.text)
-              const { data: savedMsg } = await supabase.from('conversation_messages').insert({
-                conversation_id, direction: 'outgoing', content: question.text, media_type: 'text',
-              }).select('id, created_at').single()
-              broadcastEvent({
-                conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing',
-                content: question.text, media_type: 'text',
-                message_id: savedMsg?.id, created_at: savedMsg?.created_at || new Date().toISOString(),
-              })
-              await supabase.from('ai_agent_logs').insert({
-                agent_id, conversation_id, event: 'response_sent',
-                latency_ms: Date.now() - startTime,
-                metadata: {
-                  incoming_text: incomingText.substring(0, 500),
-                  response_text: question.text,
-                  source: 'r136_multi_item_horizontal_ask',
-                  message_count: (queuedMessages || []).length,
-                },
-              })
-              return new Response(JSON.stringify({ ok: true, response: question.text, reason: 'r136_multi_item_horizontal_ask' }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              })
-            } catch (e) {
-              log.warn('R136: send horizontal question failed, fallback to LLM', { error: (e as Error).message })
-            }
-          }
+        // Sprint B5 Onda 2c-i — R136 (multi-item misto) + R129 (multi-categoria)
+        // extraídos em _shared/agent/preLLMShortCircuits.ts. Comportamento idêntico:
+        // detecta + persiste tag pending + envia pergunta determinística + return Response.
+        // Fallback (send falha) deixa cair pro LLM com a tag já persistida.
+        const shortCircuit = await runPreLLMShortCircuits({
+          supabase, conversation, conversation_id, agent_id, agent,
+          incomingText, leadName, queuedMessages, startTime, corsHeaders,
+          sendTextMsg, broadcastEvent,
+        }, log)
+        if (shortCircuit.shortCircuited && shortCircuit.response) {
+          return shortCircuit.response
         }
-
-        // R129 (2026-05-21): se NÃO tem interesse: setado ainda, checar se o
-        // texto bate em MÚLTIPLAS categorias. Se sim, ENVIAR DIRETO a pergunta
-        // "qual produto começar?" e RETORNAR sem chamar o LLM — defesa
-        // determinística (LLM ignora qualificationContext quando confuso com
-        // greeting já enviado no histórico). Também seta tag
-        // multi_interesse_pending pra cobrir caso de re-invocação.
-        //
-        // R134 (2026-05-21): guarda alreadyHasMulti movida pra fora do bloco —
-        // se a tag JÁ existe (lead já recebeu a pergunta uma vez), NÃO re-curto-
-        // circuita; deixa LLM processar a resposta do lead via qualificationContext
-        // que reforça a regra. Sem essa guarda, R129 redetectava as mesmas
-        // categorias na 2ª msg e re-enviava a MESMA pergunta — loop confirmado
-        // no caso Branca (conv 176f7c6f, 2026-05-21).
-        const alreadyHasMultiPending = (conversation.tags || []).some((t: string) => typeof t === 'string' && t.startsWith('multi_interesse_pending:'))
-        let suppressAutoExtractForMulti = false
-        if (!interesseValue && !alreadyHasMultiPending) {
-          const allCatsMatched = matchAllCategoriesBySearchText(incomingText, cfgPre)
-          if (allCatsMatched.length >= 2) {
-            suppressAutoExtractForMulti = true
-            const multiSlug = `multi_interesse_pending:${allCatsMatched.map(c => c.id).join(',')}`
-            const mergedMulti = [...(conversation.tags || []), multiSlug]
-            conversation.tags = mergedMulti
-            await supabase.from('conversations').update({ tags: mergedMulti }).eq('id', conversation_id)
-            await supabase.from('ai_agent_logs').insert({
-              agent_id, conversation_id, event: 'auto_field_extracted',
-              metadata: {
-                source: 'r129_multi_interesse_detected',
-                new_tags: [multiSlug],
-                category_ids: allCatsMatched.map(c => c.id),
-              },
-            })
-            log.info('R129: multi-categoria detectada — enviando pergunta direta', { categories: allCatsMatched.map(c => c.id), incoming_preview: incomingText.substring(0, 80) })
-            // Enviar pergunta determinística e retornar (curto-circuita LLM)
-            const labels = allCatsMatched.map((c) => (c.label || c.id).toLowerCase())
-            const friendly = labels.length === 2 ? `${labels[0]} e ${labels[1]}` : `${labels.slice(0, -1).join(', ')} e ${labels[labels.length - 1]}`
-            const askMsg = `Posso te ajudar com ${friendly}. Por qual prefere começar?`
-            try {
-              await sendTextMsg(askMsg)
-              const { data: savedMsg } = await supabase.from('conversation_messages').insert({
-                conversation_id, direction: 'outgoing', content: askMsg, media_type: 'text',
-              }).select('id, created_at').single()
-              broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: askMsg, media_type: 'text', message_id: savedMsg?.id, created_at: savedMsg?.created_at || new Date().toISOString() })
-              await supabase.from('ai_agent_logs').insert({
-                agent_id, conversation_id, event: 'response_sent',
-                latency_ms: Date.now() - startTime,
-                metadata: {
-                  incoming_text: incomingText.substring(0, 500),
-                  response_text: askMsg,
-                  source: 'r129_multi_interesse_ask',
-                  category_ids: allCatsMatched.map((c) => c.id),
-                  message_count: (queuedMessages || []).length,
-                },
-              })
-              return new Response(JSON.stringify({ ok: true, response: askMsg, reason: 'r129_multi_interesse_ask' }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              })
-            } catch (e) {
-              log.warn('R129: send ask failed, fallback to LLM with prompt hint', { error: (e as Error).message })
-            }
-          }
-        }
+        const suppressAutoExtractForMulti = shortCircuit.suppressAutoExtractForMulti
 
         const categoryPre = suppressAutoExtractForMulti ? null : (
           matchCategory(interesseValue, cfgPre) ||

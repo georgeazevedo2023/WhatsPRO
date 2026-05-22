@@ -13,6 +13,25 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.7 (2026-05-21) — Sprint B5 Onda 2c-i: extrai R136 + R129 short-circuits pré-LLM
+
+Continuação do split. Onda 2c-i isola os 2 curto-circuitos determinísticos que rodam ANTES do LLM e respondem direto ao lead (multi-item misto + multi-categoria sem interesse). Cada um persiste tag de pending, envia mensagem via UAZAPI, registra log e retorna `Response`. Fallback (send falha) mantém a tag persistida e deixa cair pro LLM.
+
+**Mudanças:**
+- Novo `_shared/agent/preLLMShortCircuits.ts` — função `runPreLLMShortCircuits(ctx, log)` orquestradora dos 2 paths (R136 vence R129 quando ambos batem). Helper privado `persistAndBroadcastReply` (insert msg outgoing + broadcast + log response_sent) encapsula o trecho duplicado entre os dois disparos.
+- `ai-agent/index.ts:1486-1609` (124 lin in-line) → 9 lin de chamada + tratamento de retorno (`{ shortCircuited, response, suppressAutoExtractForMulti }`).
+- index.ts: 4265 → **4153 lin** (-112). Acumulado B5: **-391 lin** desde 4544 inicial.
+- Cleanup: removidos imports órfãos (`detectMultiItem`, `buildHorizontalQuestion`, `HORIZONTAL_QUALIF_PENDING_TAG`, `matchAllCategoriesBySearchText`) — agora consumidos só dentro do módulo extraído.
+- +13 testes (`preLLMShortCircuits.test.ts`): guards de entrada, fluxo feliz R136 + R129, fallback no `sendTextMsg`, guards `alreadyHasHorizontalPending`/`interesseValue`/`alreadyHasMultiPending`, ordem R136 > R129, monta texto "A, B e C" com 3 categorias.
+
+**Equivalência semântica:** strings de output idênticas char-a-char (`Posso te ajudar com X e Y. Por qual prefere começar?` + pergunta horizontal vinda de `buildHorizontalQuestion`). Logs `auto_field_extracted` + `response_sent` com mesmos campos `source` (`r136_multi_item_horizontal`, `r136_multi_item_horizontal_ask`, `r129_multi_interesse_detected`, `r129_multi_interesse_ask`).
+
+**Pipeline:** tsc 0 · vitest **1036 pass (+13 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v81→v82 ACTIVE via CLI (verify_jwt=false preservado).
+
+**Próximo (2c-ii, HIGH RISK):** auto-extract + score progressivo + exit_action=handoff direto (Bug 24) + R121 inline search. ~180 lin com closure `runQueueAssignment` capturada. Sessão dedicada.
+
+---
+
 ### v7.40.6 (2026-05-21) — Sprint B5 Onda 2b: extrai buildQualificationContext
 
 Continua o split. Onda 2b extrai a função `buildQualificationContext` (R134/R135/R136/R129/R131 acoplados) — ~127 lin puras movidas pra `_shared/agent/qualificationContext.ts`.
