@@ -1742,13 +1742,24 @@ ${contextBlock}`
       if (name) parts.push(name)
       const fmt = (v: string) => v.replace(/_/g, ' ')
 
+      // R142 (2026-05-22 v7.41.9) — enriquece chain com fields capturados via
+      // auto-extract: ambiente (interno/externo), cor, tipo_tinta, voltagem,
+      // volume. Atendente que recebe handoff precisa do CONTEXTO completo.
+      // Caso Sandrielly: lead disse "quarto da minha filha" → ambiente:interno
+      // foi capturado mas NÃO aparecia no notes do lead_profile.
+      // Ordem reflete fluxo natural de qualif (categoria → produto → detalhes).
       if (tagMap.has('interesse')) parts.push(fmt(tagMap.get('interesse')!))
       if (tagMap.has('produto')) parts.push(fmt(tagMap.get('produto')!))
-      if (tagMap.has('aplicacao')) parts.push(fmt(tagMap.get('aplicacao')!))
-      if (tagMap.has('acabamento')) parts.push(fmt(tagMap.get('acabamento')!))
       if (tagMap.has('marca_preferida')) parts.push(fmt(tagMap.get('marca_preferida')!))
       else if (tagMap.has('marca_indisponivel')) parts.push(`marca: ${fmt(tagMap.get('marca_indisponivel')!)} (indisponível)`)
+      if (tagMap.has('ambiente')) parts.push(`ambiente: ${fmt(tagMap.get('ambiente')!)}`)
+      if (tagMap.has('aplicacao')) parts.push(fmt(tagMap.get('aplicacao')!))
+      if (tagMap.has('tipo_tinta')) parts.push(`tipo: ${fmt(tagMap.get('tipo_tinta')!)}`)
+      if (tagMap.has('cor')) parts.push(`cor: ${fmt(tagMap.get('cor')!)}`)
+      if (tagMap.has('acabamento')) parts.push(fmt(tagMap.get('acabamento')!))
+      if (tagMap.has('voltagem')) parts.push(`${fmt(tagMap.get('voltagem')!)}`)
       if (tagMap.has('quantidade')) parts.push(fmt(tagMap.get('quantidade')!))
+      if (tagMap.has('volume')) parts.push(fmt(tagMap.get('volume')!))
       if (tagMap.has('area')) parts.push(`${tagMap.get('area')}m²`)
 
       return parts.join(' > ')

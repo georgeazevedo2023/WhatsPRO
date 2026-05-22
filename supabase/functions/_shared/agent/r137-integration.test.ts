@@ -403,6 +403,95 @@ describe('R137 Integration #5 — Saudação pura NÃO dispara', () => {
 })
 
 // =============================================================================
+// R142 — buildQualificationChain enriquecida (Wsmart caso 2026-05-22 20:18)
+// =============================================================================
+
+describe('R142 buildQualificationChain — chain rica pra atendente', () => {
+  // Reproduz a função local do index.ts (mesma lógica, p/ testabilidade).
+  function buildQualificationChain(tags: string[], pendingTags: Record<string, string>, name: string | null): string {
+    const tagMap = new Map<string, string>()
+    for (const t of tags) { const [k, ...r] = t.split(':'); tagMap.set(k, r.join(':')) }
+    for (const [k, v] of Object.entries(pendingTags)) tagMap.set(k, v)
+
+    const parts: string[] = []
+    if (name) parts.push(name)
+    const fmt = (v: string) => v.replace(/_/g, ' ')
+
+    if (tagMap.has('interesse')) parts.push(fmt(tagMap.get('interesse')!))
+    if (tagMap.has('produto')) parts.push(fmt(tagMap.get('produto')!))
+    if (tagMap.has('marca_preferida')) parts.push(fmt(tagMap.get('marca_preferida')!))
+    else if (tagMap.has('marca_indisponivel')) parts.push(`marca: ${fmt(tagMap.get('marca_indisponivel')!)} (indisponível)`)
+    if (tagMap.has('ambiente')) parts.push(`ambiente: ${fmt(tagMap.get('ambiente')!)}`)
+    if (tagMap.has('aplicacao')) parts.push(fmt(tagMap.get('aplicacao')!))
+    if (tagMap.has('tipo_tinta')) parts.push(`tipo: ${fmt(tagMap.get('tipo_tinta')!)}`)
+    if (tagMap.has('cor')) parts.push(`cor: ${fmt(tagMap.get('cor')!)}`)
+    if (tagMap.has('acabamento')) parts.push(fmt(tagMap.get('acabamento')!))
+    if (tagMap.has('voltagem')) parts.push(`${fmt(tagMap.get('voltagem')!)}`)
+    if (tagMap.has('quantidade')) parts.push(fmt(tagMap.get('quantidade')!))
+    if (tagMap.has('volume')) parts.push(fmt(tagMap.get('volume')!))
+    if (tagMap.has('area')) parts.push(`${tagMap.get('area')}m²`)
+
+    return parts.join(' > ')
+  }
+
+  it('caso real Wsmart pós-fix: chain inclui ambiente:interno', () => {
+    const tags = [
+      'marca_citada:iquine',
+      'interesse:tintas',
+      'motivo:compra',
+      'produto:iquine_pintalar_3.6l',
+      'ambiente:interno',
+      'lead_score:15',
+    ]
+    const chain = buildQualificationChain(tags, {}, 'Pedro')
+    expect(chain).toContain('Pedro')
+    expect(chain).toContain('tintas')
+    expect(chain).toContain('iquine pintalar 3.6l')
+    expect(chain).toContain('ambiente: interno')
+    // Antes do R142, chain era "Pedro > tintas > iquine pintalar 3.6l" (sem ambiente)
+  })
+
+  it('chain completa: marca + ambiente + tipo + cor + acabamento + quantidade', () => {
+    const tags = [
+      'interesse:tintas',
+      'produto:iquine_pintalar',
+      'marca_preferida:iquine',
+      'ambiente:interno',
+      'tipo_tinta:acrilica',
+      'cor:cinza_andorinha',
+      'acabamento:fosco',
+      'quantidade:2_latas',
+    ]
+    const chain = buildQualificationChain(tags, {}, 'Sandrielly')
+    expect(chain).toBe('Sandrielly > tintas > iquine pintalar > iquine > ambiente: interno > tipo: acrilica > cor: cinza andorinha > fosco > 2 latas')
+  })
+
+  it('chuveiro: inclui voltagem', () => {
+    const tags = ['interesse:chuveiros_eletricos', 'voltagem:220v', 'produto:lorenzetti_loren_acqua']
+    const chain = buildQualificationChain(tags, {}, 'João')
+    expect(chain).toContain('220v')
+  })
+
+  it('volume preservado pra tintas (3.6l, 18l)', () => {
+    const tags = ['interesse:tintas', 'volume:3.6l']
+    const chain = buildQualificationChain(tags, {}, null)
+    expect(chain).toContain('3.6l')
+  })
+
+  it('marca indisponível mostrada com sufixo', () => {
+    const tags = ['interesse:tintas', 'marca_indisponivel:tinta_xyz']
+    const chain = buildQualificationChain(tags, {}, null)
+    expect(chain).toContain('tinta xyz')
+    expect(chain).toContain('(indisponível)')
+  })
+
+  it('vazio retorna só name (ou string vazia)', () => {
+    expect(buildQualificationChain([], {}, 'Pedro')).toBe('Pedro')
+    expect(buildQualificationChain([], {}, null)).toBe('')
+  })
+})
+
+// =============================================================================
 // REGRESSION TEST — caso histórico Sandrielly query EXATA pó-cleanup
 // =============================================================================
 
