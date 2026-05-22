@@ -9,6 +9,32 @@ type: log
 
 ---
 
+## 2026-05-22 (madrugada IV) — Sprint B5 Onda 3c shipped (v7.41.2) — extrai search_products (product_specialist boundary)
+
+**Trigger:** user explicou que liked the architecture explanation + escolheu via AskUserQuestion "Onda 3c — search_products (codar)" como próximo passo. Sub-onda mais estratégica: este módulo VIRA o product_specialist no Sprint C.
+
+**Diagnóstico inicial:**
+- Handler `search_products` ocupava linhas 1843-2492 (~650 lin) — o mais complexo do switch.
+- Pipeline: Bug 27 seed → R126 search_guard → primary OR query → AND word-by-word fallback → POST-search strict filter + brand detection (R104/R108/R110) → Bug 8 cross-category pre-fuzzy → fuzzy pg_trgm (R111) → Bug 8 cross-category post-fuzzy → zero-results PATH A/B/C + R120 outside_hours → found auto-tag + auto-send media/carousel → return text NÍVEL 2.
+- Dependências externas: ~15 helpers de _shared (serviceCategories, agentHelpers, fieldAutoExtractor, businessHours, qualificationStopWords, searchGuard, carousel, fetchWithTimeout).
+- Closures críticas: `carouselSentInThisCall` (mutável), `buildQualificationChain` (função local, usada também em handoff_to_human → mantém local + passa como callback), `safeBtnId` (helper local pra ASCII IDs).
+
+**Execução:**
+1. `_shared/agent/tools/searchProducts.ts` (1064 lin) — `searchProducts(args, ctx, log)` main + `handleZeroResults` private async helper + `dispatchSearchTool` public. Helpers privados copiados: `stripAccents`, `safeBtnId`, `buildEnrichmentInstructions`. `SearchProductsCtx` interface inclui `mediaState: { carouselSent: boolean }` (ref mutável, padrão diferente do mediaTools/crmTools) + `buildQualificationChain` como callback.
+2. `searchProducts.test.ts` (453 lin, 14 testes): R126 guard bloqueia query genérica, 1 produto/1 foto → send/media + NÍVEL 2, 2+ produtos → carrossel, mediaState pré-set preserva NÍVEL 2 (bug latente do original documentado), reset search_fail ao achar, PATH A enrich, PATH B handoff full chain, PATH C retry < max, PATH C retry max → handoff, R120 outside_hours, Bug 27 seed interesse, no-duplicate seed, dispatcher routing.
+3. `ai-agent/index.ts`: case 650 lin → 18 lin (chamada + sync mediaState back). Removidos 2 dead-code blocks: `safeBtnId` local (linha 303) e `buildEnrichmentInstructions` local (linha 1745) — único uso era no search_products extraído.
+4. **index.ts: 3793 → 3097 lin (-696 lin nesta onda). Acumulado B5: -1447 desde 4544 (-31.8%).**
+
+**Hiccup:** 1ª passada vitest 13/14 — teste "mediaState.carouselSent=true → pula auto-send" falhou porque eu havia escrito a expectativa errada. Re-lendo o monolito original linha 2278: `if (carouselSentInThisCall) { mediaSent = true }` apenas adianta `mediaSent=true` mas NÃO impede os blocos `if (withImages.length === 1 && ...)` rodarem abaixo. Bug latente pré-existente do código original — preservado por equivalência semântica. Teste ajustado pra refletir comportamento real (mediaState segue true, NÍVEL 2 sai no return).
+
+**Pipeline:** tsc 0 · vitest **1121 pass (+14 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v86→**v87** ACTIVE via CLI.
+
+**Andamento Plano Orquestrador:** 46% → **49%**. **Sprint C destravado**: searchProducts.ts já é a base do product_specialist. Próxima sub-onda crítica: **3d** set_tags + handoff_to_human (~545 lin, HIGH RISK — vira qualif+handoff specialists).
+
+**Frase de retomada:** *"executar B5 Onda 3d set_tags + handoff_to_human"*.
+
+---
+
 ## 2026-05-22 (madrugada III) — Sprint B5 Onda 3b shipped (v7.41.1) — extrai CRM tools
 
 **Trigger:** user pediu *"executar B5 Onda 3b crmTools"* (frase de retomada da sessão anterior, escolha do conservador).

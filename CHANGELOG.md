@@ -13,6 +13,27 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.41.2 (2026-05-22) — Sprint B5 Onda 3c: extrai search_products (vira product_specialist no Sprint C)
+
+Sub-onda mais estratégica da Onda 3. Extrai o handler mais complexo (~650 lin) — Bug 27 seed + R126 guard + primary/AND/fuzzy search + Bug 8 cross-category + brand detection R104/R108/R110 + zero-results PATH A/B/C + R120 outside_hours + auto-tag + auto-send media/carousel. Este módulo **vira o product_specialist** quando Sprint C for shipado.
+
+**Mudanças:**
+- Novo `_shared/agent/tools/searchProducts.ts` (1064 lin) — função `searchProducts` (main) + `handleZeroResults` (private async) + dispatcher `dispatchSearchTool`. Helpers privados copiados: `stripAccents`, `safeBtnId`, `buildEnrichmentInstructions` (era local em index.ts, único uso).
+- `SearchProductsCtx` interface: supabase + agent + conversation/contact/instance + uazapiUrl + incomingText + leadName + **mediaState (ref mutável `{carouselSent}`)** + broadcastEvent callback + buildQualificationChain callback (mantida em index.ts pois usada também em handoff_to_human).
+- `ai-agent/index.ts`: case de 650 lin → 18 lin (chamada ao dispatcher + sync do mediaState back). Removidos 2 dead-code blocks: local `safeBtnId` (linha 303, único uso era no search_products) e local `buildEnrichmentInstructions` (linha 1745, idem). index.ts: 3793 → **3097 lin (-696 lin nesta onda)**. Acumulado B5: **-1447 lin desde 4544 (-31.8%)**.
+- +14 testes (searchProducts.test.ts): R126 guard, 1 produto/1 foto → send/media, 2+ produtos → carrossel, mediaState pré-set preserva NÍVEL 2, reset search_fail ao achar, PATH A enrich, PATH B handoff full chain, PATH C retry < max, PATH C retry max → handoff, R120 outside_hours, Bug 27 seed interesse, no-duplicate seed quando interesse já existe, dispatcher routing.
+
+**Equivalência semântica:** preserva todos os textos das mensagens `[INTERNO — NÃO mostre isso ao lead]` + instruções NÍVEL 2 idênticos ao original. Bug latente do original preservado: early `if (mediaState.carouselSent)` setta mediaSent=true mas NÃO impede blocos de send abaixo (registrado em comentário do teste — fix posterior se virar prioridade).
+
+**Pipeline:** tsc 0 · vitest **1121 pass (+14 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v86→**v87** ACTIVE via CLI.
+
+**Sprint C agora destravado:** searchProducts.ts está pronto pra virar product_specialist. Próxima sub-onda:
+- 3d — set_tags + handoff_to_human (~545 lin, HIGH RISK, vira qualif+handoff specialists)
+- 4 — llmCallLoop (~370 lin)
+- 5 — dispatchResponse (~240 lin)
+
+---
+
 ### v7.41.1 (2026-05-22) — Sprint B5 Onda 3b: extrai CRM tools (assign_label + move_kanban + update_lead_profile)
 
 Segunda sub-onda do split do `executeTool` switch. Onda 3b ataca os 3 handlers de CRM — baixo risco (não dependem de LLM, sem cascata em prompt). Aproxima fronteira do `crm_specialist` futuro.

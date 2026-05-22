@@ -6,7 +6,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🎯 Andamento do Plano Orquestrador — **46% concluído**
+## 🎯 Andamento do Plano Orquestrador — **49% concluído**
 
 > Objetivo: monolito (1 LLM mega 17 KB) → **router LLM tiny + 5-6 specialists** + camada determinística + memória longa. Atualizado a cada sprint. Detalhe completo: [[wiki/plano-orquestrador-subagentes]] · [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -23,8 +23,8 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | B5 Onda 2c-i — extrai R136 + R129 short-circuits | ✅ Shipped (v7.40.7) | 3% | 41% |
 | B5 Onda 2c-ii — autoExtract + exit_action handoff + R121 inline search | ✅ Shipped (v7.40.8) | 2% | 43% |
 | B5 Onda 3a — extrai media tools (send_carousel + send_media + send_poll) | ✅ Shipped (v7.41.0) | 2% | 45% |
-| B5 Onda 3b — crmTools (assign_label + move_kanban + update_lead_profile) | ✅ Shipped (v7.41.1) | 1% | **46%** |
-| B5 Onda 3c — search_products (product_specialist boundary) | ⏳ | 3% | — |
+| B5 Onda 3b — crmTools (assign_label + move_kanban + update_lead_profile) | ✅ Shipped (v7.41.1) | 1% | 46% |
+| B5 Onda 3c — search_products (product_specialist boundary) | ✅ Shipped (v7.41.2) | 3% | **49%** |
 | B5 Onda 3d — set_tags + handoff_to_human (qualif+handoff specialists) | ⏳ HIGH RISK | 2% | — |
 | B5 Onda 4 — llmCallLoop (~370 lin) | ⏳ | 4% | — |
 | B5 Onda 5 — dispatchResponse (~240 lin) | ⏳ | 3% | — |
@@ -33,7 +33,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |
 | Sprint E — Memória longa + proatividade + RAG | ⏳ Inteligência avançada | 10% | — |
 
-**Hoje (2026-05-21 → 22 madrugada III):** 11 sprints + Fix #7 + Ondas 3a-3b (v7.41.1) shipados, 13 commits, ai-agent v74→v86. **751 lin extraídas do monolito** (4544→3793). **Validação E2E em prod descobriu 7 bugs** (lista em [[log.md]]) — Bug #7 fixado e deployado. Próxima sub-onda: **B5 Onda 3c** (search_products, vira product_specialist do Sprint C, sessão dedicada ~2-3h) ou **3d** (set_tags+handoff_to_human, HIGH RISK). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~3-5 semanas** se ritmo atual mantido.
+**Hoje (2026-05-21 → 22 madrugada IV):** 12 sprints + Fix #7 + Ondas 3a-3c (v7.41.2) shipados, 14 commits, ai-agent v74→v87. **1447 lin extraídas do monolito** (4544→3097, **-31.8%**). **Validação E2E em prod descobriu 7 bugs** (lista em [[log.md]]) — Bug #7 fixado e deployado. **Sprint C destravado**: searchProducts.ts pronto pra virar product_specialist. Próxima sub-onda: **B5 Onda 3d** (set_tags+handoff_to_human, HIGH RISK, vira qualif+handoff specialists). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~2-4 semanas** se ritmo atual mantido.
 
 **Métricas-alvo 90 dias:** prompt <8 KB (hoje 17 KB) · incidentes/14d <3 (hoje ~10) · router + 5 specialists · debug claro ("specialist X falhou na intent Y") · memória longa por lead.
 
