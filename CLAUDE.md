@@ -6,7 +6,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🎯 Andamento do Plano Orquestrador — **43% concluído**
+## 🎯 Andamento do Plano Orquestrador — **45% concluído**
 
 > Objetivo: monolito (1 LLM mega 17 KB) → **router LLM tiny + 5-6 specialists** + camada determinística + memória longa. Atualizado a cada sprint. Detalhe completo: [[wiki/plano-orquestrador-subagentes]] · [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -21,8 +21,11 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | B5 Onda 2a — extrai promptSections (puras) | ✅ Shipped (v7.40.5) | 5% | 35% |
 | B5 Onda 2b — extrai buildQualificationContext | ✅ Shipped (v7.40.6) | 3% | 38% |
 | B5 Onda 2c-i — extrai R136 + R129 short-circuits | ✅ Shipped (v7.40.7) | 3% | 41% |
-| B5 Onda 2c-ii — autoExtract + exit_action handoff + R121 inline search | ✅ Shipped (v7.40.8) | 2% | **43%** |
-| B5 Onda 3 — toolExecution split por capacidade (~1500 lin) | ⏳ **pré-req Sprint C** | 8% | — |
+| B5 Onda 2c-ii — autoExtract + exit_action handoff + R121 inline search | ✅ Shipped (v7.40.8) | 2% | 43% |
+| B5 Onda 3a — extrai media tools (send_carousel + send_media + send_poll) | ✅ Shipped (v7.41.0) | 2% | **45%** |
+| B5 Onda 3b — crmTools (assign_label + move_kanban + update_lead_profile) | ⏳ | 1% | — |
+| B5 Onda 3c — search_products (product_specialist boundary) | ⏳ | 3% | — |
+| B5 Onda 3d — set_tags + handoff_to_human (qualif+handoff specialists) | ⏳ HIGH RISK | 2% | — |
 | B5 Onda 4 — llmCallLoop (~370 lin) | ⏳ | 4% | — |
 | B5 Onda 5 — dispatchResponse (~240 lin) | ⏳ | 3% | — |
 | B4 — Varredura R134 idempotência | ⏳ (hardening, não-bloqueador) | 5% | — |
@@ -30,7 +33,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |
 | Sprint E — Memória longa + proatividade + RAG | ⏳ Inteligência avançada | 10% | — |
 
-**Hoje (2026-05-21 → 22 madrugada):** 10 sprints + Fix #7 (v7.40.9) shipados, 11 commits, ai-agent v74→v84. **512 lin extraídas do monolito** (4544→4032). **Validação E2E em prod descobriu 7 bugs** (lista em [[log.md]]) — Bug #7 (short-circuit perde info) fixado e deployado. Próximo passo no caminho crítico: **B5 Onda 3** (toolExecution split por capacidade — pré-req real do Sprint C). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~4-6 semanas** se ritmo atual mantido.
+**Hoje (2026-05-21 → 22 madrugada II):** 10 sprints + Fix #7 + Onda 3a (v7.41.0) shipados, 12 commits, ai-agent v74→v85. **644 lin extraídas do monolito** (4544→3900). **Validação E2E em prod descobriu 7 bugs** (lista em [[log.md]]) — Bug #7 (short-circuit perde info) fixado e deployado. Próxima sub-onda: **B5 Onda 3b** (crmTools, baixo risco) ou **3c** (search_products, product_specialist). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~3-5 semanas** se ritmo atual mantido.
 
 **Métricas-alvo 90 dias:** prompt <8 KB (hoje 17 KB) · incidentes/14d <3 (hoje ~10) · router + 5 specialists · debug claro ("specialist X falhou na intent Y") · memória longa por lead.
 

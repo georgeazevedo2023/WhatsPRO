@@ -50,6 +50,7 @@ import { buildQualificationContext } from '../_shared/agent/qualificationContext
 import { runPreLLMShortCircuits } from '../_shared/agent/preLLMShortCircuits.ts'
 import { runPreLLMAutoExtract } from '../_shared/agent/preLLMAutoExtract.ts'
 import { dispatchExitActionHandoff, runInlineSearchProducts } from '../_shared/agent/exitActionDispatcher.ts'
+import { dispatchMediaTool } from '../_shared/agent/tools/mediaTools.ts'
 import type { PendingExitActionHandoff, PendingExitActionSearch } from '../_shared/agent/preLLMAutoExtract.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
@@ -2489,161 +2490,28 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           return resultText
         }
 
-        case 'send_carousel': {
-          const titles: string[] = args.product_ids || []
-          if (titles.length === 0) return 'Nenhum produto especificado.'
-          if (titles.length > 10) return 'Máximo de 10 produtos por carrossel.'
-
-          const { data: products } = await supabase
-            .from('ai_agent_products')
-            .select('title, description, price, images, in_stock')
-            .eq('agent_id', agent_id)
-            .eq('enabled', true)
-            .in('title', titles)
-
-          if (!products || products.length === 0) return 'Nenhum produto encontrado.'
-
-          const withImages = products.filter((p: any) => p.images?.[0])
-          if (withImages.length === 0) return 'Nenhum produto com imagem. Descreva por texto.'
-
-          let carousel: any[]
-
-          // Single product with multiple photos → multi-photo carousel with AI sales copy
-          const scBtn1 = agent.carousel_button_1 || 'Eu quero!'
-          const scBtn2 = agent.carousel_button_2 || ''
-          if (withImages.length === 1 && withImages[0].images?.length > 1) {
-            const p = withImages[0]
-            const photos = (p.images as string[]).slice(0, 5)
-            const copies = await generateCarouselCopies(p, photos.length)
-            carousel = photos.map((img: string, idx: number) => ({
-              text: copies[idx] || `${p.title}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
-              image: img,
-              buttons: [
-                { id: safeBtnId(`${p.title}_${idx}`), text: scBtn1, type: 'REPLY' },
-                ...(scBtn2 ? [{ id: safeBtnId(`info_${p.title}_${idx}`), text: scBtn2, type: 'REPLY' }] : []),
-              ],
-            }))
-            log.info('Multi-photo carousel', { title: p.title, photoCount: photos.length })
-          } else {
-            carousel = withImages.slice(0, 10).map((p: any) => ({
-              text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
-              image: p.images[0],
-              buttons: [
-                { id: safeBtnId(p.title), text: scBtn1, type: 'REPLY' },
-                ...(scBtn2 ? [{ id: safeBtnId(`info_${p.title}`), text: scBtn2, type: 'REPLY' }] : []),
-              ],
-            }))
-          }
-
-          // Retry strategy for carousel — 4 variants matching uazapi-proxy order (phone+message is primary for individual)
-          const msg = args.message || 'Confira nossas opções:'
-          const rawNumSc = contact.jid.split('@')[0]
-          const variants = [
-            { phone: contact.jid, message: msg, carousel },
-            { number: contact.jid, text: msg, carousel },
-            { phone: rawNumSc, message: msg, carousel },
-            { number: rawNumSc, text: msg, carousel },
-          ]
-          let sent = false
-          for (const payload of variants) {
-            const res = await fetchWithTimeout(`${uazapiUrl}/send/carousel`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'token': instance.token },
-              body: JSON.stringify(payload),
-            }, 10000)
-            const body = await res.text()
-            log.info('send_carousel attempt', { variant: Object.keys(payload)[0], status: res.status, body: body.substring(0, 120) })
-            if (res.ok && !body.toLowerCase().includes('missing')) { sent = true; break }
-          }
-          if (!sent) return 'Erro ao enviar carrossel. Descreva os produtos por texto.'
-
-          // Save carousel to helpdesk
-          const scMediaUrl = JSON.stringify({ message: msg, cards: carousel })
-          await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing', content: msg,
-            media_type: 'carousel', media_url: scMediaUrl,
-            external_id: `ai_carousel_${Date.now()}`,
-          })
-          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: msg, media_type: 'carousel', media_url: scMediaUrl })
-
-          const photoCount = withImages.length === 1 ? `${(withImages[0].images as string[]).slice(0, 5).length} fotos` : `${withImages.length} produto(s)`
-          return `Carrossel enviado com ${photoCount} ao lead! NÃO repita os nomes dos produtos no texto — apenas pergunte se é isso que procura.`
-        }
-
-        case 'send_media': {
-          const { media_url, media_type, caption } = args
-          if (!media_url) return 'URL da mídia não informada.'
-
-          const type = ['image', 'video', 'document'].includes(media_type) ? media_type : 'image'
-
-          const sendRes = await fetchWithTimeout(`${uazapiUrl}/send/media`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'token': instance.token },
-            body: JSON.stringify({ number: contact.jid, type, file: media_url, text: caption || '', delay: 2000 }),
-          })
-
-          if (!sendRes.ok) return `Erro ao enviar mídia (${sendRes.status}). Descreva por texto.`
-
-          // Save media to helpdesk
-          await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing', content: caption || '',
-            media_type: type, media_url,
-            external_id: `ai_media_${Date.now()}`,
-          })
-
-          return `Mídia enviada com legenda ao lead! NÃO repita a mesma informação no texto — apenas faça a próxima pergunta (ex: "É esse que você procura?").`
-        }
-
-        // M17 F4: Enquete nativa do WhatsApp
+        // Sprint B5 Onda 3a — send_carousel + send_media + send_poll extraídos
+        // pra _shared/agent/tools/mediaTools.ts. Mesma sequência de IO (UAZAPI
+        // + DB INSERT + broadcast), mesmas strings de retorno pro LLM.
+        case 'send_carousel':
+        case 'send_media':
         case 'send_poll': {
-          const { question, options, selectable_count } = args
-          if (!question || !options || !Array.isArray(options) || options.length < 2 || options.length > 12) {
-            return 'Enquete precisa de pergunta + 2-12 opcoes.'
-          }
-          const sc = selectable_count === 0 ? 0 : 1
-
-          const pollRes = await fetchWithTimeout(`${uazapiUrl}/send/menu`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'token': instance.token },
-            body: JSON.stringify({
-              number: contact.jid,
-              type: 'poll',
-              text: String(question).substring(0, 255),
-              choices: options.map((o: string) => String(o).substring(0, 100)),
-              selectableCount: sc,
-            }),
-          })
-
-          if (!pollRes.ok) return `Erro ao enviar enquete (${pollRes.status}). Faca a pergunta por texto.`
-
-          let pollMsgId: string | null = null
-          try {
-            const pollJson = await pollRes.json()
-            pollMsgId = pollJson.messageId || pollJson.MessageId || null
-          } catch { /* non-critical */ }
-
-          // Save to poll_messages
-          await supabase.from('poll_messages').insert({
+          const mediaResult = await dispatchMediaTool(name, args, {
+            supabase,
+            agent,
+            agent_id,
+            conversation,
             conversation_id,
+            contact,
+            instance,
             instance_id,
-            message_id: pollMsgId,
-            question,
-            options,
-            selectable_count: sc,
-          })
-
-          // Save to conversation_messages for helpdesk
-          await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing',
-            content: question,
-            media_type: 'poll',
-            media_url: JSON.stringify({ question, options, selectable_count: sc }),
-            external_id: `ai_poll_${Date.now()}`,
-          })
-
-          broadcastEvent({ conversation_id, media_type: 'poll' })
-
-          return `Enquete enviada: "${question}" com ${options.length} opcoes. Aguarde o lead votar.`
+            uazapiUrl,
+            broadcastEvent,
+          }, log)
+          if (mediaResult !== null) return mediaResult
+          // Defensivo: dispatchMediaTool retornou null pra um dos 3 cases
+          // listados — impossível em condição normal. Cai pro default abaixo.
+          return `Tool '${name}' não implementada.`
         }
 
         case 'assign_label': {

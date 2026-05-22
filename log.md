@@ -9,6 +9,45 @@ type: log
 
 ---
 
+## 2026-05-22 (madrugada II) — Sprint B5 Onda 3a shipped (v7.41.0) — extrai media tools
+
+**Trigger:** user pediu "executar B5 Onda 3 toolExecution split por capacidade". Plano de subdivisão apresentado (3a media + 3b crm + 3c search + 3d set_tags/handoff). User escolheu **3a** (recomendado conservador).
+
+**Diagnóstico inicial:**
+- Switch `executeTool` ocupa linhas 1839-3334 (~1495 lin), 9 tools.
+- 3a ataca os 3 handlers de mídia (send_carousel + send_media + send_poll) = ~155 lin in-line.
+- Sem mutação de tags. Sem cascata pra exit_action. Risco BAIXO.
+
+**Execução (cirúrgica):**
+
+1. `_shared/agent/tools/mediaTools.ts` — 3 funções + dispatcher:
+   - `sendCarousel`: lookup `ai_agent_products` + filtro `withImages` + multi-foto (`generateCarouselCopies`) ou single → 4 variantes de retry UAZAPI `/send/carousel` → INSERT msg + broadcast → retorna string pro LLM.
+   - `sendMedia`: UAZAPI `/send/media` (1 tentativa) → INSERT msg → retorna string.
+   - `sendPoll`: UAZAPI `/send/menu` (poll) → INSERT poll_messages + INSERT conversation_messages + broadcast → retorna string.
+   - Dispatcher `dispatchMediaTool(name, args, ctx, log)` retorna string ou null (se name não é tool de mídia).
+   - Helper privado `safeBtnId` copiado do index.ts (3 lin).
+
+2. `mediaTools.test.ts` — 19 testes:
+   - Mock `generateCarouselCopies` (usa `Deno.env`, não roda em vitest/Node).
+   - Stub global `fetch` por sequence (4 variantes de retry, single 200).
+   - Builder fluent supabase (`.from().select().eq().in()` retorna fixtures, `.insert()` registra payload).
+   - Casos: ausência produto/limite 10/sem imagem, happy single+multi, retry 1ª falha→2ª passa, todas 4 falham, multi-foto Multi-photo carousel log, send_media all paths, send_poll validação+sc=0/1, dispatcher routing 3 nomes + null.
+
+3. `ai-agent/index.ts`: import `dispatchMediaTool`, 3 cases `send_carousel|send_media|send_poll` → 1 case com fallthrough + dispatch (~20 lin). Saldo: 4032 → **3900 lin** (-132). Acumulado B5: **-644 lin** desde 4544.
+
+**Hiccup:** primeiro pass do teste multi-foto deu fail com `Deno is not defined` (carousel.ts:100 lê `Deno.env`). Fix: `vi.mock('../../carousel.ts')` no topo do test file ANTES do import. 19/19 pass.
+
+**Pipeline:** tsc 0 · vitest **1086 pass (+19 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v84→**v85** ACTIVE via CLI.
+
+**Andamento Plano Orquestrador:** 43% → **45%**. Próximas sub-ondas da Onda 3:
+- 3b — crmTools (assign_label + move_kanban + update_lead_profile, ~140 lin, BAIXO-MÉDIO risco)
+- 3c — search_products (~650 lin, MÉDIO risco — vira product_specialist no Sprint C)
+- 3d — set_tags + handoff_to_human (~545 lin, ALTO risco — vira qualif+handoff specialists)
+
+**Frase de retomada:** *"executar B5 Onda 3b crmTools"* (continuação natural, baixo risco).
+
+---
+
 ## 2026-05-22 (madrugada) — Validação E2E em prod + Fix Bug #7 shipped (v7.40.9)
 
 **Trigger:** depois do shipping da Onda 2c-ii, validação em prod com user mandando msgs reais na EletropisoV2. 3 cenários planejados (R121 + autoExtract + inline search; R129 multi-categoria; R136 multi-item). Cenários 1+2 executados, Cenário 3 não chegou a ser feito porque bug descoberto no Cenário 2 demandou fix.

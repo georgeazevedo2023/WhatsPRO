@@ -13,6 +13,28 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.41.0 (2026-05-22) — Sprint B5 Onda 3a: extrai media tools (send_carousel + send_media + send_poll)
+
+Primeira sub-onda do split do `executeTool` switch (~1500 lin total). Onda 3a ataca os 3 handlers de envio de mídia — sem mutação de tags, sem cascata, baixo risco. Valida o padrão de extração de tools antes de atacar search_products (3c) e set_tags (3d).
+
+**Mudanças:**
+- Novo `_shared/agent/tools/mediaTools.ts` — 3 funções (`sendCarousel`, `sendMedia`, `sendPoll`) + dispatcher `dispatchMediaTool(name, args, ctx, log)`. Helper privado `safeBtnId` (copiado do index.ts).
+- Cada handler retorna `string` (mesmo contrato do switch original) — mensagem que vai pro próximo turno do LLM.
+- `MediaToolsCtx` interface: supabase + agent + conversation/contact/instance + uazapiUrl + callback broadcastEvent.
+- `ai-agent/index.ts`: 3 cases (`send_carousel`, `send_media`, `send_poll`, ~155 lin in-line) → 1 case com chamada única ao dispatcher (~20 lin). index.ts: 4032 → **3900 lin** (-132). Acumulado B5: **-644 lin** desde 4544 inicial.
+- +19 testes (mediaTools.test.ts): valida ausência product_ids, limite 10, retry 4 variantes, multi-foto/single-product, sendMedia 4 paths, sendPoll validação + selectable_count, dispatcher routing.
+
+**Equivalência semântica:** strings/logs idênticos ao original (`Carrossel enviado com X fotos ao lead!`, `Mídia enviada com legenda`, `Enquete enviada: "Q" com N opcoes`). `generateCarouselCopies` (Groq AI) preservado via import shared.
+
+**Pipeline:** tsc 0 · vitest **1086 pass (+19 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v84→v85 ACTIVE.
+
+**Próximas sub-ondas da Onda 3:**
+- 3b — assign_label + move_kanban + update_lead_profile (~140 lin)
+- 3c — search_products (~650 lin, vira product_specialist no Sprint C)
+- 3d — set_tags + handoff_to_human (~545 lin, HIGH RISK, vira qualif+handoff specialists)
+
+---
+
 ### v7.40.9 (2026-05-22) — Fix Bug #7: short-circuits R129+R136 preservam fields ricos da msg original
 
 Bug encontrado em validação E2E em prod (lead "porta de ENTRADA e janela pra OBRA NOVA" → sistema perdia "entrada" + "obra nova"). R129/R136 short-circuited ANTES do autoExtract, persistindo só a tag pending e descartando o resto da mensagem. Lead voltava na sequência e LLM re-perguntava o que já tinha sido dito.
