@@ -327,6 +327,83 @@ describe('R137 searchGuard wire (com sanitização R138)', () => {
 })
 
 // ────────────────────────────────────────────────────────────────────
+// R143 — interesse seed sem fields extraídos (caso Jessica)
+// ────────────────────────────────────────────────────────────────────
+
+describe('R143 interesse seed quando extracted=[]', () => {
+  it('caso Jessica: "porta de frente disponível" → seedar interesse:portas mesmo sem fields', async () => {
+    const spy = makeSupabaseSpy()
+    // Agent com categoria portas (offline, fields material/ambiente/tipo)
+    const agentPortas = {
+      service_categories: {
+        default: {
+          stages: [
+            { id: 'q', label: 'q', min_score: 0, max_score: 100, exit_action: 'handoff',
+              fields: [{ key: 'd', label: 'd', examples: 'x', score_value: 25, priority: 1 }],
+              phrasing: '{label}?' },
+          ],
+        },
+        categories: [
+          {
+            id: 'portas',
+            label: 'Portas',
+            interesse_match: 'porta|portas',
+            catalog_status: 'offline',
+            stages: [
+              { id: 'q', label: 'Qualif', min_score: 0, max_score: 30, exit_action: 'handoff',
+                fields: [
+                  { key: 'material_porta', label: 'material', examples: 'madeira, PVC ou alumínio', score_value: 10, priority: 1 },
+                  { key: 'ambiente_porta', label: 'ambiente', examples: 'sala, cozinha, quarto ou banheiro', score_value: 10, priority: 2 },
+                  { key: 'tipo_porta', label: 'tipo', examples: 'frisada ou lisa', score_value: 10, priority: 3 },
+                ],
+                phrasing: '{label}? ({examples})' },
+            ],
+          },
+        ],
+      },
+    }
+
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      agent: agentPortas,
+      incomingText: 'Oi vc manda pra mim os modelo de porta de frente disponível',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+
+    // R143: tags mutadas com seed interesse:portas
+    expect(r.tagsMutated).toBe(true)
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    expect(update).toBeTruthy()
+    expect(update!.payload.tags).toContain('interesse:portas')
+  })
+
+  it('NÃO redispara se já tinha interesse: tag', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      conversation: { tags: ['interesse:tintas'], status_ia: 'active' },
+      incomingText: 'oi tudo bem?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    // Sem fields novos, sem novo seed (já existia)
+    expect(r.tagsMutated).toBe(false)
+  })
+
+  it('categoria offline + 0 fields → seed interesse + tagsMutated=true', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      agent: makeAgent({ catalogStatus: 'offline', catId: 'tintas' }),
+      incomingText: 'tinta', // só matchCategoryBySearchText, sem field extraído
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.tagsMutated).toBe(true)
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    expect(update!.payload.tags).toContain('interesse:tintas')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
 // Auto-extract + score + persistência
 // ────────────────────────────────────────────────────────────────────
 
@@ -415,18 +492,18 @@ describe('Auto-extract + score + tags', () => {
     expect(logInsert!.payload.metadata.seed_tags).toEqual([])
   })
 
-  it('autoExtract sem matches retorna sem mutação', async () => {
+  it('autoExtract sem matches mas com categoria detectada → seed interesse (R143)', async () => {
     const spy = makeSupabaseSpy()
     const ctx = baseCtx({
       supabase: spy.supabase,
       incomingText: 'me manda tinta', // só interesse, nenhum field específico
     })
     const r = await runPreLLMAutoExtract(ctx, makeLog())
-    expect(r.tagsMutated).toBe(false)
-    // R121 ainda pode rodar — "tinta" não tem "tem/têm/vendem" → não bate o regex direto
-    // Não houve update no DB
+    // R143 (2026-05-22 v7.41.10): agora seeda interesse:tintas mesmo sem fields
+    expect(r.tagsMutated).toBe(true)
     const update = spy.calls.find((c) => c.op === 'update')
-    expect(update).toBeUndefined()
+    expect(update).toBeTruthy()
+    expect(update!.payload.tags).toContain('interesse:tintas')
   })
 
   it('log auto_field_extracted contém pending_exit_handoff=true quando aplicável', async () => {

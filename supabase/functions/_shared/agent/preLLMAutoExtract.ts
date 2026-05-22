@@ -256,7 +256,47 @@ export async function runPreLLMAutoExtract(
   }
   const extracted = autoExtractFields(ctx.incomingText, allFields, existingKeys)
 
+  // R143 (2026-05-22 v7.41.10) — caso Jessica: lead disse "porta de frente
+  // disponível" → categoria portas detectada mas "frente" não casou nenhum
+  // example dos fields (material/ambiente/tipo). extracted=[] descartava o
+  // seedTag interesse:portas. LLM tentava interesse:porta (singular) →
+  // I2 hallucination_blocked 4×. Loop de qualif redundante.
+  //
+  // Fix: SEMPRE seedar interesse:CAT_ID quando categoria detectada e sem
+  // interesse: tag prévia, mesmo se extracted=[]. Persistir, log, return.
+  // LLM ganha contexto pra não tentar singular inventada.
   if (extracted.length === 0) {
+    if (!interesseTagPre) {
+      const seedOnly = [`interesse:${categoryPre.id}`]
+      const mergedSeedOnly = [...tagsNow, ...seedOnly]
+      ctx.conversation.tags = mergedSeedOnly
+      tagsMutated = true
+      await ctx.supabase
+        .from('conversations')
+        .update({ tags: mergedSeedOnly })
+        .eq('id', ctx.conversation_id)
+      await ctx.supabase.from('ai_agent_logs').insert({
+        agent_id: ctx.agent_id,
+        conversation_id: ctx.conversation_id,
+        event: 'auto_field_extracted',
+        latency_ms: 0,
+        metadata: {
+          extracted: [],
+          new_tags: [],
+          seed_tags: seedOnly,
+          score_delta: 0,
+          category_id: categoryPre.id,
+          resolved_via: 'search_text_no_fields',
+          incoming_preview: ctx.incomingText.substring(0, 120),
+          pending_exit_handoff: false,
+          source: 'R143_interesse_seed_no_fields',
+        },
+      })
+      log.info('R143: interesse seed sem fields extraídos', {
+        categoryId: categoryPre.id,
+        incomingPreview: ctx.incomingText.substring(0, 80),
+      })
+    }
     return { pendingExitActionHandoff, pendingExitActionSearch, tagsMutated }
   }
 
