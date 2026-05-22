@@ -170,7 +170,8 @@ export async function setTags(
     }
     args.tags = dupValidation.cleanedTags
   }
-  const sanitizedRawTags: string[] = args.tags || rawTags
+  // eslint-disable-next-line prefer-const — pode ser reassign pelo R144 auto-correct
+  let sanitizedRawTags: string[] = args.tags || rawTags
 
   // FIX (2026-04-29): aliasing automático de keys genéricas pra sufixadas da categoria.
   const aliasInteresse = extractInteresseFromTags(conversation.tags || [])
@@ -178,14 +179,20 @@ export async function setTags(
   const aliasCategory = matchCategory(aliasInteresse, aliasConfig)
 
   // Sprint A I2 (2026-05-21, Bug 12 fix): valida interesse:VALUE ∈ category.id.
+  // R144 (2026-05-22): auto-correct singular/plural/regex/levenshtein-1 antes
+  // de bloquear. Caso Jessica — LLM tentava interesse:porta 4× eternamente.
   {
-    const validCategoryIds = (Array.isArray((aliasConfig as any)?.categories)
+    const categoriesArr = Array.isArray((aliasConfig as any)?.categories)
       ? (aliasConfig as any).categories
       : []
-    )
+    const validCategoryIds = categoriesArr
       .map((c: any) => String(c?.id || '').trim().toLowerCase())
       .filter(Boolean)
-    const interesseValidation = validateInteresseCategory(sanitizedRawTags, validCategoryIds)
+    const interesseValidation = validateInteresseCategory(
+      sanitizedRawTags,
+      validCategoryIds,
+      categoriesArr,
+    )
     if (!interesseValidation.ok) {
       await supabase.from('ai_agent_logs').insert({
         agent_id,
@@ -203,6 +210,23 @@ export async function setTags(
         valid_ids: validCategoryIds,
       })
       return interesseValidation.message
+    }
+    // R144: aplica auto-correct quando ok=true mas tags foram substituídas
+    if (interesseValidation.autoCorrected && interesseValidation.correctedTags) {
+      sanitizedRawTags = interesseValidation.correctedTags
+      await supabase.from('ai_agent_logs').insert({
+        agent_id,
+        conversation_id,
+        event: 'auto_field_extracted',
+        metadata: {
+          source: 'R144_interesse_auto_correct',
+          corrections: interesseValidation.autoCorrected,
+          valid_category_ids: validCategoryIds,
+        },
+      })
+      log.info('R144: interesse auto-corrected', {
+        corrections: interesseValidation.autoCorrected,
+      })
     }
   }
 

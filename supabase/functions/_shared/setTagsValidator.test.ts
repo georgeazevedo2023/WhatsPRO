@@ -174,3 +174,98 @@ describe('validateInteresseCategory', () => {
     expect(r.ok).toBe(true)
   })
 })
+
+/* ──────────────────────────────────────────────────────────
+ * R144 (2026-05-22) — auto-correct fuzzy singular↔plural/regex/levenshtein
+ * Caso Jessica: LLM tentou interesse:porta 4× → I2 bloqueava → loop
+ * ────────────────────────────────────────────────────────── */
+
+describe('R144 auto-correct fuzzy', () => {
+  const VALID = ['tintas', 'portas', 'janelas', 'chuveiros', 'vasos_sanitarios']
+  const CATEGORIES = [
+    { id: 'tintas', interesse_match: 'tinta|esmalte|verniz' },
+    { id: 'portas', interesse_match: 'porta|portas' },
+    { id: 'janelas', interesse_match: 'janela|janelas' },
+    { id: 'chuveiros', interesse_match: 'chuveiro|chuveiros' },
+    { id: 'vasos_sanitarios', interesse_match: 'vaso|vaso sanit|vaso_sanitario' },
+  ]
+
+  it('caso Jessica: interesse:porta → auto-corrige pra interesse:portas (plural)', () => {
+    const r = validateInteresseCategory(['interesse:porta'], VALID, CATEGORIES)
+    expect(r.ok).toBe(true)
+    expect(r.autoCorrected).toHaveLength(1)
+    expect(r.autoCorrected![0]).toEqual({
+      original: 'interesse:porta',
+      fixed: 'interesse:portas',
+      matchedVia: 'plural',
+    })
+    expect(r.correctedTags).toEqual(['interesse:portas'])
+  })
+
+  it('interesse:tinta → interesse:tintas (plural)', () => {
+    const r = validateInteresseCategory(['interesse:tinta'], VALID, CATEGORIES)
+    expect(r.ok).toBe(true)
+    expect(r.autoCorrected![0].fixed).toBe('interesse:tintas')
+    expect(r.autoCorrected![0].matchedVia).toBe('plural')
+  })
+
+  it('interesse:janela → interesse:janelas (plural)', () => {
+    const r = validateInteresseCategory(['interesse:janela'], VALID, CATEGORIES)
+    expect(r.ok).toBe(true)
+    expect(r.autoCorrected![0].fixed).toBe('interesse:janelas')
+  })
+
+  it('regex_match: interesse:esmalte → interesse:tintas (via regex)', () => {
+    const r = validateInteresseCategory(['interesse:esmalte'], VALID, CATEGORIES)
+    expect(r.ok).toBe(true)
+    expect(r.autoCorrected![0].fixed).toBe('interesse:tintas')
+    expect(r.autoCorrected![0].matchedVia).toBe('regex_match')
+  })
+
+  it('regex_match: interesse:vaso → interesse:vasos_sanitarios', () => {
+    const r = validateInteresseCategory(['interesse:vaso'], VALID, CATEGORIES)
+    expect(r.ok).toBe(true)
+    expect(r.autoCorrected![0].fixed).toBe('interesse:vasos_sanitarios')
+  })
+
+  it('levenshtein_1: interesse:xintas (typo char inicial) → interesse:tintas', () => {
+    // "xintas" não contém substring "tinta" — regex_match falha — cai em Levenshtein
+    const r = validateInteresseCategory(['interesse:xintas'], VALID, CATEGORIES)
+    expect(r.ok).toBe(true)
+    expect(r.autoCorrected![0].fixed).toBe('interesse:tintas')
+    expect(r.autoCorrected![0].matchedVia).toBe('levenshtein_1')
+  })
+
+  it('sem auto-correct possível → bloqueia (Bug 12 original)', () => {
+    const r = validateInteresseCategory(['interesse:hidraulica'], VALID, CATEGORIES)
+    expect(r.ok).toBe(false)
+    expect(r.invalidTag).toBe('interesse:hidraulica')
+  })
+
+  it('preserva outras tags durante auto-correct', () => {
+    const r = validateInteresseCategory(
+      ['motivo:compra', 'interesse:porta', 'material_porta:madeira'],
+      VALID,
+      CATEGORIES,
+    )
+    expect(r.ok).toBe(true)
+    expect(r.correctedTags).toEqual([
+      'motivo:compra',
+      'interesse:portas',
+      'material_porta:madeira',
+    ])
+  })
+
+  it('sem categories[] mas com plural disponível → ainda corrige', () => {
+    const r = validateInteresseCategory(['interesse:porta'], VALID)
+    expect(r.ok).toBe(true)
+    expect(r.autoCorrected![0].fixed).toBe('interesse:portas')
+  })
+
+  it('valid value (já no validSet) → não dispara auto-correct', () => {
+    const r = validateInteresseCategory(['interesse:portas'], VALID, CATEGORIES)
+    expect(r.ok).toBe(true)
+    expect(r.autoCorrected).toBeUndefined()
+    expect(r.correctedTags).toBeUndefined()
+  })
+})

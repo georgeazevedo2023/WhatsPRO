@@ -142,21 +142,104 @@ export interface InteresseCategoryValidation {
   invalidTag?: string
   /** Mensagem pro LLM com lista válida quando ok=false */
   message: string
+  /** R144 (2026-05-22) — tags corrigidas via fuzzy match (singular↔plural ou regex). */
+  autoCorrected?: {
+    original: string
+    fixed: string
+    matchedVia: 'plural' | 'singular' | 'regex_match' | 'levenshtein_1'
+  }[]
+  /** Quando autoCorrected.length > 0, esse é o array final com substituições aplicadas. */
+  correctedTags?: string[]
+}
+
+/**
+ * Distância Levenshtein simples (custo unitário). Retorna ∞ se diff > limit
+ * (early exit). Usado pra detectar typos de 1 char.
+ */
+function levenshtein(a: string, b: string, limit = 1): number {
+  if (a === b) return 0
+  if (Math.abs(a.length - b.length) > limit) return Infinity
+  const dp: number[] = []
+  for (let j = 0; j <= b.length; j++) dp[j] = j
+  for (let i = 1; i <= a.length; i++) {
+    let prev = i - 1
+    dp[0] = i
+    let rowMin = i
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      const cur = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + cost)
+      prev = dp[j]
+      dp[j] = cur
+      if (cur < rowMin) rowMin = cur
+    }
+    if (rowMin > limit) return Infinity
+  }
+  return dp[b.length]
+}
+
+/**
+ * R144 (2026-05-22) — auto-correct fuzzy do value contra category IDs.
+ * Estratégia em ordem de precedência:
+ *   1. plural: value + 's' está em validSet (ex: porta → portas)
+ *   2. singular: value sem último 's' está em validSet (ex: tintas → tinta)
+ *      — só se value.length > 3 pra não confundir "cars" com "car"
+ *   3. regex_match: alguma categoria tem interesse_match que casa o value
+ *   4. levenshtein_1: distância 1 com algum category id (typo)
+ *
+ * Categories param é opcional — quando passado com interesse_match regex,
+ * permite fuzzy mais robusto (ex: "porta de entrada" → categoria "portas").
+ */
+function tryAutoCorrect(
+  value: string,
+  validCategoryIds: string[],
+  validSet: Set<string>,
+  categories?: Array<{ id: string; interesse_match?: string }>,
+): { fixed: string; matchedVia: NonNullable<InteresseCategoryValidation['autoCorrected']>[number]['matchedVia'] } | null {
+  // 1. plural
+  const plural = value + 's'
+  if (validSet.has(plural)) return { fixed: plural, matchedVia: 'plural' }
+  // 2. singular (só se value > 3 chars pra evitar over-match)
+  if (value.length > 3 && value.endsWith('s')) {
+    const singular = value.slice(0, -1)
+    if (validSet.has(singular)) return { fixed: singular, matchedVia: 'singular' }
+  }
+  // 3. regex match contra interesse_match
+  if (Array.isArray(categories)) {
+    for (const cat of categories) {
+      if (!cat?.interesse_match || typeof cat.interesse_match !== 'string') continue
+      try {
+        const re = new RegExp(cat.interesse_match, 'i')
+        if (re.test(value)) return { fixed: cat.id, matchedVia: 'regex_match' }
+      } catch {
+        /* regex inválido — pula */
+      }
+    }
+  }
+  // 4. levenshtein 1
+  for (const id of validCategoryIds) {
+    if (levenshtein(value, id, 1) === 1) return { fixed: id, matchedVia: 'levenshtein_1' }
+  }
+  return null
 }
 
 /**
  * Valida que cada tag `interesse:VALUE` tem VALUE ∈ validCategoryIds.
  * Retorna OK se não há tag interesse: ou se todas batem.
  *
+ * R144 (2026-05-22): adiciona auto-correct fuzzy (plural/singular/regex/levenshtein-1)
+ * antes de bloquear. Caso Jessica (lead "porta de frente" → LLM tentava
+ * interesse:porta 4× → bloqueado eternamente). Agora porta→portas é corrigido
+ * silenciosamente.
+ *
  * Argumentos:
  *  - tags: array que será passado para mergeTags
  *  - validCategoryIds: ids permitidos derivados de agent.service_categories.
- *    Ex: ['tintas', 'portas', 'janelas', ...]. Caso vazio, valida sempre OK
- *    (agente sem categories configurado — preserva compat).
+ *  - categories: opcional. Array de {id, interesse_match} pra fuzzy via regex.
  */
 export function validateInteresseCategory(
   tags: string[],
   validCategoryIds: string[],
+  categories?: Array<{ id: string; interesse_match?: string }>,
 ): InteresseCategoryValidation {
   if (!Array.isArray(validCategoryIds) || validCategoryIds.length === 0) {
     return { ok: true, message: '' }
@@ -165,12 +248,24 @@ export function validateInteresseCategory(
     return { ok: true, message: '' }
   }
   const validSet = new Set(validCategoryIds.map((id) => id.toLowerCase()))
-  for (const raw of tags) {
+  const autoCorrected: NonNullable<InteresseCategoryValidation['autoCorrected']> = []
+  const corrected: string[] = [...tags]
+  for (let i = 0; i < tags.length; i++) {
+    const raw = tags[i]
     if (typeof raw !== 'string') continue
     if (!raw.toLowerCase().startsWith('interesse:')) continue
     const value = raw.slice('interesse:'.length).trim().toLowerCase()
     if (!value) continue
     if (validSet.has(value)) continue
+    // Tenta auto-correct ANTES de bloquear
+    const correctedMatch = tryAutoCorrect(value, validCategoryIds, validSet, categories)
+    if (correctedMatch) {
+      const fixedTag = `interesse:${correctedMatch.fixed}`
+      autoCorrected.push({ original: raw, fixed: fixedTag, matchedVia: correctedMatch.matchedVia })
+      corrected[i] = fixedTag
+      continue
+    }
+    // Sem auto-correct possível → bloqueia
     return {
       ok: false,
       invalidTag: raw,
@@ -180,6 +275,9 @@ export function validateInteresseCategory(
         `AÇÃO: pergunte ao lead com qual produto você pode ajudar (use a lista acima) — ` +
         `NÃO use set_tags com interesse: até saber.`,
     }
+  }
+  if (autoCorrected.length > 0) {
+    return { ok: true, message: '', autoCorrected, correctedTags: corrected }
   }
   return { ok: true, message: '' }
 }
