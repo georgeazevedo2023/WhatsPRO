@@ -19,6 +19,33 @@ audited_at: 2026-05-20
 
 ---
 
+## 🚨 R137 — IA pediu "qual produto?" 4× após lead nomear marca+volume (Sandrielly Eletropiso, 2026-05-22 17:43-17:51, prod)
+
+**Sequência:** lead 558781324150 → "Boa tarde" → IA "Olá! Bem-vindo a Eletropiso, com quem eu falo?" → lead "**Por quanto está a tinta pintalar da Iquine, de 3,6L?**" + "Com Sandrielly" → IA **"Sandrielly, você poderia confirmar qual produto do nosso catálogo de tintas você deseja?"** → lead re-mandou produto exato → IA pergunta categoria de novo → IA lista 5 categorias → IA "tinta da categoria 'tintas'?" → 1 pergunta útil (ambiente) → handoff. **7 minutos de loop, search_products NUNCA rodou.**
+
+**Causa raiz:** helper `detectIncomingSearchSignal` em `_shared/searchGuard.ts:157` cobre exatamente esse caso ("iquine" no `DEFAULT_BRANDS`) + R121 verboso ("preciso de/quero"). Grep do código ativo mostrou única menção em `ai-agent/index.ts` é comentário (linha 1444). **A chamada nunca foi feita.** Plano `wiki/plano-orquestrador-subagentes.md:55` marca como *"Edit 3 (searchGuard PRÉ-LLM wire) pulado — defer Sprint B5"*. Sprint B1 extraiu hardcodedRules do prompt mas a regra "marca → search imediato" ficou só como texto descritivo no prompt. LLM ignorou.
+
+**Diferença pra R135/R136:**
+- **R135** = repete pergunta LITERAL quando lead respondeu sem casar keyword → `qualificationContext` re-injeta frase exata. Fix B1.5 cobriu.
+- **R136** = lista multi-item mista → `multiItemDetector` + horizontal qualif. Fix B1.5 cobriu.
+- **R137** = lead nomeia produto+marca+volume SINGLE-ITEM mas LLM cai em qualif genérica porque `DIRECT_PRODUCT_QUESTION_RE` só pega verbo (`tem|vendem|trabalham com`) → não bate "Por quanto está X?". Brand detection ficou solta sem wire.
+
+**Fix v7.41.4 (R137 wire):**
+1. `preLLMAutoExtract.ts` importa `detectIncomingSearchSignal` + `DEFAULT_BRANDS`.
+2. Novo bloco depois do R121 inline existente: quando `signal.force=true` em categoria digital + `!leadHasReceivedProducts` + `!SHADOW`, seta `pendingExitActionSearch` (mesma máquina do R121).
+3. `exitActionDispatcher.runInlineSearchProducts` executa o search no caminho atual sem qualquer mudança upstream.
+4. 8 testes vitest novos cobrindo caso Sandrielly exato + variações.
+
+**Regras preventivas:**
+1. **Helper extraído mas NÃO wired ainda existe.** Sempre que se extrair helper de pipeline crítico, grep imediato pra confirmar a chamada. Se não há chamada, o helper é cosmético — bug latente é só questão de tempo de aparecer.
+2. **Regra "X → ação Y" em texto de prompt não é defesa.** Se a ação Y é determinística (chamar uma tool específica), implementa em código pré-LLM. Prompt é pra ambiguidade, código é pra invariantes.
+3. **Marca conhecida tem 2 caminhos de detecção:** R121 verboso ("preciso de Iquine") + brand isolada ("Por quanto está Iquine?"). Antes do R137, só o 1º funcionava de fato. Brand-only ficou solto desde sempre.
+4. **Cada fix textual no prompt sem guard determinístico paralelo é débito.** Auditoria 2026-05-21 viu isso (`hardcodedRules` cresceu 9 KB / 23 bullets). Sprint B1 extraiu, mas a transferência pra guards determinísticos foi parcial. Wires pulados viram bugs como Sandrielly.
+
+**Cruza com:** R121 (regex verboso), R125-R127 (post-search filter, complementar), R135-R136 (loops de qualif).
+
+---
+
 ## 🚨 R135 + R136 — IA repetiu pergunta literal + ignorou lista multi-item (2 leads Eletropiso, 2026-05-21 17:46-17:50, prod)
 
 **2 bugs simultâneos pós-deploy v7.40.0 (Sprint B1).** Não causados pelo B1 — eram comportamentos pré-existentes do `buildQualificationContext` e do detector de multi-categoria.

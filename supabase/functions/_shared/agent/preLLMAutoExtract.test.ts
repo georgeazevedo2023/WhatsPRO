@@ -214,6 +214,86 @@ describe('R121 "tem X?" trigger', () => {
 })
 
 // ────────────────────────────────────────────────────────────────────
+// R137 — searchGuard wire (Sandrielly fix v7.41.4 2026-05-22)
+// ────────────────────────────────────────────────────────────────────
+
+describe('R137 searchGuard wire', () => {
+  it('caso Sandrielly: "Por quanto está a tinta Iquine?" força search inline', async () => {
+    const log = makeLog()
+    const ctx = baseCtx({
+      incomingText: 'Por quanto está a tinta pintalar da Iquine, de 3,6L?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, log)
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.category).toBe('tintas')
+    expect(r.pendingExitActionSearch!.query.toLowerCase()).toContain('iquine')
+    expect(log.info).toHaveBeenCalledWith(
+      'R137: searchGuard wire forçando search_products inline',
+      expect.objectContaining({ reason: 'brand_mentioned' }),
+    )
+  })
+
+  it('"Preciso de tinta acrílica fosca" (R121 verboso) força search', async () => {
+    const ctx = baseCtx({ incomingText: 'Preciso de tinta acrílica fosca' })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.query.toLowerCase()).toContain('tinta')
+  })
+
+  it('"Quanto custa a Coral?" (marca isolada sem verbo) força search', async () => {
+    const ctx = baseCtx({ incomingText: 'Quanto custa a Coral?' })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.query.toLowerCase()).toContain('coral')
+  })
+
+  it('saudação simples não dispara (no_signal)', async () => {
+    const ctx = baseCtx({ incomingText: 'oi tudo bem?' })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('categoria offline NÃO dispara mesmo com marca mencionada', async () => {
+    const ctx = baseCtx({
+      agent: makeAgent({ catalogStatus: 'offline', catId: 'tintas' }),
+      incomingText: 'Quero tinta Coral fosca',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('lead já recebeu produto (aguardando_upsell) NÃO redispara', async () => {
+    const ctx = baseCtx({
+      conversation: { tags: ['aguardando_upsell'], status_ia: 'active' },
+      incomingText: 'Por quanto está a tinta Iquine?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('SHADOW NÃO dispara', async () => {
+    const ctx = baseCtx({
+      conversation: { tags: [], status_ia: 'shadow' },
+      incomingText: 'Por quanto está a tinta Iquine?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('R121 verboso "tem X?" tem precedência sobre R137 (não duplica)', async () => {
+    const log = makeLog()
+    const ctx = baseCtx({ incomingText: 'vcs têm tinta Iquine?' })
+    const r = await runPreLLMAutoExtract(ctx, log)
+    // Disparou no R121 inline (DIRECT_PRODUCT_QUESTION_RE), não no R137
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(log.info).not.toHaveBeenCalledWith(
+      'R137: searchGuard wire forçando search_products inline',
+      expect.anything(),
+    )
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
 // Auto-extract + score + persistência
 // ────────────────────────────────────────────────────────────────────
 
@@ -235,8 +315,10 @@ describe('Auto-extract + score + tags', () => {
     expect(update!.payload.tags).toContain('cor:branco')
     expect(update!.payload.tags.find((t: string) => t.startsWith('lead_score:'))).toBe('lead_score:30')
 
-    // Score=30 cai em stage2 (handoff, [30,100)) mas 30 < 100 → nenhum exit_action dispara aqui.
-    expect(r.pendingExitActionSearch).toBeNull()
+    // R137 (v7.41.4): "quero X" agora dispara searchGuard wire pré-LLM.
+    // pendingExitActionSearch é setado antes do auto-extract score loop.
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.category).toBe('tintas')
     expect(r.pendingExitActionHandoff).toBeNull()
   })
 

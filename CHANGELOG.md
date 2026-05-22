@@ -13,6 +13,58 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.41.4 (2026-05-22) — R137: searchGuard wire pré-LLM (fix loop qualif Sandrielly)
+
+Fixa o bug observado em prod com a lead Sandrielly (558781324150) onde a IA pediu confirmação de produto **4 vezes seguidas** mesmo após o lead ter dito "tinta pintalar da Iquine, de 3,6L". Ciclo de 7 minutos de qualificação idiota terminou em handoff sem search_products jamais ter rodado.
+
+**Causa raiz:** o helper `detectIncomingSearchSignal` em `_shared/searchGuard.ts:157` existe, está testado e detecta exatamente esse caso (a marca "iquine" está no `DEFAULT_BRANDS`), mas o **wire pra chamar o helper antes do LLM nunca foi feito**. Plano oficial (`wiki/plano-orquestrador-subagentes.md:55`) marcou *"Edit 3 (searchGuard PRÉ-LLM wire) pulado — defer Sprint B5"*. Resultado: regra "marca mencionada → search imediato" só vivia no prompt como texto descritivo. LLM ignorou.
+
+**Padrões cobertos pelo wire (que `DIRECT_PRODUCT_QUESTION_RE` não pegava):**
+- Marca isolada sem verbo: "Por quanto está a tinta Iquine?", "Quanto custa a Coral fosca?"
+- R121 verboso completo: "Preciso de tinta X", "Quero coral", "Gostaria de uma porta", "Estou procurando X"
+
+**Mudanças:**
+- `_shared/agent/preLLMAutoExtract.ts`: importa `detectIncomingSearchSignal` + `DEFAULT_BRANDS`. Novo bloco "R137 searchGuard wire" depois do bloco R121 inline existente, antes do auto-extract de fields. Quando `signal.force=true` em categoria digital + `!leadHasReceivedProducts` + `!SHADOW`, seta `pendingExitActionSearch` (mesma máquina que o R121 existente usa) → exitActionDispatcher executa `runInlineSearchProducts` no caminho atual.
+- +8 testes vitest novos (`preLLMAutoExtract.test.ts > R137 searchGuard wire`): caso Sandrielly exato, R121 verboso ("Preciso de"), marca isolada ("Quanto custa Coral"), saudação→no_signal, categoria offline NÃO dispara, aguardando_upsell NÃO redispara, SHADOW NÃO dispara, precedência R121 inline sobre R137 (não duplica).
+- 1 teste pré-existente ajustado: input "quero tinta para área interno cor branco" agora **corretamente** dispara R137 (`quero` é R121 verboso). Expectativa atualizada de `pendingExitActionSearch=null` pra `not.toBeNull()`.
+
+**Métricas:**
+- Prompt: **sem mudança** (regra é código, não texto). Wire é guard determinístico, não regra LLM. Anti-inflation.
+- Linhas: `preLLMAutoExtract.ts` 292 → 326 (+34 lin / 2 imports + 1 bloco de 30 lin).
+- vitest: **1144 pass** (+9 com R137; 8 cobrem o wire, 1 ajuste no teste existente). 9 fails pré-existentes idênticos.
+- tsc: 0 erros.
+
+**Deploy:** ai-agent v88 → **v89 ACTIVE** via CLI (`prfcbfumyrrycsrcrvms`). `verify_jwt:false` preservado. SHA novo confirmado.
+
+**Por que NÃO infla o prompt:** alternativa óbvia (adicionar "se lead nomeia marca, busque imediato" no prompt) custaria +200-300 chars e dependeria do LLM seguir. Wire em código é zero-cost no prompt + 100% determinístico. Exatamente a direção do Sprint C product_specialist.
+
+**Risco de regressão:** baixo. Reusa pendingExitActionSearch (mesma máquina do R121 inline já testada). Rollback: revert do commit ou flag manual.
+
+**Frase de retomada:** *"executar B5 Onda 4 llmCallLoop"*.
+
+---
+
+### v7.41.3 (2026-05-22) — Sprint B5 Onda 3d: extrai set_tags + handoff_to_human (qualif+handoff specialists boundary, HIGH RISK)
+
+Sub-onda HIGH RISK fechada — extrai os 2 handlers mais críticos do switch: `set_tags` (~448 lin) e `handoff_to_human` (~91 lin). Estes módulos viram, no Sprint C, o **qualif_specialist** (tagueamento + score progressivo + exit_action) e o **handoff_specialist** (transbordo + queue + label + persistência de qualification chain).
+
+**Mudanças:**
+- Novo `_shared/agent/tools/setTagsAndHandoff.ts` (842 lin) — `setTags(args, ctx, log)` + `handoffToHuman(args, ctx, log)` + dispatcher `dispatchSetTagsHandoffTool`.
+- `SetTagsAndHandoffCtx` interface: supabase + agent + conversation/contact + leadName + contextMessages + availableLabels + profileData + funnelData + leadProfile + **pendingState (refs mutáveis: exitActionHandoff/exitActionSearch/forcedNextQuestion)** + toolCallsLog + startTime + 6 callbacks (sendTextMsg, broadcastEvent, pickHandoffMessage, runQueueAssignment, executeToolSafe, buildQualificationChain).
+- `ai-agent/index.ts`: 2 cases extraídos (1837..2286 + 2303..2393, total ~540 lin in-line) → ~40 lin (chamada + sync de pendingState back). index.ts: 3097 → **2580 lin (-517 nesta onda)**. Acumulado B5: **-1964 desde 4544 (-43.2%)**.
+- +15 testes (setTagsAndHandoff.test.ts): rawTags vazio, R127 dup keys, I2 hallucination, pipeline normal happy path, RPC merge fail fallback, R129 multi_interesse cleanup, Bug 24 v4 exit_action=handoff inline, SHADOW mode idempotency, handoff happy path + payment block + empathy + qualif chain persist, dispatcher routing.
+- **Import cleanup**: 12 helpers órfãos removidos do index.ts (matchCategory, matchCategoryBySearchText, getQualificationFields, formatPhrasing, extractInteresseFromTags, getCurrentStage, getNextField, getScoreFromTags, calculateScoreDelta, getExitAction, buildValidTagKeys, filterProductsByExpectedCategory + validateSetTagsInput/validateInteresseCategory + shouldBlockHandoffForPayment + autoExtractFields/flattenCategoryFields + generateCarouselCopies/cleanProductTitle + evaluateSearchGuard).
+
+**Equivalência semântica:** preserva R127 + Sprint A I2 + Bug 19/25/R117/R118/Bug 26 v3 + Bug 24 v3/v4/v5 + R129/R130 + score progressivo + add_lead_score_event RPC + RPC merge + in-memory fallback + label auto-assign + qualification chain persistence. Strings de retorno idênticas.
+
+**Pipeline:** tsc 0 · vitest **1136 pass (+15 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v87→**v88** ACTIVE via CLI.
+
+**Sprint C agora com TODOS os specialists boundary prontos**: product (3c) + qualif (3d) + handoff (3d) + crm (3b) + media (3a). Próximas ondas só polem o monolito:
+- 4 — llmCallLoop (~370 lin)
+- 5 — dispatchResponse (~240 lin)
+
+---
+
 ### v7.41.2 (2026-05-22) — Sprint B5 Onda 3c: extrai search_products (vira product_specialist no Sprint C)
 
 Sub-onda mais estratégica da Onda 3. Extrai o handler mais complexo (~650 lin) — Bug 27 seed + R126 guard + primary/AND/fuzzy search + Bug 8 cross-category + brand detection R104/R108/R110 + zero-results PATH A/B/C + R120 outside_hours + auto-tag + auto-send media/carousel. Este módulo **vira o product_specialist** quando Sprint C for shipado.
@@ -209,67 +261,13 @@ Início do split estrutural do `ai-agent/index.ts` (4544 lin) — pré-requisito
 
 ---
 
-### v7.38.8 (2026-05-21) — R133+R134 arquivado
+### v7.38.5 → v7.38.8 (2026-05-21) — R127-R134 arquivados em wiki/changelog/2026-05-part8
 
-Regex overlap tintas↔impermeabilizantes + loop R129 (caso Branca). Detalhe em [[wiki/changelog/2026-05-part8]].
-
----
-
-### v7.38.7 (2026-05-21) — R132 arquivado
-
-IA ignorou transcrição de áudio (Edson, EletropisoV2). Fix re-leitura DB antes do LLM via `_shared/incomingMessagesLoader.ts`. Detalhe em [[wiki/changelog/2026-05-part8]] · [[wiki/erros-e-licoes#R132]].
+R127 (set_tags dup keys) · R128 (loop ambiente da janela) · R129 (multi-categoria) · R130 (forced next question) · R131 (phrasing curto) · R132 (transcrição áudio ignorada) · R133+R134 (overlap regex tintas↔impermeabilizantes + loop R129 caso Branca). Detalhe completo em [[wiki/changelog/2026-05-part8]] · [[wiki/erros/historico-2026-05-part3]].
 
 ---
 
-### v7.38.6 (2026-05-21) — R131 arquivado
-
-Phrasing curto na 2ª+ pergunta do stage (sem repetir "Para encontrar a melhor opção"). Fix híbrido em `formatPhrasing(_, _, answeredCountInStage)`. Detalhe em [[wiki/changelog/2026-05-part8]].
-
----
-
-### v7.38.5 (2026-05-21) — R127/R128/R129/R130: multi-categoria, loop "ambiente da janela", sale_closed false positive
-
-**R127-R130 arquivados.** 4 bugs descobertos por E2E real, 9/10 PASS. Detalhe em [[wiki/changelog/2026-05-part8]] · [[wiki/erros/historico-2026-05-part3]].
-
-**Deploy:** `supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓ → v63 ACTIVE.
-
-**Lição.** Cada feature toggleável/categórica precisa de teste E2E real explorando combinações (multi-categoria, intenção indireta, mensagens curtas, mensagens combinadas). Prompt reinforcement não é suficiente — LLM ignora regras textuais quando padrão visual da conversa sugere outra coisa. Defesa determinística no backend (helpers testáveis + override pós-LLM) é a única forma confiável.
-
----
-
-### v7.38.4 (2026-05-20) — Fix R126: `search_products({query:"material"})` cross-categoria
-
-**Bug em prod (Guttemberg, Eletropiso 558781592373, conv `529f51f8`).** Lead pediu "Porta em alumínio e janela em alumínio, só uma de 139" → IA enviou **carrossel de Telha de PVC** R$62. Categoria errada absoluta (lead pediu porta/janela, recebeu telha).
-
-**Causa raiz — 3 falhas em cascata:**
-1. **Gap debounce.** Msg1 "Olá gostaria de saber mais informações sobre um material" entrou na queue, processou greeting, e nesse meio tempo a msg2 "Porta alumínio…" chegou e entrou em queue SEPARADA. LLM viu só msg1.
-2. **Query genérica escapa do guard de categoria.** LLM chamou `search_products({query: "material"})`. Bug 27 fix tenta deduzir categoria via `matchCategoryBySearchText("material")` mas nenhuma das 24 regex casa "material" → `expectedCategory=null` → `filterProductsByExpectedCategory` vira no-op.
-3. **Catálogo embrionário.** EletropisoV2 tem só 1 produto digital cadastrado (Telha PVC) com "material" na descrição. ILIKE `%material%` → carrossel cross-categoria. Categorias `portas`/`janelas` estão configuradas como `catalog_status:offline` mas LLM-driven search nunca checa isso.
-
-**Fix v7.38.4 (Camadas 1+2):**
-- **Novo `_shared/searchGuard.ts`** com `evaluateSearchGuard()` — guard determinístico ANTES da query DB:
-  - Recusa query genérica (`material|produto|item|coisa|preço|valor`, accent/case-insensitive) sem `expectedCategoryId` → devolve instrução pro LLM pedir categoria.
-  - Recusa quando `expectedCategoryStatus === 'offline'` → devolve instrução pra qualificar + handoff (mesma rota do auto-extract `r121_auto_extract_inline`).
-- **`ai-agent/index.ts`** integra o helper logo após o cálculo de `expectedCategory` (linha ~2204) com log estruturado `search_guard_blocked`.
-- **Migration `20260520210000_ai_agent_logs_search_guard_blocked_event`** adiciona event ao CHECK constraint pra evitar R88 (silent INSERT fail).
-
-**Arquivos:**
-- `supabase/functions/_shared/searchGuard.ts` (helper testável, 96 lin)
-- `supabase/functions/_shared/searchGuard.test.ts` (15 cenários incluindo repro Guttemberg)
-- `supabase/functions/ai-agent/index.ts` (import + integração, ~25 lin)
-- `supabase/migrations/20260520210000_ai_agent_logs_search_guard_blocked_event.sql`
-
-**Camada 3 — backlog.** Gap debounce real (msgs novas chegando entre greeting e LLM) tracked como sprint separado. Frase: *"continuar Camada 3 R126 — merge msgs queue antes LLM 2026-05-20"*.
-
-**Lição R126.** Tool call do LLM com payload genérico DEVE ser recusado pelo backend quando não há categoria semântica derivável — LLM em input ambíguo "chuta", defesa é determinística no handler, não no prompt. Catálogo embrionário (<5 produtos digitais) é alto risco de cross-categoria; admin deveria marcar agente como "handoff-first" até atingir threshold (D27 sugere).
-
-**Testes.** 15/15 PASS em `searchGuard.test.ts`. Suite geral: 817 pass / 9 falhas pré-existentes (FormBuilder, mesmo padrão R124/R125 — nenhuma tocada por este fix).
-
-**Deploy.** `supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓ → v62 ACTIVE, `verify_jwt:false`.
-
----
-
-### v7.38.3 + v7.38.2 + v7.38.1 + v7.38.0 + v7.37.21 (2026-05-20) — R124/R125 + R123 toggle IA + D36 permissões + prefixo `*Nome*` (arquivado)
+### v7.38.4 + v7.38.3 + v7.38.2 + v7.38.1 + v7.38.0 + v7.37.21 (2026-05-20) — arquivados
 
 > Movido para [[wiki/changelog/2026-05-part7]] em 2026-05-21 + R124/R125 em 2026-05-22 (hard limit 300 linhas). Detalhes técnicos preservados em [[wiki/erros/historico-2026-05-part3]] (R124, R125) e nas memórias `project_bug_handoff_search_fail` + `project_bug_queue_badge_off`.
 

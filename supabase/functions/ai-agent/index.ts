@@ -12,34 +12,16 @@ import { detectPayment } from '../_shared/paymentDetection.ts'
 import { detectBrand } from '../_shared/brandDetection.ts'
 import { detectClientType } from '../_shared/clientTypeDetection.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
-import { generateCarouselCopies, cleanProductTitle } from '../_shared/carousel.ts'
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
 import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
-import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG, shouldBlockHandoffForPayment } from '../_shared/handoffGuard.ts'
-import { evaluateSearchGuard } from '../_shared/searchGuard.ts'
-import { validateSetTagsInput, validateInteresseCategory } from '../_shared/setTagsValidator.ts'
+import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG } from '../_shared/handoffGuard.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
 import { buildHorizontalHandoffReason } from '../_shared/horizontalQualif.ts'
 import { detectQualifLoop } from '../_shared/qualificationAntiLoop.ts'
-import {
-  getCategoriesOrDefault,
-  matchCategory,
-  matchCategoryBySearchText,
-  getQualificationFields,
-  formatPhrasing,
-  extractInteresseFromTags,
-  getCurrentStage,
-  getNextField,
-  getScoreFromTags,
-  calculateScoreDelta,
-  getExitAction,
-  buildValidTagKeys,
-  filterProductsByExpectedCategory,
-} from '../_shared/serviceCategories.ts'
-import { autoExtractFields, flattenCategoryFields } from '../_shared/fieldAutoExtractor.ts'
+import { getCategoriesOrDefault } from '../_shared/serviceCategories.ts'
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
 import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
 import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
@@ -53,6 +35,7 @@ import { dispatchExitActionHandoff, runInlineSearchProducts } from '../_shared/a
 import { dispatchMediaTool } from '../_shared/agent/tools/mediaTools.ts'
 import { dispatchCrmTool } from '../_shared/agent/tools/crmTools.ts'
 import { dispatchSearchTool } from '../_shared/agent/tools/searchProducts.ts'
+import { dispatchSetTagsHandoffTool } from '../_shared/agent/tools/setTagsAndHandoff.ts'
 import type { PendingExitActionHandoff, PendingExitActionSearch } from '../_shared/agent/preLLMAutoExtract.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
@@ -1835,453 +1818,25 @@ ${contextBlock}`
         }
 
         case 'set_tags': {
-          const rawTags: string[] = args.tags || []
-          if (rawTags.length === 0) return 'Nenhuma tag informada.'
-
-          // R127 (2026-05-20): guard determinístico ANTES do processing.
-          // Detecta 2+ valores diferentes na mesma chave (especialmente interesse:portas +
-          // interesse:janelas) — mergeTags faria REPLACE silencioso, sistema esqueceria a 1ª
-          // categoria e ficaria com fields órfãos. Lead que pediu 2 produtos vê IA em loop.
-          // Caso especial em `interesse:` devolve instrução pro LLM perguntar ao lead qual começar.
-          const dupValidation = validateSetTagsInput(rawTags)
-          if (dupValidation.hasDuplicateKeys) {
-            await supabase.from('ai_agent_logs').insert({
-              agent_id, conversation_id, event: 'set_tags_duplicate_keys_rejected',
-              metadata: {
-                raw_tags: rawTags,
-                duplicates: dupValidation.duplicates,
-                cleaned_tags: dupValidation.cleanedTags,
-              },
-            })
-            log.info('R127: set_tags duplicate keys rejected', {
-              raw_tags: rawTags,
-              duplicates: dupValidation.duplicates,
-            })
-            // Se sobrou alguma tag (conflict em key não-interesse), continua o processing
-            // com as tags limpas. Se zerou (conflict em interesse), aborta e devolve msg.
-            if (dupValidation.cleanedTags.length === 0) {
-              return dupValidation.message
-            }
-            // Reescreve args.tags pra continuar o pipeline com tags válidas + log da rejeição
-            args.tags = dupValidation.cleanedTags
+          const pendingState = {
+            exitActionHandoff: pendingExitActionHandoff,
+            exitActionSearch: pendingExitActionSearch,
+            forcedNextQuestion: pendingForcedNextQuestion,
           }
-          const sanitizedRawTags: string[] = args.tags || rawTags
-
-          // FIX (2026-04-29): aliasing automático de keys genéricas pra sufixadas da categoria.
-          // O LLM tende a usar "material:madeira" em vez de "material_porta:madeira", caindo em
-          // VALID_KEYS rejection silenciosa. Score nunca sobe e IA entra em loop de enrichment.
-          // Solução: quando categoria detectada (via matchCategory), construir mapa de aliases
-          // (ex: "material" → "material_porta") e remapear tag antes de validar.
-          const aliasInteresse = extractInteresseFromTags(conversation.tags || [])
-          const aliasConfig = getCategoriesOrDefault(agent)
-          const aliasCategory = matchCategory(aliasInteresse, aliasConfig)
-
-          // Sprint A I2 (2026-05-21, Bug 12 fix): valida interesse:VALUE ∈ category.id.
-          // LLM crava interesse com value fora das categorias do agente (ex: interesse:hidraulica
-          // em agente sem essa cat). Backend hoje mitiga via fallback chain (D33) mas o tag
-          // inválido fica persistido na conv. Defesa determinística rejeita antes de persistir.
-          {
-            const validCategoryIds = (Array.isArray((aliasConfig as any)?.categories) ? (aliasConfig as any).categories : [])
-              .map((c: any) => String(c?.id || '').trim().toLowerCase())
-              .filter(Boolean)
-            const interesseValidation = validateInteresseCategory(sanitizedRawTags, validCategoryIds)
-            if (!interesseValidation.ok) {
-              await supabase.from('ai_agent_logs').insert({
-                agent_id, conversation_id, event: 'interesse_hallucination_blocked',
-                metadata: {
-                  invalid_tag: interesseValidation.invalidTag,
-                  valid_category_ids: validCategoryIds,
-                  raw_tags: sanitizedRawTags,
-                  source: 'i2_category_id_check',
-                },
-              })
-              log.info('I2: interesse value not in agent categories', {
-                invalid: interesseValidation.invalidTag,
-                valid_ids: validCategoryIds,
-              })
-              return interesseValidation.message
-            }
-          }
-
-          // #25 + R84 (2026-04-30): Enforcement de keys/motivo/objecao.
-          // VALID_KEYS = base (sistema) ∪ stages.fields[].key dinamicas do agente.
-          // Antes era hardcoded ~80 chaves; agora qualquer field novo em
-          // service_categories valida sem alterar codigo (ver buildValidTagKeys).
-          const VALID_KEYS = buildValidTagKeys(aliasConfig)
-          const VALID_MOTIVOS = new Set(['saudacao','compra','troca','orcamento','duvida_tecnica','suporte','financeiro','emprego','fornecedor','informacao','fora_escopo'])
-          // R114 v2: 'concorrencia' (com -encia) sincronizado com objectionDetection.ts.
-          // 'concorrente' mantido por compat retroativa (LLM pode usar qualquer um).
-          const VALID_OBJECOES = new Set(['preco','concorrencia','concorrente','prazo','indecisao','qualidade','confianca','necessidade','outro','frete','comparando','sem_urgencia'])
-          const aliasMap = new Map<string, string>()
-          if (aliasCategory) {
-            for (const stage of aliasCategory.stages) {
-              for (const field of stage.fields) {
-                const parts = field.key.split('_')
-                // Mapear primeiro segmento → key completa (ex: "material" → "material_porta")
-                if (parts.length >= 2 && !aliasMap.has(parts[0])) {
-                  aliasMap.set(parts[0], field.key)
-                }
-                // Mapear também a key inteira → ela mesma (passthrough seguro)
-                aliasMap.set(field.key, field.key)
-              }
-            }
-          }
-
-          const newTags: string[] = []
-          const rejected: string[] = []
-          for (const rawTag of sanitizedRawTags) {
-            const [rawKey, ...rest] = rawTag.split(':')
-            const value = rest.join(':')
-            if (!rawKey || !value) { rejected.push(rawTag); continue }
-
-            // Resolver alias se categoria detectada e key é genérica
-            const resolvedKey = aliasMap.get(rawKey) || rawKey
-            const tag = `${resolvedKey}:${value}`
-            const key = resolvedKey
-
-            if (!VALID_KEYS.has(key)) { rejected.push(rawTag); log.warn('Tag rejected: invalid key', { rawTag, resolvedKey }); continue }
-            if (key === 'motivo' && !VALID_MOTIVOS.has(value)) { rejected.push(rawTag); log.warn('Tag rejected: invalid motivo', { tag }); continue }
-            if (key === 'objecao' && !VALID_OBJECOES.has(value)) { rejected.push(rawTag); log.warn('Tag rejected: invalid objecao', { tag }); continue }
-            // R114 v2 + R115: regex determinístico já tagged essas keys pra essa msg.
-            // LLM tentaria sobrescrever subtipo, especialmente em frases ambíguas. Idempotência.
-            const PROTECTED_DETERMINISTIC_KEYS = ['objecao', 'pagamento', 'marca_citada', 'tipo_cliente']
-            if (PROTECTED_DETERMINISTIC_KEYS.includes(key) && (conversation.tags || []).some((t: string) => t.startsWith(`${key}:`))) {
-              rejected.push(rawTag); log.info('Tag rejected: deterministic key already set', { rawTag, key }); continue
-            }
-            // Bug 19 (2026-05-17): Anti-hallucination guard para interesse:CAT.
-            // LLM em inputs triviais ("oi", "George") chuta uma categoria sem o lead ter mencionado
-            // produto algum. Defesa: regex `interesse_match` da categoria pretendida DEVE bater em
-            // pelo menos uma incoming do lead na sessão (ou na msg atual). Se não, REJEITAR + log.
-            // R117 (2026-05-19): interesseCanonicalSlug captura o slug correto pra normalizar
-            // singular/sinônimo (ex: LLM crava 'porta' mas slug canônico é 'portas').
-            let interesseCanonicalSlug: string | null = null
-            if (key === 'interesse') {
-              const targetCat = matchCategory(value, aliasConfig)
-              if (targetCat) interesseCanonicalSlug = targetCat.id
-              // Bug 25 (2026-05-17): categoria INEXISTENTE no schema (ex: LLM crava
-              // 'interesse:hidraulica' quando so existe 'torneiras'/'canos'/etc).
-              // Antes Bug 19 so bloqueava se a categoria existia e o regex nao batia.
-              // Agora rejeita se a categoria nao existe — evita poluir qualif chain.
-              if (!targetCat) {
-                rejected.push(rawTag)
-                log.warn('Tag rejected: interesse references nonexistent category', { rawTag, value })
-                const { error: logErr25 } = await supabase.from('ai_agent_logs').insert({
-                  agent_id, conversation_id, event: 'interesse_hallucination_blocked',
-                  metadata: { tag: rawTag, category_id: value, reason: 'category_not_in_schema', lead_msg_count: ((conversation as any)?.lead_msg_count ?? 0) },
-                })
-                if (logErr25) log.warn('Bug 25 log insert failed (non-fatal)', { error: logErr25.message })
-                continue
-              }
-              if (targetCat.interesse_match) {
-                try {
-                  const reCheck = new RegExp(targetCat.interesse_match, 'i')
-                  const allIncoming = (contextMessages || [])
-                    .filter((m: any) => m && m.direction === 'incoming')
-                    .map((m: any) => String(m.content || ''))
-                    .join(' ')
-                  const corpus = `${allIncoming} ${incomingText || ''}`.toLowerCase()
-                  if (!reCheck.test(corpus)) {
-                    rejected.push(rawTag)
-                    log.warn('Tag rejected: interesse hallucinated (no keyword match in lead history)', { rawTag, regex: targetCat.interesse_match })
-                    const { error: logErr } = await supabase.from('ai_agent_logs').insert({
-                      agent_id, conversation_id, event: 'interesse_hallucination_blocked',
-                      metadata: { tag: rawTag, category_id: value, regex: targetCat.interesse_match, reason: 'regex_no_match', lead_msg_count: ((conversation as any)?.lead_msg_count ?? 0), corpus_preview: corpus.substring(0, 200) },
-                    })
-                    if (logErr) log.warn('Bug 19 log insert failed (non-fatal)', { error: logErr.message })
-                    continue
-                  }
-                } catch (regexErr) {
-                  log.warn('Bug 19 interesse regex test failed (non-fatal)', { error: (regexErr as Error).message })
-                }
-              }
-            }
-            // R117 (2026-05-19): normaliza `interesse:<singular|sinônimo>` para o slug
-            // canônico da categoria (ex: 'porta' -> 'portas', 'tinta' -> 'tintas').
-            // Sem isso, LLM pode persistir tag fora do schema service_categories, quebrando
-            // qualif chain e busca de produtos.
-            let finalTag = tag
-            if (key === 'interesse' && interesseCanonicalSlug && interesseCanonicalSlug !== value) {
-              finalTag = `interesse:${interesseCanonicalSlug}`
-              log.info('Tag normalized: interesse value -> canonical slug', { from: tag, to: finalTag })
-            }
-            // R118 (2026-05-19): guard `marca_preferida:X` — value DEVE aparecer em
-            // alguma incoming do lead. LLM tende a cravar marca SUGERIDA pela busca
-            // (ex: "Coral" do carrossel) em vez da que o lead pediu ("Suvinil"). Resulta
-            // em CRM com dado falso e handoff prematuro. Espelha o guard do interesse Bug19.
-            if (key === 'marca_preferida') {
-              const allIncoming = (contextMessages || [])
-                .filter((m: any) => m && m.direction === 'incoming')
-                .map((m: any) => String(m.content || ''))
-                .join(' ')
-              const corpus = `${allIncoming} ${incomingText || ''}`.toLowerCase()
-              const valueNorm = String(value).toLowerCase().trim()
-              if (valueNorm && !corpus.includes(valueNorm)) {
-                rejected.push(rawTag)
-                log.warn('Tag rejected: marca_preferida hallucinated (not in lead history)', { rawTag, value })
-                await supabase.from('ai_agent_logs').insert({
-                  agent_id, conversation_id, event: 'marca_preferida_hallucination_blocked',
-                  metadata: { tag: rawTag, value, reason: 'value_not_in_lead_history', corpus_preview: corpus.substring(0, 200) },
-                }).then((r: { error?: { message?: string } }) => { if (r.error) log.warn('R118 log insert failed (non-fatal)', { error: r.error.message }) })
-                continue
-              }
-            }
-            if (rawKey !== resolvedKey) log.info('Tag aliased', { from: rawTag, to: finalTag })
-            newTags.push(finalTag)
-          }
-
-          // Bug 26 v3 (2026-05-17): quando LLM crava interesse:CAT invalido (ID nao existe),
-          // detectamos a categoria CORRETA via matchCategoryBySearchText e APLICAMOS DIRETO
-          // (mesmo se outras tags forem aceitas). Antes (v2): so' rodava quando newTags vazio,
-          // mas o LLM as vezes envia [interesse:hidraulica, tipo_vaso:acoplado] - tipo_vaso aceito,
-          // newTags > 0, e a auto-correcao do interesse nao acontecia. Resultado: vaso ficava
-          // sem interesse:vasos_sanitarios e qualif/score nao avanca.
-          const rejInteresse = rejected.find((r: string) => r.startsWith('interesse:'))
-          const jaTemInteresse = (conversation.tags || []).some((t: string) => t.startsWith('interesse:'))
-          if (rejInteresse && !jaTemInteresse) {
-            try {
-              const cfg26 = getCategoriesOrDefault(agent)
-              const corpus26 = `${incomingText || ''}`.toLowerCase()
-              const matched26 = matchCategoryBySearchText(corpus26, cfg26)
-              if (matched26) {
-                const autoTag26 = `interesse:${matched26.id}`
-                newTags.unshift(autoTag26)
-                await supabase.from('ai_agent_logs').insert({
-                  agent_id, conversation_id, event: 'auto_field_extracted',
-                  metadata: { source: 'bug26_auto_apply_correct_category', new_tags: [autoTag26], category_id: matched26.id, rejected_tag: rejInteresse },
-                })
-                log.info('Bug 26 v3: auto-apply categoria correta apos rejeicao', { rejInteresse, autoTag26 })
-              }
-            } catch { /* non-fatal */ }
-          }
-
-          if (newTags.length === 0) {
-            return `Nenhuma tag válida. Rejeitadas: ${rejected.join(', ')}. IDs válidos: ${getCategoriesOrDefault(agent).categories.slice(0, 10).map((c: any) => c.id).join(', ')}.`
-          }
-
-          // M19-S10 v2: score progressivo
-          // Antes do merge, calcular contribuição das novas tags ao funil de qualificação e injetar lead_score:N
-          let exitInstruction = ''  // FIX (2026-04-29): instrução pro LLM quando score atinge max do stage
-          try {
-            const interesse = extractInteresseFromTags(conversation.tags || [])
-            const v2Config = getCategoriesOrDefault(agent)
-            const v2Category = matchCategory(interesse, v2Config)
-            const scoreDelta = calculateScoreDelta(newTags, v2Category, v2Config.default)
-
-            if (scoreDelta > 0) {
-              const currentScore = getScoreFromTags(conversation.tags || [])
-              const newScore = Math.min(100, currentScore + scoreDelta)
-              newTags.push(`lead_score:${newScore}`)
-
-              // Persiste em lead_score_history (fire-and-forget) se temos lead_profile
-              if (leadProfile?.id) {
-                const stage = getCurrentStage(newScore, v2Category, v2Config.default)
-                const matchedField = stage.fields.find(f => newTags.some(t => t.startsWith(`${f.key}:`)))
-                supabase.rpc('add_lead_score_event', {
-                  _lead_id: leadProfile.id,
-                  _agent_id: agent_id,
-                  _conversation_id: conversation_id,
-                  _score_delta: scoreDelta,
-                  _category_id: v2Category?.id || 'default',
-                  _stage_id: stage.id,
-                  _field_key: matchedField?.key || null,
-                }).then(({ error: e }: { error: any }) => {
-                  if (e) log.warn('add_lead_score_event failed', { error: e.message })
-                })
-              }
-
-              // FIX (2026-04-29): se score atingiu max_score do stage, instruir LLM a executar exit_action.
-              // Antes: LLM não tinha sinal claro de que stage encerrou — gerava resposta vazia ou repetia perguntas.
-              // Agora: handler retorna instrução explícita junto com confirmação de tags atualizadas.
-              const currentStage = getCurrentStage(newScore, v2Category, v2Config.default)
-              if (newScore >= currentStage.max_score) {
-                const qualSummary = newTags
-                  .filter(t => !t.startsWith('lead_score:') && !t.startsWith('motivo:') && !t.startsWith('interesse:'))
-                  .map(t => t.replace(/_/g, ' '))
-                  .join(', ')
-                if (currentStage.exit_action === 'handoff') {
-                  exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO (score ${newScore}/${currentStage.max_score}). AÇÃO: chame handoff_to_human AGORA com motivo="${interesse || 'qualificacao'} ${qualSummary}". Diga algo como "Vou te conectar com nosso consultor de vendas!" PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei". PROIBIDO fazer mais perguntas — handoff é obrigatório.`
-                  // Bug 24 v2 (2026-05-17): tambem dispara flag pra handoff direto no codigo apos a tool.
-                  // Antes: confiavamos no LLM ler exitInstruction e chamar handoff_to_human. LLM as vezes
-                  // ignora e gera texto vazio (Bug 24 J4 — chuveiro/220v). Solucao: setar flag e o flow
-                  // principal (pos-LLM, antes de retornar) dispara handoff se a flag estiver setada.
-                  if (conversation.status_ia !== STATUS_IA.SHADOW) {
-                    pendingExitActionHandoff = {
-                      reason: `${interesse || currentStage.label} > ${qualSummary}`,
-                      queueMotivo: `${v2Category?.label || currentStage.label} — ${qualSummary}`,
-                    }
-                  }
-                } else if (currentStage.exit_action === 'search_products') {
-                  exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO (score ${newScore}/${currentStage.max_score}). AÇÃO: chame search_products AGORA com a query construída a partir das tags coletadas. NÃO faça mais perguntas antes de buscar.`
-                  // Bug 24 v5 search_products (2026-05-17): mirror do handoff inline mas pra
-                  // exit_action=search_products. Constroi query das tags (tipo+cor+marca etc) e
-                  // dispara executeToolSafe('search_products') direto. LLM as vezes ignora a
-                  // exitInstruction (especialmente apos varios turnos de qualif) e continua
-                  // perguntando marca/cor mesmo com score>=max. Backend forca search direto.
-                  if (conversation.status_ia !== STATUS_IA.SHADOW && !pendingExitActionSearch) {
-                    // Construir query: interesse + tags de field NAO-meta (excluir motivo/score/etc)
-                    const META_KEYS = new Set(['motivo','interesse','lead_score','ia','ia_cleared','enrich_count','search_fail','produto','aguardando_upsell','venda','tipo_cliente','marca_citada','objecao','pagamento'])
-                    const queryParts: string[] = []
-                    if (interesse) queryParts.push(interesse)
-                    for (const t of [...(conversation.tags || []), ...newTags]) {
-                      if (typeof t !== 'string') continue
-                      const idx = t.indexOf(':')
-                      if (idx < 0) continue
-                      const k = t.slice(0, idx)
-                      const v = t.slice(idx + 1)
-                      if (META_KEYS.has(k)) continue
-                      if (v && !queryParts.some(p => p.toLowerCase().includes(v.toLowerCase()))) queryParts.push(v)
-                    }
-                    pendingExitActionSearch = {
-                      query: queryParts.join(' ').trim(),
-                      category: interesse || v2Category?.id || '',
-                    }
-                  }
-                } else if (currentStage.exit_action === 'enrichment') {
-                  exitInstruction = ` [INTERNO — NÃO mostre isso ao lead] Stage "${currentStage.label}" COMPLETO. AÇÃO: continue perguntando para enriquecer dados (próximo stage do funil).`
-                }
-                log.info('Stage exit triggered', { stage: currentStage.label, score: newScore, max: currentStage.max_score, exit_action: currentStage.exit_action, pendingExitActionHandoff: !!pendingExitActionHandoff })
-              }
-            }
-          } catch (scoreErr) {
-            // Score progressivo não pode bloquear o set_tags — log e segue
-            log.warn('score progression hook failed', { error: (scoreErr as Error).message })
-          }
-
-          // Atomic merge: read + merge + write in a single SQL statement.
-          // Bug 24 v4 (2026-05-17): RPC `merge_conversation_tags` nao existe em prod novo
-          // (so' no projeto antigo). Antes sempre caia no fallback path que tinha um return
-          // PRECOCE, pulando o bloco inline de handoff (Bug 24 v3) e demais code paths.
-          // Fix: unificar - tentar RPC, fallback em memoria, e depois SEMPRE seguir o fluxo
-          // ate o final (incluindo o disparo inline do handoff).
-          const { data: updatedConv, error: rpcError } = await supabase.rpc('merge_conversation_tags', {
-            p_conversation_id: conversation_id,
-            p_new_tags: newTags,
-          })
-          let merged: string[]
-          if (rpcError) {
-            log.warn('merge_conversation_tags RPC failed, using in-memory fallback', { error: rpcError.message })
-            const existing: string[] = conversation.tags || []
-            const tagMap = new Map<string, string>()
-            for (const t of existing) tagMap.set(t.split(':')[0], t)
-            for (const t of newTags) tagMap.set(t.split(':')[0], t)
-            merged = Array.from(tagMap.values())
-            await supabase.from('conversations').update({ tags: merged }).eq('id', conversation_id)
-          } else {
-            merged = updatedConv?.tags || [...(conversation.tags || []), ...newTags]
-          }
-          conversation.tags = merged
-
-          // R129 (2026-05-21): se o LLM setou interesse: (lead escolheu a categoria),
-          // remover a tag multi_interesse_pending: que estava sinalizando "lead pediu 2+".
-          // Sem remover, o buildQualificationContext continua mostrando a regra multi e a IA
-          // fica em loop perguntando "qual quer começar?" mesmo depois do lead já ter escolhido.
-          if (newTags.some((t) => t.startsWith('interesse:')) && merged.some((t) => t.startsWith('multi_interesse_pending:'))) {
-            const cleaned = merged.filter((t) => !t.startsWith('multi_interesse_pending:'))
-            await supabase.from('conversations').update({ tags: cleaned }).eq('id', conversation_id)
-            conversation.tags = cleaned
-            merged = cleaned
-            log.info('R129: multi_interesse_pending removed after lead choice', { chosen_interesse: newTags.find((t) => t.startsWith('interesse:')) })
-          }
-
-          // R130 (2026-05-21): após set_tags adicionar interesse:NEW_CAT, setar flag
-          // pendingForcedNextQuestion que será aplicada pós-LLM. Reforço de prompt
-          // não segura o LLM — ele usa send_poll com opções erradas (ex: ambiente
-          // sala/cozinha/quarto/banheiro pra janelas). Override pós-LLM é determinístico.
-          const newInteresseTag = newTags.find((t) => t.startsWith('interesse:'))
-          if (newInteresseTag) {
-            try {
-              const newInteresseValue = newInteresseTag.slice('interesse:'.length)
-              const cfgNext = getCategoriesOrDefault(agent)
-              const catNext = matchCategory(newInteresseValue, cfgNext)
-              if (catNext) {
-                const scoreNext = getScoreFromTags(merged)
-                const stageNext = getCurrentStage(scoreNext, catNext, cfgNext.default)
-                const nextFieldNext = getNextField(stageNext, merged)
-                if (nextFieldNext) {
-                  // R131: variante curta a partir da 2ª pergunta do stage
-                  const answeredKeysInStageNext = new Set(
-                    merged
-                      .filter((t): t is string => typeof t === 'string' && t.includes(':'))
-                      .map((t) => t.slice(0, t.indexOf(':'))),
-                  )
-                  const answeredCountInStageNext = stageNext.fields.filter((f) => answeredKeysInStageNext.has(f.key)).length
-                  const phrasingNext = formatPhrasing(stageNext.phrasing, nextFieldNext, answeredCountInStageNext)
-                  // Anexar à exitInstruction (tentativa via prompt)
-                  exitInstruction = (exitInstruction || '') +
-                    ` [INTERNO — REGRA ABSOLUTA] Categoria atual: "${catNext.id}". ` +
-                    `Próximo field: "${nextFieldNext.label}" (key: ${nextFieldNext.key}). ` +
-                    `FRASE EXATA pra usar: "${phrasingNext}". ` +
-                    `NÃO invente outras perguntas. NÃO use send_poll. ` +
-                    `Os ÚNICOS fields válidos de "${catNext.id}" são: ${stageNext.fields.map((f) => f.key).join(', ')}.`
-                  // E setar override pós-LLM (defesa determinística)
-                  pendingForcedNextQuestion = {
-                    text: phrasingNext,
-                    category: catNext.id,
-                    fieldKey: nextFieldNext.key,
-                  }
-                  log.info('R130: pendingForcedNextQuestion setada', { categoria: catNext.id, next_field: nextFieldNext.key, phrasing: phrasingNext })
-                }
-              }
-            } catch (r130err) {
-              log.warn('R130: failed to set forcedNextQuestion', { error: (r130err as Error).message })
-            }
-          }
-
-          // Bug 24 v3 (2026-05-17): se a flag pendingExitActionHandoff foi setada acima
-          // (score atingiu max_score do stage com exit_action=handoff), disparamos handoff
-          // DIRETO AQUI dentro do handler — sem depender de o LLM ler exitInstruction.
-          // Antes (v2): setavamos a flag e o bloco pos-loop disparava. Mas o LLM as vezes
-          // gerava texto vazio E o bloco nao executava (debugado em prod com J4 chuveiro).
-          // Solucao inline mais robusta.
-          // Bug 24 v4 (2026-05-17): handoff inline (mirror Bug 18 sale_closed)
-          if (pendingExitActionHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
-            log.info('Bug 24 v4: exit_action=handoff via set_tags — disparando INLINE', pendingExitActionHandoff)
-            const notifyOutsideE3 = agent.notify_outside_hours_on_handoff !== false
-            const outsideHoursE3 = notifyOutsideE3 && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-            const handoffMsgE3 = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursE3 })
-            const { result: queueResE3, finalMessage: finalMsgE3 } = await runQueueAssignment(handoffMsgE3)
-            await sendTextMsg(finalMsgE3)
-            await supabase.from('conversation_messages').insert({
-              conversation_id, direction: 'outgoing', content: finalMsgE3, media_type: 'text',
-            })
-            const e3Updates: Record<string, unknown> = {
-              status_ia: STATUS_IA.SHADOW,
-              tags: mergeTags(merged, { ia: STATUS_IA.SHADOW }),
-              lead_msg_count: 0,
-            }
-            if (profileData?.handoff_department_id) e3Updates.department_id = profileData.handoff_department_id
-            else if (funnelData?.handoff_department_id) e3Updates.department_id = funnelData.handoff_department_id
-            await supabase.from('conversations').update(e3Updates).eq('id', conversation_id)
-            await supabase.from('ai_agent_logs').insert({
-              agent_id, conversation_id, event: 'implicit_handoff',
-              latency_ms: Date.now() - startTime,
-              metadata: { reason: 'exit_action_set_tags_inline', exit_reason: pendingExitActionHandoff.reason, outside_hours: outsideHoursE3, queue: queueResE3 },
-            })
-            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMsgE3, media_type: 'text' })
-            conversation.status_ia = STATUS_IA.SHADOW
-            // Tag pseudo-tool-call pra hadExplicitHandoffInLoop detectar e nao re-enviar
-            toolCallsLog.push({ name: 'handoff_to_human', args: { source: 'set_tags_inline_bug24' } })
-            return `Handoff automático disparado (stage completo). Sem necessidade de mais ações.`
-          }
-
-          // Bug 24 v5 search_products (2026-05-17): se a flag pendingExitActionSearch foi
-          // setada (exit_action=search_products + score>=max), executar search direto via
-          // executeToolSafe e retornar o resultado para o LLM nao perguntar marca/cor de novo.
-          if (pendingExitActionSearch && conversation.status_ia !== STATUS_IA.SHADOW) {
-            log.info('Bug 24 v5 search_products: disparando search INLINE', pendingExitActionSearch)
-            const searchRes = await executeToolSafe('search_products', {
-              query: pendingExitActionSearch.query,
-              category: pendingExitActionSearch.category,
-            })
-            await supabase.from('ai_agent_logs').insert({
-              agent_id, conversation_id, event: 'tool_called',
-              metadata: { tool: 'search_products', source: 'bug24v5_set_tags_inline', query: pendingExitActionSearch.query, category: pendingExitActionSearch.category, result_preview: String(searchRes).substring(0, 200) },
-            })
-            toolCallsLog.push({ name: 'search_products', args: pendingExitActionSearch, result: String(searchRes).substring(0, 200) })
-            return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}\n\n[INTERNO] search_products ja foi chamado automaticamente pelo backend (flag pendingExitActionSearch). Resultado:\n${searchRes}\n\nResponda ao lead usando esse resultado.`
-          }
-
-          return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}`
+          const setTagsResult = await dispatchSetTagsHandoffTool(name, args, {
+            supabase, agent, agent_id, conversation, conversation_id, contact,
+            incomingText, leadName, contextMessages, availableLabels,
+            profileData, funnelData, leadProfile,
+            pendingState, toolCallsLog, startTime,
+            sendTextMsg, broadcastEvent, pickHandoffMessage, runQueueAssignment,
+            executeToolSafe, buildQualificationChain,
+          }, log)
+          // Sincroniza mutações de pendingState de volta pros closures locais
+          pendingExitActionHandoff = pendingState.exitActionHandoff
+          pendingExitActionSearch = pendingState.exitActionSearch
+          pendingForcedNextQuestion = pendingState.forcedNextQuestion
+          if (setTagsResult !== null) return setTagsResult
+          return `Tool '${name}' não implementada.`
         }
 
         case 'move_kanban':
@@ -2301,95 +1856,23 @@ ${contextBlock}`
         }
 
         case 'handoff_to_human': {
-          // Sprint B1 (2026-05-21): guard determinístico — bloqueia handoff quando
-          // lead pergunta sobre pagamento (desconto/PIX/parcelamento/boleto/cartão).
-          // Substitui regra "PERGUNTAS SOBRE PAGAMENTO NÃO SÃO HANDOFF" do antigo hardcodedRules.
-          const paymentBlock = shouldBlockHandoffForPayment({
-            handoffReason: String(args.reason || ''),
-            leadText: incomingText,
-          })
-          if (paymentBlock.block) {
-            log.info('Handoff blocked: payment topic', { matchedTerms: paymentBlock.matchedTerms })
-            toolCallsLog.push({ name: 'handoff_to_human', args, result: 'blocked_payment_topic' })
-            return paymentBlock.message
+          // Sprint B5 Onda 3d: extraído pra _shared/agent/tools/setTagsAndHandoff.ts.
+          // pendingState não é mutado por handoff_to_human (só por set_tags), mas passamos por ctx unificada.
+          const pendingState = {
+            exitActionHandoff: pendingExitActionHandoff,
+            exitActionSearch: pendingExitActionSearch,
+            forcedNextQuestion: pendingForcedNextQuestion,
           }
-
-          const cooldown = agent.handoff_cooldown_minutes || 30
-          // #11: All handoffs → SHADOW (AI continues extracting data silently)
-          const newStatus = STATUS_IA.SHADOW
-
-          // #22: Choose handoff message based on business hours (R107: respeita extended_hours_until)
-          // 2026-05-13: toggle notify_outside_hours_on_handoff (default true) decide se há aviso.
-          // OFF = atendentes 24/7, sempre handoff_message normal.
-          // 2026-05-17 (Bug 16b): unificado via pickHandoffMessage helper.
-          const notifyOutside = agent.notify_outside_hours_on_handoff !== false
-          const outsideHours = notifyOutside && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-          let handoffMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours })
-
-          // If reason indicates frustration/negative sentiment, send empathy BEFORE handoff
-          const negativeReasons = ['frustração', 'frustracao', 'irritação', 'irritacao', 'reclamação', 'reclamacao', 'insatisfação', 'insatisfacao', 'negativo', 'absurdo']
-          const isNegative = args.reason && negativeReasons.some((r: string) => args.reason.toLowerCase().includes(r))
-          if (isNegative) {
-            const empathyName = leadName ? `, ${leadName}` : ''
-            const empathyMsg = `Peço desculpas pela experiência${empathyName}. Entendo sua frustração e vou resolver isso agora.`
-            await sendTextMsg(empathyMsg)
-            await supabase.from('conversation_messages').insert({
-              conversation_id, direction: 'outgoing', content: empathyMsg, media_type: 'text',
-            })
-            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: empathyMsg, media_type: 'text' })
-          }
-
-          // D30: atribui via fila ANTES de enviar (substitui {handoff_assignee_name})
-          const { result: queueRes, finalMessage: handoffMsgFinal } = await runQueueAssignment(handoffMsg)
-          // Send handoff message directly (don't rely on LLM generating it)
-          await sendTextMsg(handoffMsgFinal)
-          await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing', content: handoffMsgFinal, media_type: 'text',
-          })
-
-          // Set IA to SHADOW + tag
-          // R86: reset lead_msg_count to 0 so returning lead doesn't immediately re-trigger auto-handoff
-          await supabase.from('conversations').update({
-            status_ia: newStatus,
-            tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
-            lead_msg_count: 0,
-          }).eq('id', conversation_id)
-
-          // Auto-assign "Atendimento Humano" label if available
-          const handoffLabel = (availableLabels || []).find((l: any) =>
-            l.name.toLowerCase().includes('atendimento') || l.name.toLowerCase().includes('humano')
-          )
-          if (handoffLabel) {
-            await supabase.from('conversation_labels').delete().eq('conversation_id', conversation_id)
-            await supabase.from('conversation_labels').insert({ conversation_id, label_id: handoffLabel.id })
-          }
-
-          // Build qualification chain from tags for structured handoff data
-          const qualChain = buildQualificationChain(
-            conversation.tags || [],
-            {},
-            leadName || contact?.name || null
-          )
-
-          // Log + broadcast
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'handoff',
-            metadata: { reason: args.reason, qualification_chain: qualChain, cooldown_minutes: cooldown, new_status: newStatus, queue: queueRes },
-          })
-          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: handoffMsgFinal, media_type: 'text' })
-
-          // Persist qualification chain to lead_profiles.notes for seller reference
-          if (qualChain && qualChain.includes('>')) {
-            supabase.from('lead_profiles').upsert({
-              contact_id: contact.id,
-              notes: `Qualificação: ${qualChain}`,
-              last_contact_at: new Date().toISOString(),
-            }, { onConflict: 'contact_id' }).then(({ error: e }) => {
-              if (e) log.warn('Failed to persist qualification chain to lead_profiles', { error: e.message })
-            })
-          }
-
-          return `Conversa transferida para atendente humano. Motivo: ${args.reason}. IA em modo shadow (observando).`
+          const handoffResult = await dispatchSetTagsHandoffTool(name, args, {
+            supabase, agent, agent_id, conversation, conversation_id, contact,
+            incomingText, leadName, contextMessages, availableLabels,
+            profileData, funnelData, leadProfile,
+            pendingState, toolCallsLog, startTime,
+            sendTextMsg, broadcastEvent, pickHandoffMessage, runQueueAssignment,
+            executeToolSafe, buildQualificationChain,
+          }, log)
+          if (handoffResult !== null) return handoffResult
+          return `Tool '${name}' não implementada.`
         }
 
         default:

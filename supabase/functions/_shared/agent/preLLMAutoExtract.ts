@@ -29,6 +29,8 @@ import {
 } from '../serviceCategories.ts'
 import { autoExtractFields, flattenCategoryFields } from '../fieldAutoExtractor.ts'
 import { STATUS_IA } from '../constants.ts'
+import { detectIncomingSearchSignal } from '../searchGuard.ts'
+import { DEFAULT_BRANDS } from '../brandDetection.ts'
 import type { Logger } from './context.ts'
 
 // =============================================================================
@@ -177,6 +179,39 @@ export async function runPreLLMAutoExtract(
       })
     } else {
       log.info('R121: "tem X?" detectado em categoria offline — fluxo natural qualif+handoff', {
+        category: categoryPre.id,
+        incoming_preview: ctx.incomingText.substring(0, 80),
+      })
+    }
+  }
+
+  // ── R137 searchGuard wire (Sandrielly fix v7.41.4 2026-05-22) ──────
+  // Cobre o gap deixado pelo DIRECT_PRODUCT_QUESTION_RE acima:
+  //   - "Por quanto está a tinta Iquine?" (marca isolada sem verbo R121)
+  //   - "Preciso de tinta acrílica" / "Quero coral fosca" / "Gostaria de uma porta"
+  // Helper detectIncomingSearchSignal já existia em _shared/searchGuard.ts
+  // mas o wire estava deferred desde Sprint B1. Sem isso, qualquer msg com
+  // marca conhecida + categoria digital cai em loop de qualif idiota.
+  if (
+    !pendingExitActionSearch &&
+    !leadHasReceivedProducts &&
+    catalogStatusPreCat === 'digital' &&
+    ctx.conversation.status_ia !== STATUS_IA.SHADOW
+  ) {
+    const signal = detectIncomingSearchSignal({
+      text: ctx.incomingText,
+      knownBrands: DEFAULT_BRANDS,
+    })
+    if (signal.force && signal.query) {
+      const combinedQuery = buildSearchQuery(interesseValue, tagsNow, [], signal.query)
+      pendingExitActionSearch = {
+        query: combinedQuery,
+        category: interesseValue || categoryPre.id || '',
+      }
+      log.info('R137: searchGuard wire forçando search_products inline', {
+        reason: signal.reason,
+        detector_query: signal.query,
+        final_query: combinedQuery,
         category: categoryPre.id,
         incoming_preview: ctx.incomingText.substring(0, 80),
       })
