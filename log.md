@@ -9,6 +9,31 @@ type: log
 
 ---
 
+## 2026-05-22 (madrugada III) — Sprint B5 Onda 3b shipped (v7.41.1) — extrai CRM tools
+
+**Trigger:** user pediu *"executar B5 Onda 3b crmTools"* (frase de retomada da sessão anterior, escolha do conservador).
+
+**Diagnóstico inicial:**
+- 3 handlers em sequência no switch `executeTool`: `assign_label` (2517-2544, ~28 lin), `move_kanban` (2996-3060, ~65 lin), `update_lead_profile` (3062-3104, ~43 lin). Total in-line ~136 lin.
+- Todos puramente DB-bound (sem UAZAPI, sem LLM, sem broadcast). Risco BAIXO. Sem mutação de tags. Sem cascata pra exit_action.
+- Dependências externas do contexto: `supabase`, `agent_id`, `conversation.inbox_id`, `conversation_id`, `contact.{id,name,phone}`, `instance_id`, `leadProfile` (pra merge objections), `availableLabelNames` (pra erro amigável).
+
+**Execução:**
+1. `_shared/agent/tools/crmTools.ts` — 3 funções + dispatcher:
+   - `assignLabel`: lookup `labels` (ilike escapando %_) → delete + insert em `conversation_labels` (REPLACE policy 1 ativa) → log `label_assigned`.
+   - `moveKanban`: lookup `kanban_boards` by `instance_id` → lookup coluna → lookup card por `contact_id` → auto-create se ausente (tags `['lead','auto-criado']`, title `name||phone`, log `kanban_created`) ou update + log `kanban_moved`. Early return em "já está na coluna" (idempotência).
+   - `updateLeadProfile`: dedup nome `PedroPedro→Pedro`, merge objections com existentes (Set), 6 campos opcionais, upsert por `contact_id`, hint pro LLM quando nome novo persistido.
+2. `crmTools.test.ts` — 21 testes: assignLabel (5), moveKanban (6), updateLeadProfile (8), dispatcher (2). Cobre wildcard escape, auto-create+phone fallback, idempotência, merge objections sem duplicar, omissão de campos null.
+3. `ai-agent/index.ts`: 3 cases extraídos → 2 cases (`assign_label` standalone + `move_kanban`/`update_lead_profile` fall-through), ~20 lin. index.ts: **3900 → 3793 lin (-107)**. Acumulado B5: **-751 lin desde 4544**.
+
+**Pipeline:** tsc 0 · vitest **1107 pass (+21 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v85→**v86** ACTIVE via CLI.
+
+**Andamento Plano Orquestrador:** 45% → **46%**. Próxima sub-onda crítica: **3c search_products** (~650 lin, vira product_specialist no Sprint C — sessão dedicada ~2-3h, mais valor estratégico).
+
+**Frase de retomada:** *"executar B5 Onda 3c search_products"*.
+
+---
+
 ## 2026-05-22 (madrugada II) — Sprint B5 Onda 3a shipped (v7.41.0) — extrai media tools
 
 **Trigger:** user pediu "executar B5 Onda 3 toolExecution split por capacidade". Plano de subdivisão apresentado (3a media + 3b crm + 3c search + 3d set_tags/handoff). User escolheu **3a** (recomendado conservador).

@@ -51,6 +51,7 @@ import { runPreLLMShortCircuits } from '../_shared/agent/preLLMShortCircuits.ts'
 import { runPreLLMAutoExtract } from '../_shared/agent/preLLMAutoExtract.ts'
 import { dispatchExitActionHandoff, runInlineSearchProducts } from '../_shared/agent/exitActionDispatcher.ts'
 import { dispatchMediaTool } from '../_shared/agent/tools/mediaTools.ts'
+import { dispatchCrmTool } from '../_shared/agent/tools/crmTools.ts'
 import type { PendingExitActionHandoff, PendingExitActionSearch } from '../_shared/agent/preLLMAutoExtract.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
@@ -2515,32 +2516,18 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
         }
 
         case 'assign_label': {
-          const { label_name } = args
-          if (!label_name) return 'Nome da etiqueta não informado.'
-
-          // Use exact case-insensitive match to prevent partial matches
-          // (e.g., "sale" matching "sales" or "wholesale")
-          const { data: label } = await supabase
-            .from('labels')
-            .select('id, name')
-            .eq('inbox_id', conversation.inbox_id)
-            .ilike('name', label_name.replace(/%/g, '\\%').replace(/_/g, '\\_'))
-            .maybeSingle()
-
-          if (!label) return `Etiqueta "${label_name}" não encontrada. Disponíveis: ${availableLabelNames.join(', ')}`
-
-          // Pipeline: replace existing labels (one stage at a time)
-          await supabase.from('conversation_labels').delete().eq('conversation_id', conversation_id)
-          const { error } = await supabase.from('conversation_labels').insert({ conversation_id, label_id: label.id })
-
-          if (error) return `Erro ao atribuir etiqueta: ${error.message}`
-
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'label_assigned',
-            metadata: { label_name: label.name, label_id: label.id },
-          })
-
-          return `Etiqueta "${label.name}" atribuída.`
+          const crmResult = await dispatchCrmTool(name, args, {
+            supabase,
+            agent_id,
+            conversation,
+            conversation_id,
+            contact,
+            instance_id,
+            leadProfile,
+            availableLabelNames,
+          }, log)
+          if (crmResult !== null) return crmResult
+          return `Tool '${name}' não implementada.`
         }
 
         case 'set_tags': {
@@ -2993,114 +2980,20 @@ REGRA: se o lead confirmar ("quero", "pode separar", "esse mesmo") → handoff_t
           return `Tags atualizadas: ${merged.join(', ')}.${exitInstruction}`
         }
 
-        case 'move_kanban': {
-          const { column_name } = args
-          if (!column_name) return 'Nome da coluna não informado.'
-
-          const { data: board } = await supabase
-            .from('kanban_boards')
-            .select('id')
-            .eq('instance_id', instance_id)
-            .maybeSingle()
-
-          if (!board) return 'Nenhum quadro Kanban vinculado a esta instância.'
-
-          const { data: targetCol } = await supabase
-            .from('kanban_columns')
-            .select('id, name')
-            .eq('board_id', board.id)
-            .ilike('name', column_name)
-            .maybeSingle()
-
-          if (!targetCol) return `Coluna "${column_name}" não encontrada no Kanban.`
-
-          // Find card by contact_id (direct FK, reliable)
-          let { data: card } = await supabase
-            .from('kanban_cards')
-            .select('id, title, column_id')
-            .eq('board_id', board.id)
-            .eq('contact_id', contact.id)
-            .maybeSingle()
-
-          // Auto-create card if not found
-          if (!card) {
-            const { data: newCard } = await supabase
-              .from('kanban_cards')
-              .insert({
-                board_id: board.id,
-                column_id: targetCol.id,
-                contact_id: contact.id,
-                title: contact.name || contact.phone,
-                created_by: agent_id,
-                tags: ['lead', 'auto-criado'],
-              })
-              .select('id, title, column_id')
-              .single()
-
-            if (!newCard) return 'Erro ao criar card no Kanban.'
-
-            await supabase.from('ai_agent_logs').insert({
-              agent_id, conversation_id, event: 'kanban_created',
-              metadata: { card_id: newCard.id, column_name: targetCol.name, contact_id: contact.id },
-            })
-
-            return `Card "${newCard.title}" criado na coluna "${targetCol.name}".`
-          }
-
-          if (card.column_id === targetCol.id) return `Card já está na coluna "${targetCol.name}".`
-
-          await supabase.from('kanban_cards').update({ column_id: targetCol.id }).eq('id', card.id)
-
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'kanban_moved',
-            metadata: { card_id: card.id, column_name: targetCol.name, contact_id: contact.id },
-          })
-
-          return `Card "${card.title}" movido para "${targetCol.name}".`
-        }
-
+        case 'move_kanban':
         case 'update_lead_profile': {
-          const updates: Record<string, any> = { last_contact_at: new Date().toISOString() }
-          if (args.full_name) {
-            // Fix duplicated names (e.g. "PedroPedro" → "Pedro")
-            let cleanName = args.full_name.trim()
-            if (cleanName.length >= 4) {
-              const half = cleanName.length / 2
-              if (cleanName.length % 2 === 0 && cleanName.substring(0, half) === cleanName.substring(half)) {
-                cleanName = cleanName.substring(0, half)
-              }
-            }
-            updates.full_name = cleanName
-          }
-          if (args.city) updates.city = args.city
-          if (args.interests?.length) updates.interests = args.interests
-          if (args.notes) updates.notes = args.notes
-          if (args.reason) updates.reason = args.reason
-          if (args.average_ticket) updates.average_ticket = args.average_ticket
-          if (args.objections?.length) {
-            // Merge with existing objections (no duplicates)
-            const existing: string[] = leadProfile?.objections || []
-            const merged = [...new Set([...existing, ...args.objections])]
-            updates.objections = merged
-          }
-
-          const { error } = await supabase
-            .from('lead_profiles')
-            .upsert({ contact_id: contact.id, ...updates }, { onConflict: 'contact_id' })
-
-          // Note: contacts.name preserves WhatsApp pushname, full_name goes only in lead_profiles
-
-          if (error) return `Erro ao atualizar perfil: ${error.message}`
-
-          const saved = Object.entries(updates).filter(([k]) => k !== 'last_contact_at')
-            .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join(', ')
-
-          // If name was just saved, instruct LLM to use it in this response
-          if (args.full_name && updates.full_name) {
-            const firstName = updates.full_name.split(' ')[0]
-            return `Perfil atualizado: ${saved}. IMPORTANTE: o lead acaba de informar o nome "${firstName}". Use "${firstName}" para se dirigir a ele nesta resposta.`
-          }
-          return `Perfil atualizado: ${saved}`
+          const crmResult = await dispatchCrmTool(name, args, {
+            supabase,
+            agent_id,
+            conversation,
+            conversation_id,
+            contact,
+            instance_id,
+            leadProfile,
+            availableLabelNames,
+          }, log)
+          if (crmResult !== null) return crmResult
+          return `Tool '${name}' não implementada.`
         }
 
         case 'handoff_to_human': {

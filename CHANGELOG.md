@@ -13,6 +13,26 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.41.1 (2026-05-22) — Sprint B5 Onda 3b: extrai CRM tools (assign_label + move_kanban + update_lead_profile)
+
+Segunda sub-onda do split do `executeTool` switch. Onda 3b ataca os 3 handlers de CRM — baixo risco (não dependem de LLM, sem cascata em prompt). Aproxima fronteira do `crm_specialist` futuro.
+
+**Mudanças:**
+- Novo `_shared/agent/tools/crmTools.ts` — 3 funções (`assignLabel`, `moveKanban`, `updateLeadProfile`) + dispatcher `dispatchCrmTool(name, args, ctx, log)`.
+- `CrmToolsCtx` interface: supabase + agent_id + conversation/contact/instance_id + leadProfile (pra merge objections) + availableLabelNames (pra erro amigável).
+- `ai-agent/index.ts`: 3 cases (~127 lin in-line) → 2 cases (`assign_label` standalone + `move_kanban`/`update_lead_profile` fall-through, ~20 lin). index.ts: 3900 → **3793 lin** (-107). Acumulado B5: **-751 lin** desde 4544 inicial.
+- +21 testes (crmTools.test.ts): assignLabel guards (vazio, label inexistente, wildcards escape, insert error), happy path + log. moveKanban (sem board, sem coluna, auto-create card, phone fallback, idempotência mesma coluna, update + log kanban_moved). updateLeadProfile (dedup "PedroPedro", merge objections, todos campos opcionais, omite null, upsert error, hint nome).
+
+**Equivalência semântica:** strings/logs idênticos ao original (`Etiqueta "X" atribuída.`, `Card "Y" criado na coluna "Z".`, `Perfil atualizado: ...`). Eventos `label_assigned`/`kanban_created`/`kanban_moved` preservados.
+
+**Pipeline:** tsc 0 · vitest **1107 pass (+21 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v85→v86 ACTIVE.
+
+**Próximas sub-ondas da Onda 3:**
+- 3c — search_products (~650 lin, vira product_specialist no Sprint C)
+- 3d — set_tags + handoff_to_human (~545 lin, HIGH RISK, vira qualif+handoff specialists)
+
+---
+
 ### v7.41.0 (2026-05-22) — Sprint B5 Onda 3a: extrai media tools (send_carousel + send_media + send_poll)
 
 Primeira sub-onda do split do `executeTool` switch (~1500 lin total). Onda 3a ataca os 3 handlers de envio de mídia — sem mutação de tags, sem cascata, baixo risco. Valida o padrão de extração de tools antes de atacar search_products (3c) e set_tags (3d).
@@ -228,55 +248,9 @@ Phrasing curto na 2ª+ pergunta do stage (sem repetir "Para encontrar a melhor o
 
 ---
 
-### v7.38.3 (2026-05-20) — Fix R125: badge "Em fila" aparecia com Modo Fila OFF
+### v7.38.3 + v7.38.2 + v7.38.1 + v7.38.0 + v7.37.21 (2026-05-20) — R124/R125 + R123 toggle IA + D36 permissões + prefixo `*Nome*` (arquivado)
 
-**Bug em prod (Eletropiso 558781592373, conv `5227cd44` do dinho).** Departamento Vendas com `queue_mode_enabled=false` (gestor-de-chão Lucas como default_assignee), mas helpdesk mostrava badge `⏱ Em fila — Lucas (2:10)` na conversa. Atendente confuso — "se desliguei a fila, por que aparece fila?".
-
-**Causa raiz.** `_shared/handoffQueue.ts` criava registro em `handoff_queue_events` com `status='active'` e `expires_at = now() + 5min` em **todo** handoff, mesmo no Modo OFF. O hook `useActiveQueueEvents.ts:69` renderiza o badge sempre que existe row ativa — sem olhar `dept.queue_mode_enabled`. Resultado: countdown aparecia mesmo em dept onde fila não roda.
-
-**Fix.**
-- `_shared/handoffQueue.ts`: bloco INSERT/UPDATE de queue_event agora roda só se `dept.queue_mode_enabled === true`. No Modo OFF, faz UPDATE só em `conversations.assigned_to` (comportamento esperado: gestor recebe direto, sem countdown). Adicionalmente, no Modo OFF cancela qualquer event ativo herdado (transição ON→OFF deixava órfãos).
-- `src/components/admin/queue/QueueConfig.tsx`: `handleSave` cancela events ativos do dept quando toggle salva OFF — defense-in-depth, não depende de novo handoff acontecer pra limpar UI.
-
-**Arquivos:**
-- `supabase/functions/_shared/handoffQueue.ts` — bloco event sob `if (dept.queue_mode_enabled)`
-- `supabase/functions/_shared/__tests__/handoffQueue.test.ts` — `queue_event_id` agora `null` em OFF + novo teste `R125 — Modo OFF não chama insert`
-- `src/components/admin/queue/QueueConfig.tsx` — cancela events ativos ao salvar OFF
-
-**Limpeza em prod.** 1 queue_event órfão do dinho cancelado via SQL (`UPDATE handoff_queue_events SET status='cancelled' WHERE id='693eb2a2...'`). Badge sumiu imediato via postgres_changes do hook.
-
-**Lição R125.** UI que sinaliza "feature ativa" não pode renderizar com base só no shape do dado (row existe) — precisa olhar a configuração que governa a feature (`queue_mode_enabled` do dept). Backend que cria row em código compartilhado deve respeitar o flag do contexto. **Regra preventiva**: toda feature toggleável precisa testar "se flag=OFF, o usuário vê algum vestígio?". Se sim, é vazamento de estado.
-
-**Testes.** 21/21 PASS em `handoffQueue.test.ts`. Suite geral: 802 pass / 9 falhas pré-existentes (FormBuilder/useForms/excludedProducts/detection ESM — nenhuma tocada por este fix).
-
-**Deploy.** `supabase functions deploy ai-agent && deploy assign-handoff --project-ref prfcbfumyrrycsrcrvms` ✓.
-
----
-
-### v7.38.2 (2026-05-20) — Fix R124: handoff_to_human bloqueado eternamente após search_fail
-
-**Bug (prod Eletropiso 558781592373, conv `04baffce`).** Lead Carla pediu valor de arandela → IA buscou (0 resultados → tag `search_fail:1`) → pediu refinamento → lead disse "Quero saber os valores" → IA tentou `handoff_to_human` **2 vezes** mas guard "REGRA BUSCA OBRIGATÓRIA" bloqueou as duas. Conversa ficou "Não atribuída", IA Ativa, sem mensagem de transbordo, sem atribuir Lucas (default_assignee). Loop infinito até gerar atrito manual.
-
-**Causa raiz** (`supabase/functions/ai-agent/index.ts:3562-3575` antigo). O guard checava `toolCallsLog.some(t => t.name === 'search_products')` — mas `toolCallsLog` é resetado a cada invocação da edge function. A busca da Carla foi feita no turn 1, gravou `search_fail:1` na tag, mas no turn 4 (quando ela voltou pedindo valor) o `toolCallsLog` voltou vazio. Como ela tinha `produto:arandela` nas tags, o guard bloqueava **pra sempre**.
-
-**Fix.** Extraído pra `_shared/handoffGuard.ts` (testável). Nova condição: `hasSearched = thisRound OR tags contém search_fail:N`. Se busca prévia já falhou, libera handoff (faz sentido: agente já tentou, não há porque insistir em search).
-
-**Arquivos:**
-- `supabase/functions/_shared/handoffGuard.ts` (44 lin, novo) — `evaluateHandoffGuard()` + const da msg
-- `supabase/functions/_shared/handoffGuard.test.ts` (69 lin, novo) — 8 testes (inclui repro EXATO da Carla)
-- `supabase/functions/ai-agent/index.ts:3562-3575` — usa helper
-
-**Lição R124.** Quando guardrail depende de estado da rodada atual (`toolCallsLog`), mas o estado durável vive na tag (`search_fail:N`), o guard precisa olhar **ambos**. Cada invocação do ai-agent é stateless — tags são a única memória persistente entre turnos. Antes de bloquear via guard, sempre checar: "se isso disparar 1000 vezes em loop, o lead consegue sair?" Se a única forma de destravar é uma ação que o LLM já tentou e falhou, é bug.
-
-**Testes.** 8/8 PASS no `handoffGuard.test.ts`. Suite geral: 801 pass / 9 falhas pré-existentes (excludedProducts text, useForms mocks, FormBuilder, *Detection — nenhuma tocada por este fix).
-
-**Deploy.** `supabase functions deploy ai-agent --project-ref prfcbfumyrrycsrcrvms` ✓ via scoop CLI (npx falhou com SmartScreen ApplicationFailedException).
-
----
-
-### v7.38.1 + v7.38.0 + v7.37.21 (2026-05-20) — R123 toggle IA + D36 permissões + prefixo `*Nome*` (arquivado)
-
-> Movido para [[wiki/changelog/2026-05-part7]] em 2026-05-21 (hard limit 300 linhas).
+> Movido para [[wiki/changelog/2026-05-part7]] em 2026-05-21 + R124/R125 em 2026-05-22 (hard limit 300 linhas). Detalhes técnicos preservados em [[wiki/erros/historico-2026-05-part3]] (R124, R125) e nas memórias `project_bug_handoff_search_fail` + `project_bug_queue_badge_off`.
 
 ---
 
