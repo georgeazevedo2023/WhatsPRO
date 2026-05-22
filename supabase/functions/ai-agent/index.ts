@@ -493,6 +493,13 @@ Deno.serve(async (req) => {
     // R121 (2026-05-19): toolCallsLog elevado pra cima do auto-extract inline search.
     // Antes estava em linha 3449 — fora do escopo do bloco R121 inline.
     const toolCallsLog: any[] = []
+    // R141 (2026-05-22 v7.41.8): carouselSentInThisCall ELEVADO pra cima do
+    // executeTool. Antes era `let` declarado APOS o pre-LLM (linha ~1928), o
+    // que causava TDZ ReferenceError quando runInlineSearchProducts (R137 wire
+    // ou R121 inline) chamava executeTool('search_products') ANTES do let ser
+    // inicializado. Stack trace capturado em 2026-05-22 23:05:55 UTC após R140
+    // identificou esse hoisting bug como causa raiz do crash Sandrielly/Wsmart.
+    let carouselSentInThisCall = false
     {
       const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
       const textForDetection = shadow_only ? (vendor_message || '') : incomingText
@@ -1924,8 +1931,8 @@ ${contextBlock}`
     let responseText = ''
     let inputTokens = 0
     let outputTokens = 0
-    // toolCallsLog declarado acima na linha ~462 pra suportar R121 inline search no auto-extract.
-    let carouselSentInThisCall = false  // prevents duplicate carousel when LLM calls search_products 2x
+    // toolCallsLog + carouselSentInThisCall declarados acima (R121 + R141) pra suportar
+    // R121 inline search e R137 searchGuard wire que chamam executeTool no pre-LLM.
     let attempts = 0
     const maxAttempts = 5
     const MAX_TOOL_ROUNDS = 3
