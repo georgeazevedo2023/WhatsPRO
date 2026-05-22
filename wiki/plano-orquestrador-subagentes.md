@@ -110,15 +110,15 @@ audited_at: 2026-05-21
 
 ### B5 — Split `index.ts` em fases
 
-**Hoje:** índex.ts está em **4153 lin** (era 4544 no início — -391 já extraídas em 5 ondas).
+**Hoje:** índex.ts está em **4032 lin** (era 4544 no início — -512 já extraídas em 6 ondas).
 
 **Ondas:**
 - ✅ **Onda 0+1** v7.40.4 — `_shared/agent/{context, contextDocuments}` (-90 lin)
 - ✅ **Onda 2a** v7.40.5 — `_shared/agent/promptSections` (-64 lin)
 - ✅ **Onda 2b** v7.40.6 — `_shared/agent/qualificationContext` (-125 lin)
 - ✅ **Onda 2c-i** v7.40.7 — `_shared/agent/preLLMShortCircuits` (R136 + R129) (-112 lin)
-- ⏳ **Onda 2c-ii** (HIGH RISK) — autoExtract + score progressivo + exit_action handoff (Bug 24) + R121 inline search (~180 lin com closure `runQueueAssignment`)
-- ⏳ **Onda 3** — toolExecution switch (~1500 lin, vai subdividir por capacidade — pré-req real do Sprint C)
+- ✅ **Onda 2c-ii** v7.40.8 — `_shared/agent/{preLLMAutoExtract, exitActionDispatcher}` (autoExtract + Bug 24 handoff + R121 inline search) (-121 lin)
+- ⏳ **Onda 3** — toolExecution switch (~1500 lin, vai subdividir por capacidade — **pré-req real do Sprint C**)
 - ⏳ **Onda 4** — llmCallLoop (~370 lin)
 - ⏳ **Onda 5** — dispatchResponse + handoff fallback (~240 lin)
 

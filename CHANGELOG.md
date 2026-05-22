@@ -13,6 +13,27 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.8 (2026-05-21) — Sprint B5 Onda 2c-ii: extrai autoExtract + exit_action handoff + R121 inline search
+
+Última peça HIGH RISK da Onda 2c. Três blocos in-line (autoExtract+score+flags, Bug 24 handoff dispatcher, R121 inline search) extraídos para 2 módulos testáveis. Closure pesada `runQueueAssignment` agora passada como callback explícito — desbloqueia o caminho pro Sprint C (specialists não vão precisar acessar a closure interna).
+
+**Mudanças:**
+- Novo `_shared/agent/preLLMAutoExtract.ts` — `runPreLLMAutoExtract(ctx, log)` retorna `{ pendingExitActionHandoff, pendingExitActionSearch, tagsMutated }`. Faz: resolução de categoria, R121 "tem X?" trigger, autoExtract de fields, score progressivo, setup das flags de exit_action. DB writes (tags + log `auto_field_extracted`) preservados. Sem IO de mensagem.
+- Novo `_shared/agent/exitActionDispatcher.ts` — 2 funções:
+  - `dispatchExitActionHandoff(ctx, pending, log)` retorna `{ dispatched, response }`. Quando `pendingExitActionHandoff` setado: runQueueAssignment + sendTextMsg + DB updates (status_ia=SHADOW, dept) + broadcast + log `implicit_handoff` + Response 200. Skip em status_ia=SHADOW.
+  - `runInlineSearchProducts(ctx, pending, log)` retorna `{ inlineSearchContext, toolCall }`. Quando `pendingExitActionSearch` setado: executeToolSafe + log `tool_called` + monta string `[INTERNO]`. Skip em SHADOW. Erros não propagam (log.error).
+- Callbacks injetados via ctx: `sendTextMsg`, `broadcastEvent`, `executeToolSafe`, `runQueueAssignment`, `pickHandoffMessage`. Closure interna do `runQueueAssignment` (linha 689) intocada — só passa pelo prop.
+- `ai-agent/index.ts:1502-1673` (~170 lin in-line) → 3 chamadas curtas (~30 lin). index.ts: 4153 → **4032 lin** (-121). Acumulado B5: **-512 lin** desde 4544 inicial.
+- +26 testes: 17 preLLMAutoExtract (guards, R121 digital/offline/shadow/produto-recebido, autoExtract+score, exit_action handoff atingindo max stage2, search C2 fallback skip em offline, interesse: tag reuso, log pending_exit_handoff), 9 exitActionDispatcher (happy path, status_ia=shadow skip, dept profile > funnel, outside_hours, response body, inline search happy, shadow skip, executeToolSafe throw).
+
+**Equivalência semântica:** strings/logs idênticos ao original (`exit_action_auto_extract`, `r121_auto_extract_inline`, `Bug 24: exit_action=handoff disparado via auto-extract`, fronteira `[min, max)` de stage preservada). Bug 24 v1 (handoff via auto-extract) e v5 (C2 search) shippeados em ondas anteriores continuam ativos.
+
+**Pipeline:** tsc 0 · vitest **1062 pass (+26 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v82→v83 ACTIVE via CLI.
+
+**Próximo:** Onda 3 (toolExecution switch ~1500 lin) — vai subdividir em 3-4 mini-ondas por capacidade (search_products, set_tags+score, send_carousel, handoff/escalations). É o pré-req real do Sprint C — aqui se define o boundary dos specialists.
+
+---
+
 ### v7.40.7 (2026-05-21) — Sprint B5 Onda 2c-i: extrai R136 + R129 short-circuits pré-LLM
 
 Continuação do split. Onda 2c-i isola os 2 curto-circuitos determinísticos que rodam ANTES do LLM e respondem direto ao lead (multi-item misto + multi-categoria sem interesse). Cada um persiste tag de pending, envia mensagem via UAZAPI, registra log e retorna `Response`. Fallback (send falha) mantém a tag persistida e deixa cair pro LLM.
@@ -80,84 +101,21 @@ Início do split estrutural do `ai-agent/index.ts` (4544 lin) — pré-requisito
 
 ---
 
-### v7.40.3 (2026-05-21) — Sprint B3: reader sub_agents → agent_profiles
+### v7.40.3 (2026-05-21) — Sprint B3 arquivado
 
-Reader único pra perfil de atendimento. UI já tinha migrado na M17 F3 (2026-04-09); agora o `ai-agent` e o `ai-agent-playground` também. Pré-requisito do Sprint C — cada specialist futuro vai ter `agent_profiles` row própria.
-
-**Mudanças:**
-- Migration `20260521000001_sprint_b3_backfill_agent_profiles.sql`: backfill `agent_profiles` (4 rows × 2 agentes ativos = 8) + trigger AFTER INSERT em `ai_agents` cria default profile automático em novos agentes.
-- Novo `_shared/profileReader.ts`: `loadActiveProfile(supabase, {agentId, funnelProfileId})` cascade funnel→default. 9 testes unitários.
-- `ai-agent/index.ts`: substitui 24 lin de load manual (666-688) + 29 lin de reader legado (1532-1560) por chamadas ao helper. Telemetria `sub_agent` agora grava `profileData?.id || 'no_profile'`.
-- `ai-agent-playground/index.ts:67`: usa helper compartilhado em vez de `buildSubAgentInstruction(agent.sub_agents)`.
-- `buildSubAgentInstruction` em `agentHelpers.ts` continua exportado por 1 sprint (dívida pra B5 + drop coluna).
-
-**Resultado:** -53 linhas no `ai-agent/index.ts`. 1 ponto de leitura de perfil em vez de 2 schemas competindo. `subAgentInstruction` agora sempre `''` (prompt do perfil já injetado em `funnelInstructionsSection`).
-
-**Pipeline:** tsc 0 erros · vitest 958 pass (+9 novos) / 9 fail pré-existentes. Deploy ai-agent v77→v78 ACTIVE + ai-agent-playground v2→v3 ACTIVE via CLI.
-
-**Sprint B status:** B1 ✅, B1.5 ✅, B2 ✅, B3 ✅. Restante: B4 (varredura R134), B5 (split index.ts — pré-req Sprint C).
-
-**Deferred pra B5/B6:** drop coluna `ai_agents.sub_agents` · aposentar `SubAgentsConfig.tsx` da UI · remover `buildSubAgentInstruction` helper · atualizar `nicheTemplates.ts` pra seedar `agent_profiles` em vez de `sub_agents`.
+> Movido para [[wiki/changelog/2026-05-part9]] em 2026-05-21 (hard limit 300 lin). Conteúdo: reader sub_agents → agent_profiles unificado via loadActiveProfile + migration backfill 3 agentes + trigger DB ensure_default_agent_profile.
 
 ---
 
-### v7.40.2 (2026-05-21) — Sprint B2: strict mode em 9 tool schemas
+### v7.40.2 (2026-05-21) — Sprint B2 arquivado
 
-`strict: true` + `additionalProperties: false` nas 9 tool schemas. Pré-req gpt-5-mini ✅ (Sprint A). Esperado: **alucinação args 3% → <0,1%** (R125-R127 família dissolvida no schema, não no prompt).
-
-**Mudanças:**
-- `_shared/llmProvider.ts`: `LLMToolDef` ganha `strict?: boolean`. `callOpenAI` injeta `strict:true` + `additionalProperties:false` quando flag setada (opt-in seguro pras outras edge fns).
-- `ai-agent/index.ts:2097-2186`: 9 toolDefs ganham `strict: true`. As 5 desalinhadas (`search_products`, `send_carousel`, `send_media`, `update_lead_profile`, `send_poll`) reformuladas — opcionais → `["TIPO","null"]` + todos args em `required[]`. 4 já alinhadas (`assign_label`, `set_tags`, `move_kanban`, `handoff_to_human`) só ganham flag.
-
-Handlers downstream JÁ defensivos contra null (`if (args.X)`, `X || default`). Sem ajuste.
-
-**Pipeline:** tsc 0 erros · vitest 949 pass / 9 fail pré-existentes. Deploy ai-agent v76→v77 ACTIVE.
-
-**Sprint B status:** B1 ✅, B1.5 ✅, B2 ✅. Restante: B3 (sub_agents reader), B4 (varredura R134), B5 (split index.ts — pré-req Sprint C).
+> Movido para [[wiki/changelog/2026-05-part9]] em 2026-05-21. Conteúdo: strict mode em 9 tool schemas OpenAI (alucinação args ~3% → <0,1%).
 
 ---
 
-### v7.40.1 (2026-05-21) — Sprint B1.5: fix R135 (anti-loop qualif) + R136 (multi-item horizontal)
+### v7.40.1 (2026-05-21) — Sprint B1.5 arquivado
 
-**2 bugs reais em prod fixados** após v7.40.0 (paz + Paloma, ambos EletropisoV2):
-
-- **R135** — IA repetiu LITERAL "Qual material? (granito, mármore, inox ou sintético)" depois do lead responder "Mas simples mesmo". Causa: `buildQualificationContext` reinjetava "FRASE EXATA SUGERIDA" sem detectar que o lead já tinha respondido no turn anterior sem casar com keywords.
-- **R136** — IA ignorou lista multi-item "1 massa PVA / 1 Latão de tinta branco neve / 15 lixas d'água N° 150" e qualif só `tintas`, perdendo os 2 itens sem categoria cadastrada. Causa: sistema afunilou em mono-categoria quando só 1 categoria cadastrada casou na lista.
-
-**Regra definida pelo user:** lista multi-item mista (cadastrado + não-cadastrado) → **qualificação horizontal** (1 pergunta abrangente sobre ambiente + marca/tipo + qualidade) → handoff rico com lista preservada. Vale também pra single-item-fora-catálogo.
-
-**3 novos helpers (3 agentes paralelos):**
-- `_shared/multiItemDetector.ts` (239 lin) — detecta lista numerada/comma/newline-separated, classifica items por categoria, devolve `{ detected, items, mixed, orphanCount, reason }`. 16/16 tests. Repro Paloma exato OK.
-- `_shared/horizontalQualif.ts` (133 lin) — gera pergunta horizontal adaptativa (tintas → ambiente+marca+tipo+qualidade; portas/janelas → material+tamanho; só orphans → genérica) + constrói handoff reason rico (lista preservada + contexto + msg original). 10/10 tests.
-- `_shared/qualificationAntiLoop.ts` (90 lin) — detecta se sistema está prestes a reinjetar mesma phrasing já enviada no turn anterior. Quando repeating=true, devolve nudge instruindo LLM a interpretar resposta do lead ou reformular com contexto. 10/10 tests. Repro paz exato OK.
-
-**Wire em `ai-agent/index.ts` (5 edits):**
-1. Imports dos 3 helpers
-2. `buildQualificationContext` ganha branch prioritário pra tag `qualif_horizontal:pending` (força handoff_to_human imediato com reason no formato estruturado)
-3. Fix R135 inline em `buildQualificationContext`: chama `detectQualifLoop`; quando repeating, substitui "FRASE EXATA SUGERIDA" pelo nudge
-4. Call site de `buildQualificationContext` passa últimas 8 msgs do contexto
-5. ANTES do bloco R129 (multi-categoria cadastrada), detector multi-item: se `mixed=true`, envia pergunta horizontal + seta tag pending + return (curto-circuita LLM, igual padrão R129)
-
-**Pipeline:**
-- `npx tsc --noEmit`: 0 erros
-- `npx vitest run`: 949 pass / 9 fail pré-existentes (FormBuilder/useForms/excludedProducts — não-relacionados). **+36 testes novos B1.5 todos pass.**
-- Deploy `ai-agent` v75 → v76 ACTIVE
-- 4 arquivos novos + 1 estendido + vault particionado (erros-e-licoes 312→215, R124-R134 → wiki/erros/historico-2026-05-part3.md)
-
-**Comportamento esperado pós-deploy:**
-
-| Cenário | Antes | Depois |
-|---|---|---|
-| Lead manda lista multi-item mista | Afunila em 1 categoria, ignora orphans | 1 pergunta horizontal → handoff rico |
-| Lead responde fora do menu ("mais simples") | IA repete frase literal | IA interpreta ou reformula com contexto |
-| Lead manda 2+ categorias cadastradas | R129 dispara "qual prefere começar?" (mantido) | Mantido |
-| Lead manda 1 item único | Qualif normal por field (mantido) | Mantido |
-
-**Follow-up:** monitorar logs `r136_multi_item_horizontal` + `R135 anti-loop` por 3-5 dias. Casos edge devem voltar pra Sprint C (router + qualification_specialist) como comportamento natural do prompt.
-
-**Regras preventivas:** [[wiki/erros/regras-preventivas]] entradas 135 + 136.
-
----
+> Movido para [[wiki/changelog/2026-05-part9]] em 2026-05-21. Conteúdo: fix R135 (anti-loop qualif) + R136 (multi-item horizontal Paloma) — detector + helper + branch buildQualificationContext.
 
 ### v7.40.0 + Plano Orquestrador (2026-05-21) — arquivado
 

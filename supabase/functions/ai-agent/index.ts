@@ -48,6 +48,9 @@ import { buildContextDocuments } from '../_shared/agent/contextDocuments.ts'
 import { buildAgentPromptSections, buildLeadContextBlock, buildDynamicContext } from '../_shared/agent/promptSections.ts'
 import { buildQualificationContext } from '../_shared/agent/qualificationContext.ts'
 import { runPreLLMShortCircuits } from '../_shared/agent/preLLMShortCircuits.ts'
+import { runPreLLMAutoExtract } from '../_shared/agent/preLLMAutoExtract.ts'
+import { dispatchExitActionHandoff, runInlineSearchProducts } from '../_shared/agent/exitActionDispatcher.ts'
+import type { PendingExitActionHandoff, PendingExitActionSearch } from '../_shared/agent/preLLMAutoExtract.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
 
@@ -1496,176 +1499,52 @@ ${contextBlock}`
         }
         const suppressAutoExtractForMulti = shortCircuit.suppressAutoExtractForMulti
 
-        const categoryPre = suppressAutoExtractForMulti ? null : (
-          matchCategory(interesseValue, cfgPre) ||
-          matchCategoryBySearchText(incomingText, cfgPre)
-        )
-        if (categoryPre) {
-          const catalogStatusPreCat = (categoryPre as any).catalog_status || 'digital'
-          // R121 (2026-05-19): Pre-LLM "tem X?" trigger — pra cobrir CASO em que lead
-          // pergunta direto e nenhum field foi extraido (auto-extract retorna vazio).
-          // Roda ANTES do auto-extract pra forcar search inline mesmo sem score.
-          const directProductQuestionRe = /(?:^|\s)(?:vcs?|voc[êe]s?)?\s*(?:tem|t[êe]m|vende[mn]?|fazem|trabalham\s+com|trabalha\s+com|tem\s+dispon[ií]vel)\s+/i
-          const isDirectProductQuestion = directProductQuestionRe.test(incomingText)
-          const leadHasReceivedProducts = (conversation.tags || []).some((t: string) => typeof t === 'string' && (t.startsWith('produto:') || t === 'aguardando_upsell'))
-          if (isDirectProductQuestion && !leadHasReceivedProducts && !pendingExitActionSearch && !pendingExitActionHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
-            if (catalogStatusPreCat === 'digital') {
-              const META_KEYS_R121 = new Set(['motivo','interesse','lead_score','ia','ia_cleared','enrich_count','search_fail','produto','aguardando_upsell','venda','tipo_cliente','marca_citada','objecao','pagamento'])
-              const queryPartsR121: string[] = []
-              if (interesseValue) queryPartsR121.push(interesseValue)
-              for (const t of conversation.tags || []) {
-                if (typeof t !== 'string') continue
-                const idx = t.indexOf(':')
-                if (idx < 0) continue
-                const k = t.slice(0, idx)
-                const v = t.slice(idx + 1)
-                if (META_KEYS_R121.has(k)) continue
-                if (v && !queryPartsR121.some(p => p.toLowerCase().includes(v.toLowerCase()))) queryPartsR121.push(v)
-              }
-              const queryR121 = queryPartsR121.length > 0 ? queryPartsR121.join(' ').trim() : incomingText.trim()
-              pendingExitActionSearch = {
-                query: queryR121,
-                category: interesseValue || categoryPre.id || '',
-              }
-              log.info('R121: pre-LLM "tem X?" trigger (categoria digital)', { query: queryR121, category: categoryPre.id, incoming_preview: incomingText.substring(0, 80) })
-            } else {
-              log.info('R121: "tem X?" detectado em categoria offline — fluxo natural qualif+handoff', { category: categoryPre.id, incoming_preview: incomingText.substring(0, 80) })
-            }
-          }
-          const allFields = flattenCategoryFields(categoryPre.stages)
-          const existingKeys = new Set<string>()
-          for (const t of conversation.tags || []) {
-            if (typeof t !== 'string') continue
-            const idx = t.indexOf(':')
-            if (idx > 0) existingKeys.add(t.slice(0, idx))
-          }
-          const extracted = autoExtractFields(incomingText, allFields, existingKeys)
-          if (extracted.length > 0) {
-            const newTags = extracted.map((ef) => `${ef.key}:${ef.value}`)
-            const seedTags: string[] = []
-            if (!interesseTagPre) {
-              seedTags.push(`interesse:${categoryPre.id}`)
-            }
-            // Bug 24: calcular score progressivo (mirror set_tags handler ~linha 2810)
-            const scoreDelta = calculateScoreDelta(newTags, categoryPre, cfgPre.default)
-            const scoreTags: string[] = []
-            if (scoreDelta > 0) {
-              const currentScore = getScoreFromTags(conversation.tags || [])
-              const newScore = Math.min(100, currentScore + scoreDelta)
-              scoreTags.push(`lead_score:${newScore}`)
-              const stageAfter = getCurrentStage(newScore, categoryPre, cfgPre.default)
-              const catalogStatusPre = (categoryPre as any).catalog_status || 'digital'
-              if (newScore >= stageAfter.max_score && stageAfter.exit_action === 'handoff' && conversation.status_ia !== STATUS_IA.SHADOW) {
-                const qualSummary = newTags
-                  .filter(t => !t.startsWith('lead_score:') && !t.startsWith('motivo:') && !t.startsWith('interesse:'))
-                  .map(t => t.replace(/_/g, ' '))
-                  .join(', ')
-                pendingExitActionHandoff = {
-                  reason: `${interesseValue || categoryPre.id} > ${qualSummary}`,
-                  queueMotivo: `${categoryPre.label} — ${qualSummary}`,
-                }
-                log.info('Bug 24: exit_action=handoff disparado via auto-extract', { stage: stageAfter.label, newScore, max_score: stageAfter.max_score })
-              }
-              // C2 fallback: se "tem X?" nao bateu mas score atingiu max_score com search_products
-              if (!pendingExitActionSearch && newScore >= stageAfter.max_score && stageAfter.exit_action === 'search_products' && catalogStatusPre === 'digital' && conversation.status_ia !== STATUS_IA.SHADOW) {
-                // R121 (2026-05-19): mirror do Bug 24 v5 (linhas ~3061) mas via auto-extract.
-                // Antes, search_products so disparava se LLM chamasse set_tags. Lead que
-                // pergunta "tem tinta Coral fosca?" tinha auto-extract setando tipo+marca+acabamento
-                // mas search nunca acontecia automaticamente. Agora dispara inline.
-                // Skipa quando catalog_status=offline: categoria Camada 2 nao tem inventory cadastrado,
-                // forcar search retornaria 0 e LLM ficaria preso. Fluxo natural eh qualif+handoff.
-                const META_KEYS = new Set(['motivo','interesse','lead_score','ia','ia_cleared','enrich_count','search_fail','produto','aguardando_upsell','venda','tipo_cliente','marca_citada','objecao','pagamento'])
-                const queryParts: string[] = []
-                if (interesseValue) queryParts.push(interesseValue)
-                for (const t of [...(conversation.tags || []), ...newTags]) {
-                  if (typeof t !== 'string') continue
-                  const idx = t.indexOf(':')
-                  if (idx < 0) continue
-                  const k = t.slice(0, idx)
-                  const v = t.slice(idx + 1)
-                  if (META_KEYS.has(k)) continue
-                  if (v && !queryParts.some(p => p.toLowerCase().includes(v.toLowerCase()))) queryParts.push(v)
-                }
-                pendingExitActionSearch = {
-                  query: queryParts.join(' ').trim(),
-                  category: interesseValue || categoryPre.id || '',
-                }
-                log.info('R121: exit_action=search_products disparado via auto-extract', { stage: stageAfter.label, newScore, max_score: stageAfter.max_score, query: pendingExitActionSearch.query })
-              }
-            }
-            const mergedTags = [...(conversation.tags || []), ...seedTags, ...newTags, ...scoreTags]
-            conversation.tags = mergedTags
-            await supabase.from('conversations').update({ tags: mergedTags }).eq('id', conversation_id)
-            await supabase.from('ai_agent_logs').insert({
-              agent_id, conversation_id, event: 'auto_field_extracted',
-              latency_ms: 0,
-              metadata: { extracted, new_tags: newTags, seed_tags: seedTags, score_delta: scoreDelta, category_id: categoryPre.id, resolved_via: interesseTagPre ? 'interesse_tag' : 'search_text', incoming_preview: incomingText.substring(0, 120), pending_exit_handoff: !!pendingExitActionHandoff },
-            })
-            log.info('Auto-extracted fields from incoming text', { extracted, newTags, seedTags, scoreDelta, categoryId: categoryPre.id, pendingExitActionHandoff: !!pendingExitActionHandoff })
-          }
+        // Sprint B5 Onda 2c-ii — autoExtract + R121 trigger + score + setup de
+        // exit_action flags extraído pra _shared/agent/preLLMAutoExtract.ts.
+        // Comportamento idêntico: pode setar pendingExitActionHandoff (handoff via
+        // auto-extract atingiu max_score) ou pendingExitActionSearch (R121 trigger
+        // direto OU C2 fallback). DB writes (tags + log) preservados.
+        const autoExtractResult = await runPreLLMAutoExtract({
+          supabase, conversation, conversation_id, agent_id, agent,
+          incomingText, suppressAutoExtractForMulti,
+        }, log)
+        if (autoExtractResult.pendingExitActionHandoff) {
+          pendingExitActionHandoff = autoExtractResult.pendingExitActionHandoff as PendingExitActionHandoff
+        }
+        if (autoExtractResult.pendingExitActionSearch && !pendingExitActionSearch) {
+          pendingExitActionSearch = autoExtractResult.pendingExitActionSearch as PendingExitActionSearch
         }
       }
     } catch (err) {
       log.error('Auto-field extraction failed (non-fatal)', { error: (err as Error).message })
     }
 
-    // Bug 24 (2026-05-17): exit_action=handoff disparado via auto-extract.
-    // Posicionado APOS o auto-extract (a flag pendingExitActionHandoff e setada la dentro).
-    // Antes este bloco estava antes do auto-extract — flag sempre vazia, handoff nunca disparava.
-    if (pendingExitActionHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
-      log.info('Bug 24: exit_action=handoff via auto-extract — disparando', pendingExitActionHandoff)
-      const notifyOutsideEA = agent.notify_outside_hours_on_handoff !== false
-      const outsideHoursEA = notifyOutsideEA && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      const handoffMsgEA = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursEA })
-      const { result: queueResEA, finalMessage: finalMsgEA } = await runQueueAssignment(handoffMsgEA)
-      await sendTextMsg(finalMsgEA)
-      await supabase.from('conversation_messages').insert({
-        conversation_id, direction: 'outgoing', content: finalMsgEA, media_type: 'text',
-      })
-      const eaUpdates: Record<string, unknown> = {
-        status_ia: STATUS_IA.SHADOW,
-        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
-        lead_msg_count: 0,
+    // Sprint B5 Onda 2c-ii — Bug 24 dispatcher (handoff via auto-extract) extraído
+    // pra _shared/agent/exitActionDispatcher.ts. Mesma sequência: runQueueAssignment
+    // + sendText + DB updates + broadcast + return Response.
+    if (pendingExitActionHandoff) {
+      const handoffResult = await dispatchExitActionHandoff({
+        supabase, conversation, conversation_id, agent_id, agent,
+        profileData, funnelData, startTime, corsHeaders,
+        sendTextMsg, broadcastEvent, runQueueAssignment, pickHandoffMessage,
+      }, pendingExitActionHandoff, log)
+      if (handoffResult.dispatched && handoffResult.response) {
+        return handoffResult.response
       }
-      if (profileData?.handoff_department_id) {
-        eaUpdates.department_id = profileData.handoff_department_id
-      } else if (funnelData?.handoff_department_id) {
-        eaUpdates.department_id = funnelData.handoff_department_id
-      }
-      await supabase.from('conversations').update(eaUpdates).eq('id', conversation_id)
-      await supabase.from('ai_agent_logs').insert({
-        agent_id, conversation_id, event: 'implicit_handoff',
-        latency_ms: Date.now() - startTime,
-        metadata: { reason: 'exit_action_auto_extract', exit_reason: pendingExitActionHandoff.reason, outside_hours: outsideHoursEA, queue: queueResEA },
-      })
-      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMsgEA, media_type: 'text' })
-      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'exit_action_auto_extract', queue: queueResEA }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
     }
 
-    // R121 (2026-05-19): se auto-extract setou pendingExitActionSearch (categoria digital
-    // com score>=max), executar search_products INLINE aqui — antes do LLM rodar.
-    // Resultado eh injetado no prompt como [INTERNO] pra LLM nao perguntar de novo
-    // marca/cor que ja foram extraidas e usadas na busca.
+    // Sprint B5 Onda 2c-ii — R121 inline search extraído pra exitActionDispatcher.
+    // executeToolSafe(search_products) + log tool_called + monta [INTERNO] context.
     let inlineSearchContext = ''
-    if (pendingExitActionSearch && conversation.status_ia !== STATUS_IA.SHADOW) {
-      try {
-        log.info('R121: executando search_products INLINE via auto-extract', pendingExitActionSearch)
-        const searchRes = await executeToolSafe('search_products', {
-          query: pendingExitActionSearch.query,
-          category: pendingExitActionSearch.category,
-        })
-        await supabase.from('ai_agent_logs').insert({
-          agent_id, conversation_id, event: 'tool_called',
-          metadata: { tool: 'search_products', source: 'r121_auto_extract_inline', query: pendingExitActionSearch.query, category: pendingExitActionSearch.category, result_preview: String(searchRes).substring(0, 200) },
-        })
-        toolCallsLog.push({ name: 'search_products', args: pendingExitActionSearch, result: String(searchRes).substring(0, 200) })
-        inlineSearchContext = `\n\n[INTERNO — search_products JA foi chamado pelo backend antes do seu turno. NAO chame de novo nesta resposta.]\nQuery: ${pendingExitActionSearch.query}\nResultado:\n${searchRes}\n\nUse esses resultados para responder ao lead. Se 0 produtos retornados E catalog_status=offline na categoria, mostre interesse e pergunte fields restantes (NAO diga "nao temos").`
-        // Limpa flag pra nao re-disparar no set_tags handler
+    if (pendingExitActionSearch) {
+      const inlineSearch = await runInlineSearchProducts({
+        supabase, conversation, conversation_id, agent_id, executeToolSafe,
+      }, pendingExitActionSearch, log)
+      inlineSearchContext = inlineSearch.inlineSearchContext
+      if (inlineSearch.toolCall) {
+        toolCallsLog.push(inlineSearch.toolCall)
+        // Limpa flag pra nao re-disparar no set_tags handler.
         pendingExitActionSearch = null
-      } catch (err) {
-        log.error('R121 inline search failed (non-fatal)', { error: (err as Error).message })
       }
     }
 

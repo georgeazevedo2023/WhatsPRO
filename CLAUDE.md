@@ -6,7 +6,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🎯 Andamento do Plano Orquestrador — **41% concluído**
+## 🎯 Andamento do Plano Orquestrador — **43% concluído**
 
 > Objetivo: monolito (1 LLM mega 17 KB) → **router LLM tiny + 5-6 specialists** + camada determinística + memória longa. Atualizado a cada sprint. Detalhe completo: [[wiki/plano-orquestrador-subagentes]] · [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -20,9 +20,9 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | B5 Onda 0+1 — extrai loadContextDocuments | ✅ Shipped (v7.40.4) | 5% | 30% |
 | B5 Onda 2a — extrai promptSections (puras) | ✅ Shipped (v7.40.5) | 5% | 35% |
 | B5 Onda 2b — extrai buildQualificationContext | ✅ Shipped (v7.40.6) | 3% | 38% |
-| B5 Onda 2c-i — extrai R136 + R129 short-circuits | ✅ Shipped (v7.40.7) | 3% | **41%** |
-| B5 Onda 2c-ii — autoExtract + exit_action + R121 inline search (~180 lin, HIGH RISK) | ⏳ | 2% | — |
-| B5 Onda 3 — toolExecution (~1500 lin, alto risco) | ⏳ | 8% | — |
+| B5 Onda 2c-i — extrai R136 + R129 short-circuits | ✅ Shipped (v7.40.7) | 3% | 41% |
+| B5 Onda 2c-ii — autoExtract + exit_action handoff + R121 inline search | ✅ Shipped (v7.40.8) | 2% | **43%** |
+| B5 Onda 3 — toolExecution split por capacidade (~1500 lin) | ⏳ **pré-req Sprint C** | 8% | — |
 | B5 Onda 4 — llmCallLoop (~370 lin) | ⏳ | 4% | — |
 | B5 Onda 5 — dispatchResponse (~240 lin) | ⏳ | 3% | — |
 | B4 — Varredura R134 idempotência | ⏳ (hardening, não-bloqueador) | 5% | — |
@@ -30,7 +30,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |
 | Sprint E — Memória longa + proatividade + RAG | ⏳ Inteligência avançada | 10% | — |
 
-**Hoje (2026-05-21):** 9 sprints fechados em 1 dia, 9 commits, ai-agent v74→v82. **391 lin extraídas do monolito** (4544→4153). Próximo passo no caminho crítico: **B5 Onda 2c-ii** (auto-extract + exit_action HIGH RISK). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~5-7 semanas** se ritmo atual mantido.
+**Hoje (2026-05-21):** 10 sprints fechados em 1 dia, 10 commits, ai-agent v74→v83. **512 lin extraídas do monolito** (4544→4032). Próximo passo no caminho crítico: **B5 Onda 3** (toolExecution split por capacidade — pré-req real do Sprint C). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~4-6 semanas** se ritmo atual mantido.
 
 **Métricas-alvo 90 dias:** prompt <8 KB (hoje 17 KB) · incidentes/14d <3 (hoje ~10) · router + 5 specialists · debug claro ("specialist X falhou na intent Y") · memória longa por lead.
 

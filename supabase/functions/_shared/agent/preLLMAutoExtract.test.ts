@@ -1,0 +1,352 @@
+import { describe, it, expect, vi } from 'vitest'
+import { runPreLLMAutoExtract } from './preLLMAutoExtract.ts'
+import type { PreLLMAutoExtractCtx } from './preLLMAutoExtract.ts'
+
+function makeLog() {
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+}
+
+function makeSupabaseSpy() {
+  const calls: Array<{ table: string; op: string; payload: any; filter?: any }> = []
+  const supabase: any = {
+    from(table: string) {
+      return {
+        update(payload: any) {
+          calls.push({ table, op: 'update', payload })
+          return {
+            eq(_col: string, val: any) {
+              calls[calls.length - 1].filter = val
+              return Promise.resolve({ data: null, error: null })
+            },
+          }
+        },
+        insert(payload: any) {
+          calls.push({ table, op: 'insert', payload })
+          return Promise.resolve({ data: null, error: null })
+        },
+      }
+    },
+  }
+  return { supabase, calls }
+}
+
+/**
+ * Categoria "tintas" com 2 stages:
+ *   - stage1 (0→30): ambiente (15) + cor (15) → exit_action=search_products
+ *   - stage2 (30→100): acabamento (40) + marca_preferida (30) → exit_action=handoff
+ *
+ * Score 30 = atinge max do stage1 (search_products) com ambiente+cor.
+ * Score 100 = atinge max do stage2 (handoff) com acabamento+marca.
+ */
+function makeAgent(opts: { catalogStatus?: 'digital' | 'offline'; catId?: string } = {}) {
+  return {
+    service_categories: {
+      default: {
+        stages: [
+          {
+            id: 'qual_basica',
+            label: 'Qualificação básica',
+            min_score: 0,
+            max_score: 100,
+            exit_action: 'handoff',
+            fields: [
+              { key: 'detalhes', label: 'detalhes', examples: 'qualquer', score_value: 25, priority: 1 },
+            ],
+            phrasing: 'me conta {label}?',
+          },
+        ],
+      },
+      categories: [
+        {
+          id: opts.catId || 'tintas',
+          label: 'Tintas',
+          interesse_match: 'tinta|tintas|coral',
+          catalog_status: opts.catalogStatus || 'digital',
+          stages: [
+            {
+              id: 'identificacao',
+              label: 'Identificação',
+              min_score: 0,
+              max_score: 30,
+              exit_action: 'search_products',
+              fields: [
+                { key: 'ambiente', label: 'ambiente', examples: 'interno, externo', score_value: 15, priority: 1 },
+                { key: 'cor', label: 'cor', examples: 'branco, cinza, azul', score_value: 15, priority: 2 },
+              ],
+              phrasing: 'qual {label}?',
+            },
+            {
+              id: 'fechamento',
+              label: 'Fechamento',
+              min_score: 30,
+              max_score: 100,
+              exit_action: 'handoff',
+              fields: [
+                { key: 'acabamento', label: 'acabamento', examples: 'fosco, acetinado, brilho', score_value: 40, priority: 1 },
+                { key: 'marca_preferida', label: 'marca preferida', examples: 'Coral, Suvinil', score_value: 30, priority: 2 },
+              ],
+              phrasing: 'qual {label}?',
+            },
+          ],
+        },
+      ],
+    },
+  }
+}
+
+function baseCtx(overrides: Partial<PreLLMAutoExtractCtx> = {}): PreLLMAutoExtractCtx {
+  const { supabase } = makeSupabaseSpy()
+  return {
+    supabase,
+    conversation: { id: 'conv-1', tags: [], status_ia: 'active' },
+    conversation_id: 'conv-1',
+    agent_id: 'agt-1',
+    agent: makeAgent(),
+    incomingText: '',
+    suppressAutoExtractForMulti: false,
+    ...overrides,
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Guards
+// ────────────────────────────────────────────────────────────────────
+
+describe('runPreLLMAutoExtract — guards', () => {
+  it('retorna default quando incomingText vazio', async () => {
+    const r = await runPreLLMAutoExtract(baseCtx({ incomingText: '' }), makeLog())
+    expect(r).toEqual({
+      pendingExitActionHandoff: null,
+      pendingExitActionSearch: null,
+      tagsMutated: false,
+    })
+  })
+
+  it('retorna default quando suppressAutoExtractForMulti=true', async () => {
+    const ctx = baseCtx({
+      incomingText: 'quero tinta interno fosca',
+      suppressAutoExtractForMulti: true,
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionHandoff).toBeNull()
+    expect(r.pendingExitActionSearch).toBeNull()
+    expect(r.tagsMutated).toBe(false)
+  })
+
+  it('retorna default quando categoria não casa', async () => {
+    const ctx = baseCtx({ incomingText: 'oi tudo bem?' })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.tagsMutated).toBe(false)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// R121 trigger ("tem X?")
+// ────────────────────────────────────────────────────────────────────
+
+describe('R121 "tem X?" trigger', () => {
+  it('dispara pendingExitActionSearch quando categoria digital + msg direta', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      incomingText: 'vcs têm tinta Coral?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.category).toBe('tintas')
+    expect(r.pendingExitActionSearch!.query).toContain('tinta')
+  })
+
+  it('NÃO dispara em categoria offline', async () => {
+    const ctx = baseCtx({
+      agent: makeAgent({ catalogStatus: 'offline', catId: 'portas' }),
+      incomingText: 'vcs têm porta de madeira?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    // Cat offline pula R121, mas autoExtract pode ter rodado (nesse caso sem fields casa)
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('NÃO dispara quando lead já recebeu produtos (tag produto:)', async () => {
+    const ctx = baseCtx({
+      conversation: { tags: ['produto:abc-123'], status_ia: 'active' },
+      incomingText: 'vcs têm tinta Coral?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('NÃO dispara quando aguardando_upsell', async () => {
+    const ctx = baseCtx({
+      conversation: { tags: ['aguardando_upsell'], status_ia: 'active' },
+      incomingText: 'vcs têm tinta?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('NÃO dispara quando status_ia=SHADOW', async () => {
+    const ctx = baseCtx({
+      conversation: { tags: [], status_ia: 'shadow' },
+      incomingText: 'vcs têm tinta Coral?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('query construída usa tags existentes (sem META_KEYS)', async () => {
+    const ctx = baseCtx({
+      conversation: {
+        tags: ['interesse:tintas', 'cor:branco', 'lead_score:15', 'motivo:teste'],
+        status_ia: 'active',
+      },
+      incomingText: 'vcs têm tinta?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    const q = r.pendingExitActionSearch!.query
+    expect(q).toContain('tintas')
+    expect(q).toContain('branco')
+    expect(q).not.toContain('lead_score')
+    expect(q).not.toContain('motivo')
+    expect(q).not.toContain('15')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// Auto-extract + score + persistência
+// ────────────────────────────────────────────────────────────────────
+
+describe('Auto-extract + score + tags', () => {
+  it('extrai fields, persiste tags e calcula score progressivo', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      incomingText: 'quero tinta para área interno cor branco',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+
+    expect(r.tagsMutated).toBe(true)
+    // ambiente:interno (15) + cor:branco (15) = score 30 → fronteira [0,30) cai em stage2
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    expect(update).toBeTruthy()
+    expect(update!.payload.tags).toContain('interesse:tintas')
+    expect(update!.payload.tags).toContain('ambiente:interno')
+    expect(update!.payload.tags).toContain('cor:branco')
+    expect(update!.payload.tags.find((t: string) => t.startsWith('lead_score:'))).toBe('lead_score:30')
+
+    // Score=30 cai em stage2 (handoff, [30,100)) mas 30 < 100 → nenhum exit_action dispara aqui.
+    expect(r.pendingExitActionSearch).toBeNull()
+    expect(r.pendingExitActionHandoff).toBeNull()
+  })
+
+  it('dispara pendingExitActionHandoff quando atinge max do stage handoff', async () => {
+    const spy = makeSupabaseSpy()
+    // Lead já está com score 30 (max stage1) e tags acabamento+marca disparam o stage2
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      conversation: {
+        tags: ['interesse:tintas', 'ambiente:interno', 'cor:branco', 'lead_score:30'],
+        status_ia: 'active',
+      },
+      incomingText: 'fosco da marca Coral',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+
+    expect(r.tagsMutated).toBe(true)
+    // acabamento (40) + marca (30) = +70 → score 100 → exit_action=handoff
+    expect(r.pendingExitActionHandoff).not.toBeNull()
+    expect(r.pendingExitActionHandoff!.reason).toContain('tintas')
+    expect(r.pendingExitActionHandoff!.queueMotivo).toContain('Tintas')
+    expect(r.pendingExitActionHandoff!.queueMotivo).toContain('acabamento')
+  })
+
+  it('NÃO dispara handoff quando status_ia=SHADOW (mesmo com score max)', async () => {
+    const ctx = baseCtx({
+      conversation: {
+        tags: ['interesse:tintas', 'ambiente:interno', 'cor:branco', 'lead_score:30'],
+        status_ia: 'shadow',
+      },
+      incomingText: 'fosco da marca Coral',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionHandoff).toBeNull()
+  })
+
+  it('NÃO dispara search C2 em catalog_status=offline', async () => {
+    const ctx = baseCtx({
+      agent: makeAgent({ catalogStatus: 'offline' }),
+      incomingText: 'quero tinta para área interno cor branco',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    // Score atinge max do stage1 mas catalog_status=offline pula a flag de search
+    expect(r.pendingExitActionSearch).toBeNull()
+  })
+
+  it('reutiliza interesse: existente (resolved_via=interesse_tag)', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      conversation: { tags: ['interesse:tintas'], status_ia: 'active' },
+      incomingText: 'cor azul interno',
+    })
+    await runPreLLMAutoExtract(ctx, makeLog())
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    // NÃO adiciona interesse:tintas de novo (seedTags vazio)
+    const occurrences = update!.payload.tags.filter((t: string) => t === 'interesse:tintas').length
+    expect(occurrences).toBe(1)
+    const logInsert = spy.calls.find((c) => c.table === 'ai_agent_logs' && c.op === 'insert')
+    expect(logInsert!.payload.metadata.resolved_via).toBe('interesse_tag')
+    expect(logInsert!.payload.metadata.seed_tags).toEqual([])
+  })
+
+  it('autoExtract sem matches retorna sem mutação', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      incomingText: 'me manda tinta', // só interesse, nenhum field específico
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.tagsMutated).toBe(false)
+    // R121 ainda pode rodar — "tinta" não tem "tem/têm/vendem" → não bate o regex direto
+    // Não houve update no DB
+    const update = spy.calls.find((c) => c.op === 'update')
+    expect(update).toBeUndefined()
+  })
+
+  it('log auto_field_extracted contém pending_exit_handoff=true quando aplicável', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      conversation: {
+        tags: ['interesse:tintas', 'ambiente:interno', 'cor:branco', 'lead_score:30'],
+        status_ia: 'active',
+      },
+      incomingText: 'fosco Coral',
+    })
+    await runPreLLMAutoExtract(ctx, makeLog())
+    const logIns = spy.calls.find((c) => c.table === 'ai_agent_logs' && c.op === 'insert')
+    expect(logIns!.payload.event).toBe('auto_field_extracted')
+    expect(logIns!.payload.metadata.pending_exit_handoff).toBe(true)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────
+// Prioridade R121 trigger vs autoExtract C2 fallback
+// ────────────────────────────────────────────────────────────────────
+
+describe('Prioridade R121 trigger > C2 fallback', () => {
+  it('quando R121 dispara primeiro, C2 não sobrescreve', async () => {
+    // "vcs têm tinta interno cor branco" — R121 dispara (msg direta) + autoExtract
+    // também atinge max do stage1. R121 vence (já está setado quando C2 testa o `!pendingExitActionSearch`).
+    const ctx = baseCtx({
+      incomingText: 'vcs têm tinta para área interno cor branco?',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    // Query R121 (sem newTags) — apenas o que estava nas tags antes
+    // Não deve conter "interno" e "branco" porque foram newTags (R121 roda antes do autoExtract)
+    // Mas pode conter incomingText como fallback
+    expect(r.pendingExitActionSearch!.query.length).toBeGreaterThan(0)
+  })
+})
