@@ -9,6 +9,48 @@ type: log
 
 ---
 
+## 2026-05-22 (madrugada) — Validação E2E em prod + Fix Bug #7 shipped (v7.40.9)
+
+**Trigger:** depois do shipping da Onda 2c-ii, validação em prod com user mandando msgs reais na EletropisoV2. 3 cenários planejados (R121 + autoExtract + inline search; R129 multi-categoria; R136 multi-item). Cenários 1+2 executados, Cenário 3 não chegou a ser feito porque bug descoberto no Cenário 2 demandou fix.
+
+**Setup pra teste E2E:**
+- Cadastrei 1 produto fake `TEST-CORAL-18L` (tinta Coral fosca branca neve 18L, R$ 489,90) com imagem placehold.co — pra ter pelo menos 1 SKU na categoria tintas (catálogo Eletropiso V2 tinha só 1 telha PVC).
+- Trocas de modelo testadas: gpt-5-mini falhou (LLM call deu erro em 11.5s — provável max_tokens vs max_completion_tokens incompatível com família reasoning). Rollback pra gpt-4.1-mini em 15s, refator funcionou.
+- Corrigi `handoff_message_outside_hours` (removi "Olá! 😊" desnecessário do começo — sintaxe transbordo já é meio-de-conversa).
+
+**Bugs descobertos em prod (7 total):**
+1. gpt-5-mini incompatível com max_tokens — `_shared/llmProvider.ts:109` precisa branch reasoning model (Sprint A I3 foi shipped incompleto)
+2. `search_products` retornou "Erro interno" intermitente
+3. LLM ignorou hint `[INTERNO — search_products já chamado]` e pediu mais qualif em vez de mostrar tinta
+4. LLM tenta `interesse:tinta` (singular) → Sprint A I2 bloqueia (validator funcionando)
+5. autoExtract não casa flexões morfológicas ("fosca" no incoming não bate "fosco" do examples)
+6. Tag `produto:` populada com query inteira slugificada (corolário do bug #2)
+7. **R129/R136 short-circuit perde info da msg original** ("porta de ENTRADA e janela" — sistema perdia "entrada" + outras specs)
+
+**Fix Bug #7 implementado nesta sessão:**
+- `_shared/agent/preLLMShortCircuits.ts`: novo helper privado `extractRichFieldsFromCategories(text, matchedCats, existingTags)` itera pelas categorias detectadas, chama `autoExtractFields` na union dos fields de cada uma, dedupe por key (primeira categoria vence em colisão).
+- R129 + R136 ambos chamam o helper ANTES do INSERT do tag pending. Tags ricas são persistidas junto com `multi_interesse_pending` / `qualif_horizontal:pending`.
+- `auto_field_extracted` log carrega `rich_extracted` no metadata pra observabilidade.
+- +5 testes (R129 extrai subtipo+material+tipo_janela; R129 não duplica tag existente; R136 extrai ambiente+acabamento; agent sem fields ricos não falha; guard R134 preservado).
+
+**Tentativa Playwright descartada:** explorei usar UI Playground (localhost:8080/dashboard/ai-agent/playground) pra automatizar os 3 cenários. Descobri que `ai-agent-playground/index.ts` NÃO importa os módulos novos (preLLMShortCircuits, preLLMAutoExtract, exitActionDispatcher) — então chamar via Playwright ou HTTP não validaria R121/R129/R136 reais. Cenários da UI usam LLM simulado. Aba "E2E Real" enviaria msg WhatsApp pro user — pollua. Decisão: pular automação nesta sessão, focar no fix do bug que mais impacta UX.
+
+**Backlog atualizado pra próxima sessão:**
+1. Integrar módulos novos no ai-agent-playground (pra desbloquear automação Playwright futura)
+2. Bug #1 — gpt-5-mini compatibilidade `max_completion_tokens` no llmProvider
+3. Bug #2 — search_products "erro interno" intermitente (investigar handler)
+4. Bug #3 — fortalecer prompt do `[INTERNO]` pra LLM mostrar produto em vez de pedir mais qualif
+5. Bug #5 — admin UI pra editar examples (adicionar flexões morfológicas)
+6. **B5 Onda 3 — toolExecution split por capacidade** (~1500 lin, vai subdividir em 3-4 mini-ondas — pré-req real do Sprint C)
+
+**Pipeline Fix #7:** tsc 0 · vitest **1067 pass (+5 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v83→**v84** ACTIVE via CLI.
+
+**Andamento Plano Orquestrador:** 43% (mantém — Fix #7 é hardening da Onda 2c, não nova onda). Próximo passo: Onda 3 (com fix Bug #1 antes pra desbloquear gpt-5-mini real).
+
+**Frase de retomada:** *"executar B5 Onda 3 toolExecution split por capacidade"* OU *"fix bug 1 gpt-5-mini llmProvider"* (antes da Onda 3 se quiser router em gpt-5).
+
+---
+
 ## 2026-05-21 (noite VI) — Sprint B5 Onda 2c-ii shipped (v7.40.8) — autoExtract + exit_action handoff + R121 inline search
 
 **Trigger:** user pediu "prossiga" após combinar plano (Onda 2c-ii HIGH RISK como caminho crítico do objetivo principal Sprint C). Sessão dedicada conforme planejado.

@@ -345,3 +345,178 @@ describe('Ordem R136 > R129', () => {
     expect(logs.find((l) => l.payload.metadata.source?.startsWith('r129_'))).toBeUndefined()
   })
 })
+
+// ────────────────────────────────────────────────────────────────────
+// Bug #7 fix (2026-05-22): extrai fields ricos antes do short-circuit
+// ────────────────────────────────────────────────────────────────────
+
+const RICH_STAGE_PORTAS = {
+  id: 'portas-stage',
+  label: 'qualif portas',
+  min_score: 0,
+  max_score: 100,
+  fields: [
+    { key: 'subtipo_porta', label: 'subtipo', examples: 'entrada, interna, externa, social', score_value: 20, priority: 1 },
+    { key: 'material_porta', label: 'material', examples: 'madeira, alumínio, PVC, aço', score_value: 20, priority: 2 },
+  ],
+  exit_action: 'handoff',
+  phrasing: 'qual {label}?',
+}
+
+const RICH_STAGE_JANELAS = {
+  id: 'janelas-stage',
+  label: 'qualif janelas',
+  min_score: 0,
+  max_score: 100,
+  fields: [
+    { key: 'tipo_janela', label: 'tipo', examples: 'basculante, correr, maxim-ar', score_value: 20, priority: 1 },
+  ],
+  exit_action: 'handoff',
+  phrasing: 'qual {label}?',
+}
+
+const RICH_STAGE_TINTAS = {
+  id: 'tintas-stage',
+  label: 'qualif tintas',
+  min_score: 0,
+  max_score: 100,
+  fields: [
+    { key: 'ambiente', label: 'ambiente', examples: 'interno, externo', score_value: 15, priority: 1 },
+    { key: 'acabamento', label: 'acabamento', examples: 'fosco, acetinado, brilho', score_value: 15, priority: 2 },
+  ],
+  exit_action: 'handoff',
+  phrasing: 'qual {label}?',
+}
+
+const RICH_AGENT = {
+  service_categories: {
+    default: { stages: [STAGE] },
+    categories: [
+      {
+        id: 'portas',
+        label: 'Portas',
+        interesse_match: 'porta|portas',
+        catalog_status: 'offline',
+        stages: [RICH_STAGE_PORTAS],
+      },
+      {
+        id: 'janelas',
+        label: 'Janelas',
+        interesse_match: 'janela|janelas',
+        catalog_status: 'offline',
+        stages: [RICH_STAGE_JANELAS],
+      },
+      {
+        id: 'tintas',
+        label: 'Tintas',
+        interesse_match: 'tinta|tintas',
+        catalog_status: 'digital',
+        stages: [RICH_STAGE_TINTAS],
+      },
+    ],
+  },
+}
+
+describe('Bug #7 — rich field extraction antes do short-circuit', () => {
+  it('R129 extrai subtipo_porta:entrada + material_porta:madeira da msg original', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      agent: RICH_AGENT,
+      incomingText: 'quero porta de entrada de madeira e janela basculante',
+    })
+    const r = await runPreLLMShortCircuits(ctx, makeLog())
+
+    expect(r.shortCircuited).toBe(true)
+
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    expect(update).toBeTruthy()
+    // Tags deveriam incluir multi_pending + subtipo:entrada + material:madeira + tipo_janela:basculante
+    const tags: string[] = update!.payload.tags
+    expect(tags.some((t) => t.startsWith('multi_interesse_pending:'))).toBe(true)
+    expect(tags).toContain('subtipo_porta:entrada')
+    expect(tags).toContain('material_porta:madeira')
+    expect(tags).toContain('tipo_janela:basculante')
+
+    // Log deve incluir rich_extracted
+    const logIns = spy.calls.find(
+      (c) => c.table === 'ai_agent_logs' && c.op === 'insert' && c.payload.metadata?.source === 'r129_multi_interesse_detected',
+    )
+    expect(logIns!.payload.metadata.rich_extracted).toBeTruthy()
+    expect(logIns!.payload.metadata.rich_extracted.length).toBe(3)
+  })
+
+  it('R129 não duplica tags quando key já existe', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      agent: RICH_AGENT,
+      conversation: { tags: ['material_porta:aluminio'], inbox_id: 'inb-1' },
+      incomingText: 'quero porta de entrada de madeira e janela',
+    })
+    const r = await runPreLLMShortCircuits(ctx, makeLog())
+    expect(r.shortCircuited).toBe(true)
+
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    const tags: string[] = update!.payload.tags
+    // material_porta:aluminio preservado, madeira NÃO adicionado
+    expect(tags).toContain('material_porta:aluminio')
+    expect(tags).not.toContain('material_porta:madeira')
+    expect(tags.filter((t) => t.startsWith('material_porta:')).length).toBe(1)
+    // subtipo:entrada extraído normalmente
+    expect(tags).toContain('subtipo_porta:entrada')
+  })
+
+  it('R136 extrai ambiente + acabamento na lista multi-item mista', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      agent: RICH_AGENT,
+      // Lista mista: tinta casa (com "fosco" e "interno"), massa+lixas são orphans
+      incomingText: '1 massa PVA\n1 latao de tinta fosco interno\n15 lixas',
+    })
+    const r = await runPreLLMShortCircuits(ctx, makeLog())
+    expect(r.shortCircuited).toBe(true)
+
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    const tags: string[] = update!.payload.tags
+    expect(tags.some((t) => t === 'qualif_horizontal:pending')).toBe(true)
+    expect(tags).toContain('ambiente:interno')
+    expect(tags).toContain('acabamento:fosco')
+
+    const logIns = spy.calls.find(
+      (c) => c.table === 'ai_agent_logs' && c.op === 'insert' && c.payload.metadata?.source === 'r136_multi_item_horizontal',
+    )
+    expect(logIns!.payload.metadata.rich_extracted.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('R129 sem fields ricos cadastrados (agent default) não falha', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase,
+      // DEFAULT_AGENT tem fields=[] no stage
+      incomingText: 'quero porta e janela pra obra',
+    })
+    const r = await runPreLLMShortCircuits(ctx, makeLog())
+    expect(r.shortCircuited).toBe(true)
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    const tags: string[] = update!.payload.tags
+    expect(tags.some((t) => t.startsWith('multi_interesse_pending:'))).toBe(true)
+    // Não há fields ricos pra extrair → só a tag pending
+    const richTags = tags.filter(
+      (t) => !t.startsWith('multi_interesse_pending:') && !t.startsWith('ia_cleared:'),
+    )
+    expect(richTags.length).toBe(0)
+  })
+
+  it('R129 NÃO sobrescreve tag existente (idempotência R134)', async () => {
+    // Se rodar 2× (race), o guard alreadyHasMultiPending pula totalmente
+    const ctx = baseCtx({
+      agent: RICH_AGENT,
+      conversation: { tags: ['multi_interesse_pending:portas,janelas'], inbox_id: 'inb-1' },
+      incomingText: 'quero porta de entrada de madeira',
+    })
+    const r = await runPreLLMShortCircuits(ctx, makeLog())
+    expect(r.shortCircuited).toBe(false) // guard funcionou
+  })
+})

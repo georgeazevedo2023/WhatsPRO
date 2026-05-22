@@ -13,6 +13,23 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.40.9 (2026-05-22) — Fix Bug #7: short-circuits R129+R136 preservam fields ricos da msg original
+
+Bug encontrado em validação E2E em prod (lead "porta de ENTRADA e janela pra OBRA NOVA" → sistema perdia "entrada" + "obra nova"). R129/R136 short-circuited ANTES do autoExtract, persistindo só a tag pending e descartando o resto da mensagem. Lead voltava na sequência e LLM re-perguntava o que já tinha sido dito.
+
+**Fix em `_shared/agent/preLLMShortCircuits.ts`:**
+- Novo helper privado `extractRichFieldsFromCategories(text, matchedCats, existingTags)` itera pelas categorias detectadas, chama `autoExtractFields` na union dos fields de cada uma, dedupe por key.
+- R129: antes do INSERT, computa `richFields` e adiciona às tags persistidas (junto da `multi_interesse_pending`).
+- R136: idem — filtra `multiItem.items.matchedCategoryId` → categorias correspondentes → extract.
+- Log `auto_field_extracted` agora carrega `rich_extracted` no metadata.
+- +5 testes cobrindo: R129 extrai subtipo + material + tipo_janela, R129 não duplica tag existente, R136 extrai ambiente + acabamento de lista mista, agent sem fields ricos não falha, guard R134 preservado.
+
+**Pipeline:** tsc 0 · vitest **1067 pass (+5 novos)** / 9 fail pré-existentes. Deploy ai-agent v83→v84 ACTIVE.
+
+**Bug encontrado durante validação E2E em prod** (sessão 2026-05-22, conversa Eletropiso V2 #5b78ee46). Esse é o 1º fix originado de teste em prod — antes os fixes só vinham de incidentes reportados por leads.
+
+---
+
 ### v7.40.8 (2026-05-21) — Sprint B5 Onda 2c-ii: extrai autoExtract + exit_action handoff + R121 inline search
 
 Última peça HIGH RISK da Onda 2c. Três blocos in-line (autoExtract+score+flags, Bug 24 handoff dispatcher, R121 inline search) extraídos para 2 módulos testáveis. Closure pesada `runQueueAssignment` agora passada como callback explícito — desbloqueia o caminho pro Sprint C (specialists não vão precisar acessar a closure interna).

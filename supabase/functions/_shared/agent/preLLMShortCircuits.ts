@@ -30,6 +30,7 @@ import {
   getCategoriesOrDefault,
   matchAllCategoriesBySearchText,
 } from '../serviceCategories.ts'
+import { autoExtractFields, flattenCategoryFields, type ExtractedField } from '../fieldAutoExtractor.ts'
 import type { Logger } from './context.ts'
 
 // =============================================================================
@@ -128,6 +129,47 @@ async function persistAndBroadcastReply(
   })
 }
 
+/**
+ * Bug #7 fix (2026-05-22): antes do short-circuit retornar, extrai fields ricos
+ * das categorias detectadas (porta de ENTRADA, tinta acrílica FOSCA, etc) pra
+ * NÃO perder informação que o lead já deu na msg original.
+ *
+ * Sem este helper, R129 detecta {portas, janelas} e responde "por qual prefere
+ * começar?" — mas os fields "porta de entrada" + "obra nova" são descartados.
+ * Quando o lead volta, LLM re-pergunta ambiente (sala/cozinha/quarto), ignorando
+ * "entrada" que JÁ foi dito.
+ *
+ * Iterando matched categories, chama `autoExtractFields` na union dos fields
+ * de cada uma. Dedupe por key (primeira categoria vence em colisões — improvável
+ * porque keys de portas != tintas != janelas).
+ */
+function extractRichFieldsFromCategories(
+  incomingText: string,
+  matchedCats: Array<{ stages?: any[] | null }>,
+  existingTags: string[],
+): { tags: string[]; extracted: ExtractedField[] } {
+  const seenKeys = new Set<string>()
+  for (const t of existingTags) {
+    if (typeof t !== 'string') continue
+    const idx = t.indexOf(':')
+    if (idx > 0) seenKeys.add(t.slice(0, idx))
+  }
+  const allTags: string[] = []
+  const allExtracted: ExtractedField[] = []
+  for (const cat of matchedCats) {
+    const fields = flattenCategoryFields(cat.stages || [])
+    if (fields.length === 0) continue
+    const extracted = autoExtractFields(incomingText, fields, seenKeys)
+    for (const ef of extracted) {
+      if (seenKeys.has(ef.key)) continue
+      allTags.push(`${ef.key}:${ef.value}`)
+      allExtracted.push(ef)
+      seenKeys.add(ef.key)
+    }
+  }
+  return { tags: allTags, extracted: allExtracted }
+}
+
 // =============================================================================
 // R136 — Multi-item misto
 // =============================================================================
@@ -157,7 +199,15 @@ async function tryR136MultiItem(
     originalText: ctx.incomingText,
   })
 
-  const mergedTagsHorizontal = [...tags, question.pendingTag]
+  // Bug #7 fix: extrair fields ricos das categorias que casaram nos items
+  // (tinta fosca, porta de entrada, etc) — não perder info da msg original.
+  const matchedCatIds = multiItem.items
+    .map((i) => i.matchedCategoryId)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const matchedCats = (cfgPre.categories || []).filter((c: any) => matchedCatIds.includes(c.id))
+  const richFields = extractRichFieldsFromCategories(ctx.incomingText, matchedCats, tags)
+
+  const mergedTagsHorizontal = [...tags, question.pendingTag, ...richFields.tags]
   ctx.conversation.tags = mergedTagsHorizontal
   await ctx.supabase
     .from('conversations')
@@ -169,7 +219,8 @@ async function tryR136MultiItem(
     event: 'auto_field_extracted',
     metadata: {
       source: 'r136_multi_item_horizontal',
-      new_tags: [question.pendingTag],
+      new_tags: [question.pendingTag, ...richFields.tags],
+      rich_extracted: richFields.extracted,
       items: multiItem.items,
       orphan_count: multiItem.orphanCount,
       reason: multiItem.reason,
@@ -227,7 +278,12 @@ async function tryR129MultiCategory(
   }
 
   const multiSlug = `multi_interesse_pending:${allCatsMatched.map((c) => c.id).join(',')}`
-  const mergedMulti = [...tags, multiSlug]
+
+  // Bug #7 fix: extrair fields ricos das categorias detectadas — não perder
+  // info como "porta de entrada", "obra nova", "tinta acrílica fosca" etc.
+  const richFields = extractRichFieldsFromCategories(ctx.incomingText, allCatsMatched, tags)
+
+  const mergedMulti = [...tags, multiSlug, ...richFields.tags]
   ctx.conversation.tags = mergedMulti
   await ctx.supabase
     .from('conversations')
@@ -239,7 +295,8 @@ async function tryR129MultiCategory(
     event: 'auto_field_extracted',
     metadata: {
       source: 'r129_multi_interesse_detected',
-      new_tags: [multiSlug],
+      new_tags: [multiSlug, ...richFields.tags],
+      rich_extracted: richFields.extracted,
       category_ids: allCatsMatched.map((c) => c.id),
     },
   })

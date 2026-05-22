@@ -30,7 +30,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |
 | Sprint E — Memória longa + proatividade + RAG | ⏳ Inteligência avançada | 10% | — |
 
-**Hoje (2026-05-21):** 10 sprints fechados em 1 dia, 10 commits, ai-agent v74→v83. **512 lin extraídas do monolito** (4544→4032). Próximo passo no caminho crítico: **B5 Onda 3** (toolExecution split por capacidade — pré-req real do Sprint C). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~4-6 semanas** se ritmo atual mantido.
+**Hoje (2026-05-21 → 22 madrugada):** 10 sprints + Fix #7 (v7.40.9) shipados, 11 commits, ai-agent v74→v84. **512 lin extraídas do monolito** (4544→4032). **Validação E2E em prod descobriu 7 bugs** (lista em [[log.md]]) — Bug #7 (short-circuit perde info) fixado e deployado. Próximo passo no caminho crítico: **B5 Onda 3** (toolExecution split por capacidade — pré-req real do Sprint C). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~4-6 semanas** se ritmo atual mantido.
 
 **Métricas-alvo 90 dias:** prompt <8 KB (hoje 17 KB) · incidentes/14d <3 (hoje ~10) · router + 5 specialists · debug claro ("specialist X falhou na intent Y") · memória longa por lead.
 
