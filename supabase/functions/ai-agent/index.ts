@@ -1885,8 +1885,26 @@ ${contextBlock}`
       try {
         return await executeTool(name, args)
       } catch (err) {
-        const errMsg = (err as Error).message || 'unknown error'
-        log.error('Tool threw exception', { tool: name, error: errMsg })
+        // R140 (2026-05-22) — observability fix: caso Sandrielly Wsmart, stack
+        // trace ficou perdido. log.error só registrava .message. Agora persiste
+        // FULL stack trace no ai_agent_logs.error pra debug futuro.
+        const errObj = err as Error
+        const errMsg = errObj?.message || String(err) || 'unknown error'
+        const errStack = errObj?.stack || ''
+        const errName = errObj?.name || 'Error'
+        log.error('Tool threw exception', { tool: name, error: errMsg, stack: errStack, name: errName })
+        // Persiste no DB pra investigação assíncrona (não-bloqueia o turn).
+        try {
+          await supabase.from('ai_agent_logs').insert({
+            agent_id,
+            conversation_id,
+            event: 'tool_exception',
+            error: `${errName}: ${errMsg}\n${errStack}`.substring(0, 4000),
+            metadata: { tool: name, args, error_name: errName, error_message: errMsg },
+          })
+        } catch {
+          /* defense in depth — log insert failure não pode mascarar o erro real */
+        }
         return `Erro interno ao executar ${name}. Responda ao lead sem usar este resultado.`
       }
     }

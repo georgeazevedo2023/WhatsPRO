@@ -72,12 +72,20 @@ export interface SearchProductsCtx {
 // Helpers privados (cópia idêntica do monolito)
 // =============================================================================
 
+// R139 (2026-05-22) — usa escape Unicode EXPLICITO em vez de literal combining
+// marks. Bug Sandrielly v7.41.6: literais `/[̀-ͯ]/g` no source com chars
+// multi-byte literais parseavam OK em Node V8 (vitest passa) mas podiam falhar
+// em Deno V8 prod. Causa raiz suspeita do search_products throw que executeToolSafe
+// engolia silenciosamente. Mesmo pattern seguro usado em fieldAutoExtractor.ts:83
+// e agentHelpers.ts:212.
+const COMBINING_MARKS_RE = new RegExp('[\\u0300-\\u036f]', 'g')
+
 function stripAccents(s: string): string {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  return s.normalize('NFD').replace(COMBINING_MARKS_RE, '').toLowerCase()
 }
 
 function safeBtnId(s: string): string {
-  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  return (s || '').normalize('NFD').replace(COMBINING_MARKS_RE, '')
 }
 
 /**
