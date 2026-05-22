@@ -80,6 +80,27 @@ function safeBtnId(s: string): string {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
 }
 
+/**
+ * R138 (2026-05-22) — sanitiza chars que quebram PostgREST `.or()` parsing.
+ *
+ * O parser de `.or()` no @supabase/supabase-js separa filtros por `,`, e o
+ * value passado pra `.ilike.%X%` não é auto-escapado. Query com vírgula,
+ * parênteses ou ponto-e-vírgula no value vira filter mal-formado → 400.
+ *
+ * Bug-trigger: caso Sandrielly (2026-05-22) — query gerada por R137 wire tinha
+ * "pintalar da , de 3,6l?" → 2 vírgulas → `.or()` quebrado → search crashou.
+ *
+ * Strip de: `, ; : " ' ? ! ( ) [ ] { }` → espaço. Colapsa whitespace.
+ * Mantém: letras, dígitos, hifens, pontos (pra "3.6L"), acentos, underscore.
+ */
+export function cleanSearchQuery(raw: string): string {
+  if (!raw) return ''
+  return raw
+    .replace(/[,;:"'?!()\[\]{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function buildEnrichmentInstructions(
   currentTags: string[],
   step: number,
@@ -171,6 +192,13 @@ export async function searchProducts(
     broadcastEvent,
     buildQualificationChain,
   } = ctx
+
+  // R138 (2026-05-22) — sanitiza args.query + args.category ANTES de qualquer
+  // uso. Defesa contra LLM mandando vírgulas/parênteses (raros mas possíveis)
+  // e contra callers internos (R137 wire) passando texto bruto com ruído.
+  // Pre-existe ao R137 — qualquer query com `,` quebrava PostgREST `.or()`.
+  if (typeof args.query === 'string') args.query = cleanSearchQuery(args.query)
+  if (typeof args.category === 'string') args.category = cleanSearchQuery(args.category)
 
   // Bug 27 fix (2026-05-17): se LLM chama search_products SEM ter tagueado interesse:CAT,
   // backend deduz via matchCategoryBySearchText e seta a tag automaticamente.

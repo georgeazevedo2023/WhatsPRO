@@ -31,7 +31,23 @@ import { autoExtractFields, flattenCategoryFields } from '../fieldAutoExtractor.
 import { STATUS_IA } from '../constants.ts'
 import { detectIncomingSearchSignal } from '../searchGuard.ts'
 import { DEFAULT_BRANDS } from '../brandDetection.ts'
+import { cleanSearchQuery } from './tools/searchProducts.ts'
 import type { Logger } from './context.ts'
+
+/**
+ * R137 + R138 (2026-05-22) — strip "lead name" patterns do final da query.
+ * O texto bruto do lead pode terminar com "com X" / "meu nome é X" / "sou X"
+ * que NÃO descreve produto. Sem strip, vira ruído na busca + risco de match
+ * em "George" cross-category. Patterns conservadores: só removem 1-2 palavras
+ * no FINAL da string pra não corromper queries legítimas tipo "tinta com brilho".
+ */
+function stripLeadNameSuffix(s: string): string {
+  if (!s) return ''
+  return s
+    .replace(/\b(?:com|meu\s+nome\s+(?:e|é)|sou|me\s+chamo)\s+\w{2,30}\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 // =============================================================================
 // Tipos públicos
@@ -185,13 +201,16 @@ export async function runPreLLMAutoExtract(
     }
   }
 
-  // ── R137 searchGuard wire (Sandrielly fix v7.41.4 2026-05-22) ──────
+  // ── R137 searchGuard wire (v7.41.6 2026-05-22, com sanitização R138) ──
   // Cobre o gap deixado pelo DIRECT_PRODUCT_QUESTION_RE acima:
   //   - "Por quanto está a tinta Iquine?" (marca isolada sem verbo R121)
-  //   - "Preciso de tinta acrílica" / "Quero coral fosca" / "Gostaria de uma porta"
-  // Helper detectIncomingSearchSignal já existia em _shared/searchGuard.ts
-  // mas o wire estava deferred desde Sprint B1. Sem isso, qualquer msg com
-  // marca conhecida + categoria digital cai em loop de qualif idiota.
+  //   - "Preciso de tinta acrílica" / "Quero coral fosca"
+  //
+  // Histórico: 1ª versão (v7.41.4) shippada sem sanitização → query bruta com
+  // vírgulas/"?" quebrou PostgREST .or() → crash em prod (caso Sandrielly).
+  // v7.41.6 sanitiza signal.query DUAS vezes:
+  //   1. stripLeadNameSuffix — remove "com X" / "meu nome é X" do fim
+  //   2. cleanSearchQuery — strip vírgulas, "?", parênteses, etc.
   if (
     !pendingExitActionSearch &&
     !leadHasReceivedProducts &&
@@ -203,18 +222,27 @@ export async function runPreLLMAutoExtract(
       knownBrands: DEFAULT_BRANDS,
     })
     if (signal.force && signal.query) {
-      const combinedQuery = buildSearchQuery(interesseValue, tagsNow, [], signal.query)
-      pendingExitActionSearch = {
-        query: combinedQuery,
-        category: interesseValue || categoryPre.id || '',
+      const stripped = stripLeadNameSuffix(signal.query)
+      const cleaned = cleanSearchQuery(stripped)
+      // Combina com tags existentes (interesseValue + tags), depois sanitiza
+      // de novo pra garantir que buildSearchQuery não reintroduza ruído.
+      const combinedQuery = cleanSearchQuery(
+        buildSearchQuery(interesseValue, tagsNow, [], cleaned),
+      )
+      if (combinedQuery.length >= 2) {
+        pendingExitActionSearch = {
+          query: combinedQuery,
+          category: interesseValue || categoryPre.id || '',
+        }
+        log.info('R137: searchGuard wire forçando search_products inline', {
+          reason: signal.reason,
+          detector_query: signal.query,
+          stripped_query: stripped,
+          final_query: combinedQuery,
+          category: categoryPre.id,
+          incoming_preview: ctx.incomingText.substring(0, 80),
+        })
       }
-      log.info('R137: searchGuard wire forçando search_products inline', {
-        reason: signal.reason,
-        detector_query: signal.query,
-        final_query: combinedQuery,
-        category: categoryPre.id,
-        incoming_preview: ctx.incomingText.substring(0, 80),
-      })
     }
   }
 

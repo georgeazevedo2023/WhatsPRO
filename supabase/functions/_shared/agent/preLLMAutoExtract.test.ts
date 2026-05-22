@@ -214,36 +214,45 @@ describe('R121 "tem X?" trigger', () => {
 })
 
 // ────────────────────────────────────────────────────────────────────
-// R137 — searchGuard wire (Sandrielly fix v7.41.4 2026-05-22)
+// R137 + R138 — searchGuard wire com sanitização (v7.41.6 2026-05-22)
 // ────────────────────────────────────────────────────────────────────
 
-describe('R137 searchGuard wire', () => {
-  it('caso Sandrielly: "Por quanto está a tinta Iquine?" força search inline', async () => {
+describe('R137 searchGuard wire (com sanitização R138)', () => {
+  it('caso Sandrielly EXATO: "Por quanto está a tinta pintalar da Iquine, de 3,6L?\\ncom george" → query sanitizada SEM vírgula nem "?"', async () => {
     const log = makeLog()
     const ctx = baseCtx({
-      incomingText: 'Por quanto está a tinta pintalar da Iquine, de 3,6L?',
+      incomingText: 'Por quanto está a tinta pintalar da Iquine, de 3,6L?\ncom george',
     })
     const r = await runPreLLMAutoExtract(ctx, log)
     expect(r.pendingExitActionSearch).not.toBeNull()
+    const q = r.pendingExitActionSearch!.query
+    // PostgREST .or() bom: sem vírgula, parênteses, "?", aspas
+    expect(q).not.toMatch(/[,;:"'?!()\[\]{}]/)
+    // Marca preservada
+    expect(q.toLowerCase()).toContain('iquine')
+    // "com george" stripado
+    expect(q.toLowerCase()).not.toContain('george')
+    // Categoria correta
     expect(r.pendingExitActionSearch!.category).toBe('tintas')
-    expect(r.pendingExitActionSearch!.query.toLowerCase()).toContain('iquine')
     expect(log.info).toHaveBeenCalledWith(
       'R137: searchGuard wire forçando search_products inline',
       expect.objectContaining({ reason: 'brand_mentioned' }),
     )
   })
 
-  it('"Preciso de tinta acrílica fosca" (R121 verboso) força search', async () => {
+  it('"Preciso de tinta acrílica fosca" (R121 verboso) força search com query limpa', async () => {
     const ctx = baseCtx({ incomingText: 'Preciso de tinta acrílica fosca' })
     const r = await runPreLLMAutoExtract(ctx, makeLog())
     expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.query).not.toMatch(/[,?"']/)
     expect(r.pendingExitActionSearch!.query.toLowerCase()).toContain('tinta')
   })
 
-  it('"Quanto custa a Coral?" (marca isolada sem verbo) força search', async () => {
-    const ctx = baseCtx({ incomingText: 'Quanto custa a Coral?' })
+  it('"Quanto custa a Coral fosca?" (marca isolada + "?") força search SEM "?"', async () => {
+    const ctx = baseCtx({ incomingText: 'Quanto custa a Coral fosca?' })
     const r = await runPreLLMAutoExtract(ctx, makeLog())
     expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.query).not.toContain('?')
     expect(r.pendingExitActionSearch!.query.toLowerCase()).toContain('coral')
   })
 
@@ -284,12 +293,36 @@ describe('R137 searchGuard wire', () => {
     const log = makeLog()
     const ctx = baseCtx({ incomingText: 'vcs têm tinta Iquine?' })
     const r = await runPreLLMAutoExtract(ctx, log)
-    // Disparou no R121 inline (DIRECT_PRODUCT_QUESTION_RE), não no R137
+    // R121 inline DIRECT_PRODUCT_QUESTION_RE dispara primeiro
     expect(r.pendingExitActionSearch).not.toBeNull()
     expect(log.info).not.toHaveBeenCalledWith(
       'R137: searchGuard wire forçando search_products inline',
       expect.anything(),
     )
+  })
+
+  it('query final NÃO contém "?" mesmo quando incoming pergunta', async () => {
+    const ctx = baseCtx({ incomingText: 'Quanto custa a tinta Iquine?' })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.query).not.toContain('?')
+  })
+
+  it('"meu nome é X" também é stripado do fim', async () => {
+    const ctx = baseCtx({
+      incomingText: 'Preciso de tinta Iquine meu nome é Pedro',
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).not.toBeNull()
+    expect(r.pendingExitActionSearch!.query.toLowerCase()).not.toContain('pedro')
+    expect(r.pendingExitActionSearch!.query.toLowerCase()).toContain('iquine')
+  })
+
+  it('query muito curta (1 char) NÃO dispara — proteção contra ruído', async () => {
+    // R121 verboso "quero X" exige captura ≥2 chars (regex pattern já filtra)
+    const ctx = baseCtx({ incomingText: 'Quero a' })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.pendingExitActionSearch).toBeNull()
   })
 })
 
@@ -315,8 +348,8 @@ describe('Auto-extract + score + tags', () => {
     expect(update!.payload.tags).toContain('cor:branco')
     expect(update!.payload.tags.find((t: string) => t.startsWith('lead_score:'))).toBe('lead_score:30')
 
-    // R137 (v7.41.4): "quero X" agora dispara searchGuard wire pré-LLM.
-    // pendingExitActionSearch é setado antes do auto-extract score loop.
+    // R137 wire (v7.41.6): "quero X" dispara searchGuard wire via R121 verboso.
+    // pendingExitActionSearch é setado pelo wire ANTES do score loop do auto-extract.
     expect(r.pendingExitActionSearch).not.toBeNull()
     expect(r.pendingExitActionSearch!.category).toBe('tintas')
     expect(r.pendingExitActionHandoff).toBeNull()

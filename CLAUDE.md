@@ -26,7 +26,8 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | B5 Onda 3b — crmTools (assign_label + move_kanban + update_lead_profile) | ✅ Shipped (v7.41.1) | 1% | 46% |
 | B5 Onda 3c — search_products (product_specialist boundary) | ✅ Shipped (v7.41.2) | 3% | 49% |
 | B5 Onda 3d — set_tags + handoff_to_human (qualif+handoff specialists) | ✅ Shipped (v7.41.3) | 2% | 51% |
-| R137 — searchGuard wire pré-LLM (fix Sandrielly loop qualif) | ✅ Shipped (v7.41.4) | 1% | **52%** |
+| R137 v1 — searchGuard wire pré-LLM | ❌ Crashed in prod (v7.41.4) → revertido (v7.41.5) | 0% | 51% |
+| R138 + R137 v2 — sanitiza query + 6 integration tests reais | ✅ Shipped (v7.41.6) | 1% | **52%** |
 | B5 Onda 4 — llmCallLoop (~370 lin) | ⏳ | 4% | — |
 | B5 Onda 5 — dispatchResponse (~240 lin) | ⏳ | 3% | — |
 | B4 — Varredura R134 idempotência | ⏳ (hardening, não-bloqueador) | 5% | — |

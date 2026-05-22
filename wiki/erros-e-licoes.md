@@ -19,6 +19,32 @@ audited_at: 2026-05-20
 
 ---
 
+## 🚨 R138 — PostgREST `.or()` crashou com vírgula em `.ilike.%value%` (Wsmart Eletropiso 2026-05-22 19:13, prod)
+
+**Erro:** primeira tentativa do R137 v7.41.4 quebrou em prod. Lead Wsmart (558193856099, conv 5b78ee46) mandou *"Por quanto está a tinta pintalar da Iquine, de 3,6L?\ncom george"* fora do horário. R137 wire detectou marca Iquine + construiu query bruta + chamou `search_products` inline. Search **crashou** com `"Erro interno ao executar search_products. Responda ao lead sem usar este resultado."` IA caiu no fallback (handoff outside_hours) com `qualification_chain: "Wsmart > tintas"` (raso).
+
+**Causa raiz:**
+- `escapeLike` em `agentHelpers.ts:172` escapa apenas `%`, `_`, `\`. NÃO escapa `,`.
+- PostgREST `.or()` separator é `,`. Quando value de `.ilike.%X%` contém vírgula não-escapada, parser quebra: 400 Bad Request.
+- Query R137 v7.41.4: `"iquine por quanto esta a tinta pintalar da , de 3,6l? com george"` — 2 vírgulas → throw.
+- Bug é PRÉ-EXISTENTE do `escapeLike` (qualquer LLM mandando query com vírgula crasharia). R137 v1 só expôs porque construía query bruta sem sanitização.
+
+**Fix v7.41.6 (defesa em 2 camadas):**
+- **Camada 1 (entry de `searchProducts.ts`):** `cleanSearchQuery(raw)` strip `, ; : " ' ? ! ( ) [ ] { }` → espaço + colapsa whitespace. Aplicado em `args.query` e `args.category` no entry.
+- **Camada 2 (R137 wire em `preLLMAutoExtract.ts`):** `stripLeadNameSuffix` (remove "com X" / "meu nome é X" do fim) + `cleanSearchQuery` antes de setar `pendingExitActionSearch`.
+
+**6 integration tests reais** (`r137-integration.test.ts`) com mock supabase que REJEITA `.or()` mal-formado (simula PostgREST 400). Reproduzem o crash exato + 5 cenários. 6/6 PASS.
+
+**Regras preventivas:**
+1. **Helper escapeLike é insuficiente pra PostgREST `.or()`.** O comma é parser-significant. Qualquer value em `.ilike.%X%` dentro de `.or(...)` deve passar por sanitização forte — não só wildcards SQL.
+2. **Testes unit limpos não pegam bugs de integração com PostgREST.** Vitest mocks de supabase precisam SIMULAR comportamento real do parser (rejeitar `,` em values), senão dão falso-positivo. R137 v7.41.4 tinha 8/8 unit tests passing mas crashou em prod.
+3. **Quando extrair query do texto bruto do lead, SEMPRE sanitizar.** Texto do WhatsApp pode ter qualquer pontuação. Pre-existing bug do escapeLike + nova feature que constrói query crua = recipe pra crash.
+4. **Defesa profunda > defesa pontual.** Layer 1 (entry de searchProducts) cobre TODOS os callers (LLM, R137, futuros). Layer 2 (R137 wire) é redundante mas garante que o problema não atravessa o boundary do módulo.
+
+**Cruza com:** R137 (causa originadora), R121 (regex verbose), R126 (search guard).
+
+---
+
 ## 🚨 R137 — IA pediu "qual produto?" 4× após lead nomear marca+volume (Sandrielly Eletropiso, 2026-05-22 17:43-17:51, prod)
 
 **Sequência:** lead 558781324150 → "Boa tarde" → IA "Olá! Bem-vindo a Eletropiso, com quem eu falo?" → lead "**Por quanto está a tinta pintalar da Iquine, de 3,6L?**" + "Com Sandrielly" → IA **"Sandrielly, você poderia confirmar qual produto do nosso catálogo de tintas você deseja?"** → lead re-mandou produto exato → IA pergunta categoria de novo → IA lista 5 categorias → IA "tinta da categoria 'tintas'?" → 1 pergunta útil (ambiente) → handoff. **7 minutos de loop, search_products NUNCA rodou.**

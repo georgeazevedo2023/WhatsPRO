@@ -8,7 +8,7 @@ vi.mock('../../carousel.ts', () => ({
   cleanProductTitle: (t: string) => t,
 }))
 
-import { searchProducts, dispatchSearchTool } from './searchProducts.ts'
+import { searchProducts, dispatchSearchTool, cleanSearchQuery } from './searchProducts.ts'
 import type { SearchProductsCtx } from './searchProducts.ts'
 
 function makeLog() {
@@ -140,6 +140,120 @@ function mockFetch(handler: (url: string) => { ok: boolean; status: number; body
 // =============================================================================
 // Guards e short-circuits
 // =============================================================================
+
+// =============================================================================
+// R138 cleanSearchQuery — sanitização (Sandrielly fix)
+// =============================================================================
+
+describe('cleanSearchQuery — sanitização (R138 v7.41.6)', () => {
+  it('strip vírgulas (quebram PostgREST .or())', () => {
+    expect(cleanSearchQuery('tinta, branca, fosca')).toBe('tinta branca fosca')
+  })
+
+  it('strip "?" e "!"', () => {
+    expect(cleanSearchQuery('Quanto custa a tinta?')).toBe('Quanto custa a tinta')
+    expect(cleanSearchQuery('Tinta Coral!')).toBe('Tinta Coral')
+  })
+
+  it('strip parênteses, colchetes, chaves', () => {
+    expect(cleanSearchQuery('tinta (acrílica) [fosca] {branca}')).toBe('tinta acrílica fosca branca')
+  })
+
+  it('strip aspas simples e duplas, ponto-e-vírgula, dois pontos', () => {
+    expect(cleanSearchQuery(`"tinta" 'iquine'; cor: branca`)).toBe('tinta iquine cor branca')
+  })
+
+  it('preserva pontos (pra "3.6L")', () => {
+    expect(cleanSearchQuery('tinta 3.6L iquine')).toBe('tinta 3.6L iquine')
+  })
+
+  it('preserva hifens e acentos', () => {
+    expect(cleanSearchQuery('porta-pivô acrílica')).toBe('porta-pivô acrílica')
+  })
+
+  it('colapsa whitespace múltiplo', () => {
+    expect(cleanSearchQuery('tinta    branca   fosca')).toBe('tinta branca fosca')
+  })
+
+  it('strip trim final', () => {
+    expect(cleanSearchQuery('   tinta   ')).toBe('tinta')
+  })
+
+  it('REPRO Sandrielly: "iquine por quanto esta a tinta pintalar da , de 3,6l? com george" → SEM vírgulas, SEM "?"', () => {
+    const noisy = 'iquine por quanto esta a tinta pintalar da , de 3,6l? com george'
+    const clean = cleanSearchQuery(noisy)
+    expect(clean).not.toContain(',')
+    expect(clean).not.toContain('?')
+    expect(clean).toContain('iquine')
+    expect(clean).toContain('pintalar')
+    // Decimal BR "3,6" vira 2 tokens "3 6" após strip — funcionalmente ok pra ILIKE
+    // (cada palavra é matched separadamente no AND fallback), mas não preserva
+    // o decimal literal. Aceitável; pontuação BR fica em scope futuro.
+    expect(clean).toContain('6l')
+  })
+
+  it('string vazia → string vazia', () => {
+    expect(cleanSearchQuery('')).toBe('')
+  })
+})
+
+// =============================================================================
+// REPRO BUG SANDRIELLY — query com vírgulas chega NO PostgREST .or() sanitizada
+// =============================================================================
+
+describe('searchProducts entry sanitization — NÃO passa vírgula pro .or() (R138)', () => {
+  it('REPRO Sandrielly: args.query com vírgulas é sanitizada ANTES do .or()', async () => {
+    const { supabase, calls } = makeSupabase({
+      primary: () => ({ data: [], error: null }),
+      fallback: () => ({ data: [], error: null }),
+    })
+    // Query EXATA que crashou em prod no caso Sandrielly (22:13:09 UTC 2026-05-22):
+    const noisyQuery = 'iquine por quanto esta a tinta pintalar da , de 3,6l? com george'
+    await searchProducts(
+      { query: noisyQuery, category: 'tintas' },
+      baseCtx(supabase, { conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' } }),
+      makeLog(),
+    )
+    // Verifica TODAS as chamadas .or() — nenhuma pode ter `,` dentro do value
+    const orCalls = calls.flatMap((c) =>
+      c.filters.filter((f: any) => Array.isArray(f) && f[0] === 'or'),
+    )
+    expect(orCalls.length).toBeGreaterThan(0)
+    for (const orCall of orCalls) {
+      const expr = orCall[1] as string
+      // Cada filter no .or() é `col.op.val` separado por `,`. Extrai todos os values
+      // e confirma que nenhum value (entre `.ilike.%` e `%`) contém `,`.
+      const valueMatches = expr.matchAll(/\.ilike\.%([^%]*)%/g)
+      for (const m of valueMatches) {
+        expect(m[1]).not.toContain(',')
+        expect(m[1]).not.toContain('?')
+        expect(m[1]).not.toContain('(')
+        expect(m[1]).not.toContain(')')
+      }
+    }
+  })
+
+  it('LLM mandando query "tinta verde, cinza" (vírgula direta) também sanitiza', async () => {
+    const { supabase, calls } = makeSupabase({
+      primary: () => ({ data: [], error: null }),
+    })
+    await searchProducts(
+      { query: 'tinta verde, cinza', category: 'tintas' },
+      baseCtx(supabase, { conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' } }),
+      makeLog(),
+    )
+    const orCalls = calls.flatMap((c) =>
+      c.filters.filter((f: any) => Array.isArray(f) && f[0] === 'or'),
+    )
+    for (const orCall of orCalls) {
+      const expr = orCall[1] as string
+      const valueMatches = expr.matchAll(/\.ilike\.%([^%]*)%/g)
+      for (const m of valueMatches) {
+        expect(m[1]).not.toContain(',')
+      }
+    }
+  })
+})
 
 describe('searchProducts — guards', () => {
   it('R126 search guard bloqueia query genérica sem expectedCategory', async () => {

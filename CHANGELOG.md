@@ -13,34 +13,52 @@ audited_at: 2026-05-21
 
 ---
 
-### v7.41.4 (2026-05-22) — R137: searchGuard wire pré-LLM (fix loop qualif Sandrielly)
+### v7.41.6 (2026-05-22) — R138 + R137 v2: sanitiza query antes de PostgREST + 6 integration tests reais
 
-Fixa o bug observado em prod com a lead Sandrielly (558781324150) onde a IA pediu confirmação de produto **4 vezes seguidas** mesmo após o lead ter dito "tinta pintalar da Iquine, de 3,6L". Ciclo de 7 minutos de qualificação idiota terminou em handoff sem search_products jamais ter rodado.
+Versão definitiva do fix Sandrielly, depois de **v7.41.4 quebrar em prod** (search crashou ao rodar inline com query ruidosa contendo vírgulas) e **v7.41.5 reverter** (volta loop original).
 
-**Causa raiz:** o helper `detectIncomingSearchSignal` em `_shared/searchGuard.ts:157` existe, está testado e detecta exatamente esse caso (a marca "iquine" está no `DEFAULT_BRANDS`), mas o **wire pra chamar o helper antes do LLM nunca foi feito**. Plano oficial (`wiki/plano-orquestrador-subagentes.md:55`) marcou *"Edit 3 (searchGuard PRÉ-LLM wire) pulado — defer Sprint B5"*. Resultado: regra "marca mencionada → search imediato" só vivia no prompt como texto descritivo. LLM ignorou.
+**Causa raiz descoberta em prod (`ai_agent_logs` da conv 5b78ee46-b861):**
+- R137 wire (v7.41.4) construía query `"iquine por quanto esta a tinta pintalar da , de 3,6l? com george"` direto do texto do lead.
+- `searchProducts.ts:277` passa essa query pra `.or('title.ilike.%VALUE%,description.ilike.%VALUE%,...')` da PostgREST.
+- `escapeLike` em `agentHelpers.ts:172` só escapa `%`, `_`, `\` — **NÃO escapa `,`**.
+- Vírgula no `VALUE` quebra parser PostgREST `.or()` (`,` é o separator). 400 Bad Request → throw → `executeToolSafe` retorna *"Erro interno ao executar search_products"* → LLM perde caminho viável → handoff sem qualif.
+- Bug é pré-existente (qualquer query LLM com vírgula crashava), mas R137 expôs ao construir query bruta.
 
-**Padrões cobertos pelo wire (que `DIRECT_PRODUCT_QUESTION_RE` não pegava):**
-- Marca isolada sem verbo: "Por quanto está a tinta Iquine?", "Quanto custa a Coral fosca?"
-- R121 verboso completo: "Preciso de tinta X", "Quero coral", "Gostaria de uma porta", "Estou procurando X"
+**Fix em 2 camadas (defesa profunda):**
+- **Camada 1 — `searchProducts.ts`**: novo helper exportado `cleanSearchQuery(raw)` strip de `, ; : " ' ? ! ( ) [ ] { }` → espaço + colapsa whitespace. Aplicado no entry: `args.query` e `args.category` sanitizados ANTES de qualquer uso. Protege contra LLM mandando vírgulas (rare) E callers internos (R137 wire) passando texto bruto.
+- **Camada 2 — `preLLMAutoExtract.ts`**: R137 wire re-adicionado COM sanitização:
+  - `stripLeadNameSuffix(query)` remove `com X`, `meu nome é X`, `sou X` do final
+  - `cleanSearchQuery(stripped)` strip punctuation
+  - `buildSearchQuery(...)` combina com tags existentes
+  - `cleanSearchQuery(combined)` 2ª passada (defesa)
+  - Skip se query < 2 chars após cleanup
 
-**Mudanças:**
-- `_shared/agent/preLLMAutoExtract.ts`: importa `detectIncomingSearchSignal` + `DEFAULT_BRANDS`. Novo bloco "R137 searchGuard wire" depois do bloco R121 inline existente, antes do auto-extract de fields. Quando `signal.force=true` em categoria digital + `!leadHasReceivedProducts` + `!SHADOW`, seta `pendingExitActionSearch` (mesma máquina que o R121 existente usa) → exitActionDispatcher executa `runInlineSearchProducts` no caminho atual.
-- +8 testes vitest novos (`preLLMAutoExtract.test.ts > R137 searchGuard wire`): caso Sandrielly exato, R121 verboso ("Preciso de"), marca isolada ("Quanto custa Coral"), saudação→no_signal, categoria offline NÃO dispara, aguardando_upsell NÃO redispara, SHADOW NÃO dispara, precedência R121 inline sobre R137 (não duplica).
-- 1 teste pré-existente ajustado: input "quero tinta para área interno cor branco" agora **corretamente** dispara R137 (`quero` é R121 verboso). Expectativa atualizada de `pendingExitActionSearch=null` pra `not.toBeNull()`.
+**Testes integration NOVOS (`r137-integration.test.ts`, 6 cenários):**
+1. Sandrielly EXATO inside hours catálogo vazio → R137 dispara + search sem crash + PATH A enrichment
+2. Sandrielly EXATO outside hours catálogo vazio → R137 dispara + search sem crash + R120 handoff
+3. "Quanto custa a Coral fosca?" (marca isolada sem verbo) → R137 brand_mentioned + search limpo
+4. "Preciso de tinta acrílica fosca" (R121 verboso) → R121 inline > R137 + search limpo
+5. "Boa tarde, tudo bem?" (saudação pura) → no_signal, R137 NÃO dispara
+6. REGRESSÃO: query EXATA do log prod 22:13:09 não causa crash em `.or()`
 
-**Métricas:**
-- Prompt: **sem mudança** (regra é código, não texto). Wire é guard determinístico, não regra LLM. Anti-inflation.
-- Linhas: `preLLMAutoExtract.ts` 292 → 326 (+34 lin / 2 imports + 1 bloco de 30 lin).
-- vitest: **1144 pass** (+9 com R137; 8 cobrem o wire, 1 ajuste no teste existente). 9 fails pré-existentes idênticos.
-- tsc: 0 erros.
+**Supabase mock realístico** que rejeita malformed `.or()` exatamente como PostgREST 400 — se code passar vírgula/parênteses/"?" pro filter, teste falha.
 
-**Deploy:** ai-agent v88 → **v89 ACTIVE** via CLI (`prfcbfumyrrycsrcrvms`). `verify_jwt:false` preservado. SHA novo confirmado.
+**Vitest:** +6 integration scenarios + 8 unit tests cleanSearchQuery + 2 sanitization tests = **+16 testes novos**. Suite total: 1165 pass / 9 fail pré-existentes idênticos. tsc 0.
 
-**Por que NÃO infla o prompt:** alternativa óbvia (adicionar "se lead nomeia marca, busque imediato" no prompt) custaria +200-300 chars e dependeria do LLM seguir. Wire em código é zero-cost no prompt + 100% determinístico. Exatamente a direção do Sprint C product_specialist.
+**Deploy:** ai-agent v89→**v90 (revert R137 v7.41.4)**→**v91 ACTIVE (R138+R137 v2)** via CLI. SHA `f869b307...` novo. verify_jwt:false preservado.
 
-**Risco de regressão:** baixo. Reusa pendingExitActionSearch (mesma máquina do R121 inline já testada). Rollback: revert do commit ou flag manual.
+**Lição aprendida (autocrítica honesta):**
+- v7.41.4 testou R137 isoladamente em `preLLMAutoExtract.test.ts`, mas NÃO exercitou o caminho real `runInlineSearchProducts → dispatchSearchTool → searchProducts → .or() do PostgREST`. Mocks de teste eram limpos demais.
+- Bug pré-existente do `escapeLike` ficou latente desde sempre — só apareceu quando R137 passou query ruidosa.
+- v7.41.6 introduziu mock de supabase que **simula a rejeição PostgREST**, garantindo que regressão futura é detectada antes de prod.
 
 **Frase de retomada:** *"executar B5 Onda 4 llmCallLoop"*.
+
+---
+
+### v7.41.4 (2026-05-22) — R137 v1 (REVERTIDO — bug crash em prod)
+
+Primeira tentativa do R137 wire. Crashou em prod no caso Sandrielly (1 ocorrência). Causa: query bruta com vírgulas/`?` quebrou PostgREST `.or()`. Reverteu na v7.41.5, re-implementado correto na v7.41.6.
 
 ---
 
@@ -261,15 +279,9 @@ Início do split estrutural do `ai-agent/index.ts` (4544 lin) — pré-requisito
 
 ---
 
-### v7.38.5 → v7.38.8 (2026-05-21) — R127-R134 arquivados em wiki/changelog/2026-05-part8
+### v7.38.0 → v7.38.8 (2026-05-20→21) — R124-R134 arquivados
 
-R127 (set_tags dup keys) · R128 (loop ambiente da janela) · R129 (multi-categoria) · R130 (forced next question) · R131 (phrasing curto) · R132 (transcrição áudio ignorada) · R133+R134 (overlap regex tintas↔impermeabilizantes + loop R129 caso Branca). Detalhe completo em [[wiki/changelog/2026-05-part8]] · [[wiki/erros/historico-2026-05-part3]].
-
----
-
-### v7.38.4 + v7.38.3 + v7.38.2 + v7.38.1 + v7.38.0 + v7.37.21 (2026-05-20) — arquivados
-
-> Movido para [[wiki/changelog/2026-05-part7]] em 2026-05-21 + R124/R125 em 2026-05-22 (hard limit 300 linhas). Detalhes técnicos preservados em [[wiki/erros/historico-2026-05-part3]] (R124, R125) e nas memórias `project_bug_handoff_search_fail` + `project_bug_queue_badge_off`.
+Detalhe completo em [[wiki/changelog/2026-05-part7]] · [[wiki/changelog/2026-05-part8]] · [[wiki/erros/historico-2026-05-part3]].
 
 ---
 
