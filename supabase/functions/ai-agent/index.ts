@@ -21,6 +21,8 @@ import { dispatchResponse } from '../_shared/agent/dispatchResponse.ts'
 import { classifyIntent, logRouterRun, type Intent } from '../_shared/agent/router.ts'
 import { runProductSpecialist } from '../_shared/agent/productSpecialist.ts'
 import { checkHopLimit, generateTurnId } from '../_shared/agent/hopGuard.ts'
+// Bug 2 Fix (v7.43.1): detector de clique "Eu quero" → hint pro LLM continuar venda
+import { detectProductChoice, buildProductChoiceHint } from '../_shared/agent/productChoiceDetector.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
@@ -1991,6 +1993,48 @@ ${contextBlock}`
     // + retry backoff, e cleanup Bug 17 v2 (dedup nome + greeting strip).
     // executeToolSafe permanece em index.ts (também usado por R121 inline + R137 wire
     // + set_tags handler). toolCallsLog é ref mutável compartilhada (R121/R141).
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Bug 2 Fix (v7.43.1) — Detector de clique "Eu quero" no carrossel
+    // Lead clicou em produto → UAZAPI converteu em texto do título → injetamos hint
+    // pra LLM (monolith OU specialist) confirmar a escolha + continuar venda.
+    // Roda em AMBOS os modos (monolith E router) — vale pra todos os agents.
+    // ─────────────────────────────────────────────────────────────────────
+    let productChoiceHint: string | null = null
+    try {
+      // Pega última msg outgoing pra ver se foi carrossel/imagem
+      const lastOutgoing = (contextMessages || [])
+        .filter((m: any) => m.direction === 'outgoing')
+        .slice(-1)[0]
+      // Catálogo do agent
+      const { data: catalog } = await supabase
+        .from('ai_agent_products')
+        .select('title, price')
+        .eq('agent_id', agent_id)
+        .eq('enabled', true)
+        .limit(50)
+      const choice = detectProductChoice({
+        incomingText,
+        catalogProducts: (catalog as any[]) || [],
+        lastOutgoingMediaType: lastOutgoing?.media_type,
+        log,
+      })
+      if (choice) {
+        productChoiceHint = buildProductChoiceHint(choice)
+        log.info('Bug 2 Fix: product choice detected, injecting hint', {
+          product: choice.productTitle,
+          reason: choice.reason,
+        })
+        // Injeta hint no geminiContents como msg user de contexto (será visto pelo LLM)
+        geminiContents.push({
+          role: 'user' as const,
+          parts: [{ text: productChoiceHint }],
+        })
+      }
+    } catch (err) {
+      log.warn('product choice detection failed (non-fatal)', { error: (err as Error).message })
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // Sprint C4+C5 (2026-05-23): router pipeline experimental (POC)
     // Behind feature flag agent.routing_mode='router'. Default 'monolith'.
@@ -2032,7 +2076,11 @@ ${contextBlock}`
           // Dispatch por intent — só 'produto' tem specialist na POC C4
           if (routerResult.intent === 'produto') {
             log.info('Dispatching to product_specialist (hop 1)')
-            const serviceCategories = (agent.service_categories as any[]) || []
+            // Bug fix (v7.43.1): service_categories é object {default, categories[]},
+            // não array. Antes passava o objeto e .slice() explodia silenciosamente.
+            // getCategoriesOrDefault retorna o config; extraímos .categories[].
+            const catConfig = getCategoriesOrDefault(agent)
+            const serviceCategories = (catConfig?.categories as any[]) || []
             const productResult = await runProductSpecialist({
               turn_id,
               agent, agent_id, conversation, conversation_id, contact,

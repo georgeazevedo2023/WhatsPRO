@@ -172,7 +172,10 @@ function normalizeIntent(raw: unknown): Intent | null {
  */
 export async function classifyIntent(ctx: RouterCtx): Promise<RouterResult> {
   const startMs = Date.now()
-  const model = ctx.routerModel || 'gpt-5-nano'
+  // Fix Bug 1 (2026-05-23 v7.43.1): gpt-5-nano (reasoning) falha 100% no parse JSON
+  // em prod — gera narrativa antes do JSON. Trocado pra gpt-4.1-mini (non-reasoning,
+  // latência ~500ms, JSON output confiável). Caller pode override via ctx.routerModel.
+  const model = ctx.routerModel || 'gpt-4.1-mini'
 
   const userMsg = buildRouterUserMessage(ctx)
 
@@ -188,13 +191,18 @@ export async function classifyIntent(ctx: RouterCtx): Promise<RouterResult> {
 
     const parsed = parseRouterJson(llmResult.text)
     if (!parsed) {
+      // Fix Bug 1 (2026-05-23): persiste RAW response no log warn pra debug futuro.
+      // No fallback retornado, raw vai no campo reason (max 200 chars).
+      const rawPreview = (llmResult.text || '').substring(0, 200)
       ctx.log.warn('Router: JSON parse failed, fallback qualificacao', {
-        raw_preview: (llmResult.text || '').substring(0, 200),
+        raw_preview: rawPreview,
+        model: llmResult.model,
+        output_tokens: llmResult.outputTokens,
       })
       return {
         intent: 'qualificacao',
         confidence: 0.5,
-        reason: 'fallback: JSON parse failed',
+        reason: `fallback: JSON parse failed | raw: ${rawPreview.substring(0, 150)}`,
         model: llmResult.model,
         inputTokens: llmResult.inputTokens,
         outputTokens: llmResult.outputTokens,

@@ -330,8 +330,18 @@ describe('runLlmCallLoop — post-LLM cleanup', () => {
     expect(result.responseText).toBe('Olá, Pedro! Bem-vindo à Eletropiso.')
   })
 
-  it('fallback "Em que posso te ajudar?" quando strip esvazia o texto', async () => {
+  it('Bug 3 Fix v7.43.1: strip esvaziando texto → preserva raw original (não fallback genérico)', async () => {
+    // Antes da v7.43.1, strip de "Olá!" resultava em "" → fallback "Em que posso te ajudar?".
+    // Caso real Eletropiso V1 2026-05-23 14:44: destruía respostas úteis com greeting.
+    // Agora: se strip esvazia mas raw tinha conteúdo, preserva o raw.
     mockState.callLLMQueue.push(makeLLMResponse({ text: 'Olá!' }))
+    const ctx = makeCtx({ hasInteracted: true })
+    const result = await runLlmCallLoop(ctx)
+    expect(result.responseText).toBe('Olá!') // preserva raw em vez de fallback genérico
+  })
+
+  it('Fallback "Em que posso te ajudar?" só quando raw TAMBÉM vazio (LLM cuspiu nada)', async () => {
+    mockState.callLLMQueue.push(makeLLMResponse({ text: '   ' })) // só whitespace
     const ctx = makeCtx({ hasInteracted: true })
     const result = await runLlmCallLoop(ctx)
     expect(result.responseText).toBe('Em que posso te ajudar?')

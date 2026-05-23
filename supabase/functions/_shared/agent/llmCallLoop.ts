@@ -359,6 +359,9 @@ export async function runLlmCallLoop(ctx: LlmCallLoopCtx): Promise<LlmCallLoopRe
     // Bug 17 fix v2 (2026-05-17): expandido pra cobrir Bom dia / Boa tarde / Boa noite /
     // Bem-vindo / Bem vinda + com ou sem nome + em qualquer linha (multiline regex).
     if (ctx.hasInteracted) {
+      // Fix Bug 3 (v7.43.1): guarda raw response ANTES do strip pra log + fallback inteligente
+      const rawBeforeStrip = responseText
+
       if (ctx.agent.greeting_message) {
         const greetNorm = ctx.agent.greeting_message.toLowerCase().trim().replace(/[!?.]/g, '')
         if (responseText.toLowerCase().includes(greetNorm)) {
@@ -367,13 +370,25 @@ export async function runLlmCallLoop(ctx: LlmCallLoopCtx): Promise<LlmCallLoopRe
             .trim()
         }
       }
-      // Regex Bug 17 v2: pega saudacao + nome opcional + pontuacao opcional, em qualquer
-      // posicao do texto (multi-line, global). Inclui variacoes com acento ou sem.
-      const greetingPrefixRe = /(?:^|\n)\s*(?:olá|ola|oi+e?|oie?|ei|hey|opa|eae|eai|fala|salve|bom\s+dia|boa\s+tarde|boa\s+noite|bem[\s-]*vind[oa])\b[,!.\s]*(?:[A-ZÀ-Úa-zà-ú][a-zà-ú]{1,})?[!.,]?\s*/gi
+      // Fix Bug 3 v2 (v7.43.1): regex menos agressivo. Antes capturava "Olá! Para sala..." e
+      // consumia "Para" achando que era nome → restante "sala..." começa em lowercase ou vazio.
+      // Agora: só captura nome se vier APÓS vírgula explícita ("Olá, Pedro!" sim; "Olá! Para sala" não).
+      const greetingPrefixRe = /(?:^|\n)\s*(?:olá|ola|oi+e?|oie?|ei|hey|opa|eae|eai|fala|salve|bom\s+dia|boa\s+tarde|boa\s+noite|bem[\s-]*vind[oa])\b(?:[,]\s*[A-ZÀ-Úa-zà-ú][a-zà-ú]{1,})?[!.,]?\s*/gi
       responseText = responseText.replace(greetingPrefixRe, ' ').trim()
       // Limpa multiplos espacos/quebras consecutivas resultantes do strip
       responseText = responseText.replace(/\s+\n/g, '\n').replace(/\n{2,}/g, '\n').replace(/  +/g, ' ').trim()
-      if (!responseText) responseText = 'Em que posso te ajudar?'
+      // Fix Bug 3 v3 (v7.43.1): se strip esvaziou completamente, log o raw + preserva o original
+      // em vez de usar fallback genérico "Em que posso te ajudar?" (era horrível UX — destrói
+      // resposta útil que só tinha um "Olá" extra. Caso real Eletropiso V1 2026-05-23 14:44).
+      if (!responseText && rawBeforeStrip.trim()) {
+        ctx.log.warn?.('Greeting strip emptied response — usando raw original', {
+          raw_preview: rawBeforeStrip.substring(0, 200),
+        })
+        responseText = rawBeforeStrip.trim()
+      } else if (!responseText) {
+        // Raw também vazio: LLM realmente não gerou nada. Fallback minimal.
+        responseText = 'Em que posso te ajudar?'
+      }
     }
 
     // Loop completed normally — sai do while
