@@ -19,6 +19,40 @@ audited_at: 2026-05-20
 
 ---
 
+## 🚨 R141 — TDZ `carouselSentInThisCall` (Wsmart Eletropiso 2026-05-22 19:42-23:05, prod) — CAUSA REAL DO CRASH
+
+**Erro:** após 3 deploys (R137 v1 crash, R138 sanitização, R139 regex) o crash continuava. Stack trace só apareceu quando R140 (observability fix) capturou em `ai_agent_logs.error`:
+
+```
+ReferenceError: Cannot access 'carouselSentInThisCall' before initialization
+    at executeTool index.ts:2394:29
+    at executeToolSafe index.ts:2551:22
+    at runInlineSearchProducts exitActionDispatcher.ts:127:33
+```
+
+**Causa raiz:** `let carouselSentInThisCall = false` estava declarado em `index.ts:1928` (dentro do bloco LLM loop). `executeTool` (linha 1751) referenciava ela em `case 'search_products': mediaState = { carouselSent: carouselSentInThisCall }`. Quando `runInlineSearchProducts` (pré-LLM, via R137 wire ou R121 inline) invocava `executeToolSafe → executeTool`, tentava acessar `carouselSentInThisCall` ANTES da declaração → **TDZ throw silenciado pelo executeToolSafe** → result_preview `"Erro interno..."` virou loop de qualif idiota.
+
+**Bug latente desde Onda 2c-ii (v7.40.8)** — quando `runInlineSearchProducts` foi adicionado. R121 inline (pouco frequente) raramente disparava → mascarado. R137 brand_mentioned é comum → expôs.
+
+**Por que vitest passou e prod falhou:**
+- Vitest mocks chamavam `searchProducts` DIRETO, não via `executeTool` do index.ts
+- TDZ só manifestava no caminho real Deno: pre-LLM → executeToolSafe → executeTool → `carouselSentInThisCall`
+- Suite tinha 1184 testes passando, prod crashava
+
+**Fix v7.41.8:**
+- Movido `let carouselSentInThisCall = false` pra linha 497 (junto com `toolCallsLog` que já tinha sido elevado pelo R121)
+- Adicionado comment R141 explicando hoisting
+
+**Regras preventivas:**
+1. **`function` declarations são hoisted com body completo; `let`/`const` são hoisted SEM init (TDZ).** Function definida em escopo enclosing pode ser chamada antes do `let` ser inicializado.
+2. **Variáveis mutáveis (`let`) usadas dentro de funções definidas no MESMO escopo devem ser declaradas ANTES da function declaration.** Pattern preventivo: declarar TODO state mutável no topo do handler.
+3. **R140 (observability) precisa ser PRIMEIRO**, não tardio. Antes de chutar hipóteses de root cause, garantir que crash deixa stack trace persistido em DB.
+4. **Vitest mocks de unidades isoladas NÃO pegam TDZ no caminho do escopo enclosing.** Pra esses casos, integration tests precisam exercitar o caminho REAL (index.ts → executeTool → tool), não direto a tool.
+
+**Cruza com:** R140 (observability foi o divisor), R58 (const em if), R59 (hoistar IDs antes do try).
+
+---
+
 ## 🚨 R138 — PostgREST `.or()` crashou com vírgula em `.ilike.%value%` (Wsmart Eletropiso 2026-05-22 19:13, prod)
 
 **Erro:** primeira tentativa do R137 v7.41.4 quebrou em prod. Lead Wsmart (558193856099, conv 5b78ee46) mandou *"Por quanto está a tinta pintalar da Iquine, de 3,6L?\ncom george"* fora do horário. R137 wire detectou marca Iquine + construiu query bruta + chamou `search_products` inline. Search **crashou** com `"Erro interno ao executar search_products. Responda ao lead sem usar este resultado."` IA caiu no fallback (handoff outside_hours) com `qualification_chain: "Wsmart > tintas"` (raso).
@@ -259,10 +293,4 @@ Fonte: OpenAPI spec oficial em `https://docs.uazapi.com/openapi-bundled.json`, s
 
 ---
 
-> **Removido em 2026-05-21:** entry duplicada "LLM ignora dados óbvios (2026-05-13)" tinha mesmo conteúdo da seção "UAZAPI button reply" acima. Regras consolidadas em [[wiki/erros/regras-preventivas]].
->
-> **Incidentes 2026-05-12 (RPC uuid vs text) e 2026-05-10 (schema mismatch max_retries) movidos** pra [[wiki/erros/historico-2026-05-part2]] pra respeitar 300-line limit.
-
----
-
-> **Histórico:** incidentes antigos em [[wiki/erros/historico-2026-05-part1]] e [[wiki/erros/historico-2026-05-part2]]. ~30 regras em formato tabela: [[wiki/erros/regras-preventivas]].
+> **Histórico:** incidentes antigos em [[wiki/erros/historico-2026-05-part1]] · [[wiki/erros/historico-2026-05-part2]] · [[wiki/erros/historico-2026-05-part3]]. ~140 R# em formato tabela: [[wiki/erros/regras-preventivas]]. **Famílias temáticas:** [[wiki/erros/familias-r-codes]].

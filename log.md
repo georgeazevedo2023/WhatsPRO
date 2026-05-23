@@ -9,6 +9,47 @@ type: log
 
 ---
 
+## 2026-05-22 (noite II) — Sessão R141-R145 — fix completo Sandrielly/Wsmart/Jessica + catálogo R# organizado
+
+**Sessão maratona 13 deploys** (v7.41.4→v7.41.14) atacando bug Sandrielly. Iteração brutal de diagnósticos errados até R140 capturar stack trace real.
+
+**Cronologia honesta (3 falhas + 5 acertos):**
+- v7.41.4 R137 v1: wire shippado, **crashou em prod** com query bruta (vírgula no `.or()`)
+- v7.41.5: revertido
+- v7.41.6 R138: sanitiza vírgula → **crash continuou** (vírgula era correlato, não causa)
+- v7.41.7 R139+R140: regex unicode + **captura stack trace** ← divisor real
+- v7.41.8 **R141**: stack trace revelou `ReferenceError: Cannot access 'carouselSentInThisCall' before initialization` — TDZ! `let` declarado em linha 1928, mas `executeTool` (linha 1751) referencia. Quando R137 inline chamava executeTool pré-LLM, TDZ throw. Fix: mover `let carouselSentInThisCall = false` pra linha 497 (antes de executeTool). **CAUSA REAL fixada.**
+- v7.41.9 R142: `buildQualificationChain` enriquecida (ambiente/cor/voltagem/volume) — atendente recebe handoff com chain rica
+- v7.41.10 R143: bug pré-existente — `extracted=[]` descartava seed `interesse:CAT`. Caso Jessica "porta de frente" → portas detectado mas "frente" não bateu fields → seed perdido → loop. Fix: persist seed mesmo sem fields.
+- v7.41.11 R144: Bug 12 atacado — `validateInteresseCategory` ganha auto-correct fuzzy (plural/singular/regex/levenshtein-1). LLM tenta `interesse:porta` → auto-corrige pra `interesse:portas` em vez de bloquear.
+- v7.41.12 R145 v1: anti-dup outgoing janela 60s — falso-positivo, bloqueou greeting legítimo pós-clear-context
+- v7.41.13 R145 v2: + ia_cleared check — ainda bloqueou (placeholder do turn atual)
+- v7.41.14 **R145 v3**: + startTime barrier excluindo turn atual — finalmente correto
+
+**Pipeline final:**
+- tsc 0 · vitest 1184+ pass / 9 fails pré-existentes idênticos
+- ai-agent v89→**v99 ACTIVE** (10 versões em ~6 horas)
+- 14 commits + push, todos no master
+
+**Doc cleanup (commit 5082784):**
+- Nova wiki `wiki/erros/familias-r-codes.md` agrupa ~140 R# em 10 famílias temáticas
+- `regras-preventivas.md` ganha 9 entries (R137-R145) + status `ATIVA/RESOLVIDA/SUPERSEDIDA/INCERTA`
+- Fix R86/R87 duplicados → R86b/R87b
+- 4 marcadas RESOLVIDAS (R84, R96, R97, R98); 2 SUPERSEDIDAS (R145 v1/v2)
+- index.md ganha pointer pra famílias
+
+**Lições brutais aprendidas:**
+1. **R140 (observability) deveria ter sido o PRIMEIRO fix**, não o terceiro. Antes dele eu chutava (v7.41.4 vírgula errada, v7.41.7 regex incerta). Depois dele, R141 foi cirúrgico.
+2. **TDZ silencioso de `let` é classe de bug invisível em testes mocked**. Vitest passou todos os 1184 testes mesmo com bug em prod.
+3. **R145 errei DUAS vezes** (v1 e v2) por não pensar nos side effects. Cada vez que toco em código stateful, descubro mais race.
+4. **R# acumulam por concentração no monolito** — 49% das 140 R# são AI Agent. Sprint C/D vai diluir ao mover lógica pra specialists.
+
+**Status final:** ai-agent v99 ACTIVE, 8 camadas determinísticas protegendo qualif→handoff (preLLMAutoExtract R143 + I2 R144 + bug27 seed + fallback D33 + R128 phrasing + R130 forced next + stack trace R140 + dedup R145 v3).
+
+**Frase de retomada:** *"continuar Sprint B5 Onda 4 llmCallLoop após valida cenários Jessica/Wsmart em prod"*.
+
+---
+
 ## 2026-05-22 (noite) — R138 + R137 v2 shipped (v7.41.6) — fix Sandrielly definitivo + 6 integration tests reais
 
 **Trigger:** user testou v7.41.4 em prod com lead Wsmart (558193856099, conv 5b78ee46-b861) — IA disparou outside_hours message sem qualif. Print de tela mostrando handoff "anotei seu pedido" sem ambiente/cor/marca. Mandou *"reverta corrija ajuste e teste com playwrite 5 cenarios diferentes em testes reais e so me retorne quando vc tirar nota 10 nos cenarios aleatorios"*.

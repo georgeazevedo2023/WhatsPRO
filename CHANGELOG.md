@@ -13,6 +13,34 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.41.7 → v7.41.14 (2026-05-22 noite II) — Sessão maratona R140-R145
+
+**8 versões em ~6 horas** atacando bug Sandrielly definitivamente. ai-agent v89→v99 ACTIVE.
+
+| Versão | R# | Resultado |
+|---|---|---|
+| v7.41.7 | R139 (regex) + **R140 (stack trace)** | R140 foi o divisor — sem ele eu chutava |
+| v7.41.8 | **R141 TDZ** | causa REAL do crash: `let carouselSentInThisCall` em linha 1928 referenciado por `executeTool` em linha 1751 → ReferenceError pré-LLM. Movido pra linha 497 |
+| v7.41.9 | R142 chain rica | buildQualificationChain inclui ambiente/cor/voltagem/volume |
+| v7.41.10 | R143 seed sem fields | preLLMAutoExtract persiste interesse:CAT mesmo se extracted=[] (caso Jessica) |
+| v7.41.11 | R144 fuzzy I2 | auto-correct singular↔plural/regex/levenshtein-1 antes de bloquear |
+| v7.41.12 | R145 v1 dedup | falso-positivo (60s window) — SUPERSEDIDA |
+| v7.41.13 | R145 v2 + ia_cleared | ainda bloqueava (placeholder) — SUPERSEDIDA |
+| v7.41.14 | **R145 v3** | + startTime barrier → finalmente correto |
+
+**Lição central:** R140 (observability) deveria ter sido v7.41.5 não v7.41.7. Stack trace persistido em `ai_agent_logs.error` revelou TDZ em 1 query — sem isso eu testei 2 hipóteses erradas (vírgula, regex unicode).
+
+**Doc cleanup (commit 5082784):**
+- Nova wiki `wiki/erros/familias-r-codes.md` (205 lin) agrupa ~140 R# em 10 famílias
+- `regras-preventivas.md`: + R137-R145, status [RESOLVIDA]/[SUPERSEDIDA], fix R86/R87 duplicados
+- index.md: pointer pra famílias
+
+**Pipeline final:** tsc 0 · vitest 1184 pass / 9 fails pré-existentes · ai-agent v99 ACTIVE · 8 camadas determinísticas protegendo qualif→handoff.
+
+**Frase de retomada próxima sessão:** *"continuar Sprint B5 Onda 4 llmCallLoop após valida cenários Jessica/Wsmart em prod"*.
+
+---
+
 ### v7.41.6 (2026-05-22) — R138 + R137 v2: sanitiza query antes de PostgREST + 6 integration tests reais
 
 Versão definitiva do fix Sandrielly, depois de **v7.41.4 quebrar em prod** (search crashou ao rodar inline com query ruidosa contendo vírgulas) e **v7.41.5 reverter** (volta loop original).
@@ -146,73 +174,15 @@ Primeira sub-onda do split do `executeTool` switch (~1500 lin total). Onda 3a at
 
 ---
 
-### v7.40.9 (2026-05-22) — Fix Bug #7: short-circuits R129+R136 preservam fields ricos da msg original
+### v7.40.7 → v7.40.9 (2026-05-21→22) — arquivados
 
-Bug encontrado em validação E2E em prod (lead "porta de ENTRADA e janela pra OBRA NOVA" → sistema perdia "entrada" + "obra nova"). R129/R136 short-circuited ANTES do autoExtract, persistindo só a tag pending e descartando o resto da mensagem. Lead voltava na sequência e LLM re-perguntava o que já tinha sido dito.
-
-**Fix em `_shared/agent/preLLMShortCircuits.ts`:**
-- Novo helper privado `extractRichFieldsFromCategories(text, matchedCats, existingTags)` itera pelas categorias detectadas, chama `autoExtractFields` na union dos fields de cada uma, dedupe por key.
-- R129: antes do INSERT, computa `richFields` e adiciona às tags persistidas (junto da `multi_interesse_pending`).
-- R136: idem — filtra `multiItem.items.matchedCategoryId` → categorias correspondentes → extract.
-- Log `auto_field_extracted` agora carrega `rich_extracted` no metadata.
-- +5 testes cobrindo: R129 extrai subtipo + material + tipo_janela, R129 não duplica tag existente, R136 extrai ambiente + acabamento de lista mista, agent sem fields ricos não falha, guard R134 preservado.
-
-**Pipeline:** tsc 0 · vitest **1067 pass (+5 novos)** / 9 fail pré-existentes. Deploy ai-agent v83→v84 ACTIVE.
-
-**Bug encontrado durante validação E2E em prod** (sessão 2026-05-22, conversa Eletropiso V2 #5b78ee46). Esse é o 1º fix originado de teste em prod — antes os fixes só vinham de incidentes reportados por leads.
+Sprint B5 Ondas 2c-i (R136+R129 short-circuits) · 2c-ii (autoExtract + Bug 24 handoff + R121 inline) · Fix Bug #7 (rich extraction multi-cat). Detalhe em [[wiki/changelog/2026-05-part8]].
 
 ---
 
-### v7.40.8 (2026-05-21) — Sprint B5 Onda 2c-ii: extrai autoExtract + exit_action handoff + R121 inline search
+### v7.40.5 → v7.40.7 (2026-05-21) — arquivados
 
-Última peça HIGH RISK da Onda 2c. Três blocos in-line (autoExtract+score+flags, Bug 24 handoff dispatcher, R121 inline search) extraídos para 2 módulos testáveis. Closure pesada `runQueueAssignment` agora passada como callback explícito — desbloqueia o caminho pro Sprint C (specialists não vão precisar acessar a closure interna).
-
-**Mudanças:**
-- Novo `_shared/agent/preLLMAutoExtract.ts` — `runPreLLMAutoExtract(ctx, log)` retorna `{ pendingExitActionHandoff, pendingExitActionSearch, tagsMutated }`. Faz: resolução de categoria, R121 "tem X?" trigger, autoExtract de fields, score progressivo, setup das flags de exit_action. DB writes (tags + log `auto_field_extracted`) preservados. Sem IO de mensagem.
-- Novo `_shared/agent/exitActionDispatcher.ts` — 2 funções:
-  - `dispatchExitActionHandoff(ctx, pending, log)` retorna `{ dispatched, response }`. Quando `pendingExitActionHandoff` setado: runQueueAssignment + sendTextMsg + DB updates (status_ia=SHADOW, dept) + broadcast + log `implicit_handoff` + Response 200. Skip em status_ia=SHADOW.
-  - `runInlineSearchProducts(ctx, pending, log)` retorna `{ inlineSearchContext, toolCall }`. Quando `pendingExitActionSearch` setado: executeToolSafe + log `tool_called` + monta string `[INTERNO]`. Skip em SHADOW. Erros não propagam (log.error).
-- Callbacks injetados via ctx: `sendTextMsg`, `broadcastEvent`, `executeToolSafe`, `runQueueAssignment`, `pickHandoffMessage`. Closure interna do `runQueueAssignment` (linha 689) intocada — só passa pelo prop.
-- `ai-agent/index.ts:1502-1673` (~170 lin in-line) → 3 chamadas curtas (~30 lin). index.ts: 4153 → **4032 lin** (-121). Acumulado B5: **-512 lin** desde 4544 inicial.
-- +26 testes: 17 preLLMAutoExtract (guards, R121 digital/offline/shadow/produto-recebido, autoExtract+score, exit_action handoff atingindo max stage2, search C2 fallback skip em offline, interesse: tag reuso, log pending_exit_handoff), 9 exitActionDispatcher (happy path, status_ia=shadow skip, dept profile > funnel, outside_hours, response body, inline search happy, shadow skip, executeToolSafe throw).
-
-**Equivalência semântica:** strings/logs idênticos ao original (`exit_action_auto_extract`, `r121_auto_extract_inline`, `Bug 24: exit_action=handoff disparado via auto-extract`, fronteira `[min, max)` de stage preservada). Bug 24 v1 (handoff via auto-extract) e v5 (C2 search) shippeados em ondas anteriores continuam ativos.
-
-**Pipeline:** tsc 0 · vitest **1062 pass (+26 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v82→v83 ACTIVE via CLI.
-
-**Próximo:** Onda 3 (toolExecution switch ~1500 lin) — vai subdividir em 3-4 mini-ondas por capacidade (search_products, set_tags+score, send_carousel, handoff/escalations). É o pré-req real do Sprint C — aqui se define o boundary dos specialists.
-
----
-
-### v7.40.7 (2026-05-21) — Sprint B5 Onda 2c-i: extrai R136 + R129 short-circuits pré-LLM
-
-Continuação do split. Onda 2c-i isola os 2 curto-circuitos determinísticos que rodam ANTES do LLM e respondem direto ao lead (multi-item misto + multi-categoria sem interesse). Cada um persiste tag de pending, envia mensagem via UAZAPI, registra log e retorna `Response`. Fallback (send falha) mantém a tag persistida e deixa cair pro LLM.
-
-**Mudanças:**
-- Novo `_shared/agent/preLLMShortCircuits.ts` — função `runPreLLMShortCircuits(ctx, log)` orquestradora dos 2 paths (R136 vence R129 quando ambos batem). Helper privado `persistAndBroadcastReply` (insert msg outgoing + broadcast + log response_sent) encapsula o trecho duplicado entre os dois disparos.
-- `ai-agent/index.ts:1486-1609` (124 lin in-line) → 9 lin de chamada + tratamento de retorno (`{ shortCircuited, response, suppressAutoExtractForMulti }`).
-- index.ts: 4265 → **4153 lin** (-112). Acumulado B5: **-391 lin** desde 4544 inicial.
-- Cleanup: removidos imports órfãos (`detectMultiItem`, `buildHorizontalQuestion`, `HORIZONTAL_QUALIF_PENDING_TAG`, `matchAllCategoriesBySearchText`) — agora consumidos só dentro do módulo extraído.
-- +13 testes (`preLLMShortCircuits.test.ts`): guards de entrada, fluxo feliz R136 + R129, fallback no `sendTextMsg`, guards `alreadyHasHorizontalPending`/`interesseValue`/`alreadyHasMultiPending`, ordem R136 > R129, monta texto "A, B e C" com 3 categorias.
-
-**Equivalência semântica:** strings de output idênticas char-a-char (`Posso te ajudar com X e Y. Por qual prefere começar?` + pergunta horizontal vinda de `buildHorizontalQuestion`). Logs `auto_field_extracted` + `response_sent` com mesmos campos `source` (`r136_multi_item_horizontal`, `r136_multi_item_horizontal_ask`, `r129_multi_interesse_detected`, `r129_multi_interesse_ask`).
-
-**Pipeline:** tsc 0 · vitest **1036 pass (+13 novos)** / 9 fail pré-existentes idênticos. Deploy ai-agent v81→v82 ACTIVE via CLI (verify_jwt=false preservado).
-
-**Próximo (2c-ii, HIGH RISK):** auto-extract + score progressivo + exit_action=handoff direto (Bug 24) + R121 inline search. ~180 lin com closure `runQueueAssignment` capturada. Sessão dedicada.
-
----
-
-### v7.40.6 (2026-05-21) — Sprint B5 Onda 2b: extrai buildQualificationContext
-
-Continua o split. Onda 2b extrai a função `buildQualificationContext` (R134/R135/R136/R129/R131 acoplados) — ~127 lin puras movidas pra `_shared/agent/qualificationContext.ts`.
-
-**Mudanças:**
-- Novo `_shared/agent/qualificationContext.ts` — função pura recebendo currentTags + agentCfg + recentMessages, retornando string do bloco prompt. Cobre 4 caminhos: (1) R136 horizontalPending → handoff multi-item, (2) R129/R134 multi_interesse_pending → pergunta qual começar, (3) qualif stage normal com R131 phrasing + R135 anti-loop, (4) fallback vazio.
-- `ai-agent/index.ts:1460-1578` (~120 lin in-line) → 1 linha de comentário. index.ts: 4390 → **4265 lin** (-125). Acumulado B5: -279 lin (4544 inicial).
-- +15 testes cobrindo prioridade R136 > R129, fallback id quando label inexistente, DEFAULT_SERVICE_CATEGORIES_V2 (tinta casa em 'tinta|esmalte|verniz'), nudge R135 anti-loop.
-
-**Pipeline:** tsc 0 · vitest **1023 pass (+15 novos)** / 9 fail pré-existentes. Deploy ai-agent v80→v81 ACTIVE.
+Sprint B5 Ondas 2a (promptSections puras) · 2b (buildQualificationContext) · 2c-i (R136+R129 short-circuits). Detalhe em [[wiki/changelog/2026-05-part8]].
 
 ---
 
