@@ -9,6 +9,80 @@ type: log
 
 ---
 
+## 2026-05-22 (noite IV) — Sprint B5 Onda 5 shipped (v7.41.16) — extrai `dispatchResponse` + **FECHA SPRINT B5**
+
+**Trigger:** user mandou *"executar B5 Onda 5 dispatchResponse"* logo após shipping da Onda 4. Última onda do split B5 — fim de 2 dias de extrações wave-based.
+
+**Diagnóstico inicial:**
+- Mapeei o pipeline final em `ai-agent/index.ts:2256-2471` (~205 lin):
+  - 15.5 (2256-2278): handoff detection (explícito via toolCallsLog + implícito via HANDOFF_PATTERNS regex negative-lookbehind) → switch SHADOW + queue_event quando implícito
+  - 16 (2280-2325): TTS decision tree — `skipTextSend` quando handoff já enviou / `shouldSendAudio` (curto) / `shouldSplitAudio` (longo) / fallback texto
+  - 17-19 (2327-2367): INSERT conversation_messages + UPDATE conversations + broadcastEvent (com effectiveStatusIa SHADOW/LIGADA)
+  - 20 (2369-2390): `ai_agent_logs.response_sent` com metadata rica (tts_error, voice flags, message_count, etc.)
+  - 21 (2392-2429): upsert `lead_profiles` com summary entry (products, sentiment from tags, outcome, tools_used) + slice -10 últimas + counter +1
+  - 22 (2431-2460): deferred handoff trigger (quando perguntas vieram antes do trigger ser detectado) — runQueueAssignment + sendTextMsg + INSERT msg + UPDATE conv (com objection via R113.1) + log handoff_trigger
+  - Final (2462-2471): log.info('Done') + Response 200 com tokens/latency
+- Dependências externas: STATUS_IA + mergeTags + isOutsideBusinessHours + detectObjection + splitAudioAndText + HANDOFF_PATTERNS (local const)
+- Callbacks injetados: sendTextMsg + sendTts + sendPresence + broadcastEvent + pickHandoffMessage + runQueueAssignment (6 closures)
+- Cinco efeitos colaterais ao DB + 1-2 chamadas UAZAPI + 1 broadcast Realtime — alto IO
+
+**Execução:**
+
+1. **`_shared/agent/dispatchResponse.ts` (348 lin)** — `dispatchResponse(ctx)` main + 7 type definitions. `HANDOFF_PATTERNS` copiado como const privado (uso único). Ctx fat (28 campos) mas todos necessários — split por DTOs traria complicação sem ganho real. `DispatchResponseResult` = `{ response: Response }` (caller só propaga).
+
+2. **`dispatchResponse.test.ts` (15 testes, 100% PASS):**
+   - Happy: texto + INSERT + UPDATE LIGADA + broadcast + log + lead_profile; Response 200 body shape
+   - TTS: voice_enabled curto → sendTts direto; falha TTS → fallback texto; voice longo → split (audio summary + texto full); incomingHasAudio aciona mesmo sem voice_enabled
+   - Handoff: hadExplicitHandoffInLoop skip text + sem INSERT msg; broadcast SHADOW + outcome=handoff; implícito via HANDOFF_PATTERNS → queue + implicit_handoff log; **"não vou te encaminhar" NÃO dispara** (negative lookbehind preservado)
+   - Deferred trigger: dispara quando pendingHandoffTrigger + sem explícito; detecta objection na msg trigger; NÃO dispara quando já houve explícito
+   - lead_profile: summary completa com products/sentiment/outcome/tools_used; slice -10 últimas
+
+3. **`ai-agent/index.ts`:**
+   - Adicionado import `dispatchResponse`
+   - Bloco 205 lin substituído por ~33 lin (call + spread ctx + early `return dispatchedResponse`)
+   - `HANDOFF_PATTERNS` const local removido
+   - Import `splitAudioAndText` removido (só usado no bloco extraído; `ttsWithFallback` continua porque está em sendTts closure)
+   - `detectObjection` permanece (ainda usado em 2 outros paths: sale_closed detection + auto-handoff)
+   - **2494 → 2306 lin (-188 nesta onda)**. Acumulado B5: **-2238 desde 4544 (-49.3%)**
+
+**Pipeline:**
+- tsc 0 erros
+- vitest: **1215 pass / 9 fails pré-existentes idênticos** (+15 novos)
+- Suite agent isolada: **247/247 PASS** (13 arquivos no `_shared/agent/`)
+- Deploy CLI: ai-agent v100 → **v101 ACTIVE**
+
+**Sprint B5 FECHADO — recap das 11 ondas:**
+
+| Onda | Versão | O que extraiu | Lin |
+|---|---|---|---|
+| 0+1 | v7.40.4 | context + contextDocuments | -90 |
+| 2a | v7.40.5 | promptSections (9 sections) | -64 |
+| 2b | v7.40.6 | qualificationContext | -125 |
+| 2c-i | v7.40.7 | preLLMShortCircuits (R129+R136) | -112 |
+| 2c-ii | v7.40.8 | preLLMAutoExtract + exitActionDispatcher | -121 |
+| 3a | v7.41.0 | tools/mediaTools (send_carousel/media/poll) | -132 |
+| 3b | v7.41.1 | tools/crmTools (assign_label/move_kanban/update_lead_profile) | -107 |
+| 3c | v7.41.2 | tools/searchProducts | -696 |
+| 3d | v7.41.3 | tools/setTagsAndHandoff | -517 |
+| 4 | v7.41.15 | llmCallLoop (LLM call + while + post-LLM cleanup) | -184 |
+| **5** | **v7.41.16** | **dispatchResponse (steps 15.5-22 + Response)** | **-188** |
+| | | **Total** | **-2336**\* |
+
+\*A soma das ondas é -2336 mas outros patches do período (R140-R145) e cleanups adicionaram código intermediário. Saldo líquido absoluto: 4544 → 2306 = **-2238 lin (-49.3%)**.
+
+**Marco arquitetural alcançado:** `ai-agent/index.ts` (2306 lin) é orquestrador puro. Toda lógica de pipeline (setup, prompt, qualif, pre-LLM curto-circuitos, exit actions, tool dispatch das 9 tools, LLM loop, dispatch final) vive em `_shared/agent/`. Sprint C agora tem boundary modular limpo pra introduzir router + product_specialist sem mexer no monolito.
+
+**Andamento Plano Orquestrador:** 56% → **60%** (Sprint B5 100% completo).
+
+**Próximas etapas (roadmap):**
+- ⏳ **Sprint C** — Router LLM tiny + product_specialist POC em prod (marco crítico, ~2-3 semanas)
+- ⏳ Sprint D — Migração 5 specialists completos
+- ⏳ B4 hardening (varredura R134 idempotência, não-bloqueador)
+
+**Frase de retomada:** *"iniciar Sprint C — router LLM + product_specialist POC"*.
+
+---
+
 ## 2026-05-22 (noite III) — Sprint B5 Onda 4 shipped (v7.41.15) — extrai `llmCallLoop`
 
 **Trigger:** user confirmou que cenários Jessica/Wsmart passaram em prod nos testes pós-v7.41.14 e mandou *"bora pra onda 4"* + *"prossiga e depois audite e teste e depois documente, commit e deploy até terminar todas as fases"* + *"só pare quando terminar todas as fases"*.

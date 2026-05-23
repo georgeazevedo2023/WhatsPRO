@@ -13,6 +13,18 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.41.16 (2026-05-22 noite IV) — Sprint B5 Onda 5: extrai `dispatchResponse` (FIM DO SPLIT B5)
+
+Última extração do Sprint B5: steps 15.5-22 + final log/Response 200 do `ai-agent/index.ts` pra `_shared/agent/dispatchResponse.ts`.
+
+- **Arquivo novo:** `_shared/agent/dispatchResponse.ts` (348 lin) — handoff detection (HANDOFF_PATTERNS copiado pra escopo do módulo), TTS decision tree, save msg + update conv + broadcast, response_sent log, lead_profile upsert, deferred handoff trigger, Response 200 build.
+- **Testes novos:** `dispatchResponse.test.ts` (**15 testes, 100% PASS**): happy text/audio paths, TTS fallback, audio split, incomingHasAudio flag, hadExplicitHandoffInLoop skip, broadcast SHADOW, implicit handoff detection (+ negative lookbehind test "não vou te encaminhar"), deferred trigger paths (objection detection + skip quando já houve explícito), summary com products/sentiment/outcome/tools, slice -10 nas conversation_summaries.
+- **index.ts: 2494 → 2306 lin (-188 nesta onda).** Acumulado Sprint B5: **-2238 lin desde 4544 (-49.3%)**. Imports limpos: removidos `splitAudioAndText` (só usado no bloco extraído) + `HANDOFF_PATTERNS` const local.
+- **Sprint B5 FECHADO** com 11 ondas: 0+1, 2a, 2b, 2c-i, 2c-ii, 3a, 3b, 3c, 3d, 4, 5. `ai-agent/index.ts` virou orquestrador de ~2300 lin (de 4544).
+- **Pipeline:** tsc 0 erros · vitest **1215 pass / 9 fails pré-existentes idênticos** (+15 novos) · deploy CLI ai-agent v100→**v101 ACTIVE**
+
+**Andamento plano orquestrador:** 56% → **60%** (Sprint B5 100% completo). Próximo marco: **Sprint C — Router LLM + product_specialist POC** (~2-3 semanas).
+
 ### v7.41.15 (2026-05-22 noite III) — Sprint B5 Onda 4: extrai `llmCallLoop`
 
 Extração do loop principal de function calling do monolito `ai-agent/index.ts` pra `_shared/agent/llmCallLoop.ts`. Inclui setup (geminiContents→llmMessages), while loop (LLM call → tool execution seq/parallel → handoff guard → MAX_TOOL_ROUNDS safety → retry backoff → 502 em 3 falhas → pending Qs injection + follow-up call), e post-LLM cleanup (dedup nome + greeting strip Bug 17 v2).

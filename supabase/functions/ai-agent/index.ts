@@ -13,9 +13,10 @@ import { detectBrand } from '../_shared/brandDetection.ts'
 import { detectClientType } from '../_shared/clientTypeDetection.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
-import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
+import { ttsWithFallback } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
 import { runLlmCallLoop } from '../_shared/agent/llmCallLoop.ts'
+import { dispatchResponse } from '../_shared/agent/dispatchResponse.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
@@ -45,16 +46,6 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || ''
 
 const supabase = createServiceClient()
-
-/** Handoff detection patterns — negative lookahead to avoid false positives
- *  e.g., "não vou encaminhar" should NOT trigger handoff */
-const HANDOFF_PATTERNS = [
-  /(?<!não\s)vou (?:te |lhe )?encaminhar/i,
-  /(?<!não\s|sem\s)transferir (?:você|vc|voce|te|lhe) para/i,
-  /(?:um|nosso|uma) atendente (?:humano|vai|irá)/i,
-  /falar com (?:um |nosso )?vendedor/i,
-  /(?<!não\s|sem\s)encaminhar (?:você|vc|voce) (?:para|ao|à)/i,
-]
 
 /**
  * Bug 16b (2026-05-17) — escolha unificada da mensagem de handoff.
@@ -2253,222 +2244,43 @@ ${contextBlock}`
 
     log.info('Response generated', { outputTokens, preview: responseText.substring(0, 100) })
 
-    // 15.5 Detect handoff BEFORE sending — explicit tool call OR implicit (text mentions transfer)
-    const toolNames = toolCallsLog.map((t: any) => t.name)
-    const hadExplicitHandoff = toolNames.includes('handoff_to_human')
-    const textLooksLikeHandoff = !hadExplicitHandoff && responseText.trim() !== '' &&
-      HANDOFF_PATTERNS.some(p => p.test(responseText))
-    const shouldDisableIa = hadExplicitHandoff || textLooksLikeHandoff
-
-    // If implicit handoff detected, switch to shadow BEFORE sending (so helpdesk sees correct status)
-    if (textLooksLikeHandoff) {
-      log.info('Implicit handoff detected — switching to shadow before sending text')
-      // D30: atribui via fila. LLM gerou o texto livre — não há template para D-γ
-      // (mas helper roda mesmo assim para criar handoff_queue_event + assigned_to).
-      const { result: queueRes } = await runQueueAssignment('')
-      await supabase.from('conversations').update({
-        status_ia: STATUS_IA.SHADOW,
-        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
-        lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
-      }).eq('id', conversation_id)
-      await supabase.from('ai_agent_logs').insert({
-        agent_id, conversation_id, event: 'implicit_handoff',
-        metadata: { response_text: responseText.substring(0, 300), queue: queueRes },
-      })
-    }
-
-    // 16. Send response via UAZAPI (TTS audio or text) — SKIP if handoff already handled it
-    const skipTextSend = hadExplicitHandoffInLoop && !responseText.trim()
-    let sentMediaType = 'text'
-    const maxTtsLength = agent.voice_max_text_length || 150
-    const voiceReplyToAudio = agent.voice_reply_to_audio !== false
-    const wantsAudio = agent.voice_enabled || (incomingHasAudio && voiceReplyToAudio)
-    const shouldSendAudio = wantsAudio && responseText.length <= maxTtsLength
-    // #20: For long responses when lead sent audio, split into audio summary + text
-    const shouldSplitAudio = wantsAudio && responseText.length > maxTtsLength
-
-    log.info('TTS check', { voiceEnabled: agent.voice_enabled, incomingHasAudio, voiceReplyToAudio, responseLen: responseText.length, maxTts: maxTtsLength, shouldSendAudio, shouldSplitAudio })
-    let ttsDebugError = ''
-
-    if (skipTextSend) {
-      log.info('Skipping text send — handoff tool already sent message')
-    } else if (shouldSendAudio) {
-      // Short response → send as audio directly
-      sendPresence('recording')
-      const sent = await sendTts(responseText)
-      if (sent) {
-        sentMediaType = 'audio'
-      } else {
-        ttsDebugError = 'all_providers_failed'
-        await sendTextMsg(responseText)
-      }
-    } else if (shouldSplitAudio) {
-      // #20: Long response → audio summary (first sentence) + full text
-      const split = splitAudioAndText(responseText, maxTtsLength)
-      if (split) {
-        sendPresence('recording')
-        const sent = await sendTts(split.audioText)
-        if (sent) {
-          sentMediaType = 'audio'
-          log.info('Split audio+text', { audioChars: split.audioText.length, fullChars: split.fullText.length })
-        } else {
-          ttsDebugError = 'split_audio_failed'
-        }
-        // Always send full text after audio (or as fallback if audio failed)
-        await sendTextMsg(split.fullText)
-      } else {
-        // Can't split meaningfully, send as text
-        await sendTextMsg(responseText)
-      }
-    } else {
-      await sendTextMsg(responseText)
-    }
-
-    // 17-19: Save message + update conversation + broadcast (wrapped in try-catch to guarantee response_sent log)
-    let savedMsg: any = null
-    try {
-      if (!skipTextSend && responseText.trim()) {
-        const { data } = await supabase
-          .from('conversation_messages')
-          .insert({
-            conversation_id, direction: 'outgoing',
-            content: responseText, media_type: sentMediaType,
-            external_id: `ai_agent_${Date.now()}`,
-          })
-          .select('id, created_at')
-          .single()
-        savedMsg = data
-      }
-
-      // 18. Update conversation — DON'T touch status_ia if handoff already set it to SHADOW
-      const conversationUpdate: Record<string, any> = {
-        last_message_at: new Date().toISOString(),
-        last_message: responseText.substring(0, 200),
-      }
-      if (!hadExplicitHandoff && !textLooksLikeHandoff) {
-        conversationUpdate.status_ia = STATUS_IA.LIGADA
-      }
-      await supabase
-        .from('conversations')
-        .update(conversationUpdate)
-        .eq('id', conversation_id)
-
-      // 19. Broadcast to helpdesk realtime
-      const effectiveStatusIa = hadExplicitHandoff || textLooksLikeHandoff ? STATUS_IA.SHADOW : STATUS_IA.LIGADA
-      broadcastEvent({
-        conversation_id, inbox_id: conversation.inbox_id,
-        message_id: savedMsg?.id, direction: 'outgoing',
-        content: responseText, media_type: sentMediaType,
-        created_at: savedMsg?.created_at || new Date().toISOString(),
-        status_ia: effectiveStatusIa,
-      })
-    } catch (postSendErr) {
-      log.error('Post-send DB ops failed (message already sent to WhatsApp)', { error: (postSendErr as Error).message })
-    }
-
-    // 20. Log interaction
-    await supabase.from('ai_agent_logs').insert({
-      agent_id, conversation_id,
-      event: 'response_sent',
-      input_tokens: inputTokens, output_tokens: outputTokens,
-      model: usedModel, latency_ms: Date.now() - startTime,
-      sub_agent: profileData?.id ?? 'no_profile',
-      tool_calls: toolCallsLog.length > 0 ? toolCallsLog : null,
-      metadata: {
-        incoming_text: incomingText.substring(0, 500),
-        response_text: responseText.substring(0, 500),
-        message_count: (queuedMessages || []).length,
-        sent_media_type: sentMediaType,
-        tts_attempted: shouldSendAudio,
-        tts_error: ttsDebugError || null,
-        incoming_has_audio: incomingHasAudio,
-        voice_reply_to_audio: voiceReplyToAudio,
-        voice_enabled: agent.voice_enabled,
-        response_length: responseText.length,
-        max_tts_length: maxTtsLength,
-      },
+    // Sprint B5 Onda 5 (2026-05-22): steps 15.5-22 + final log + Response 200 extraídos
+    // pra _shared/agent/dispatchResponse.ts. Pipeline preservado linha-a-linha:
+    // handoff detection → TTS decision tree → save msg + update conv + broadcast →
+    // ai_agent_logs.response_sent → lead_profile upsert → deferred handoff trigger →
+    // Response 200 com tokens/latency.
+    const { response: dispatchedResponse } = await dispatchResponse({
+      responseText,
+      agent,
+      agent_id,
+      conversation,
+      conversation_id,
+      contact,
+      toolCallsLog,
+      inputTokens,
+      outputTokens,
+      usedModel,
+      hadExplicitHandoffInLoop,
+      profileData,
+      funnelData,
+      leadProfile,
+      incomingText,
+      incomingHasAudio,
+      queuedMessages,
+      pendingHandoffTrigger,
+      pendingHandoffTriggerMsg,
+      startTime,
+      sendTextMsg,
+      sendTts,
+      sendPresence,
+      broadcastEvent,
+      pickHandoffMessage,
+      runQueueAssignment,
+      supabase,
+      log,
+      corsHeaders,
     })
-
-    // 21. Update lead_profile: interaction count + conversation summary (ALWAYS)
-    try {
-      const products = toolCallsLog
-        .filter((t: any) => t.name === 'search_products' || t.name === 'send_carousel')
-        .flatMap((t: any) => {
-          if (t.name === 'send_carousel') return t.args?.product_ids || []
-          return t.args?.query ? [t.args.query] : []
-        })
-      const currentTags = conversation.tags || []
-
-      const summaryEntry = {
-        date: new Date().toISOString(),
-        summary: `${incomingText.substring(0, 100)} → ${responseText.substring(0, 100)}`,
-        products: [...new Set(products)].slice(0, 5),
-        sentiment: currentTags.find((t: string) => t.startsWith('sentimento:'))?.split(':')[1] || null,
-        outcome: shouldDisableIa ? 'handoff' : 'respondido',
-        tools_used: [...new Set(toolNames)],
-      }
-
-      // Reuse leadProfile from step 8 (avoid duplicate DB query)
-      const existingSummaries: any[] = leadProfile?.conversation_summaries || []
-      const updatedSummaries = [...existingSummaries, summaryEntry].slice(-10)
-      const newCount = (leadProfile?.total_interactions || 0) + 1
-
-      const profileUpdate: Record<string, any> = {
-        contact_id: contact.id,
-        conversation_summaries: updatedSummaries,
-        total_interactions: newCount,
-        last_contact_at: new Date().toISOString(),
-      }
-      // Don't set full_name from contact.name (WhatsApp pushName) — only from lead_profiles confirmed by lead
-
-      await supabase.from('lead_profiles').upsert(profileUpdate, { onConflict: 'contact_id' })
-
-      log.info('Profile updated', { summaries: updatedSummaries.length, interactions: newCount })
-    } catch (sumErr) {
-      log.error('Profile update error', { error: (sumErr as Error).message })
-    }
-
-    // 22. Execute deferred handoff trigger (when grouped msgs had questions before the trigger)
-    if (pendingHandoffTrigger && !hadExplicitHandoff && !textLooksLikeHandoff) {
-      log.info('Executing deferred handoff trigger after LLM response', { trigger: pendingHandoffTrigger })
-      // Bug 16b: respeitar horário comercial (antes sempre usava handoff_message)
-      const notifyOutsideDef = agent.notify_outside_hours_on_handoff !== false
-      const outsideHoursDef = notifyOutsideDef && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      const handoffMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursDef })
-      // D30: atribui via fila ANTES de enviar
-      const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
-      await sendTextMsg(finalMessage)
-      await supabase.from('conversation_messages').insert({
-        conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
-      })
-      // R113.1 G1: detect objection synchronously (deferred path)
-      const objectionTagDeferred = detectObjection(pendingHandoffTriggerMsg)
-      const tagsToMergeDeferred: Record<string, string> = { ia: STATUS_IA.SHADOW }
-      if (objectionTagDeferred) tagsToMergeDeferred.objecao = objectionTagDeferred
-
-      await supabase.from('conversations').update({
-        status_ia: STATUS_IA.SHADOW,
-        tags: mergeTags(conversation.tags || [], tagsToMergeDeferred),
-        lead_msg_count: 0,  // R86: reset counter so returning lead doesn't re-trigger auto-handoff
-      }).eq('id', conversation_id)
-      await supabase.from('ai_agent_logs').insert({
-        agent_id, conversation_id, event: 'handoff_trigger',
-        latency_ms: Date.now() - startTime,
-        metadata: { trigger: pendingHandoffTrigger, objection: objectionTagDeferred, deferred: true, incoming_text: incomingText.substring(0, 300), queue: queueRes },
-      })
-      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
-    }
-
-    log.info('Done', { latency_ms: Date.now() - startTime, inputTokens, outputTokens, toolCount: toolCallsLog.length })
-
-    return new Response(JSON.stringify({
-      ok: true, conversation_id,
-      response: responseText.substring(0, 200),
-      tokens: { input: inputTokens, output: outputTokens },
-      latency_ms: Date.now() - startTime,
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return dispatchedResponse
 
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
