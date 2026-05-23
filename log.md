@@ -9,6 +9,63 @@ type: log
 
 ---
 
+## 2026-05-23 — Sprint C iniciado (v7.42.0) — C1+C2+C3 shipped (Foundations + Router LLM)
+
+**Trigger:** user mandou *"iniciar Sprint C — router LLM + product_specialist POC"* logo após shipping da Onda 5 que fechou Sprint B5. Sprint C é o **marco arquitetural** (router LLM tiny + 1º specialist, ~2 semanas, 7 sub-tasks). Antes de codar, apresentei via AskUserQuestion 3 opções de fatiamento; user escolheu **"Foundations + Router (C1+C2+C3) — Recomendado"** — router em isolamento + DB pronto, sem código de specialist nesta sessão.
+
+**Plano lido:** `wiki/plano-orquestrador-subagentes-part2.md` (Sprint C parte 2 do plano original). 7 sub-tasks: C1 (schema ai_agent_runs), C2 (router gpt-5-nano), C3 (feature flag), C4 (product_specialist), C5 (hop guard), C6 (E2E sandbox), C7 (dashboard Roteamento). Esta sessão: C1+C2+C3.
+
+**Execução (5 etapas):**
+
+1. **C1 — Migration `ai_agent_runs`** (`supabase/migrations/20260523000000_sprint_c1_ai_agent_runs.sql`):
+   - 11 colunas core: conversation_id (FK), agent_id (FK), turn_id, hop_n (0=router, 1=specialist), specialist (CHECK 9 valores: router/monolith/greeting/qualification/product/handoff/objection/payment/fora_escopo), intent, confidence, model, input_tokens, output_tokens, latency_ms, tools_called JSONB, prompt_chars, metadata JSONB, created_at
+   - 2 índices: `(conversation_id, created_at DESC)` pra dashboards + `(agent_id, specialist, created_at DESC)` pra accuracy router
+   - RLS enabled. GRANT ALL service_role. Sem policy authenticated (dashboard C7 vai via RPC SECURITY DEFINER — sem leak entre tenants).
+   - 1ª tentativa MCP falhou: policy referenciava `inbox_members` (table não existe no projeto novo). Refeito sem policy.
+
+2. **C3 — Migration `ai_agents.routing_mode`** (`20260523000001_sprint_c3_ai_agents_routing_mode.sql`):
+   - ALTER TABLE ADD COLUMN TEXT NOT NULL DEFAULT 'monolith' CHECK IN ('monolith','router')
+   - Index parcial WHERE routing_mode <> 'monolith' (queries "quantos agents em router?")
+   - `'routing_mode'` adicionado ao ALLOWED_FIELDS em `AIAgentTab.tsx`
+
+3. **types.ts regen via MCP:** `mcp__supabase-novo__generate_typescript_types` retornou JSON wrapper de 193 KB (excedeu output). Extraído via Node.js path absoluto Windows pra escrever em `src/integrations/supabase/types.ts` (186 KB). Confirmados `ai_agent_runs` (linha 341) + `routing_mode: string` (linha 527).
+
+4. **C2 — Router LLM** (`_shared/agent/router.ts`, ~280 lin):
+   - `ROUTER_SYSTEM_PROMPT` exportado (~800 chars XML-style: `<role>` + `<intents>` 7 categorias + `<output_schema>` + `<rules>`)
+   - `classifyIntent(ctx)` retorna `RouterResult` (intent, confidence, reason, model, tokens, latencyMs, fallback) — SEMPRE retorna válido (zero exceptions ao caller)
+   - `logRouterRun(supabase, params)` inserta em `ai_agent_runs` com hop_n=0, specialist='router', non-fatal se INSERT falhar
+   - **Defesa em profundidade 4 níveis:** parser tolera JSON puro / markdown fence ```json``` / texto extra envolvente → fallback `qualificacao` em (1) parse failed (2) intent inválido fora das 7 (3) confidence < 0.6 com intent diferente (4) LLM exception
+   - Modelo padrão `gpt-5-nano` (alvo <500ms, ~$0.0001/turno). Temperature 0.1 (determinístico). maxTokens 150.
+
+5. **C2 testes** (`router.test.ts`, 21 testes 100% PASS):
+   - 7 intents × happy (it.each)
+   - Defesa: JSON malformado, markdown fence, texto extra, intent inválido, confidence<0.6 override, qualificacao já + low-confidence sem fallback, exception, confidence clamp [0,1]
+   - Prompt construction: system+user+tags+history, routerModel override, history truncado em 5 últimas
+   - logRouterRun: INSERT correto + non-fatal em DB failure
+
+**Pipeline:**
+- tsc 0 erros
+- vitest: **1236 pass / 9 fails pré-existentes idênticos** (+21 novos)
+- Suite agent isolada: **268/268 PASS** (14 arquivos no `_shared/agent/`)
+- Deploy CLI: ai-agent v101 → **v102 ACTIVE** (router.ts uploaded; sem mudança comportamento — default flag preserva monolith)
+
+**Estado prod:**
+- 0 agents em modo router (todos defaultando pra 'monolith')
+- Tabela `ai_agent_runs` criada, vazia
+- Router code disponível em _shared mas NÃO chamado pelo index.ts (Sprint C4 next)
+
+**Andamento Plano Orquestrador:** 60% → **63%** (3% nesta sessão).
+
+**Próximas sessões (Sprint C continuação):**
+- **C4** product_specialist (~60 lin, ~3 KB prompt) — reusa `_shared/agent/tools/searchProducts.ts` já extraído
+- **C5** hop guard anti-loop (max 2 hops: router→specialist→done)
+- **C6** E2E sandbox 10 cenários comparativos monolith vs router (critério go/no-go: router ≥ monolith em qualidade E ≤ 2× latência)
+- **C7** dashboard admin "Roteamento" (intents/latência/custo/accuracy)
+
+**Frase de retomada:** *"executar Sprint C4 product_specialist + C5 hop guard"*.
+
+---
+
 ## 2026-05-22 (noite IV) — Sprint B5 Onda 5 shipped (v7.41.16) — extrai `dispatchResponse` + **FECHA SPRINT B5**
 
 **Trigger:** user mandou *"executar B5 Onda 5 dispatchResponse"* logo após shipping da Onda 4. Última onda do split B5 — fim de 2 dias de extrações wave-based.

@@ -93,6 +93,8 @@ const ALLOWED_FIELDS = [
   'extended_hours_until',
   // 2026-05-13: toggle que controla a msg de transbordo fora do horário
   'notify_outside_hours_on_handoff',
+  // Sprint C (2026-05-23): feature flag router LLM vs monolito
+  'routing_mode',
 ];
 
 export default function AIAgentTab() {

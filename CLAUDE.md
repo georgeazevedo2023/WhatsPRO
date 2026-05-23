@@ -6,7 +6,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🎯 Andamento do Plano Orquestrador — **60% concluído** (Sprint B5 FECHADO)
+## 🎯 Andamento do Plano Orquestrador — **63% concluído** (Sprint C iniciado)
 
 > Objetivo: monolito (1 LLM mega 17 KB) → **router LLM tiny + 5-6 specialists** + camada determinística + memória longa. Atualizado a cada sprint. Detalhe completo: [[wiki/plano-orquestrador-subagentes]] · [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -30,13 +30,17 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | R138 + R137 v2 — sanitiza query + 6 integration tests reais | ✅ Shipped (v7.41.6) | 1% | 52% |
 | **R140-R145** — stack trace + TDZ + chain rica + seed + auto-correct + dedup + doc cleanup | ✅ Shipped (v7.41.7→v7.41.14) | 1% | 53% |
 | **B5 Onda 4** — extrai llmCallLoop (setup + while + post-LLM cleanup, -184 lin) | ✅ Shipped (v7.41.15) | 3% | 56% |
-| **B5 Onda 5** — extrai dispatchResponse (steps 15.5-22 + final Response, -188 lin) | ✅ Shipped (v7.41.16) | 4% | **60%** |
+| **B5 Onda 5** — extrai dispatchResponse (steps 15.5-22 + final Response, -188 lin) | ✅ Shipped (v7.41.16) | 4% | 60% |
+| **Sprint C parcial 1/3** — C1 ai_agent_runs + C3 routing_mode flag + C2 router LLM (gpt-5-nano, 7 intents, defesa 4 níveis) | ✅ Shipped (v7.42.0) | 3% | **63%** |
+| Sprint C parcial 2/3 — C4 product_specialist + C5 hop guard | ⏳ | 5% | — |
+| Sprint C parcial 3/3 — C6 E2E sandbox + C7 dashboard Roteamento | ⏳ | 7% | — |
+| Sprint D — 5 specialists completos + migração 100% | ⏳ | 15% | — |
 | B4 — Varredura R134 idempotência | ⏳ (hardening, não-bloqueador) | 5% | — |
 | **Sprint C** — Router + product_specialist POC | ⏳ MARCO | 15% | — |
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |
 | Sprint E — Memória longa + proatividade + RAG | ⏳ Inteligência avançada | 10% | — |
 
-**Hoje (2026-05-22 noite IV):** Sprint B5 Onda 5 shipped — extraído `dispatchResponse` (steps 15.5-22 + final Response 200) pra `_shared/agent/dispatchResponse.ts` com 15 testes vitest. index.ts: 2494 → **2306 lin (-188)**. Acumulado B5: **-2238 lin desde 4544 (-49.3%)**. **Sprint B5 FECHADO** com 11 ondas. Pipeline OK (1215 pass / 9 fails pré-existentes), deploy CLI ai-agent v100→**v101 ACTIVE**. ai-agent/index.ts agora é orquestrador puro de ~2300 lin com 100% da lógica de pipeline em `_shared/agent/` (context + promptSections + qualificationContext + preLLMShortCircuits + preLLMAutoExtract + exitActionDispatcher + tools/{media,crm,search,setTagsAndHandoff} + llmCallLoop + dispatchResponse). Próximo: **Sprint C — Router LLM + product_specialist POC** (~2-3 sem, marco de migração orquestrador).
+**Hoje (2026-05-23):** Sprint C iniciado — foundations + router LLM (C1+C2+C3) shipped. Migrations aplicadas em prod: `ai_agent_runs` (trace por hop, RLS service_role only) + `ai_agents.routing_mode TEXT DEFAULT 'monolith'` (feature flag, prod intocada). Router LLM (`_shared/agent/router.ts`, ~280 lin) com `classifyIntent` (7 intents, gpt-5-nano alvo <500ms, ~800 chars prompt) + `logRouterRun` insert helper. Defesa em profundidade 4 níveis (JSON parse / intent inválido / confidence<0.6 / LLM exception → fallback `qualificacao`). 21 testes vitest 100% PASS. ai-agent v101→**v102 ACTIVE** (deploy preserva default monolith — zero impacto prod). Andamento: 60% → **63%**. Próximas sessões: **C4** (product_specialist usa tools/searchProducts.ts já extraído) + **C5** (hop guard max 2) + **C6** (E2E sandbox 10 cenários) + **C7** (dashboard Roteamento).
 
 **Métricas-alvo 90 dias:** prompt <8 KB (hoje 17 KB) · incidentes/14d <3 (hoje ~10) · router + 5 specialists · debug claro ("specialist X falhou na intent Y") · memória longa por lead.
 
