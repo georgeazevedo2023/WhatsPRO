@@ -17,6 +17,10 @@ import { ttsWithFallback } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
 import { runLlmCallLoop } from '../_shared/agent/llmCallLoop.ts'
 import { dispatchResponse } from '../_shared/agent/dispatchResponse.ts'
+// Sprint C4+C5 (2026-05-23): router LLM + product_specialist + hop guard
+import { classifyIntent, logRouterRun, type Intent } from '../_shared/agent/router.ts'
+import { runProductSpecialist } from '../_shared/agent/productSpecialist.ts'
+import { checkHopLimit, generateTurnId } from '../_shared/agent/hopGuard.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
@@ -1987,6 +1991,86 @@ ${contextBlock}`
     // + retry backoff, e cleanup Bug 17 v2 (dedup nome + greeting strip).
     // executeToolSafe permanece em index.ts (também usado por R121 inline + R137 wire
     // + set_tags handler). toolCallsLog é ref mutável compartilhada (R121/R141).
+    // ─────────────────────────────────────────────────────────────────────
+    // Sprint C4+C5 (2026-05-23): router pipeline experimental (POC)
+    // Behind feature flag agent.routing_mode='router'. Default 'monolith'.
+    // Atualmente só intent='produto' tem specialist (product_specialist).
+    // Outras intents fazem fallback pro monolith com log.
+    // ─────────────────────────────────────────────────────────────────────
+    if (agent.routing_mode === 'router') {
+      const turn_id = generateTurnId()
+      log.info('Router pipeline START', { turn_id, conversation_id })
+
+      try {
+        const hopCheck = await checkHopLimit({
+          supabase, turn_id, agent_id, conversation_id, log,
+        })
+        if (!hopCheck.allow) {
+          log.warn('Router: hop guard tripped (defensive fallback to monolith)', hopCheck)
+        } else {
+          // Hop 0: classifyIntent
+          const shortHistory = (geminiContents as any[])
+            .slice(-5)
+            .map((c) => ({
+              role: c.role === 'model' ? ('assistant' as const) : ('user' as const),
+              content: (c.parts?.[0]?.text || '').substring(0, 200),
+            }))
+          const routerResult = await classifyIntent({
+            lastIncoming: incomingText,
+            conversationTags: conversation.tags || [],
+            shortHistory,
+            log,
+          })
+          await logRouterRun(supabase, {
+            conversation_id, agent_id, turn_id,
+            result: routerResult,
+            promptChars: 936, // ROUTER_SYSTEM_PROMPT.length, hardcoded pra evitar import extra
+            log,
+          })
+          log.info('Router result', { intent: routerResult.intent, confidence: routerResult.confidence, fallback: routerResult.fallback })
+
+          // Dispatch por intent — só 'produto' tem specialist na POC C4
+          if (routerResult.intent === 'produto') {
+            log.info('Dispatching to product_specialist (hop 1)')
+            const serviceCategories = (agent.service_categories as any[]) || []
+            const productResult = await runProductSpecialist({
+              turn_id,
+              agent, agent_id, conversation, conversation_id, contact,
+              serviceCategories,
+              geminiContents,
+              incomingText,
+              toolCallsLog,
+              executeToolSafe,
+              profileData, funnelData, leadProfile,
+              incomingHasAudio,
+              queuedMessages: queuedMessages || [],
+              pendingHandoffTrigger,
+              pendingHandoffTriggerMsg,
+              sendTextMsg, sendTts, sendPresence, broadcastEvent,
+              pickHandoffMessage, runQueueAssignment,
+              hasInteracted,
+              startTime,
+              supabase, log, corsHeaders,
+            })
+            log.info('Router pipeline END (product_specialist)', {
+              input_tokens: productResult.inputTokens,
+              output_tokens: productResult.outputTokens,
+              prompt_chars: productResult.promptChars,
+            })
+            return productResult.response
+          }
+
+          log.info('Router: intent without specialist yet, falling back to monolith', {
+            intent: routerResult.intent,
+          })
+          // Fallthrough pro monolith abaixo
+        }
+      } catch (err) {
+        log.error('Router pipeline error (fallback to monolith)', { error: (err as Error).message })
+        // Fallthrough pro monolith
+      }
+    }
+
     const llmModel = agent.model || 'gpt-4.1-mini'
     log.info('Calling LLM', { conversation_id, model: llmModel })
 

@@ -13,6 +13,21 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.43.0 (2026-05-23) — Sprint C parcial 2/3: product_specialist + hop guard + wire-in
+
+**Primeiro specialist em prod (POC).** Wire-in do router pipeline atrás de feature flag `routing_mode='router'`. Default monolith preservado — zero impacto comportamental até admin ativar router em um agent.
+
+- **`_shared/agent/productSpecialist.ts` (380 lin):** `runProductSpecialist(ctx)` orquestra prompt enxuto (~3 KB target) + LLM loop (reusa `llmCallLoop.ts` da Onda 4) + dispatch (reusa `dispatchResponse.ts` da Onda 5). Prompt builder dinâmico: persona + 7 rules + 5 tools strict (search_products, send_carousel, send_media, set_tags, update_lead_profile) + catalog_summary (marca offline) + facts_collected (filtra tags internas). Default model `gpt-5-mini`.
+- **`_shared/agent/hopGuard.ts` (~100 lin):** `checkHopLimit(ctx)` consulta `ai_agent_runs` por turn_id; bloqueia se >= maxHops (default 2 = router + specialist). Defensivo: DB error → allow=true (não bloqueia pipeline por monitoring offline). `generateTurnId()` UUID v4.
+- **Wire-in `ai-agent/index.ts`:** novo bloco ANTES do monolith. Se `agent.routing_mode === 'router'`: gera turn_id → checkHopLimit → classifyIntent → logRouterRun → dispatch por intent. Apenas `intent='produto'` tem specialist; outras intents fazem fallthrough pro monolith com log. Erro no router pipeline = fallback automático pro monolith.
+- **Testes:** `productSpecialist.test.ts` 15 PASS (persona, offline flag, facts filter, tools strict, sizes) + `hopGuard.test.ts` 8 PASS (allow hop 0/1, block hop 2, custom maxHops, DB error defensive, UUID v4 valid).
+- **Migração modelo Eletropiso V2:** `gpt-4.1-mini` → `gpt-5-mini` via UPDATE direto (bug #1 fechado em v7.42.1, agora seguro). Sandbox Agent já em gpt-5-mini.
+- **Pipeline:** tsc 0 erros · vitest **1282 pass / 9 fails pré-existentes idênticos** (+23 novos) · deploy CLI ai-agent v103→**v104 ACTIVE**.
+
+**Estado:** primeiro carro do orquestrador está montado. Falta ligar — admin precisa setar `routing_mode='router'` em algum agent pra validar E2E. POC ainda só cobre intent='produto'; outras 6 intents (saudacao/qualificacao/handoff/objecao/pagamento/fora_escopo) fazem fallback pro monolith.
+
+**Andamento plano orquestrador:** 63% → **68%**.
+
 ### v7.42.1 (2026-05-23) — Auditoria pós-Sprint-C-parcial-1: fecha 3 gaps (A+B+C)
 
 Auditoria honesta da v7.42.0 identificou 3 gaps; todos fechados nesta release. Sem nova feature visual pro lead — hardening que torna Sprint C4 viável.
