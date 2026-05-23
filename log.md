@@ -9,6 +9,42 @@ type: log
 
 ---
 
+## 2026-05-23 (tarde) — Auditoria + hardening (v7.42.1) — fecha 3 gaps pegos na auditoria
+
+**Trigger:** após shipping da v7.42.0 e avaliação 7.0/10, user perguntou *"pq ainda nao temos Admin UI sem input visual de routing_mode? pq usa o gpt 4 se eu quero que use o 5?"*. Auditoria já tinha pego mas eu adiei. Reconheci honestamente: viés "backend-first" + bug crítico latente (Bug #1 do backlog Sprint A I3) não fechado.
+
+**Bug crítico descoberto na conversa:** `llmProvider.ts:109` usava `max_tokens` puro. Família reasoning (gpt-5/o1/o3) exige `max_completion_tokens`. Router (`gpt-5-nano` default) sempre cairia no `catch` retornando fallback `qualificacao` em prod — "router funciona" só por sorte do defensive coding. Sprint C4 viraria placebo sem este fix.
+
+**3 fixes implementados (~30 min):**
+
+1. **Fix B — llmProvider reasoning branch** (`_shared/llmProvider.ts`):
+   - Helper exportado `isReasoningModel(model: string): boolean` com regex `^(gpt-5|o1|o3|o4)\b` (case-insensitive, prefix boundary pra não pegar "gpt-50")
+   - `callOpenAI`: detecta `isReasoning` no top → body usa `max_completion_tokens` + omite `temperature` (gpt-5/o-series rejeitam custom temp com 400 "Unsupported value 'temperature'")
+   - Classic models (gpt-4.1-mini, gpt-4o, etc.) mantêm path atual (max_tokens + temperature)
+   - **21 testes novos** em `_shared/llmProvider.test.ts` (precisei mockar `Deno.env` antes do import dinâmico): 11 modelos reasoning detected (gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-mini-2026-01-15, o1, o1-mini, o1-preview, o3, o3-mini, o4-mini, GPT-5-MINI case-insensitive) + 9 modelos clássicos NOT detected (gpt-4.1-mini, gpt-4o, gpt-3.5-turbo, gemini, claude, '', gpt-50-future, o5-future) + 1 null/undefined safe
+   - **21/21 PASS**
+
+2. **Fix C — 2 testes faltantes router** (`router.test.ts` 21→23 testes):
+   - "confidence como string '0.9'" — typeof check falha → confidence=0 → override qualificacao com fallback=true. Documenta defesa.
+   - "2 JSON objects balanceados" — parser pega substring entre primeiro `{` e último `}` → JSON inválido entre eles → parse falha → fallback qualificacao. Documenta limitação conhecida do parser.
+
+3. **Fix A — Admin UI Select routing_mode** (`AIAgentTab.tsx`):
+   - Import `useAuth` + destructure `isSuperAdmin`
+   - Bloco novo na tab Setup (após BusinessInfoConfig), renderizado só pra super_admin
+   - Visual: card âmbar com ícone BrainCircuit + Label "Modo de Roteamento (experimental, super_admin)" + descrição didática (monolito vs router POC) + Select shadcn 2 opções + warning amarelo conditional ao selecionar 'router'
+   - Reusa `handleChange({ routing_mode: v })` (já em ALLOWED_FIELDS desde v7.42.0)
+
+**Pipeline:**
+- tsc 0 erros
+- vitest: **1259 pass / 9 fails pré-existentes idênticos** (+23 novos vs v7.42.0)
+- Deploy CLI: ai-agent v102 → **v103 ACTIVE**
+
+**Veredito honesto:** v7.42.0 declarei "shipped" mas escondia bug crítico — o router só funcionava porque o `catch` silencia o erro 400 do OpenAI. v7.42.1 corrige isso. **Agora Sprint C4 pode começar do zero limpo.**
+
+**Andamento Plano Orquestrador:** 63% (mesmo — Fix #1 era débito do Sprint A, não nova feature). Próximo: **Sprint C4 product_specialist + C5 hop guard** (frase de retomada: *"executar Sprint C4 product_specialist + C5 hop guard"*).
+
+---
+
 ## 2026-05-23 — Sprint C iniciado (v7.42.0) — C1+C2+C3 shipped (Foundations + Router LLM)
 
 **Trigger:** user mandou *"iniciar Sprint C — router LLM + product_specialist POC"* logo após shipping da Onda 5 que fechou Sprint B5. Sprint C é o **marco arquitetural** (router LLM tiny + 1º specialist, ~2 semanas, 7 sub-tasks). Antes de codar, apresentei via AskUserQuestion 3 opções de fatiamento; user escolheu **"Foundations + Router (C1+C2+C3) — Recomendado"** — router em isolamento + DB pronto, sem código de specialist nesta sessão.

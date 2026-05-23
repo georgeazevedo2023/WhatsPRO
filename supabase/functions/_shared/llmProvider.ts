@@ -72,12 +72,29 @@ export interface LLMResponse {
 /*  OpenAI Chat Completions                    */
 /* ═══════════════════════════════════════════ */
 
+/**
+ * Detecta família "reasoning" do OpenAI (gpt-5*, o1*, o3*, o4*).
+ * Reasoning models exigem `max_completion_tokens` em vez de `max_tokens` —
+ * OpenAI retorna 400 "Unsupported parameter 'max_tokens'" se enviar errado.
+ *
+ * Sprint C Fix #1 (2026-05-23): bug latente desde Sprint A I3. Antes deste
+ * branch, default fallback gpt-5-mini quebrava em prod, forçando Eletropiso
+ * a manter gpt-4.1-mini explícito. Sem este fix, router (gpt-5-nano) também
+ * quebraria — só funcionava por sorte do catch silencioso retornar fallback.
+ */
+export function isReasoningModel(model: string): boolean {
+  if (!model) return false
+  const m = model.toLowerCase()
+  return /^(gpt-5|o1|o3|o4)\b/.test(m)
+}
+
 async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
   const startMs = Date.now()
   // Sprint A I3 (2026-05-21): fallback default migrado pra gpt-5-mini.
   // Custo praticamente neutro ($6 vs $6.40/10k msgs), instruction following melhor,
   // structured outputs nativos. Agentes com agent.model setado mantêm o valor.
   const model = req.model || 'gpt-5-mini'
+  const isReasoning = isReasoningModel(model)
 
   const openaiMessages: any[] = [
     { role: 'system', content: req.systemPrompt },
@@ -105,8 +122,17 @@ async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
   const body: Record<string, unknown> = {
     model,
     messages: openaiMessages,
-    temperature: req.temperature ?? 0.7,
-    max_tokens: req.maxTokens ?? 1024,
+  }
+  // Sprint C Fix #1: branch reasoning-model-aware.
+  // - max_completion_tokens em vez de max_tokens
+  // - temperature: reasoning models só aceitam default (1.0). Custom temp gera
+  //   400 "Unsupported value 'temperature'". Omitimos pra reasoning, mantemos
+  //   pra modelos clássicos (gpt-4.1-mini, gpt-3.5, etc.).
+  if (isReasoning) {
+    body.max_completion_tokens = req.maxTokens ?? 1024
+  } else {
+    body.temperature = req.temperature ?? 0.7
+    body.max_tokens = req.maxTokens ?? 1024
   }
   if (openaiTools.length > 0) body.tools = openaiTools
 

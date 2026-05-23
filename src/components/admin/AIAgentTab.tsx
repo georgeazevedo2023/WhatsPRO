@@ -35,6 +35,7 @@ import { PromptStudio } from './ai-agent/PromptStudio';
 import { ValidatorMetrics } from './ai-agent/ValidatorMetrics';
 import { PollConfigSection } from './ai-agent/PollConfigSection';
 import { NICHE_TEMPLATES } from '@/data/nicheTemplates';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AIAgent {
   id: string; instance_id: string; enabled: boolean; name: string;
@@ -99,6 +100,7 @@ const ALLOWED_FIELDS = [
 
 export default function AIAgentTab() {
   const { instances } = useInstances();
+  const { isSuperAdmin } = useAuth();
   const [agents, setAgents] = useState<AIAgent[]>([]);
   // Persistido em sessionStorage: sobrevive a refresh acidental, escopo por aba.
   const [selectedAgentId, setSelectedAgentId] = usePersistedState<string | null>('aiagent.selectedAgentId', null);
@@ -556,6 +558,45 @@ export default function AIAgentTab() {
                   <div className="space-y-6">
                     <GeneralConfig config={config} onChange={handleChange} instances={instances || []} />
                     <BusinessInfoConfig config={config} onChange={handleChange} />
+
+                    {/* Sprint C (2026-05-23): feature flag routing_mode. Visível só super_admin
+                        durante POC. Default 'monolith' = pipeline atual. 'router' = novo
+                        classifyIntent + specialist (em desenvolvimento — não habilitar em prod
+                        sem coordenação). */}
+                    {isSuperAdmin && (
+                      <div className="rounded-lg border border-amber-300/40 bg-amber-50/30 dark:bg-amber-950/10 p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <BrainCircuit className="w-4 h-4 text-amber-600" />
+                          <Label className="text-sm font-semibold">Modo de Roteamento <span className="text-xs text-amber-600 font-normal">(experimental, super_admin)</span></Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          <strong>Monolito</strong> (recomendado): pipeline atual, 1 LLM call mega.<br/>
+                          <strong>Router POC</strong>: classifyIntent (gpt-5-nano) + specialist por intent.
+                          Em desenvolvimento — só ativar com coordenação. Não tem rollback automático.
+                        </p>
+                        <Select
+                          value={(config.routing_mode as string) || 'monolith'}
+                          onValueChange={(v) => handleChange({ routing_mode: v })}
+                        >
+                          <SelectTrigger className="w-full max-w-sm">
+                            <SelectValue placeholder="Selecione o modo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="monolith">Monolito (recomendado)</SelectItem>
+                            <SelectItem value="router">Router POC (experimental)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {config.routing_mode === 'router' && (
+                          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-100/40 dark:bg-amber-950/30 rounded p-2">
+                            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                            <span>
+                              Modo Router ativo — agent vai usar pipeline experimental. Specialists
+                              ainda em desenvolvimento (Sprint C4+). Rollback: voltar pra Monolito aqui.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

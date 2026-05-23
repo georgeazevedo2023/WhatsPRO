@@ -163,6 +163,37 @@ describe('classifyIntent — defesa em profundidade', () => {
     const result = await classifyIntent(makeCtx())
     expect(result.confidence).toBe(0)
   })
+
+  // === Edge cases pegos na auditoria (Fix C) ===
+
+  it('Auditoria: confidence como string "0.9" → typeof number falha → fallback 0 → override qualificacao', async () => {
+    // gpt-5-nano às vezes serializa números como string. Defesa: typeof check.
+    mockState.callLLMQueue.push(
+      makeLLMResponse(JSON.stringify({ intent: 'produto', confidence: '0.9', reason: 'string num' })),
+    )
+    const result = await classifyIntent(makeCtx())
+    // typeof '0.9' === 'string' → confidence = 0 → confidence < 0.6 → override qualificacao
+    expect(result.intent).toBe('qualificacao')
+    expect(result.confidence).toBe(0)
+    expect(result.fallback).toBe(true)
+    expect(result.reason).toContain('low-confidence')
+  })
+
+  it('Auditoria: 2 objetos JSON balanceados → parser pega substring entre primeiro { e último }', async () => {
+    // Caso patológico: LLM cospe 2 JSONs (ex: rascunho + final). O parser atual
+    // pega indexOf('{') até lastIndexOf('}'), portanto pode pegar lixo entre eles.
+    // Resultado esperado: parse falha (JSON inválido entre 2 objetos) → fallback.
+    const tworesponse = JSON.stringify({ intent: 'produto', confidence: 0.9, reason: 'a' })
+      + '\n'
+      + JSON.stringify({ intent: 'objecao', confidence: 0.8, reason: 'b' })
+    mockState.callLLMQueue.push(makeLLMResponse(tworesponse))
+    const result = await classifyIntent(makeCtx())
+    // Comportamento atual documentado: substring entre { e } gera JSON inválido
+    // (}...{) → parse falha → fallback qualificacao. Não pega o 1º nem o 2º.
+    expect(result.intent).toBe('qualificacao')
+    expect(result.fallback).toBe(true)
+    expect(result.reason).toContain('parse failed')
+  })
 })
 
 describe('classifyIntent — prompt construction', () => {

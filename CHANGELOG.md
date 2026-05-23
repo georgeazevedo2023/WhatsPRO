@@ -13,6 +13,17 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.42.1 (2026-05-23) — Auditoria pós-Sprint-C-parcial-1: fecha 3 gaps (A+B+C)
+
+Auditoria honesta da v7.42.0 identificou 3 gaps; todos fechados nesta release. Sem nova feature visual pro lead — hardening que torna Sprint C4 viável.
+
+- **Fix B (crítico):** `_shared/llmProvider.ts` ganhou helper `isReasoningModel(model)` (regex `^(gpt-5|o1|o3|o4)\b`) + branch reasoning-model-aware no `callOpenAI`: usa `max_completion_tokens` em vez de `max_tokens` + omite `temperature` (gpt-5/o-series rejeitam custom temp). Sem este fix, router gpt-5-nano sempre caía no catch silencioso → 100% fallback `qualificacao` em prod. Bug latente desde Sprint A I3 (2026-05-21). **21 testes novos** `llmProvider.test.ts` cobrindo família + edge cases (case-insensitive, prefix boundary).
+- **Fix C (cobertura):** `router.test.ts` ganhou 2 testes pegos na auditoria: `confidence` retornado como string `"0.9"` → typeof number falha → fallback qualificacao; 2 JSON objects balanceados → parser pega substring entre `{` e `}` → JSON inválido → fallback. Total router: **23/23 PASS**.
+- **Fix A (UX):** novo Select "Modo de Roteamento" na tab Setup do `AIAgentTab.tsx`, visível só pra super_admin. Opções Monolito (recomendado) / Router POC (experimental) com aviso visual amarelo ao escolher Router. Antes era editável só via SQL/MCP.
+- **Pipeline:** tsc 0 erros · vitest **1259 pass / 9 fails pré-existentes idênticos** (+23 novos: 21 isReasoningModel + 2 router edge cases) · deploy CLI ai-agent v102→**v103 ACTIVE**.
+
+**Estado:** Sprint C parcial 1 (router + DB) **agora está completo de verdade**. Router pode ser ativado por agent sem fallback silencioso. Próxima sessão (Sprint C4) começa do estado limpo.
+
 ### v7.42.0 (2026-05-23) — Sprint C parcial 1/3: Foundations + Router LLM (NOVO MARCO)
 
 Início do Sprint C — router LLM + product_specialist POC. Esta entrega cobre C1+C2+C3 (foundations + router em isolamento). Prod intocada (default `routing_mode='monolith'`).
