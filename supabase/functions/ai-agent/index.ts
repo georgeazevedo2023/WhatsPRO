@@ -247,6 +247,39 @@ Deno.serve(async (req) => {
         log.warn('UAZAPI circuit breaker OPEN — skipping send/text')
         return false
       }
+      // R145 (2026-05-22 v7.41.12) — dedup outgoing. Caso Wsmart 21:06:
+      // 2 turns processaram msgs "Oi vc manda..." + "Jessica" em 4s.
+      // Cada turn gerou MESMA pergunta "Pra te ajudar com a porta certa..."
+      // Lead viu pergunta IDÊNTICA 2× em sequência. Anti-eco server-side:
+      // antes de enviar, check última msg outgoing dos últimos 60s. Se mesmo
+      // texto (normalized), skip silencioso + log.
+      if (text && text.trim()) {
+        const normalized = text.trim().toLowerCase()
+        try {
+          const { data: lastOutgoing } = await supabase
+            .from('conversation_messages')
+            .select('content, created_at')
+            .eq('conversation_id', conversation_id)
+            .eq('direction', 'outgoing')
+            .eq('media_type', 'text')
+            .gte('created_at', new Date(Date.now() - 60_000).toISOString())
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (lastOutgoing && lastOutgoing.content) {
+            const lastNorm = String(lastOutgoing.content).trim().toLowerCase()
+            if (lastNorm === normalized) {
+              log.warn('R145: dedup outgoing — same text within 60s, skip', {
+                text_preview: text.substring(0, 80),
+                last_sent_at: lastOutgoing.created_at,
+              })
+              return true
+            }
+          }
+        } catch (err) {
+          log.warn('R145 dedup check failed (non-fatal)', { error: (err as Error).message })
+        }
+      }
       try {
         const res = await fetchWithTimeout(`${uazapiUrl}/send/text`, {
           method: 'POST',
