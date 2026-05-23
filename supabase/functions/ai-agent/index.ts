@@ -247,12 +247,15 @@ Deno.serve(async (req) => {
         log.warn('UAZAPI circuit breaker OPEN — skipping send/text')
         return false
       }
-      // R145 (2026-05-22 v7.41.12) — dedup outgoing. Caso Wsmart 21:06:
-      // 2 turns processaram msgs "Oi vc manda..." + "Jessica" em 4s.
-      // Cada turn gerou MESMA pergunta "Pra te ajudar com a porta certa..."
-      // Lead viu pergunta IDÊNTICA 2× em sequência. Anti-eco server-side:
-      // antes de enviar, check última msg outgoing dos últimos 60s. Se mesmo
-      // texto (normalized), skip silencioso + log.
+      // R145 v2 (2026-05-22 v7.41.13) — dedup outgoing CORRIGIDO.
+      // Caso Wsmart 21:06: 2 turns processaram msgs em 4s → resposta idêntica.
+      // BUG v7.41.12: janela 60s + ignorou ia_cleared. Caso Jessica 21:43
+      // (limpou contexto): greeting bloqueado porque 58s antes outro greeting
+      // foi enviado (mas em conv contexto antigo). Lead viu só "material?".
+      // Fix v2:
+      //   1. Janela reduzida 60s → 15s (catch race 4-5s, libera retest 58s)
+      //   2. Skip dedup se last outgoing match é ANTERIOR ao ia_cleared TS
+      //      (contexto limpo invalida histórico anterior)
       if (text && text.trim()) {
         const normalized = text.trim().toLowerCase()
         try {
@@ -262,18 +265,42 @@ Deno.serve(async (req) => {
             .eq('conversation_id', conversation_id)
             .eq('direction', 'outgoing')
             .eq('media_type', 'text')
-            .gte('created_at', new Date(Date.now() - 60_000).toISOString())
+            .gte('created_at', new Date(Date.now() - 15_000).toISOString())
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle()
           if (lastOutgoing && lastOutgoing.content) {
             const lastNorm = String(lastOutgoing.content).trim().toLowerCase()
             if (lastNorm === normalized) {
-              log.warn('R145: dedup outgoing — same text within 60s, skip', {
-                text_preview: text.substring(0, 80),
-                last_sent_at: lastOutgoing.created_at,
-              })
-              return true
+              // Cross-check ia_cleared tag — se contexto limpo APÓS last outgoing,
+              // a mensagem antiga não conta (era do contexto anterior).
+              const iaCleared = (conversation.tags || []).find((t: string) =>
+                typeof t === 'string' && t.startsWith('ia_cleared:'),
+              )
+              if (iaCleared) {
+                const clearedAt = iaCleared.slice('ia_cleared:'.length)
+                const clearedMs = Date.parse(clearedAt)
+                const lastSentMs = Date.parse(lastOutgoing.created_at)
+                if (Number.isFinite(clearedMs) && clearedMs > lastSentMs) {
+                  log.info('R145: dedup skipped — ia_cleared after last match, contexto novo', {
+                    cleared_at: clearedAt,
+                    last_sent_at: lastOutgoing.created_at,
+                  })
+                  // fall-through pra enviar normal
+                } else {
+                  log.warn('R145: dedup outgoing — same text within 15s, skip', {
+                    text_preview: text.substring(0, 80),
+                    last_sent_at: lastOutgoing.created_at,
+                  })
+                  return true
+                }
+              } else {
+                log.warn('R145: dedup outgoing — same text within 15s, skip', {
+                  text_preview: text.substring(0, 80),
+                  last_sent_at: lastOutgoing.created_at,
+                })
+                return true
+              }
             }
           }
         } catch (err) {
