@@ -1540,11 +1540,24 @@ ${contextBlock}`
         // extraídos em _shared/agent/preLLMShortCircuits.ts. Comportamento idêntico:
         // detecta + persiste tag pending + envia pergunta determinística + return Response.
         // Fallback (send falha) deixa cair pro LLM com a tag já persistida.
-        const shortCircuit = await runPreLLMShortCircuits({
-          supabase, conversation, conversation_id, agent_id, agent,
-          incomingText, leadName, queuedMessages, startTime, corsHeaders,
-          sendTextMsg, broadcastEvent,
-        }, log)
+        //
+        // v7.43.10 (Bug 8 fix raiz): R129/R136 são curto-circuitos do monolith que
+        // bypassam router/specialist. Quando routing_mode='router', specialist é
+        // dono do raciocínio multi-categoria (categoria offline → handoff específico,
+        // categoria digital → busca + opções). Desligar curto-circuitos sob router
+        // elimina caminhos paralelos conflitantes — mesma decisão de raiz que tomamos
+        // pro R121 (Bug 6).
+        const skipShortCircuits = agent.routing_mode === 'router'
+        const shortCircuit = skipShortCircuits
+          ? { shortCircuited: false, response: null as Response | null, suppressAutoExtractForMulti: false }
+          : await runPreLLMShortCircuits({
+              supabase, conversation, conversation_id, agent_id, agent,
+              incomingText, leadName, queuedMessages, startTime, corsHeaders,
+              sendTextMsg, broadcastEvent,
+            }, log)
+        if (skipShortCircuits) {
+          log.info('preLLMShortCircuits (R129/R136) skipped — routing_mode=router')
+        }
         if (shortCircuit.shortCircuited && shortCircuit.response) {
           return shortCircuit.response
         }
@@ -1573,6 +1586,17 @@ ${contextBlock}`
     // Sprint B5 Onda 2c-ii — Bug 24 dispatcher (handoff via auto-extract) extraído
     // pra _shared/agent/exitActionDispatcher.ts. Mesma sequência: runQueueAssignment
     // + sendText + DB updates + broadcast + return Response.
+    //
+    // v7.43.12 (Bug 10b fix raiz): auto-extract handoff é mais um curto-circuito do
+    // monolith que bypassa o specialist. Sob routing_mode='router', o specialist é
+    // dono da decisão de handoff (regra 8 do prompt: monta PEDIDO COMPLETO antes de
+    // escalar). Desligar aqui evita escalada prematura no meio do fluxo de produto.
+    if (pendingExitActionHandoff && agent.routing_mode === 'router') {
+      log.info('exit-action handoff skipped — routing_mode=router (specialist owns handoff decision)', {
+        category: (pendingExitActionHandoff as any)?.category,
+      })
+      pendingExitActionHandoff = null
+    }
     if (pendingExitActionHandoff) {
       const handoffResult = await dispatchExitActionHandoff({
         supabase, conversation, conversation_id, agent_id, agent,
@@ -1586,8 +1610,18 @@ ${contextBlock}`
 
     // Sprint B5 Onda 2c-ii — R121 inline search extraído pra exitActionDispatcher.
     // executeToolSafe(search_products) + log tool_called + monta [INTERNO] context.
+    //
+    // v7.43.8 (Bug 6 fix raiz): R121 era otimização do monolith pra latência menor
+    // em marca conhecida. Com routing_mode='router', o specialist já chama
+    // search_products eficientemente e tem visibility nativa do tool_calls no
+    // histórico LLM. Rodar R121 + specialist causava 2 carrosseis (specialist
+    // não via o tool_call do R121 no geminiContents).
+    //
+    // Solução de raiz: desabilitar R121 inline quando router está ativo.
+    // Eliminamos o caminho duplicado em vez de patchar comunicação via prompt.
     let inlineSearchContext = ''
-    if (pendingExitActionSearch) {
+    const skipR121 = agent.routing_mode === 'router'
+    if (pendingExitActionSearch && !skipR121) {
       const inlineSearch = await runInlineSearchProducts({
         supabase, conversation, conversation_id, agent_id, executeToolSafe,
       }, pendingExitActionSearch, log)
@@ -1597,6 +1631,12 @@ ${contextBlock}`
         // Limpa flag pra nao re-disparar no set_tags handler.
         pendingExitActionSearch = null
       }
+    } else if (pendingExitActionSearch && skipR121) {
+      log.info('R121 inline skipped — routing_mode=router (specialist handles search)', {
+        category: pendingExitActionSearch.category,
+      })
+      // Limpa flag pra evitar set_tags handler reativar
+      pendingExitActionSearch = null
     }
 
     // R135 (B1.5): passa recentMessages pro detector anti-loop não repetir phrasing literal.
@@ -2073,9 +2113,17 @@ ${contextBlock}`
           })
           log.info('Router result', { intent: routerResult.intent, confidence: routerResult.confidence, fallback: routerResult.fallback })
 
-          // Dispatch por intent — só 'produto' tem specialist na POC C4
-          if (routerResult.intent === 'produto') {
-            log.info('Dispatching to product_specialist (hop 1)')
+          // Dispatch por intent. v7.43.12+v7.43.13 (Bug 10a+11 fix raiz): product_specialist
+          // é dono de TODO o ciclo de venda (descoberta → qualificação → pedido → fechamento/
+          // handoff), não só do 1º turno. Enquanto qualification/handoff specialists não
+          // existem (Sprint D), as 3 intents do funil de venda — produto, qualificacao
+          // (resposta de campo) e handoff (fechamento "é só isso" / lead pede vendedor) —
+          // vão pro product_specialist, que tem o contexto e o prompt v6 sabe qualificar,
+          // montar pedido completo e escalar com resumo via handoff_to_human.
+          // Mandar pro monolith causava qualif determinística genérica + "Em que posso ajudar?".
+          const salesFunnelIntents = ['produto', 'qualificacao', 'handoff']
+          if (salesFunnelIntents.includes(routerResult.intent)) {
+            log.info('Dispatching to product_specialist (hop 1)', { intent: routerResult.intent })
             // Bug fix (v7.43.1): service_categories é object {default, categories[]},
             // não array. Antes passava o objeto e .slice() explodia silenciosamente.
             // getCategoriesOrDefault retorna o config; extraímos .categories[].
@@ -2100,12 +2148,22 @@ ${contextBlock}`
               startTime,
               supabase, log, corsHeaders,
             })
-            log.info('Router pipeline END (product_specialist)', {
-              input_tokens: productResult.inputTokens,
-              output_tokens: productResult.outputTokens,
-              prompt_chars: productResult.promptChars,
-            })
-            return productResult.response
+            // Bug 4 fix (v7.43.2): se specialist falhou catastroficamente,
+            // faz fallback pro monolith em vez de retornar 502 ao webhook
+            // (que mata o turno e deixa lead sem resposta).
+            if (productResult.errorResponse) {
+              log.error('Specialist failed catastrophically — falling back to monolith', {
+                error: productResult.errorMessage || 'unknown',
+              })
+              // Fallthrough pro monolith abaixo (não retorna a errorResponse)
+            } else {
+              log.info('Router pipeline END (product_specialist)', {
+                input_tokens: productResult.inputTokens,
+                output_tokens: productResult.outputTokens,
+                prompt_chars: productResult.promptChars,
+              })
+              return productResult.response
+            }
           }
 
           log.info('Router: intent without specialist yet, falling back to monolith', {

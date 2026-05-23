@@ -52,4 +52,8 @@ __pycache__/
 /test-guardrail.yml
 /avancado-tab.yml
 /prod-login.yml
+/george_open.yml
+/prod_helpdesk_initial.yml
+# Screenshots ad-hoc na raiz (movam pra wiki/testes/ se forem documentar incidente)
+/*.png
 e2e/.auth/

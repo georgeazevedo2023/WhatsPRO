@@ -13,6 +13,31 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.43.1→v7.43.13 (2026-05-23) — Sprint C hardening: 9 bugs raiz + 6/6 cenários E2E nota 10
+
+Sessão longa de validação E2E real (2 instâncias UAZAPI conversando entre si: Testador `558185749970` → Eletropiso sandbox `558181696546`). Fechou 9 bugs **de raiz** (zero remendos) + escolha de modelo por benchmark + decisão arquitetural do router pipeline.
+
+- **Bug 4 — specialist falhava silenciosamente (502).** `set_tags` tool def usava `additionalProperties:{type:'string'}` (map) — viola OpenAI strict mode (deve ser `false`) E divergia do handler (espera `string[]`). OpenAI 400 → `callLLM` fazia fallback cego pro Gemini → Gemini 400 → 502. **Fix:** schema `set_tags` = array of strings (alinhado com monolith) + `callLLM` bloqueia fallback Gemini em erro 4xx (`OpenAI_CLIENT_ERROR`) + log explícito do erro OpenAI.
+- **Bug 5 — gpt-5-mini queimava budget em reasoning, response vazio.** Resolvido pela escolha de modelo (abaixo).
+- **Escolha de modelo por benchmark real.** 5 modelos × 5 cenários Eletropiso: gpt-4.1-mini, gpt-4.1, gpt-5.4, gpt-5.5, gpt-5-mini. Todos 50/50 com prompt v3. **Specialist = `gpt-4.1`** (full, non-reasoning): qualidade de redação 10/10, latência ~2s, custo ~$53/mês. Router = `gpt-4.1-mini`.
+- **Prompt do specialist v1→v6.** Linguagem natural (não XML) + 9 situações explícitas + regra universal "toda tool vem com texto" + anti-loop + **regra 8 PEDIDO COMPLETO** (pergunta "mais algum item?" antes de escalar) + **regra 9 FECHAMENTO** (handoff com resumo do pedido) + qualificação de item offline antes de escalar.
+- **Bug 6 — 2 carrosseis.** R121 inline search (pré-LLM) + product_specialist chamavam search em paralelo. **Fix raiz:** R121 desligado quando `routing_mode='router'`.
+- **Bug 7 — produto vago classificado como qualificacao.** Router separava por "tem detalhes ou não" (ambíguo). **Fix:** menção a produto/categoria/marca = sempre `produto`; `qualificacao` só pra resposta de campo já perguntado.
+- **Bug 8 — R129/R136 multi-interesse curto-circuitavam o router.** **Fix raiz:** desligados sob router.
+- **Bug 9 — não qualificava item offline / não montava pedido.** Lead com produto escolhido + pede trena → escalava direto. **Fix:** prompt v5/v6 qualifica + monta pedido completo.
+- **Bug 10a — qualificacao caía no monolith genérico** ("qual ferramenta?" ignorando "trena"). **Fix raiz:** intent `qualificacao` também roteia pro product_specialist.
+- **Bug 10b — auto-extract handoff prematuro.** Curto-circuito pré-LLM escalava no meio do fluxo. **Fix raiz:** desligado sob router.
+- **Bug 11 — handoff final genérico** ("Em que posso te ajudar?"). **Fix raiz:** product_specialist ganhou `handoff_to_human` (6 tools) + intent `handoff` roteia pro specialist + regra 9 (escala com resumo).
+- **Bug 12 — handoffGuard bloqueava fechamento.** Guard exigia `search_products` no turno atual; no fechamento multi-turn a busca foi turnos antes. **Fix raiz:** `disableHandoffGuard` no product_specialist (ele controla fechamento via prompt regra 9; guard protege só o monolith).
+- **3 remendos REMOVIDOS** (a pedido do user, anti-gambiarra): `priorToolsCalled` no prompt, `maxTokens 2048` override, fallback contextual de response vazio.
+
+**Decisão arquitetural (raiz):** com apenas product_specialist no Sprint C, ele é **dono do funil de venda completo** (produto + qualificacao + handoff). Todos os curto-circuitos pré-LLM do monolith (R121, R129, R136, auto-extract handoff) ficam **desligados sob `routing_mode='router'`** — eliminam caminhos paralelos conflitantes em vez de patchar comunicação. Sprint D refina com qualification/handoff specialists dedicados.
+
+- **Validação E2E real:** 6/6 cenários nota 10 (preço+marca, click "Eu quero", categoria offline, marca inexistente, multi-produto, handoff) + cenário 7 venda completa multi-turn (carrossel → upsell trena → qualificação → pedido completo 3 itens → fechamento via `handoff_to_human` com resumo).
+- **Pipeline:** tsc 0 erros · vitest **331 pass** suite agent · deploy CLI ai-agent v104→**v116 ACTIVE**.
+
+**Andamento plano orquestrador:** mantém **68%** (Sprint C parcial 2/3 agora sólido, sem gambiarras). Falta C6 E2E formal + C7 dashboard Roteamento.
+
 ### v7.43.0 (2026-05-23) — Sprint C parcial 2/3: product_specialist + hop guard + wire-in
 
 **Primeiro specialist em prod (POC).** Wire-in do router pipeline atrás de feature flag `routing_mode='router'`. Default monolith preservado — zero impacto comportamental até admin ativar router em um agent.

@@ -89,6 +89,14 @@ export interface ProductSpecialistResult {
   inputTokens: number
   outputTokens: number
   promptChars: number
+  /**
+   * Bug 4 fix (2026-05-23 v7.43.2): quando LLM loop falha 3× (errorResponse 502),
+   * propaga aqui pro caller decidir se faz fallback pro monolith (recomendado)
+   * ou retorna 502 ao webhook. NULL = sucesso.
+   */
+  errorResponse: Response | null
+  /** Mensagem de erro do LLM (debug) quando errorResponse não é null */
+  errorMessage?: string
 }
 
 // =============================================================================
@@ -137,37 +145,49 @@ export function buildProductSpecialistPrompt(args: {
       : JSON.stringify(businessInfo).substring(0, 300)
     : '(não cadastrado)'
 
-  return `<persona>Você é ${agentName || 'consultor de vendas'}, especialista em PRODUTO. Atende leads via WhatsApp.</persona>
+  // Prompt v5 (v7.43.11) — bench 50/50 (v3) + refinamento de upsell/pedido completo.
+  // v7.43.8: removido priorToolsCalled (era remendo). Fix de raiz: R121 inline
+  // desabilitado quando routing_mode=router. Specialist é único caminho de search.
+  // v7.43.11 (Bug 9 UX): regra 3 (offline) refinada — qualifica brevemente + pergunta
+  // "mais algum item?" ANTES de encaminhar. Nova regra 8: monte PEDIDO COMPLETO antes
+  // do handoff (não escale item a item — junte tudo num pedido só pro vendedor).
+  return `Você é ${agentName || 'consultor de vendas'}, especialista em produto. Atende leads via WhatsApp em português brasileiro.
 
-<task>Lead pediu um produto. Sua função: buscar no catálogo e enviar a melhor opção. NÃO faça small talk.</task>
+OBJETIVO: ajudar o lead a montar um PEDIDO COMPLETO (um ou vários itens) e só então passar pro vendedor com tudo detalhado. Texto curto e direto (1-2 frases, tom WhatsApp).
 
-<rules>
-1. SEMPRE chame search_products PRIMEIRO antes de opinar sobre qualquer produto.
-2. Categoria marcada [OFFLINE] no catálogo → NÃO busque; responda informando que esse produto é atendido sob consulta e marque set_tags(interesse:CATEGORIA).
-3. 1 produto encontrado com foto → use send_media (foto + preço). 2+ produtos → use send_carousel.
-4. Marca específica mencionada pelo lead → chame search_products IMEDIATAMENTE com query incluindo a marca.
-5. Após search com 0 resultados → faça UMA pergunta de qualificação (ambiente/cor/marca) usando set_tags pra registrar.
-6. NUNCA diga "não temos" — sempre ofereça alternativa ou escale via set_tags(escalada_humano:1).
-7. Máximo 2 perguntas de qualificação antes de oferecer produto. Se lead já respondeu 2× sem casar, retorne resposta vazia (orquestrador decide handoff).
-</rules>
+REGRA UNIVERSAL: toda chamada de tool vem acompanhada de uma frase de texto pro lead no MESMO turno. NUNCA chame tool sem texto. NUNCA repita a mesma tool 2 vezes em turnos consecutivos.
 
-<tools_available>
-- search_products(query, category): busca catálogo. Sempre com expectedCategory derivada do interesse:* tag.
-- send_carousel(product_ids): 2+ produtos com foto.
-- send_media(product_id): 1 produto.
-- set_tags(tags): registra interesse, ambiente, cor, marca etc.
-- update_lead_profile(notes): nome confirmado, objections.
-</tools_available>
+FLUXO POR SITUAÇÃO:
 
-<catalog_summary>
+1. Marca específica do catálogo mencionada → chame search_products com a marca + "Vou ver as opções..."
+
+2. Pergunta vaga sem marca em categoria ONLINE → chame search_products com categoria + "Vou buscar pra você..."
+
+3. Categoria [OFFLINE] no catálogo → NÃO busque. Antes de escalar, COLETE info útil pro vendedor: faça 1 pergunta de qualificação rápida do item (tamanho/tipo/modelo/material conforme o item — ex.: trena "de quantos metros?", fechadura "interna ou externa?"). Registre com set_tags. NÃO encaminhe ainda — siga pra regra 8.
+
+4. Marca FORA do catálogo → NÃO busque. set_tags(["interesse:CATEGORIA"]) + "Não trabalhamos com [marca]. Temos [marcas do catálogo] com qualidade equivalente. Qual prefere?"
+
+5. Lead pediu múltiplos produtos → search_products do PRIMEIRO + "Encontrei essas opções de [primeiro]. Depois te mostro [segundo]."
+
+6. Search retornou produtos (carrossel JÁ ENVIADO) → próximo turno: APENAS texto convidando a clicar "Eu quero!". NÃO chame tool.
+
+7. Search 0 resultados → APENAS texto oferecendo alternativa. NÃO repita o search.
+
+8. PEDIDO COMPLETO antes do handoff: sempre que o lead escolher um item OU adicionar outro, pergunte "Quer adicionar mais algum item ao pedido ou prefere que eu já passe pro vendedor?". Mantenha o pedido aberto até o lead confirmar que terminou.
+
+9. FECHAMENTO: quando o lead confirmar que o pedido está completo ("é só isso", "pode finalizar", "só isso mesmo") OU pedir explicitamente um vendedor → chame handoff_to_human com o reason contendo o RESUMO COMPLETO do pedido (todos os itens + quantidades + qualificações). Escreva tb uma frase curta confirmando ao lead que vai passar pro vendedor.
+
+REGRA DE CONTEXTO: leia o histórico. Se o lead JÁ escolheu produto(s), novos itens são ADIÇÕES ao mesmo pedido — trate como upsell, mantenha o pedido aberto até o lead dizer que terminou.
+
+NUNCA diga "não temos" sem oferecer alternativa.
+NUNCA encaminhe pro vendedor item a item — junte tudo num pedido só. handoff_to_human só quando lead confirmar pedido completo OU pedir explicitamente vendedor.
+
+CATÁLOGO:
 ${categorySummary}
-</catalog_summary>
 
-<facts_collected>
-${factsCollected}
-</facts_collected>
+FATOS JÁ COLETADOS: ${factsCollected}
 
-<business_info>${businessLine}</business_info>`
+NEGÓCIO: ${businessLine}`
 }
 
 // =============================================================================
@@ -215,16 +235,21 @@ export function getProductSpecialistToolDefs(): LLMToolDef[] {
       },
     },
     {
+      // Bug 4 real fix (v7.43.3): schema alinhado com monolith (index.ts:1741).
+      // Antes usava map object com `additionalProperties: { type: 'string' }`, que
+      // viola OpenAI strict mode (precisa ser `false`) E divergia do handler real
+      // (que espera string[] formato "chave:valor", não map). Causava OpenAI 400 →
+      // fallback Gemini → Gemini 400 → errorResponse 502 (observado prod 14:59 + 15:18).
       name: 'set_tags',
-      description: 'Registra fatos qualificados do lead (interesse, ambiente, cor, marca, etc.)',
+      description: 'Adiciona tags à conversa para rastrear interesses e fatos qualificados. Tags são cumulativas. Formato: "chave:valor" (ex: "interesse:tintas", "ambiente:interno", "cor:branco").',
       strict: true,
       parameters: {
         type: 'object',
         properties: {
           tags: {
-            type: 'object',
-            description: 'Mapa chave:valor. Ex: { "interesse": "tintas", "cor": "branco" }',
-            additionalProperties: { type: 'string' },
+            type: 'array',
+            description: 'Tags no formato "chave:valor"',
+            items: { type: 'string' },
           },
         },
         required: ['tags'],
@@ -244,6 +269,23 @@ export function getProductSpecialistToolDefs(): LLMToolDef[] {
         required: ['name', 'objections', 'notes'],
       },
     },
+    {
+      // Bug 11 fix (v7.43.13): specialist é dono do fluxo de venda completo, incluindo
+      // o fechamento. handoff_to_human escala pro vendedor humano com o pedido montado.
+      // O executeToolSafe (index.ts) já processa esta tool (fila/departamento/fora-horário).
+      // Antes era removida (escala via monolith) — mas isso gerava "Em que posso ajudar?"
+      // genérico quando o lead confirmava o pedido. Agora o specialist fecha o ciclo.
+      name: 'handoff_to_human',
+      description: 'Encaminha o lead pro vendedor humano. Use quando: (1) lead confirmou que o pedido está completo, (2) lead pediu explicitamente um vendedor, ou (3) item sob consulta exige especialista. SEMPRE inclua no reason um resumo do pedido (todos os itens + qualificações).',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string', description: 'Motivo + resumo completo do pedido (itens escolhidos, quantidades, qualificações coletadas)' },
+        },
+        required: ['reason'],
+      },
+    },
   ]
 }
 
@@ -260,7 +302,16 @@ export function getProductSpecialistToolDefs(): LLMToolDef[] {
  * Em caso de empty response, ainda chama dispatchResponse (que loga empty_response).
  */
 export async function runProductSpecialist(ctx: ProductSpecialistCtx): Promise<ProductSpecialistResult> {
-  const specialistModel = ctx.specialistModel || 'gpt-5-mini'
+  // Decisão de modelo v7.43.6 (validada em bench real 5 cenários × 5 modelos):
+  //   gpt-4.1-mini:  50/50 lat 1.9s, custo ~$10.50/mês — descartado a pedido (qualidade humana 8/10)
+  //   gpt-4.1 ✅:    50/50 lat 2.1s, custo ~$53/mês — ESCOLHIDO: qualidade humana 10/10
+  //   gpt-5.4:       50/50 lat 2.5s, custo ~$84/mês — markdown problemático no WhatsApp
+  //   gpt-5.5:       50/50 lat 3.0s, custo ~$167/mês — overkill, às vezes omite CTA
+  //   gpt-5-mini:    50/50 lat 11.2s, custo ~$32/mês — reasoning queima budget
+  // gpt-4.1 (full size, non-reasoning): score 10/10 técnico + 10/10 redação natural.
+  // Latência empata com mini (2.1s vs 1.9s), tom WhatsApp mais natural ("Veja as opções
+  // que encontrei!" vs "Achei algumas tintas..."). Sem reasoning desperdiçado.
+  const specialistModel = ctx.specialistModel || 'gpt-4.1'
   const systemPrompt = buildProductSpecialistPrompt({
     agentName: (ctx.agent.name as string) || 'consultor',
     serviceCategories: ctx.serviceCategories,
@@ -278,6 +329,8 @@ export async function runProductSpecialist(ctx: ProductSpecialistCtx): Promise<P
   })
 
   // Step 1: LLM call loop (reusa pipeline do Sprint B5 Onda 4)
+  // v7.43.8: removido maxTokens override (era remendo pra reasoning models que
+  // nem usamos mais). gpt-4.1 é non-reasoning, não precisa de override.
   const llmLoopResult = await runLlmCallLoop({
     agent: ctx.agent,
     llmModel: specialistModel,
@@ -295,6 +348,10 @@ export async function runProductSpecialist(ctx: ProductSpecialistCtx): Promise<P
     conversation_id: ctx.conversation_id,
     startTime: ctx.startTime,
     corsHeaders: ctx.corsHeaders,
+    // Bug 12 (v7.43.13): specialist controla fechamento via prompt regra 9 (só escala
+    // após pedido completo). handoffGuard era proteção do monolith e bloqueava o
+    // handoff legítimo de pedido multi-turn (busca foi turno anterior).
+    disableHandoffGuard: true,
   })
 
   // Step 2: log hop_n=1 em ai_agent_runs (não bloqueia em falha)
@@ -314,21 +371,34 @@ export async function runProductSpecialist(ctx: ProductSpecialistCtx): Promise<P
       prompt_chars: promptChars,
       metadata: {
         error_response: !!llmLoopResult.errorResponse,
+        // Bug 4 fix visibility (v7.43.2): pega último erro real do ai_agent_logs
+        // pra dashboard C7 + debug sem precisar parsear logs externos.
+        error_message: llmLoopResult.errorResponse ? 'LLM 3x failure (see ai_agent_logs)' : null,
       },
     })
   } catch (err) {
     ctx.log.warn?.('ai_agent_runs hop 1 insert failed (non-fatal)', { error: (err as Error).message })
   }
 
-  // Step 3: se LLM falhou catastroficamente, propaga
+  // Step 3: se LLM falhou catastroficamente, propaga (caller decide fallback)
   if (llmLoopResult.errorResponse) {
+    ctx.log.warn?.('Product specialist: LLM loop returned errorResponse — caller should fallback to monolith', {
+      input_tokens: llmLoopResult.inputTokens,
+      output_tokens: llmLoopResult.outputTokens,
+    })
     return {
       response: llmLoopResult.errorResponse,
       inputTokens: llmLoopResult.inputTokens,
       outputTokens: llmLoopResult.outputTokens,
       promptChars,
+      errorResponse: llmLoopResult.errorResponse,
+      errorMessage: 'LLM loop 3x failure',
     }
   }
+
+  // v7.43.8: removido fallback contextual (era remendo). Com gpt-4.1 + prompt v3,
+  // response sempre vem com texto válido. Se vier vazio, é um bug de raiz que
+  // precisa ser corrigido na origem, não mascarado com texto pré-fabricado.
 
   // Step 4: dispatchResponse (reusa pipeline do Sprint B5 Onda 5)
   const { response } = await dispatchResponse({
@@ -368,5 +438,6 @@ export async function runProductSpecialist(ctx: ProductSpecialistCtx): Promise<P
     inputTokens: llmLoopResult.inputTokens,
     outputTokens: llmLoopResult.outputTokens,
     promptChars,
+    errorResponse: null,
   }
 }

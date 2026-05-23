@@ -95,6 +95,14 @@ export interface LlmCallLoopCtx {
   startTime: number
   /** Headers CORS já resolvidos (caller passa dinâmico ou estático) */
   corsHeaders: Record<string, string>
+  /**
+   * Bug 12 fix (v7.43.13): desabilita o handoffGuard (exigência de search_products
+   * antes de handoff_to_human). O guard protege o MONOLITH de pular o SDR. O
+   * product_specialist tem fluxo próprio controlado (prompt regra 9: só escala após
+   * pedido completo) e o guard bloqueava o fechamento legítimo de pedido multi-turn
+   * (busca foi em turno anterior, não no turno do handoff). Default false (guard ativo).
+   */
+  disableHandoffGuard?: boolean
 }
 
 export interface LlmCallLoopResult {
@@ -197,7 +205,9 @@ export async function runLlmCallLoop(ctx: LlmCallLoopCtx): Promise<LlmCallLoopRe
           for (const tc of llmResult.toolCalls) {
             // GUARD: handoff_to_human exige busca prévia quando há contexto de produto.
             // Lógica isolada em _shared/handoffGuard.ts pra ser testável (R122).
-            if (tc.name === 'handoff_to_human') {
+            // v7.43.13: pulado quando disableHandoffGuard (product_specialist controla
+            // seu próprio fluxo de fechamento via prompt regra 9).
+            if (tc.name === 'handoff_to_human' && !ctx.disableHandoffGuard) {
               const guard = evaluateHandoffGuard({
                 tags: ctx.conversation.tags || [],
                 toolNamesThisRound: ctx.toolCallsLog.map((t) => t.name),

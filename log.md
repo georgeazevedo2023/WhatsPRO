@@ -9,6 +9,40 @@ type: log
 
 ---
 
+## 2026-05-23 (noite) — Sprint C hardening E2E (v7.43.1→v7.43.13) — 9 bugs raiz, 6/6 nota 10
+
+**Trigger:** user pediu validação E2E real + "zero gambiarra, resolva na fonte". Forneceu 2ª instância UAZAPI (Testador Wsmart `558185749970`) pra conversar com Eletropiso sandbox (`558181696546`) — loop de teste autônomo real.
+
+**Método:** disparo via UAZAPI `/send/text` (token Testador) → ai-agent processa Eletropiso → leio `conversation_messages`+`ai_agent_runs`+`ai_agent_logs` via MCP. Script Python multi-turn em background. Sem webhook na 2ª instância (só envia).
+
+**9 bugs corrigidos DE RAIZ** (detalhe no CHANGELOG v7.43.1→v7.43.13):
+- Bug 4: schema set_tags strict mode + bloqueia Gemini fallback 4xx
+- Bug 5: gpt-5-mini reasoning vazio → resolvido por benchmark de modelo
+- Bug 6: R121 inline duplicava carrossel → desligado sob router
+- Bug 7: router classificava produto vago como qualificacao → prompt clarificado
+- Bug 8: R129/R136 short-circuits → desligados sob router
+- Bug 9: upsell offline não qualificava → prompt v5/v6 (pedido completo)
+- Bug 10a: qualificacao→monolith genérico → roteia pro specialist
+- Bug 10b: auto-extract handoff prematuro → desligado sob router
+- Bug 11: handoff final genérico → specialist ganha handoff_to_human + rota
+- Bug 12: handoffGuard bloqueava fechamento → disableHandoffGuard no specialist
+
+**Benchmark de modelo (real, 5 modelos × 5 cenários):** todos 50/50. Escolhido **gpt-4.1** (full) pro specialist: qualidade redação 10/10, ~2s, ~$53/mês. Descartado gpt-4.1-mini (qualidade 8), gpt-5.4/5.5 (caro+lento), gpt-5-mini (reasoning desperdiçado).
+
+**3 remendos REMOVIDOS** (anti-gambiarra): priorToolsCalled no prompt, maxTokens 2048 override, fallback contextual.
+
+**Decisão arquitetural:** product_specialist é DONO do funil de venda (produto+qualificacao+handoff). Curto-circuitos pré-LLM do monolith (R121/R129/R136/auto-extract handoff) desligados sob `routing_mode='router'`. handoffGuard desabilitado no specialist (controla fechamento via prompt regra 9).
+
+**Validação E2E:** 6/6 cenários nota 10 + cenário 7 venda completa multi-turn (carrossel→upsell trena→qualif→pedido 3 itens→handoff com resumo). Confirmado handoff_to_human do specialist passa (guard off).
+
+**Aprendizado operacional:** limpar contexto pra teste DEVE resetar `status_ia='ligada'`+`assigned_to=NULL`, não só tags — handoff anterior deixa conv em `shadow` (IA observa, não responde).
+
+**Pipeline:** tsc 0 erros · vitest 331 pass · deploy ai-agent v104→**v116 ACTIVE**. Modelo specialist gpt-4.1, router gpt-4.1-mini.
+
+**Frase de retomada:** *"continuar Sprint C: C6 E2E formal multi-cenário + C7 dashboard Roteamento (pizza intents + P50/P95 + custo) — base sólida pós-hardening v7.43.13"*.
+
+---
+
 ## 2026-05-23 (tarde II) — Sprint C parcial 2/3 shipped (v7.43.0) — 1º specialist em prod
 
 **Trigger:** user pediu *"audite o resultado e siga para a proxima fase"* após migração modelo EletropisoV2 pra gpt-5-mini. Sprint C4 (product_specialist) + C5 (hop guard) + wire-in router pipeline.

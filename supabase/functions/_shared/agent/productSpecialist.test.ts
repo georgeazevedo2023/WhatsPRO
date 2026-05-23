@@ -15,8 +15,7 @@ describe('buildProductSpecialistPrompt', () => {
       collectedTags: [],
     })
     expect(p).toContain('Lucas (Eletropiso)')
-    expect(p).toContain('<persona>')
-    expect(p).toContain('especialista em PRODUTO')
+    expect(p).toContain('especialista em produto')
   })
 
   it('fallback agentName quando vazio', () => {
@@ -116,18 +115,44 @@ describe('buildProductSpecialistPrompt', () => {
     expect(p.length).toBeGreaterThan(1000) // não tão pequeno que perdeu conteúdo
   })
 
-  it('contém as 7 rules numeradas', () => {
+  it('contém as 7 situações numeradas (prompt v3)', () => {
     const p = buildProductSpecialistPrompt({ agentName: 'X', serviceCategories: [], collectedTags: [] })
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= 8; i++) {
       expect(p).toContain(`${i}.`)
     }
+  })
+
+  it('inclui regra universal de texto+tool no mesmo turno (prompt v5)', () => {
+    const p = buildProductSpecialistPrompt({ agentName: 'X', serviceCategories: [], collectedTags: [] })
+    expect(p).toContain('REGRA UNIVERSAL')
+    expect(p).toContain('NUNCA chame tool sem texto')
+  })
+
+  it('Bug 9 fix (v7.43.11): inclui regra de PEDIDO COMPLETO + upsell context', () => {
+    const p = buildProductSpecialistPrompt({ agentName: 'X', serviceCategories: [], collectedTags: [] })
+    expect(p).toContain('PEDIDO COMPLETO')
+    expect(p).toContain('mais algum item')
+    expect(p).toContain('REGRA DE CONTEXTO')
+    // offline agora qualifica antes de escalar (não handoff imediato)
+    expect(p).toContain('1 pergunta de qualificação rápida do item')
+  })
+
+  it('Bug 6 fix raiz (v7.43.8): NÃO injeta seção priorToolsCalled (R121 desligado sob router)', () => {
+    const p = buildProductSpecialistPrompt({
+      agentName: 'X',
+      serviceCategories: [],
+      collectedTags: [],
+    })
+    // R121 inline está desabilitado quando routing_mode=router. Specialist é o único
+    // caminho de search_products, então não precisa "saber" sobre tools prévias via prompt.
+    expect(p).not.toContain('TOOLS JÁ EXECUTADAS')
   })
 })
 
 describe('getProductSpecialistToolDefs', () => {
-  it('retorna exatamente 5 tools', () => {
+  it('retorna exatamente 6 tools (v7.43.13: +handoff_to_human)', () => {
     const tools = getProductSpecialistToolDefs()
-    expect(tools).toHaveLength(5)
+    expect(tools).toHaveLength(6)
   })
 
   it('todas com strict=true', () => {
@@ -137,18 +162,20 @@ describe('getProductSpecialistToolDefs', () => {
     }
   })
 
-  it('nomes esperados (sem handoff_to_human, sem send_poll)', () => {
+  it('nomes esperados (inclui handoff_to_human p/ fechamento, sem send_poll/CRM)', () => {
     const tools = getProductSpecialistToolDefs()
     const names = tools.map((t) => t.name).sort()
     expect(names).toEqual([
+      'handoff_to_human',
       'search_products',
       'send_carousel',
       'send_media',
       'set_tags',
       'update_lead_profile',
     ].sort())
-    // NÃO deve incluir handoff
-    expect(names).not.toContain('handoff_to_human')
+    // Bug 11 fix (v7.43.13): handoff_to_human agora INCLUÍDO (specialist fecha o ciclo)
+    expect(names).toContain('handoff_to_human')
+    // Continua SEM tools fora do escopo de venda
     expect(names).not.toContain('send_poll')
     expect(names).not.toContain('assign_label')
     expect(names).not.toContain('move_kanban')
@@ -160,9 +187,14 @@ describe('getProductSpecialistToolDefs', () => {
     expect(params.required).toEqual(['query', 'category'])
   })
 
-  it('set_tags tem additionalProperties string (strict)', () => {
+  it('set_tags usa array of strings "chave:valor" (alinhado com monolith + strict mode)', () => {
     const t = getProductSpecialistToolDefs().find((t) => t.name === 'set_tags')!
     const params = t.parameters as any
-    expect(params.properties.tags.additionalProperties.type).toBe('string')
+    // Bug 4 root cause: antes usava map object com `additionalProperties: { type: 'string' }`,
+    // que viola OpenAI strict mode (precisa ser `false`). Schema correto: array de strings.
+    expect(params.properties.tags.type).toBe('array')
+    expect(params.properties.tags.items.type).toBe('string')
+    // additionalProperties no objeto-pai será injetado como `false` pelo wrapper do callOpenAI.
+    expect(params.properties.tags.additionalProperties).toBeUndefined()
   })
 })

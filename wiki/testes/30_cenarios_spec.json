@@ -1,0 +1,1709 @@
+{
+  "version": "1.0.0",
+  "created": "2026-05-19",
+  "tenant": "Eletropiso",
+  "agent_phone": "558185749970",
+  "queue_attendants": [
+    {
+      "name": "Lucas",
+      "queue_position": 10
+    },
+    {
+      "name": "Alberto",
+      "queue_position": 20
+    },
+    {
+      "name": "Jussara",
+      "queue_position": 30
+    },
+    {
+      "name": "Djavan",
+      "queue_position": 40
+    },
+    {
+      "name": "Slone",
+      "queue_position": 50
+    }
+  ],
+  "business_hours_default": {
+    "weekly": {
+      "mon": {
+        "open": "08:00",
+        "close": "18:00"
+      },
+      "tue": {
+        "open": "08:00",
+        "close": "18:00"
+      },
+      "wed": {
+        "open": "08:00",
+        "close": "18:00"
+      },
+      "thu": {
+        "open": "08:00",
+        "close": "18:00"
+      },
+      "fri": {
+        "open": "08:00",
+        "close": "18:00"
+      },
+      "sat": {
+        "open": "08:00",
+        "close": "12:00"
+      },
+      "sun": null
+    }
+  },
+  "phone_range": "5511900000001..5511900000030",
+  "scenarios": [
+    {
+      "id": "A1",
+      "category": "saudacao_basica",
+      "title": "Saudação 'oi' isolada",
+      "phone": "5511900000001",
+      "name_phone": "Teste A1 - oi puro",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi",
+          "expected_ai_pattern": "(?i)(oi|olá|ola|bom dia|boa tarde|boa noite|tudo bem|posso ajudar|em que.*(ajudar|posso)|como posso)",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "furadeira",
+            "tinta",
+            "porta",
+            "cano",
+            "carrossel",
+            "produto",
+            "marca"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "interesse:",
+            "tipo_",
+            "marca_preferida:"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        }
+      ],
+      "final_assertions": [
+        "conversation.status_ia = 'active'",
+        "0 outgoing messages with sender_id IS NOT NULL",
+        "0 tags com prefixo 'interesse:'",
+        "1 outgoing message (greeting único)",
+        "lead_profiles.nome_lead IS NULL"
+      ],
+      "cleanup": "delete contact + cascade (conversations, conversation_messages, ai_agent_logs, lead_profiles)"
+    },
+    {
+      "id": "A2",
+      "category": "saudacao_basica",
+      "title": "Saudação 'bom dia' isolada",
+      "phone": "5511900000002",
+      "name_phone": "Teste A2 - bom dia",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "bom dia",
+          "expected_ai_pattern": "(?i)(bom dia|olá|ola|tudo bem|posso ajudar|como.*(ajudar|posso))",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "furadeira",
+            "tinta",
+            "porta",
+            "cano",
+            "produto",
+            "carrossel"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        }
+      ],
+      "final_assertions": [
+        "conversation.status_ia = 'active'",
+        "1 outgoing message (greeting)",
+        "0 produtos enviados (sem media/carousel rows)"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "A3",
+      "category": "saudacao_basica",
+      "title": "Saudação 'boa tarde' isolada",
+      "phone": "5511900000003",
+      "name_phone": "Teste A3 - boa tarde",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "boa tarde",
+          "expected_ai_pattern": "(?i)(boa tarde|olá|ola|tudo bem|posso ajudar|como.*ajud)",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "furadeira",
+            "tinta",
+            "produto",
+            "carrossel"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        }
+      ],
+      "final_assertions": [
+        "conversation.status_ia = 'active'",
+        "1 outgoing message"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "A4",
+      "category": "saudacao_basica",
+      "title": "Saudação 'boa noite' isolada",
+      "phone": "5511900000004",
+      "name_phone": "Teste A4 - boa noite",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "boa noite",
+          "expected_ai_pattern": "(?i)(boa noite|olá|ola|tudo bem|posso ajudar|como.*ajud)",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "furadeira",
+            "tinta",
+            "porta",
+            "produto"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        }
+      ],
+      "final_assertions": [
+        "conversation.status_ia = 'active'",
+        "1 outgoing message"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "B1",
+      "category": "saudacao_com_nome",
+      "title": "Saudação + nome 'Olá, sou João'",
+      "phone": "5511900000005",
+      "name_phone": "Teste B1 - Joao",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "Olá, sou João",
+          "expected_ai_pattern": "(?i)(joão|joao).*(em que|posso ajudar|no que|como).*(ajud|posso)",
+          "expected_ai_NOT_contains": [
+            "Olá Olá",
+            "olá olá",
+            "trena",
+            "furadeira",
+            "tinta",
+            "carrossel"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "lead_profiles.nome_lead = 'João'",
+        "conversation.tags contém 'nome_lead:João'",
+        "resposta NÃO duplica saudação (regex /(olá|oi|bom dia|boa tarde|boa noite).{0,20}(olá|oi|bom dia|boa tarde|boa noite)/i)",
+        "1 outgoing message",
+        "lead_profile.full_name OU contacts.name preenchido com o nome capturado"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "B2",
+      "category": "saudacao_com_nome",
+      "title": "Identificação 'Aqui é Maria'",
+      "phone": "5511900000006",
+      "name_phone": "Teste B2 - Maria",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "Aqui é Maria",
+          "expected_ai_pattern": "(?i)maria.*(em que|posso ajudar|no que|como).*(ajud|posso)",
+          "expected_ai_NOT_contains": [
+            "Olá Maria! Olá",
+            "trena",
+            "furadeira",
+            "tinta",
+            "produto"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "lead_profiles.nome_lead = 'Maria'",
+        "1 outgoing message com nome capturado",
+        "lead_profile.full_name OU contacts.name preenchido com o nome capturado"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "B3",
+      "category": "saudacao_com_nome",
+      "title": "'Meu nome é Pedro'",
+      "phone": "5511900000007",
+      "name_phone": "Teste B3 - Pedro",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "Meu nome é Pedro",
+          "expected_ai_pattern": "(?i)pedro.*(em que|posso ajudar|no que|como).*ajud",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "furadeira",
+            "tinta",
+            "produto",
+            "carrossel"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "lead_profiles.nome_lead = 'Pedro'",
+        "1 outgoing message",
+        "lead_profile.full_name OU contacts.name preenchido com o nome capturado"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "B4",
+      "category": "saudacao_com_nome",
+      "title": "'Sou o Marcos'",
+      "phone": "5511900000008",
+      "name_phone": "Teste B4 - Marcos",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "Sou o Marcos",
+          "expected_ai_pattern": "(?i)marcos.*(em que|posso ajudar|no que|como).*ajud",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "furadeira",
+            "tinta",
+            "produto",
+            "carrossel"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "lead_profiles.nome_lead = 'Marcos'",
+        "1 outgoing message",
+        "lead_profile.full_name OU contacts.name preenchido com o nome capturado"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "C1",
+      "category": "lead_retorno_reconhece",
+      "title": "Lead retorno — IA reconhece pelo nome cadastrado",
+      "phone": "5511900000009",
+      "name_phone": "Teste C1 - Carlos retorno",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": {
+          "full_name": "Carlos"
+        },
+        "seed_ai_agent_logs": "1 entrada antiga com conversation_id da conv (hasEverInteracted=true)",
+        "seed_returning_lead_protocol": "OBRIGATÓRIO: (1) INSERT contact (jid=phone@s.whatsapp.net), (2) INSERT conversation com status='resolvida' + closed_at=now()-interval '6 hours' (dentro da janela D34 de 7d), (3) INSERT lead_profiles (contact_id, full_name=<nome>, agent_id da Eletropiso), (4) INSERT 1 row em ai_agent_logs (agent_id, conversation_id da step 2, event='response_sent', created_at=now()-interval '6 hours'). Webhook vai REABRIR a conv (mesmo conversation_id) e hasEverInteracted=true porque ai_agent_logs.conversation_id = current. SEM esses 4 passos, returning greeting não dispara."
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi",
+          "expected_ai_pattern": "(?i)(carlos).*(volta|de novo|novamente|bom te ver|em que|no que|ajud)|((?i)bom dia|boa tarde|boa noite|olá).*carlos",
+          "expected_ai_NOT_contains": [
+            "qual seu nome",
+            "como posso te chamar",
+            "trena",
+            "furadeira"
+          ],
+          "expected_tags_includes": [
+            "nome_lead:Carlos"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "AI cumprimentou usando 'Carlos' (não repergunta nome)",
+        "Não repete qualificação anterior (não pergunta de produto/uso/marca antes de o lead falar)",
+        "1 outgoing message"
+      ],
+      "cleanup": "delete contact + cascade + ai_agent_logs do conv"
+    },
+    {
+      "id": "C2",
+      "category": "lead_retorno_reconhece",
+      "title": "Lead retorno + pede produto novo",
+      "phone": "5511900000010",
+      "name_phone": "Teste C2 - Ana retorno tinta",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": {
+          "full_name": "Ana"
+        },
+        "seed_ai_agent_logs": "interações antigas (hasEverInteracted=true)",
+        "seed_returning_lead_protocol": "OBRIGATÓRIO: (1) INSERT contact (jid=phone@s.whatsapp.net), (2) INSERT conversation com status='resolvida' + closed_at=now()-interval '6 hours' (dentro da janela D34 de 7d), (3) INSERT lead_profiles (contact_id, full_name=<nome>, agent_id da Eletropiso), (4) INSERT 1 row em ai_agent_logs (agent_id, conversation_id da step 2, event='response_sent', created_at=now()-interval '6 hours'). Webhook vai REABRIR a conv (mesmo conversation_id) e hasEverInteracted=true porque ai_agent_logs.conversation_id = current. SEM esses 4 passos, returning greeting não dispara."
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "Oi, voltei. Preciso de tinta acrílica",
+          "expected_ai_pattern": "(?i)ana.*(tinta|interna|externa|ambiente|cor|metragem|qual)",
+          "expected_ai_NOT_contains": [
+            "qual seu nome",
+            "como posso te chamar"
+          ],
+          "expected_tags_includes": [
+            "nome_lead:Ana",
+            "interesse:tinta"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 25
+        }
+      ],
+      "final_assertions": [
+        "AI usou nome 'Ana' sem repergunar",
+        "tag interesse:tinta criada",
+        "AI fez pergunta de qualif (ambiente OU cor OU acabamento)"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "C3",
+      "category": "lead_retorno_reconhece",
+      "title": "Lead retorno após hiato + saudação simples",
+      "phone": "5511900000011",
+      "name_phone": "Teste C3 - Roberto retorno",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": {
+          "full_name": "Roberto"
+        },
+        "seed_ai_agent_logs": "interações antigas (hasEverInteracted=true)",
+        "seed_returning_lead_protocol": "OBRIGATÓRIO: (1) INSERT contact (jid=phone@s.whatsapp.net), (2) INSERT conversation com status='resolvida' + closed_at=now()-interval '6 hours' (dentro da janela D34 de 7d), (3) INSERT lead_profiles (contact_id, full_name=<nome>, agent_id da Eletropiso), (4) INSERT 1 row em ai_agent_logs (agent_id, conversation_id da step 2, event='response_sent', created_at=now()-interval '6 hours'). Webhook vai REABRIR a conv (mesmo conversation_id) e hasEverInteracted=true porque ai_agent_logs.conversation_id = current. SEM esses 4 passos, returning greeting não dispara."
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "bom dia",
+          "expected_ai_pattern": "(?i)(bom dia|olá|ola).*roberto.*(em que|no que|como|ajud)",
+          "expected_ai_NOT_contains": [
+            "qual seu nome",
+            "como posso te chamar",
+            "qual produto buscou da última vez",
+            "trena",
+            "tinta"
+          ],
+          "expected_tags_includes": [
+            "nome_lead:Roberto"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "Greeting personalizado com 'Roberto'",
+        "Pergunta motivo da nova msg",
+        "Não recapitula qualif antiga"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "D1",
+      "category": "pedido_produto_direto",
+      "title": "Pedido direto 'vocês têm trena?'",
+      "phone": "5511900000012",
+      "name_phone": "Teste D1 - trena",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "vocês têm trena?",
+          "expected_ai_pattern": "(?i)(trena|ferramenta).*(profissional|doméstic|domestic|uso|qual|tipo|tamanho|3m|5m|metragem)",
+          "expected_ai_NOT_contains": [
+            "tinta",
+            "porta",
+            "cano",
+            "fechadura",
+            "Olá ! Olá"
+          ],
+          "expected_tags_includes": [
+            "interesse:ferramentas_manuais"
+          ],
+          "expected_tags_excludes": [
+            "interesse:hidraulica"
+          ],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 25
+        }
+      ],
+      "final_assertions": [
+        "tag interesse:ferramentas_manuais criada (não interesse:hidraulica ou outra alucinada)",
+        "AI fez pergunta de qualif (uso ou tamanho)",
+        "Não alucina produto fora da categoria"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "D2",
+      "category": "pedido_produto_direto",
+      "title": "Pedido direto 'preciso de furadeira'",
+      "phone": "5511900000013",
+      "name_phone": "Teste D2 - furadeira",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "preciso de furadeira",
+          "expected_ai_pattern": "(?i)(furadeira|ferramenta).*(elétric|eletric|impacto|bateria|profissional|qual|tipo|uso)",
+          "expected_ai_NOT_contains": [
+            "tinta",
+            "porta",
+            "fechadura",
+            "cano"
+          ],
+          "expected_tags_includes": [
+            "interesse:furadeiras"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 25
+        }
+      ],
+      "final_assertions": [
+        "tag interesse:furadeiras criada",
+        "AI fez pergunta de qualif"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "D3",
+      "category": "pedido_produto_direto",
+      "title": "Pedido direto 'tinta'",
+      "phone": "5511900000014",
+      "name_phone": "Teste D3 - tinta",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "preciso de tinta",
+          "expected_ai_pattern": "(?i)(tinta|ambiente|interna|externa|acrílic|acrilic|cor|acabamento|metragem|fosco|brilhante)",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "furadeira",
+            "porta",
+            "cano"
+          ],
+          "expected_tags_includes": [
+            "interesse:tinta"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 25
+        }
+      ],
+      "final_assertions": [
+        "tag interesse:tinta criada",
+        "AI fez pergunta de qualif (ambiente ou tipo)"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "D4",
+      "category": "pedido_produto_direto",
+      "title": "Pedido direto 'porta'",
+      "phone": "5511900000015",
+      "name_phone": "Teste D4 - porta",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "vocês têm porta?",
+          "expected_ai_pattern": "(?i)(porta|material|madeira|alumín|alumin|pvc|tamanho|medida|interna|externa)",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "tinta",
+            "furadeira",
+            "cano"
+          ],
+          "expected_tags_includes": [
+            "interesse:portas"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 25
+        }
+      ],
+      "final_assertions": [
+        "tag interesse:portas criada",
+        "AI fez pergunta de qualif (material ou tamanho)"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "D5",
+      "category": "pedido_produto_direto",
+      "title": "Pedido direto 'piso vinílico'",
+      "phone": "5511900000016",
+      "name_phone": "Teste D5 - piso vinilico",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null,
+        "note": "Categoria 'pisos' NÃO existe no service_categories do Eletropiso (validado). Esperado: IA pergunta ambiente sem criar tag interesse:. Runner NÃO deve marcar FAIL pela ausência da tag."
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "tem piso vinílico?",
+          "expected_ai_pattern": "(?i)(piso|vinílic|vinilic|metragem|área|area|m²|m2|ambiente|cor)",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "tinta",
+            "furadeira",
+            "porta de madeira"
+          ],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 25
+        }
+      ],
+      "final_assertions": [
+        "AI fez pergunta de qualif (metragem ou ambiente)"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "E1",
+      "category": "qualif_completa_handoff_regular",
+      "title": "Qualif completa tinta + handoff REGULAR (horário aberto)",
+      "phone": "5511900000017",
+      "name_phone": "Teste E1 - tinta full",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null,
+        "note": "IMPORTANTE pro runner: NÃO mexer em business_hours durante esse cenário. Manter horário aberto durante TODA a conversa."
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "bom dia",
+          "expected_ai_pattern": "(?i)(bom dia|olá).*(em que|como|posso|ajud)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "sou o José",
+          "expected_ai_pattern": "(?i)josé|jose",
+          "expected_tags_includes": [
+            "nome_lead:José"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 3,
+          "lead_msg": "preciso de tinta",
+          "expected_ai_pattern": "(?i)(ambiente|cor|acabamento|interna|externa)",
+          "expected_tags_includes": [
+            "interesse:tinta"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 4,
+          "lead_msg": "tinta acrílica interna",
+          "expected_ai_pattern": "(?i)(cor|acabamento|fosco|brilhante|marca|metragem)",
+          "expected_tags_includes": [
+            "tipo_tinta:acrílica",
+            "ambiente:interna"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 5,
+          "lead_msg": "fosco, cor branco",
+          "expected_ai_pattern": "(?i)(marca|preferência|metragem|m²|quanto|litro)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 6,
+          "lead_msg": "Suvinil, 5 litros",
+          "expected_ai_pattern": "(?i)(consultor|vendedor|atendente|dará|conectar|encaminh|prosseguimento)",
+          "expected_ai_NOT_contains": [
+            "fora do horário",
+            "Seg-Sex",
+            "8h-18h",
+            "12h"
+          ],
+          "expected_tags_includes": [
+            "marca_preferida:Suvinil",
+            "quantidade:5",
+            "ia:shadow"
+          ],
+          "expected_handoff": true,
+          "wait_seconds_for_reply": 30
+        }
+      ],
+      "final_assertions": [
+        "conversation.status_ia = 'shadow'",
+        "tag ia:shadow presente",
+        "handoff message NÃO contém menção de horário (regex /seg-sex|sáb|sab|fora do hor|\\d{1,2}h\\b/i NÃO bate)",
+        "queue_event criado para o departamento Vendas",
+        "lead_score:30 ou superior nas tags",
+        "atendente atribuído está em {Lucas,Alberto,Jussara,Djavan,Slone}"
+      ],
+      "cleanup": "delete contact + cascade + queue_events + restore business_hours"
+    },
+    {
+      "id": "E2",
+      "category": "qualif_completa_handoff_regular",
+      "title": "Qualif completa furadeira + handoff REGULAR",
+      "phone": "5511900000018",
+      "name_phone": "Teste E2 - furadeira full",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_inside_hours": true,
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi",
+          "expected_ai_pattern": "(?i)(oi|olá|bom dia|boa tarde|boa noite).*(ajud|posso|em que)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "aqui é Lucas (cliente)",
+          "expected_ai_pattern": "(?i)lucas",
+          "expected_tags_includes": [
+            "nome_lead:Lucas"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 3,
+          "lead_msg": "quero furadeira",
+          "expected_ai_pattern": "(?i)(elétric|eletric|impacto|bateria|profissional|uso|tipo)",
+          "expected_tags_includes": [
+            "interesse:furadeiras"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 4,
+          "lead_msg": "profissional, impacto",
+          "expected_ai_pattern": "(?i)(marca|preferência|prefere|bosch|makita|black)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 5,
+          "lead_msg": "Bosch",
+          "expected_ai_pattern": "(?i)(consultor|vendedor|atendente|conectar|encaminh|prosseguimento)",
+          "expected_ai_NOT_contains": [
+            "fora do horário",
+            "Seg-Sex"
+          ],
+          "expected_tags_includes": [
+            "marca_preferida:Bosch",
+            "ia:shadow"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 30
+        },
+        {
+          "step": 6,
+          "lead_msg": "220v",
+          "expected_ai_pattern": "(?i)(conectar|consultor|vendas|prosseguimento|atendimento|retorno|aguarde|breve|atender|falar com)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": true,
+          "expected_status_ia": "shadow",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "conversation.status_ia = 'shadow'",
+        "handoff sem menção de horário",
+        "queue_event criado",
+        "atendente em {Lucas,Alberto,Jussara,Djavan,Slone}"
+      ],
+      "cleanup": "delete contact + cascade + queue_events + restore business_hours"
+    },
+    {
+      "id": "E3",
+      "category": "qualif_completa_handoff_regular",
+      "title": "Qualif completa porta + handoff REGULAR",
+      "phone": "5511900000019",
+      "name_phone": "Teste E3 - porta full",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null,
+        "note": "IMPORTANTE pro runner: NÃO mexer em business_hours durante esse cenário. Manter horário aberto durante TODA a conversa."
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "boa tarde",
+          "expected_ai_pattern": "(?i)(boa tarde|olá|ola).*(ajud|posso|em que)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "Aqui é Fernanda",
+          "expected_ai_pattern": "(?i)fernanda",
+          "expected_tags_includes": [
+            "nome_lead:Fernanda"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 3,
+          "lead_msg": "preciso de porta",
+          "expected_ai_pattern": "(?i)(material|madeira|alumin|pvc|tamanho|interna|externa)",
+          "expected_tags_includes": [
+            "interesse:portas"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 4,
+          "lead_msg": "porta de madeira interna",
+          "expected_ai_pattern": "(?i)(tamanho|medida|altura|largura|2,10|0,80)",
+          "expected_tags_includes": [
+            "material_porta:madeira"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 5,
+          "lead_msg": "2,10 x 0,80",
+          "expected_ai_pattern": "(?i)(consultor|vendedor|atendente|conectar|encaminh|prosseguimento)",
+          "expected_ai_NOT_contains": [
+            "fora do horário",
+            "Seg-Sex"
+          ],
+          "expected_tags_includes": [
+            "ia:shadow"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 30
+        },
+        {
+          "step": 6,
+          "lead_msg": "lisa",
+          "expected_ai_pattern": "(?i)(conectar|consultor|vendas|prosseguimento|atendimento|retorno|aguarde|breve|atender|falar com)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": true,
+          "expected_status_ia": "shadow",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "conversation.status_ia = 'shadow'",
+        "queue_event criado",
+        "handoff sem menção horário"
+      ],
+      "cleanup": "delete contact + cascade + queue_events + restore business_hours"
+    },
+    {
+      "id": "E4",
+      "category": "qualif_completa_handoff_regular",
+      "title": "Qualif completa fechadura + handoff REGULAR",
+      "phone": "5511900000020",
+      "name_phone": "Teste E4 - fechadura full",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_inside_hours": true,
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "olá",
+          "expected_ai_pattern": "(?i)(olá|ola|oi).*(ajud|posso|em que)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "Meu nome é Patrícia",
+          "expected_ai_pattern": "(?i)patrícia|patricia",
+          "expected_tags_includes": [
+            "nome_lead:Patrícia"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 3,
+          "lead_msg": "quero fechadura",
+          "expected_ai_pattern": "(?i)(tipo|interna|externa|digital|tetra|cilindro|porta)",
+          "expected_tags_includes": [
+            "interesse:fechaduras"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 4,
+          "lead_msg": "fechadura tetra interna",
+          "expected_ai_pattern": "(?i)(marca|prefer|stam|papaiz|consultor|vendedor)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 25
+        },
+        {
+          "step": 5,
+          "lead_msg": "Stam",
+          "expected_ai_pattern": "(?i)(consultor|vendedor|atendente|conectar|encaminh|prosseguimento)",
+          "expected_ai_NOT_contains": [
+            "fora do horário",
+            "Seg-Sex"
+          ],
+          "expected_tags_includes": [
+            "ia:shadow"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 30
+        },
+        {
+          "step": 6,
+          "lead_msg": "tetra-chave",
+          "expected_ai_pattern": "(?i)(conectar|consultor|vendas|prosseguimento|atendimento|retorno|aguarde|breve|atender|falar com)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": true,
+          "expected_status_ia": "shadow",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "conversation.status_ia = 'shadow'",
+        "queue_event criado",
+        "handoff regular sem horário"
+      ],
+      "cleanup": "delete contact + cascade + queue_events + restore business_hours"
+    },
+    {
+      "id": "F1",
+      "category": "handoff_rotacao_fila",
+      "title": "Rotação fila — Lucas timeout → Alberto",
+      "phone": "5511900000021",
+      "name_phone": "Teste F1 - rot Lucas-Alberto",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_inside_hours": true,
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "queue_cursor_reset": "force last_assignee_position=null no dept Vendas (próximo pick = Lucas qp10)",
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi sou João",
+          "expected_ai_pattern": "(?i)(em que.*ajud|posso ajudar)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "quero furadeira",
+          "expected_ai_pattern": "(?i)(uso|profissional|doméstico|domestico|impacto|comum|marca)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [
+            "interesse:furadeiras"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 3,
+          "lead_msg": "profissional, impacto, Bosch",
+          "expected_ai_pattern": "(?i)(voltagem|220|12|bateria|com fio)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 4,
+          "lead_msg": "220v",
+          "expected_ai_pattern": "(?i)(conectar|consultor|vendas|prosseguimento|retorno|aguarde|breve)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": true,
+          "expected_status_ia": "shadow",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "expected_rotation": {
+        "force_expire_after_msg": 1,
+        "expected_from_qp": 10,
+        "expected_to_qp": 20,
+        "force_expire_method": "UPDATE handoff_queue_events SET expires_at = now() - interval '1 second' WHERE conversation_id = X AND resolved_at IS NULL",
+        "wait_for_cron_seconds": 90
+      },
+      "final_assertions": [
+        "1º queue_event criado com assigned_to=Lucas (qp=10)",
+        "Após force-expire + cron: evento Lucas resolved_at IS NOT NULL com reason='timed_out'",
+        "Novo queue_event criado com assigned_to=Alberto (qp=20)",
+        "conversation.assigned_to atualizado para Alberto",
+        "0 outgoing messages com sender_id IS NOT NULL (não houve resposta humana)"
+      ],
+      "cleanup": "delete contact + cascade + queue_events + reset cursor + restore business_hours"
+    },
+    {
+      "id": "F2",
+      "category": "handoff_rotacao_fila",
+      "title": "Wrap-around — Slone (qp50) timeout → Lucas (qp10) pulando gerente",
+      "phone": "5511900000022",
+      "name_phone": "Teste F2 - wrap Slone-Lucas",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_inside_hours": true,
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "queue_cursor_force": "UPDATE departments SET last_assignee_position=40 WHERE name='Vendas' (próximo pick = Slone qp50)",
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "boa tarde sou Maria",
+          "expected_ai_pattern": "(?i)(em que.*ajud|posso ajudar)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "tinta acrílica",
+          "expected_ai_pattern": "(?i)(ambiente|cômodo|interno|externo|cor|acabamento)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [
+            "interesse:tintas"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 3,
+          "lead_msg": "sala, fosco, branco",
+          "expected_ai_pattern": "(?i)(marca|suvinil|coral|cor|metro|litro|quantidade)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 4,
+          "lead_msg": "Suvinil, 5 litros",
+          "expected_ai_pattern": "(?i)(conectar|consultor|vendas|prosseguimento|retorno|aguarde|breve)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [
+            "marca_preferida:Coral"
+          ],
+          "expected_handoff": true,
+          "expected_status_ia": "shadow",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "expected_rotation": {
+        "force_expire_after_msg": 1,
+        "expected_from_qp": 50,
+        "expected_to_qp": 10,
+        "force_expire_method": "UPDATE handoff_queue_events SET expires_at = now() - interval '1 second' WHERE conversation_id = X AND resolved_at IS NULL",
+        "wait_for_cron_seconds": 90,
+        "skip_role": "gerente fora da fila (a menos que gestor_in_queue=true)"
+      },
+      "final_assertions": [
+        "1º queue_event Slone (qp=50)",
+        "Após force-expire: Slone resolved_at NOT NULL, reason='timed_out'",
+        "Novo queue_event com assigned_to=Lucas (qp=10) — wrap-around correto",
+        "Nenhum evento atribuído a gerente do dept (se houver gerente sem opt-in)"
+      ],
+      "cleanup": "delete contact + cascade + reset queue_events + reset cursor + restore business_hours"
+    },
+    {
+      "id": "F3",
+      "category": "handoff_rotacao_fila",
+      "title": "Humano responde — evento fecha como 'responded' e fila para",
+      "phone": "5511900000023",
+      "name_phone": "Teste F3 - humano responde",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_inside_hours": true,
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "queue_cursor_reset": "force próximo pick = Lucas qp10",
+        "lead_profile": null,
+        "note": "F3 — após handoff, descobrir o assigned_user_id do evento active via SELECT antes de inserir a msg outgoing humana. sender_id = assigned_user_id. Evento deve fechar como responded.",
+        "note_wait": "Após handoff e msg humana com sender_id=assigned_user_id atual, aguardar 130s (não 75s) pra cron `requeue-conversations` rodar 2 ticks (schedule * * * * * = 1min). NÃO é trigger DB — é Case C do cron."
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi sou Pedro",
+          "expected_ai_pattern": "(?i)(em que.*ajud|posso ajudar)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "preciso de fechadura",
+          "expected_ai_pattern": "(?i)(tipo|interna|externa|tetra|rolete|digital|ambiente)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [
+            "interesse:fechaduras"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 3,
+          "lead_msg": "tetra-chave interna",
+          "expected_ai_pattern": "(?i)(marca|stam|pado|aliança|alianca)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 4,
+          "lead_msg": "Stam",
+          "expected_ai_pattern": "(?i)(conectar|consultor|vendas|prosseguimento|retorno|aguarde|breve)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": true,
+          "expected_status_ia": "shadow",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "expected_rotation": {
+        "force_expire_after_msg": null,
+        "expected_event_outcome": "responded",
+        "wait_for_cron_seconds": 90
+      },
+      "final_assertions": [
+        "queue_event de Lucas: resolved_at NOT NULL com reason='responded' (não timed_out)",
+        "Nenhum novo queue_event criado após responded",
+        "conversation.assigned_to permanece = Lucas",
+        "Outgoing message com sender_id = lucas_user_id presente (R116 — distingue bot via sender_id)"
+      ],
+      "cleanup": "delete contact + cascade + queue_events + restore business_hours"
+    },
+    {
+      "id": "G1",
+      "category": "fora_horario_handoff",
+      "title": "Conversa nova FORA do horário — handoff_message_outside_hours com horários FIXADOS",
+      "phone": "5511900000024",
+      "name_phone": "Teste G1 - fora hora new",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_outside_hours": true,
+          "open": "23:00",
+          "close": "23:59"
+        },
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "boa noite",
+          "expected_ai_pattern": "(?i)(boa noite|olá).*(ajud|posso|em que)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "sou Bruno, preciso de trena",
+          "expected_ai_pattern": "(?i)(profissional|doméstic|domestic|uso|tipo|tamanho)",
+          "expected_tags_includes": [
+            "nome_lead:Bruno",
+            "interesse:ferramentas_manuais"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 25
+        },
+        {
+          "step": 3,
+          "lead_msg": "profissional",
+          "expected_ai_pattern": "(?i)(consultor|vendedor|atendente|conectar|encaminh|prosseguimento|disponível|disponivel).*((seg|sáb|sab)[-\\s]?(sex|fri)|8h|12h|18h|horário|horario)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [
+            "ia:shadow"
+          ],
+          "expected_handoff": true,
+          "wait_seconds_for_reply": 30
+        }
+      ],
+      "final_assertions": [
+        "handoff message FOI enviado COM menção de horário (regex /seg[-\\s]?sex|sáb|sab|8h\\b|12h\\b|18h\\b|horário/i bate)",
+        "Usou handoff_message_outside_hours (não handoff_message)",
+        "conversation.status_ia = 'shadow'",
+        "queue_event criado (ou não, dependendo da config 'atender fora hora') mas mensagem entregue",
+        "Se enrichOutsideHoursMessage rodou: prefix com 'Seg-Sex 8h-18h, Sáb 8h-12h' presente"
+      ],
+      "cleanup": "delete contact + cascade + queue_events + restore business_hours"
+    },
+    {
+      "id": "G2",
+      "category": "fora_horario_handoff",
+      "title": "Retorno FORA do horário — usa nome conhecido + handoff outside_hours",
+      "phone": "5511900000025",
+      "name_phone": "Teste G2 - fora hora retorno",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_outside_hours": true,
+          "open": "23:00",
+          "close": "23:59"
+        },
+        "lead_profile": {
+          "full_name": "Carla"
+        },
+        "seed_ai_agent_logs": "1 entrada antiga (hasEverInteracted=true) com conversation_id da conv",
+        "seed_returning_lead_protocol": "OBRIGATÓRIO: (1) INSERT contact (jid=phone@s.whatsapp.net), (2) INSERT conversation com status='resolvida' + closed_at=now()-interval '6 hours' (dentro da janela D34 de 7d), (3) INSERT lead_profiles (contact_id, full_name=<nome>, agent_id da Eletropiso), (4) INSERT 1 row em ai_agent_logs (agent_id, conversation_id da step 2, event='response_sent', created_at=now()-interval '6 hours'). Webhook vai REABRIR a conv (mesmo conversation_id) e hasEverInteracted=true porque ai_agent_logs.conversation_id = current. SEM esses 4 passos, returning greeting não dispara."
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi",
+          "expected_ai_pattern": "(?i)(oi|olá|boa noite).*carla.*(ajud|em que|posso|no que)",
+          "expected_ai_NOT_contains": [
+            "qual seu nome",
+            "como posso te chamar"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 2,
+          "lead_msg": "quero tinta acrílica fosco branco Suvinil 5 litros",
+          "expected_ai_pattern": "(?i)(consultor|vendedor|atendente|conectar|encaminh).*((seg|sáb|sab)[-\\s]?(sex|fri)|8h|12h|18h|horário|horario)",
+          "expected_tags_includes": [
+            "interesse:tinta",
+            "tipo_tinta:acrílica",
+            "marca_preferida:Suvinil",
+            "ia:shadow"
+          ],
+          "expected_handoff": true,
+          "wait_seconds_for_reply": 35
+        }
+      ],
+      "final_assertions": [
+        "AI usou 'Carla' sem repergunar nome",
+        "handoff_message_outside_hours com horários presente",
+        "conversation.status_ia = 'shadow'"
+      ],
+      "cleanup": "delete contact + cascade + queue_events + restore business_hours"
+    },
+    {
+      "id": "G3",
+      "category": "fora_horario_handoff",
+      "title": "Fora horário + produto EXCLUÍDO (cama de casal) — resposta polida sem handoff",
+      "phone": "5511900000026",
+      "name_phone": "Teste G3 - fora hora excluded",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_outside_hours": true,
+          "open": "23:00",
+          "close": "23:59"
+        },
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "boa noite, vocês têm cama de casal?",
+          "expected_ai_pattern": "(?i)(não trabalha|nao trabalha|não vendemos|nao vendemos|infelizmente|não temos|nao temos esse tipo)",
+          "expected_ai_NOT_contains": [
+            "consultor",
+            "vendedor",
+            "conectar",
+            "encaminh",
+            "Seg-Sex 8h"
+          ],
+          "expected_tags_excludes": [
+            "ia:shadow"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "Resposta de excluded_product enviada (não fez handoff)",
+        "conversation.status_ia continua 'active' (NÃO shadow)",
+        "lead_msg_count NÃO incrementou (excluded_product não conta)",
+        "log event='excluded_product_match' presente em ai_agent_logs",
+        "Sem queue_event criado"
+      ],
+      "cleanup": "delete contact + cascade + restore business_hours"
+    },
+    {
+      "id": "H1",
+      "category": "edge_case",
+      "title": "Produto EXCLUÍDO 'cama de casal' (horário aberto)",
+      "phone": "5511900000027",
+      "name_phone": "Teste H1 - excluded cama",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_inside_hours": true,
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi, vocês têm cama de casal?",
+          "expected_ai_pattern": "(?i)(não trabalha|nao trabalha|não vendemos|nao vendemos|infelizmente|não temos|nao temos)",
+          "expected_ai_NOT_contains": [
+            "consultor",
+            "vendedor",
+            "conectar",
+            "carrossel",
+            "fora do horário"
+          ],
+          "expected_tags_excludes": [
+            "ia:shadow",
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "log event='excluded_product_match' em ai_agent_logs",
+        "Sem incremento de lead_msg_count",
+        "Resposta polida sugere alternativa (suggested_categories)",
+        "conversation.status_ia continua 'active'",
+        "Sem queue_event"
+      ],
+      "cleanup": "delete contact + cascade + restore business_hours"
+    },
+    {
+      "id": "H2",
+      "category": "edge_case",
+      "title": "Mensagem 1-letra 'a' — IA não alucina produto",
+      "phone": "5511900000028",
+      "name_phone": "Teste H2 - msg 1 letra",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": null,
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "a",
+          "expected_ai_pattern": "(?i)(não entendi|nao entendi|pode|repetir|reformular|como.*posso|em que|ajudar)",
+          "expected_ai_NOT_contains": [
+            "trena",
+            "furadeira",
+            "tinta",
+            "porta",
+            "cano",
+            "carrossel"
+          ],
+          "expected_tags_excludes": [
+            "interesse:"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        }
+      ],
+      "final_assertions": [
+        "AI pediu esclarecimento (NÃO alucinou produto)",
+        "Sem tag interesse:* criada",
+        "conversation.status_ia = 'active'",
+        "1 outgoing message"
+      ],
+      "cleanup": "delete contact + cascade"
+    },
+    {
+      "id": "H3",
+      "category": "edge_case",
+      "title": "2 leads simultâneos — race condition na fila",
+      "phone": "5511900000029",
+      "phone_b": "5511900000030",
+      "name_phone": "Teste H3 - race A+B",
+      "preconditions": {
+        "create_contact_A": true,
+        "create_contact_B": true,
+        "create_conversation_A": true,
+        "create_conversation_B": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_inside_hours": true,
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "queue_cursor_reset": "force last_assignee_position=null (próximo pick = Lucas qp10)",
+        "lead_profile_A": null,
+        "lead_profile_B": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi",
+          "expected_ai_pattern": "(?i)(em que.*ajud|posso ajudar|com quem)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "sou Felipe, quero furadeira",
+          "expected_ai_pattern": "(?i)(uso|profissional|impacto|marca)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [
+            "interesse:furadeiras"
+          ],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 3,
+          "lead_msg": "profissional impacto Bosch",
+          "expected_ai_pattern": "(?i)(voltagem|220|12)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": false,
+          "expected_status_ia": "active",
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 4,
+          "lead_msg": "220v",
+          "expected_ai_pattern": "(?i)(conectar|consultor|vendas|prosseguimento|retorno|aguarde|breve)",
+          "expected_ai_NOT_contains": [],
+          "expected_tags_includes": [],
+          "expected_tags_excludes": [],
+          "expected_handoff": true,
+          "expected_status_ia": "shadow",
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "2 queue_events criados (1 por conv)",
+        "assigned_to são DIFERENTES (RR atômico: 1 pegou Lucas qp10, outro pegou Alberto qp20)",
+        "Nenhum dos 2 assigned_to é NULL",
+        "departments.last_assignee_position avançou corretamente (20 ou 30 dependendo da ordem)",
+        "Sem deadlock: ambos status_ia='shadow'"
+      ],
+      "cleanup": "delete contact_A + contact_B + cascade + reset cursor + restore business_hours"
+    },
+    {
+      "id": "H4",
+      "category": "edge_case",
+      "title": "Lead cancela pedido 'desisti' antes do handoff",
+      "phone": "5511900000031",
+      "name_phone": "Teste H4 - desistencia",
+      "preconditions": {
+        "create_contact": true,
+        "create_conversation": true,
+        "ai_agent_status": "active",
+        "business_hours_override": {
+          "force_inside_hours": true,
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "lead_profile": null
+      },
+      "interactions": [
+        {
+          "step": 1,
+          "lead_msg": "oi",
+          "expected_ai_pattern": "(?i)(oi|olá|bom dia|boa tarde|boa noite).*(ajud|posso|em que)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 15
+        },
+        {
+          "step": 2,
+          "lead_msg": "sou Tiago, preciso de tinta",
+          "expected_ai_pattern": "(?i)(ambiente|interna|externa|cor|acabamento)",
+          "expected_tags_includes": [
+            "nome_lead:Tiago",
+            "interesse:tinta"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 3,
+          "lead_msg": "tinta acrílica interna",
+          "expected_ai_pattern": "(?i)(cor|acabamento|fosco|brilhante|marca|metragem)",
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        },
+        {
+          "step": 4,
+          "lead_msg": "deixa pra lá, desisti",
+          "expected_ai_pattern": "(?i)(tudo bem|sem problema|claro|estaremos|qualquer dúvida|à disposição|a disposicao|volte quando|quando precisar)",
+          "expected_ai_NOT_contains": [
+            "consultor",
+            "vendedor",
+            "conectar",
+            "encaminh",
+            "carrossel"
+          ],
+          "expected_handoff": false,
+          "wait_seconds_for_reply": 20
+        }
+      ],
+      "final_assertions": [
+        "AI aceitou cancelamento educadamente (sem forçar handoff)",
+        "conversation.status_ia continua 'active' (não shadow)",
+        "Sem queue_event criado",
+        "tags interesse:tinta preservadas (não removidas)",
+        "tag motivo:desistencia ou similar pode ser criada (opcional)"
+      ],
+      "cleanup": "delete contact + cascade + restore business_hours"
+    }
+  ]
+}

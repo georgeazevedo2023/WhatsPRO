@@ -147,7 +147,12 @@ async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
 
   if (!resp.ok) {
     const err = await resp.text()
-    throw new Error(`OpenAI ${resp.status}: ${err.substring(0, 300)}`)
+    // v7.43.3: marca erros 4xx como CLIENT_ERROR pra callLLM bloquear fallback Gemini
+    // (4xx = problema do request — schema, auth, payload — vai falhar IGUAL no Gemini.
+    // Fallback só faz sentido pra 5xx/timeout/network onde o problema é availability OpenAI.)
+    const isClientError = resp.status >= 400 && resp.status < 500
+    const tag = isClientError ? 'OpenAI_CLIENT_ERROR' : 'OpenAI'
+    throw new Error(`${tag} ${resp.status}: ${err.substring(0, 300)}`)
   }
 
   const data = await resp.json()
@@ -299,8 +304,18 @@ export async function callLLM(req: LLMRequest): Promise<LLMResponse> {
         openaiBreaker.onSuccess()
         return result
       } catch (err) {
+        const errMsg = (err as Error).message
         openaiBreaker.onFailure()
-        log.warn('OpenAI failed, falling back to Gemini', { error: (err as Error).message, breakerOpen: openaiBreaker.isOpen })
+        // v7.43.3: log erro OpenAI EXPLÍCITO antes de qualquer fallback (visibility-first).
+        log.error?.('OpenAI request failed', { error: errMsg, model: req.model })
+        // v7.43.3: bloqueia fallback Gemini em erros 4xx (CLIENT_ERROR — schema, auth, payload).
+        // Schema OpenAI strict é incompatível com proto schema do Gemini, então fallback
+        // mascara o erro real e gera 400 secundário no Gemini (observado prod 14:59 + 15:18).
+        if (errMsg.includes('OpenAI_CLIENT_ERROR')) {
+          log.error?.('OpenAI 4xx — bypassing Gemini fallback (would fail equally)', { error: errMsg })
+          throw err
+        }
+        log.warn('OpenAI failed (server-side), falling back to Gemini', { error: errMsg, breakerOpen: openaiBreaker.isOpen })
       }
     } else if (OPENAI_API_KEY && openaiBreaker.isOpen) {
       log.warn('OpenAI circuit breaker OPEN, skipping to Gemini')
