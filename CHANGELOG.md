@@ -13,6 +13,22 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.41.15 (2026-05-22 noite III) — Sprint B5 Onda 4: extrai `llmCallLoop`
+
+Extração do loop principal de function calling do monolito `ai-agent/index.ts` pra `_shared/agent/llmCallLoop.ts`. Inclui setup (geminiContents→llmMessages), while loop (LLM call → tool execution seq/parallel → handoff guard → MAX_TOOL_ROUNDS safety → retry backoff → 502 em 3 falhas → pending Qs injection + follow-up call), e post-LLM cleanup (dedup nome + greeting strip Bug 17 v2).
+
+- **Arquivo novo:** `_shared/agent/llmCallLoop.ts` (327 lin) com `runLlmCallLoop(ctx)` + interface `LlmCallLoopCtx`/`LlmCallLoopResult`
+- **Testes novos:** `llmCallLoop.test.ts` (16 testes, todos PASS): happy paths, tool calls seq/parallel, handoff break, handoff guard block (bug latente do monolito preservado linha-a-linha), MAX_TOOL_ROUNDS, retry/backoff, error 502, pending Qs (injection + follow-up), dedup nome, greeting strip, token ceiling
+- **index.ts:** 2678 → 2494 lin (**-184 lin nesta onda**). Acumulado Sprint B5: **-2050 lin desde 4544 (-45.1%)**. Imports limpos: removidos `appendToolResults`, `LLMMessage`, `evaluateHandoffGuard`, `HANDOFF_GUARD_BLOCKED_MSG` (todos só usados no bloco extraído). Adicionado import único `runLlmCallLoop`.
+- **`executeToolSafe` permanece em `ai-agent/index.ts`** (também usado por R121 inline + R137 wire + set_tags handler — keeping evita refator cross-cutting). Injetado via ctx.
+- **`toolCallsLog` ref mutável** compartilhada entre pre-LLM (R121/R137) e loop — padrão idêntico ao de setTagsAndHandoff/searchProducts.
+- **Validator + question mark guard** stayed em index.ts mas saíram do wrapper `while`: antes da Onda 4 ficavam dentro do loop com `break` final; agora rodam linearmente após o helper.
+- **Pipeline:** tsc 0 erros · vitest **1200 pass / 9 fails pré-existentes idênticos** (+16 novos) · deploy CLI ai-agent v99→**v100 ACTIVE**
+
+**Andamento plano orquestrador:** 53% → **56%** (Onda 4 fechada). Próximas:
+- Onda 5 — `dispatchResponse` (~240 lin) — última do split B5
+- Sprint C — Router LLM + product_specialist POC (~2-3 semanas, marco)
+
 ### v7.41.7 → v7.41.14 (2026-05-22 noite II) — Sessão maratona R140-R145
 
 **8 versões em ~6 horas** atacando bug Sandrielly definitivamente. ai-agent v89→v99 ACTIVE.

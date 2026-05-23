@@ -1,7 +1,7 @@
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import { geminiBreaker, groqBreaker, mistralBreaker, uazapiBreaker } from '../_shared/circuitBreaker.ts'
-import { callLLM, appendToolResults, type LLMMessage, type LLMToolDef } from '../_shared/llmProvider.ts'
+import { callLLM, type LLMToolDef } from '../_shared/llmProvider.ts'
 import { STATUS_IA } from '../_shared/constants.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
@@ -15,7 +15,7 @@ import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
 import { ttsWithFallback, splitAudioAndText } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
-import { evaluateHandoffGuard, HANDOFF_GUARD_BLOCKED_MSG } from '../_shared/handoffGuard.ts'
+import { runLlmCallLoop } from '../_shared/agent/llmCallLoop.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
@@ -1990,225 +1990,43 @@ ${contextBlock}`
     }
 
     // 15. Call LLM API with function calling loop (OpenAI primary, Gemini fallback)
-    // gpt-4.1-mini is a valid OpenAI model ID (released 2025-04-14, pinned alias: gpt-4.1-mini-2025-04-14)
+    // Sprint B5 Onda 4 (2026-05-22): setup + while loop + post-LLM cleanup extraídos
+    // pra _shared/agent/llmCallLoop.ts. Helper encapsula geminiContents→llmMessages,
+    // loop function-calling com handoff guard + MAX_TOOL_ROUNDS safety + token ceiling
+    // + retry backoff, e cleanup Bug 17 v2 (dedup nome + greeting strip).
+    // executeToolSafe permanece em index.ts (também usado por R121 inline + R137 wire
+    // + set_tags handler). toolCallsLog é ref mutável compartilhada (R121/R141).
     const llmModel = agent.model || 'gpt-4.1-mini'
-
     log.info('Calling LLM', { conversation_id, model: llmModel })
 
-    // Convert Gemini-style contents to OpenAI-style messages
-    let llmMessages: LLMMessage[] = geminiContents.map((c: any) => ({
-      role: c.role === 'model' ? 'assistant' as const : 'user' as const,
-      content: c.parts?.[0]?.text || '',
-    }))
+    const llmLoopResult = await runLlmCallLoop({
+      agent,
+      llmModel,
+      systemPrompt,
+      toolDefs,
+      geminiContents,
+      toolCallsLog,
+      executeToolSafe,
+      conversation,
+      hasInteracted,
+      sendPresence,
+      log,
+      supabase,
+      agent_id,
+      conversation_id,
+      startTime,
+      corsHeaders,
+    })
+    if (llmLoopResult.errorResponse) return llmLoopResult.errorResponse
+    let responseText = llmLoopResult.responseText
+    const inputTokens = llmLoopResult.inputTokens
+    const outputTokens = llmLoopResult.outputTokens
+    const usedModel = llmLoopResult.usedModel
 
-    let responseText = ''
-    let inputTokens = 0
-    let outputTokens = 0
-    // toolCallsLog + carouselSentInThisCall declarados acima (R121 + R141) pra suportar
-    // R121 inline search e R137 searchGuard wire que chamam executeTool no pre-LLM.
-    let attempts = 0
-    const maxAttempts = 5
-    const MAX_TOOL_ROUNDS = 3
-    let toolRounds = 0
-    const MAX_ACCUMULATED_INPUT_TOKENS = 8192 // Safety ceiling for accumulated context across tool rounds
-    let totalInputTokens = 0
-    let usedModel = llmModel
-
-    while (attempts < maxAttempts) {
-      attempts++
-      if (attempts > 1) sendPresence('composing')
-
-      try {
-        const llmResult = await callLLM({
-          systemPrompt,
-          messages: llmMessages,
-          tools: toolDefs,
-          temperature: agent.temperature || 0.7,
-          maxTokens: agent.max_tokens || 1024,
-          model: llmModel,
-        })
-
-        log.info('LLM response', {
-          provider: llmResult.provider,
-          model: llmResult.model,
-          latency_ms: llmResult.latency_ms,
-          input_tokens: llmResult.inputTokens,
-          output_tokens: llmResult.outputTokens,
-          tool_calls: llmResult.toolCalls.length,
-        })
-
-        inputTokens += llmResult.inputTokens
-        outputTokens += llmResult.outputTokens
-        usedModel = llmResult.model
-
-        totalInputTokens += llmResult.inputTokens
-        if (totalInputTokens > MAX_ACCUMULATED_INPUT_TOKENS && toolRounds >= 1) {
-          log.warn('Token ceiling reached — trimming context', { totalInputTokens, ceiling: MAX_ACCUMULATED_INPUT_TOKENS, toolRounds })
-          // Keep only the last 3 exchange pairs (6 messages) to stay within bounds
-          if (llmMessages.length > 6) {
-            llmMessages = llmMessages.slice(-6)
-          }
-        }
-
-        // Handle tool calls
-        if (llmResult.toolCalls.length > 0) {
-          const sideEffectTools = new Set(['send_carousel', 'send_media', 'send_poll', 'handoff_to_human'])
-          const hasSideEffects = llmResult.toolCalls.some(tc => sideEffectTools.has(tc.name))
-
-          const toolResultEntries: { name: string; result: string }[] = []
-
-          if (hasSideEffects || llmResult.toolCalls.length === 1) {
-            for (const tc of llmResult.toolCalls) {
-              // GUARD: handoff_to_human exige busca prévia quando há contexto de produto.
-              // Lógica isolada em _shared/handoffGuard.ts pra ser testável (R122).
-              if (tc.name === 'handoff_to_human') {
-                const guard = evaluateHandoffGuard({
-                  tags: conversation.tags || [],
-                  toolNamesThisRound: toolCallsLog.map(t => t.name),
-                })
-                if (!guard.allowed) {
-                  log.warn('GUARD: handoff blocked — search_products required first', { reason: guard.reason })
-                  toolCallsLog.push({ name: tc.name, args: tc.args, result: HANDOFF_GUARD_BLOCKED_MSG })
-                  toolResultEntries.push({ name: tc.name, result: HANDOFF_GUARD_BLOCKED_MSG })
-                  continue
-                }
-              }
-              log.info('Tool (seq)', { tool: tc.name, args_preview: JSON.stringify(tc.args).substring(0, 100) })
-              const result = await executeToolSafe(tc.name, tc.args || {})
-              toolCallsLog.push({ name: tc.name, args: tc.args, result: result.substring(0, 200) })
-              toolResultEntries.push({ name: tc.name, result })
-            }
-          } else {
-            log.info('Parallel tools', { tools: llmResult.toolCalls.map(tc => tc.name) })
-            const results = await Promise.all(
-              llmResult.toolCalls.map(async (tc) => {
-                const result = await executeToolSafe(tc.name, tc.args || {})
-                toolCallsLog.push({ name: tc.name, args: tc.args, result: result.substring(0, 200) })
-                return { name: tc.name, result }
-              })
-            )
-            toolResultEntries.push(...results)
-          }
-
-          if (toolCallsLog.some(t => t.name === 'handoff_to_human')) {
-            log.info('handoff_to_human called, stopping loop')
-            break
-          }
-
-          // Inject pending questions from grouped messages into the LAST tool result
-          // so LLM sees them right before generating the response
-          const pendingQs = (geminiContents as any).__pendingQuestions as string[] | undefined
-          if (pendingQs?.length && toolResultEntries.length > 0) {
-            const lastEntry = toolResultEntries[toolResultEntries.length - 1]
-            const questionsBlock = pendingQs.map((q, i) => `${i + 1}. "${q}"`).join('\n')
-            lastEntry.result += `\n\nPERGUNTAS PENDENTES DO LEAD (responda TODAS na sua mensagem):\n${questionsBlock}\nIMPORTANTE: sua resposta DEVE abordar cada pergunta acima. Se não tem info cadastrada sobre o tema, diga "Vou verificar com nosso consultor" e faça handoff_to_human.`
-            // Clear so they're not injected again on next tool round
-            ;(geminiContents as any).__pendingQuestions = undefined
-          }
-
-          // Append tool results to conversation for next LLM call
-          llmMessages = appendToolResults(llmMessages, llmResult.toolCalls, toolResultEntries)
-          toolRounds++
-
-          // Safety: after MAX_TOOL_ROUNDS, force a final text-only LLM call (no tools)
-          if (toolRounds >= MAX_TOOL_ROUNDS) {
-            log.warn('Tool round limit reached', { rounds: MAX_TOOL_ROUNDS })
-            try {
-              const finalResult = await callLLM({
-                systemPrompt,
-                messages: llmMessages,
-                tools: [], // No tools — force text response
-                temperature: agent.temperature || 0.7,
-                maxTokens: agent.max_tokens || 1024,
-                model: llmModel,
-              })
-              log.info('LLM response (final text-only)', {
-                provider: finalResult.provider,
-                model: finalResult.model,
-                latency_ms: finalResult.latency_ms,
-                input_tokens: finalResult.inputTokens,
-                output_tokens: finalResult.outputTokens,
-                tool_calls: 0,
-              })
-              inputTokens += finalResult.inputTokens
-              outputTokens += finalResult.outputTokens
-              responseText = finalResult.text
-            } catch (e) {
-              log.error('Final text-only call failed', { error: (e as Error).message })
-            }
-            break
-          }
-          continue
-        }
-
-        responseText = llmResult.text
-
-        // If there are pending questions from grouped msgs that weren't answered by tool flow,
-        // make one more LLM call with the pending questions appended
-        const remainingQs = (geminiContents as any).__pendingQuestions as string[] | undefined
-        if (remainingQs?.length && responseText.trim()) {
-          log.info('Pending questions remain after text response — making follow-up call', { questions: remainingQs })
-          try {
-            const followUpMsgs: LLMMessage[] = [
-              ...llmMessages,
-              { role: 'assistant' as const, content: responseText },
-              { role: 'user' as const, content: `O lead também perguntou:\n${remainingQs.map((q, i) => `${i + 1}. "${q}"`).join('\n')}\nResponda essas perguntas. Se não tem informação cadastrada sobre o tema, diga "Vou verificar com nosso consultor".` },
-            ]
-            const followUp = await callLLM({ systemPrompt, messages: followUpMsgs, tools: [], temperature: agent.temperature || 0.7, maxTokens: 512, model: agent.model || 'gemini-2.5-flash' })
-            if (followUp.text?.trim()) {
-              responseText += '\n\n' + followUp.text.trim()
-              inputTokens += followUp.inputTokens
-              outputTokens += followUp.outputTokens
-            }
-          } catch (e) { log.warn('Follow-up for pending questions failed', { error: (e as Error).message }) }
-          ;(geminiContents as any).__pendingQuestions = undefined
-        }
-      } catch (err) {
-        const errMsg = (err as Error).message || 'LLM error'
-        log.error('LLM error', { attempt: attempts, error: errMsg })
-
-        if (attempts < 3) {
-          const backoffMs = 1500 * Math.pow(2, attempts - 1)
-          log.info('Retrying LLM after backoff', { backoffMs })
-          await new Promise(r => setTimeout(r, backoffMs))
-          continue
-        }
-
-        await supabase.from('ai_agent_logs').insert({
-          agent_id, conversation_id, event: 'error', model: usedModel,
-          error: errMsg.substring(0, 300),
-          latency_ms: Date.now() - startTime,
-        })
-        return new Response(JSON.stringify({ error: 'LLM API error' }), {
-          status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-
-      // Fix doubled names in response (e.g., "GeorgeGeorge" → "George")
-      responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
-
-      // Strip greeting repetition from response (if LLM repeats it despite instructions)
-      // Bug 17 fix v2 (2026-05-17): expandido pra cobrir Bom dia / Boa tarde / Boa noite /
-      // Bem-vindo / Bem vinda + com ou sem nome + em qualquer linha (multiline regex). Antes
-      // o regex so' pegava "Olá|Oi|Ei|Hey, NOME" no inicio - missing "Bom dia, Pedro!" e
-      // saudacoes no meio do texto. Em J1 (sessao 10 jornadas) LLM gerou "Olá, Pedro! Voce
-      // tem preferencia..." e o strip nao funcionou - regex antigo pegava mas algumas
-      // variacoes escapavam. Versao nova: regex global multiline cobre quase tudo.
-      if (hasInteracted) {
-        if (agent.greeting_message) {
-          const greetNorm = agent.greeting_message.toLowerCase().trim().replace(/[!?.]/g, '')
-          if (responseText.toLowerCase().includes(greetNorm)) {
-            responseText = responseText.replace(new RegExp(agent.greeting_message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '').trim()
-          }
-        }
-        // Regex Bug 17 v2: pega saudacao + nome opcional + pontuacao opcional, em qualquer
-        // posicao do texto (multi-line, global). Inclui variacoes com acento ou sem.
-        const greetingPrefixRe = /(?:^|\n)\s*(?:olá|ola|oi+e?|oie?|ei|hey|opa|eae|eai|fala|salve|bom\s+dia|boa\s+tarde|boa\s+noite|bem[\s-]*vind[oa])\b[,!.\s]*(?:[A-ZÀ-Úa-zà-ú][a-zà-ú]{1,})?[!.,]?\s*/gi
-        responseText = responseText.replace(greetingPrefixRe, ' ').trim()
-        // Limpa multiplos espacos/quebras consecutivas resultantes do strip
-        responseText = responseText.replace(/\s+\n/g, '\n').replace(/\n{2,}/g, '\n').replace(/  +/g, ' ').trim()
-        if (!responseText) responseText = 'Em que posso te ajudar?'
-      }
+    // Validator + question mark guard rodam linearmente após o loop (antes da Onda 4
+    // ficavam dentro do while wrapper com `break` no final — Sprint B5 destrincou pra
+    // simplificar fluxo).
+    {
 
       // ── VALIDATOR AGENT ─────────────────────────────────────────────
       // Scores response 0-10, rewrites if needed, blocks if critical violation
@@ -2351,8 +2169,6 @@ ${contextBlock}`
           responseText = trimmed
         }
       }
-
-      break
     }
 
     // R130 (2026-05-21): override determinístico — quando set_tags adicionou

@@ -6,7 +6,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🎯 Andamento do Plano Orquestrador — **53% concluído**
+## 🎯 Andamento do Plano Orquestrador — **56% concluído**
 
 > Objetivo: monolito (1 LLM mega 17 KB) → **router LLM tiny + 5-6 specialists** + camada determinística + memória longa. Atualizado a cada sprint. Detalhe completo: [[wiki/plano-orquestrador-subagentes]] · [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -28,15 +28,15 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | B5 Onda 3d — set_tags + handoff_to_human (qualif+handoff specialists) | ✅ Shipped (v7.41.3) | 2% | 51% |
 | R137 v1 — searchGuard wire pré-LLM | ❌ Crashed in prod (v7.41.4) → revertido (v7.41.5) | 0% | 51% |
 | R138 + R137 v2 — sanitiza query + 6 integration tests reais | ✅ Shipped (v7.41.6) | 1% | 52% |
-| **R140-R145** — stack trace + TDZ + chain rica + seed + auto-correct + dedup + doc cleanup | ✅ Shipped (v7.41.7→v7.41.14) | 1% | **53%** |
-| B5 Onda 4 — llmCallLoop (~370 lin) | ⏳ | 4% | — |
+| **R140-R145** — stack trace + TDZ + chain rica + seed + auto-correct + dedup + doc cleanup | ✅ Shipped (v7.41.7→v7.41.14) | 1% | 53% |
+| **B5 Onda 4** — extrai llmCallLoop (setup + while + post-LLM cleanup, -184 lin) | ✅ Shipped (v7.41.15) | 3% | **56%** |
 | B5 Onda 5 — dispatchResponse (~240 lin) | ⏳ | 3% | — |
 | B4 — Varredura R134 idempotência | ⏳ (hardening, não-bloqueador) | 5% | — |
 | **Sprint C** — Router + product_specialist POC | ⏳ MARCO | 15% | — |
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |
 | Sprint E — Memória longa + proatividade + RAG | ⏳ Inteligência avançada | 10% | — |
 
-**Hoje (2026-05-22 noite II):** Sessão maratona R140-R145 fixou bug Sandrielly/Wsmart/Jessica. 13 deploys (v7.41.4→v7.41.14), ai-agent v89→**v99 ACTIVE**. Causa REAL identificada via R140 (stack trace) → R141 TDZ `carouselSentInThisCall`. 8 camadas determinísticas finais protegendo qualif→handoff. Catálogo R# organizado em 10 famílias (wiki/erros/familias-r-codes.md), 4 marcadas RESOLVIDAS, 2 SUPERSEDIDAS. **1964 lin extraídas do monolito** (4544→2580, **-43.2%**). **Validação E2E em prod descobriu 7 bugs** (lista em [[log.md]]) — Bug #7 fixado. **TODOS os 5 specialists do Sprint C têm boundary pronto**: media (3a) + crm (3b) + product (3c) + qualif+handoff (3d). Próximas ondas só polem o monolito: **Onda 4** (llmCallLoop ~370 lin) + **Onda 5** (dispatchResponse ~240 lin). Sprint C real (orquestrador + 1 specialist em prod) projetado em **~2-3 semanas**.
+**Hoje (2026-05-22 noite III):** Sprint B5 Onda 4 shipped — extraído `llmCallLoop` (setup + while function-calling + post-LLM cleanup) pra `_shared/agent/llmCallLoop.ts` com 16 testes vitest. index.ts: 2678 → **2494 lin (-184)**. Acumulado B5: **-2050 lin desde 4544 (-45.1%)**. Pipeline OK (1200 pass / 9 fails pré-existentes), deploy CLI ai-agent v99→**v100 ACTIVE**. Validator + question mark guard tiraram do wrapper while — agora rodam linearmente. Imports limpos: `appendToolResults`/`LLMMessage`/`evaluateHandoffGuard`/`HANDOFF_GUARD_BLOCKED_MSG` removidos (só usados no bloco extraído). Próxima: **Onda 5 dispatchResponse** (~240 lin) — última do split B5, depois Sprint C (router + 1 specialist em prod, ~2-3 sem). Sessão anterior (R140-R145) fixou bug Sandrielly/Wsmart/Jessica e validação E2E em prod confirmou todos cenários.
 
 **Métricas-alvo 90 dias:** prompt <8 KB (hoje 17 KB) · incidentes/14d <3 (hoje ~10) · router + 5 specialists · debug claro ("specialist X falhou na intent Y") · memória longa por lead.
 
