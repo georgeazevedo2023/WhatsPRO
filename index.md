@@ -27,7 +27,8 @@ audited_at: 2026-05-11
 |--------|--------|
 | [[wiki/protocolo-subagentes]] | Tarefa grande — ondas paralelas |
 | [[wiki/free-forever-playbook]] | Monitoring Supabase 60/70/85% |
-| [[wiki/erros/regras-preventivas]] | ~30 regras destiladas dos incidentes (tabela) |
+| [[wiki/erros/regras-preventivas]] | Tabela canônica ~140 R# completa |
+| [[wiki/erros/familias-r-codes]] | **Famílias R# por tema** (10 grupos) + status ATIVA/RESOLVIDA/SUPERSEDIDA |
 | [[wiki/db-reset-2026-05-19]] | Reset total de dados operacionais (2026-05-19) — procedimento + tabelas |
 | [[wiki/migracao-eletropiso-558781592373]] | Migração Eletropiso → nova instância +558781592373 (2026-05-19) — IDs, SQL, rollback |
 
