@@ -247,25 +247,25 @@ Deno.serve(async (req) => {
         log.warn('UAZAPI circuit breaker OPEN — skipping send/text')
         return false
       }
-      // R145 v2 (2026-05-22 v7.41.13) — dedup outgoing CORRIGIDO.
-      // Caso Wsmart 21:06: 2 turns processaram msgs em 4s → resposta idêntica.
-      // BUG v7.41.12: janela 60s + ignorou ia_cleared. Caso Jessica 21:43
-      // (limpou contexto): greeting bloqueado porque 58s antes outro greeting
-      // foi enviado (mas em conv contexto antigo). Lead viu só "material?".
-      // Fix v2:
-      //   1. Janela reduzida 60s → 15s (catch race 4-5s, libera retest 58s)
-      //   2. Skip dedup se last outgoing match é ANTERIOR ao ia_cleared TS
-      //      (contexto limpo invalida histórico anterior)
+      // R145 v3 (2026-05-22 v7.41.14) — dedup outgoing.
+      // V1 bug: janela 60s muito ampla. V2 bug: viu PRÓPRIO placeholder (greeting
+      // insere row em conversation_messages ANTES de sendTextMsg, R145 query
+      // achava esse row e bloqueava o send). Caso real Wsmart 00:47-00:48.
+      // V3: upper bound created_at < startTime (turno atual). Só vê msgs de
+      // turns ANTERIORES no DB. Mantém janela curta 15s pré-turno + ia_cleared.
       if (text && text.trim()) {
         const normalized = text.trim().toLowerCase()
         try {
+          const turnStart = new Date(startTime).toISOString()
+          const windowStart = new Date(startTime - 15_000).toISOString()
           const { data: lastOutgoing } = await supabase
             .from('conversation_messages')
             .select('content, created_at')
             .eq('conversation_id', conversation_id)
             .eq('direction', 'outgoing')
             .eq('media_type', 'text')
-            .gte('created_at', new Date(Date.now() - 15_000).toISOString())
+            .gte('created_at', windowStart)
+            .lt('created_at', turnStart) // EXCLUI próprio placeholder do turno atual
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle()
@@ -288,16 +288,18 @@ Deno.serve(async (req) => {
                   })
                   // fall-through pra enviar normal
                 } else {
-                  log.warn('R145: dedup outgoing — same text within 15s, skip', {
+                  log.warn('R145: dedup outgoing — same text within 15s pre-turn, skip', {
                     text_preview: text.substring(0, 80),
                     last_sent_at: lastOutgoing.created_at,
+                    turn_start: turnStart,
                   })
                   return true
                 }
               } else {
-                log.warn('R145: dedup outgoing — same text within 15s, skip', {
+                log.warn('R145: dedup outgoing — same text within 15s pre-turn, skip', {
                   text_preview: text.substring(0, 80),
                   last_sent_at: lastOutgoing.created_at,
+                  turn_start: turnStart,
                 })
                 return true
               }
