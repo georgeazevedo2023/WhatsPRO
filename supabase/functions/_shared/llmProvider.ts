@@ -129,7 +129,16 @@ async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
   //   400 "Unsupported value 'temperature'". Omitimos pra reasoning, mantemos
   //   pra modelos clássicos (gpt-4.1-mini, gpt-3.5, etc.).
   if (isReasoning) {
-    body.max_completion_tokens = req.maxTokens ?? 1024
+    // Bug raiz (2026-05-23 v7.43.14): reasoning models (gpt-5*, o-series) gastam
+    // tokens de RACIOCÍNIO contados contra max_completion_tokens. Com o teto de
+    // 1024 (max_tokens dos agents), o raciocínio consome o orçamento inteiro e a
+    // resposta visível sai VAZIA → cai no fallback "Em que posso te ajudar?"
+    // (llmCallLoop.ts:400). Pego em E2E real: objeção/pagamento/fora_escopo no
+    // monolith gpt-5-mini sempre respondiam genérico. Afeta também EletropisoV2 em
+    // prod (gpt-5-mini, monolith, max_tokens=1024). Fix: piso de headroom pro
+    // raciocínio + resposta. max_completion_tokens é TETO (não cobra o que não usar),
+    // então subir é seguro; só corta truncamento. Mantém a escolha de modelo intacta.
+    body.max_completion_tokens = Math.max(req.maxTokens ?? 1024, 4096)
   } else {
     body.temperature = req.temperature ?? 0.7
     body.max_tokens = req.maxTokens ?? 1024

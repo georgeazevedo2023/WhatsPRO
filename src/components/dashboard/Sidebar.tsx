@@ -44,6 +44,7 @@ import {
   Globe,
   Sparkles,
   Database,
+  Network,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -766,6 +767,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
                 {renderSubItem('/dashboard/admin/departments', 'Departamentos', Briefcase)}
                 {renderSubItem('/dashboard/admin/secrets', 'Secrets', KeyRound)}
                 {renderSubItem('/dashboard/admin/retention', 'Retenção', Database)}
+                {renderSubItem('/dashboard/admin/routing', 'Roteamento', Network)}
               </>
             )}
 

@@ -1,0 +1,54 @@
+{
+  "_doc": "Cenários E2E do router/specialist (Sprint C — C6). Cada cenário roda lead→IA nas instâncias reais. expected_intent/expected_path validam o roteamento automaticamente; a nota de qualidade (0-10) é avaliada por humano a partir do transcript. Ver scripts/e2e-router-runner.mjs e wiki/relatorio-e2e-router-2026-05-23.md.",
+  "scenarios": [
+    {
+      "id": "S1-saudacao",
+      "intent": "saudacao",
+      "expected_path": "monolith",
+      "turns": ["oi boa tarde"],
+      "expect": "Saudação calorosa, se apresenta como Eletropiso, pergunta o nome ou como pode ajudar. NÃO repete saudação, NÃO inventa produto."
+    },
+    {
+      "id": "S2-qualificacao",
+      "intent": "qualificacao",
+      "expected_path": "specialist",
+      "turns": ["vcs vendem piso?"],
+      "expect": "Specialist confirma que sim e faz UMA pergunta de qualificação (ambiente / metragem / tipo) antes de buscar. Não despeja catálogo."
+    },
+    {
+      "id": "S3-produto",
+      "intent": "produto",
+      "expected_path": "specialist",
+      "turns": ["queria tinta coral branca 18 litros"],
+      "expect": "Specialist chama search_products (categoria tintas, marca Coral), envia media/carrossel com preço real. NUNCA diz 'não temos'."
+    },
+    {
+      "id": "S4-handoff",
+      "intent": "handoff",
+      "expected_path": "specialist",
+      "turns": ["quero falar com um vendedor por favor"],
+      "expect": "Specialist chama handoff_to_human com resumo; mensagem de transbordo (ou fora de horário). Guard NÃO bloqueia."
+    },
+    {
+      "id": "S5-objecao",
+      "intent": "objecao",
+      "expected_path": "monolith",
+      "turns": ["achei muito caro, no concorrente tá bem menos"],
+      "expect": "Empatia primeiro, defende valor (qualidade/garantia/entrega), NÃO desconto automático. Marca tag objecao:preco."
+    },
+    {
+      "id": "S6-pagamento",
+      "intent": "pagamento",
+      "expected_path": "monolith",
+      "turns": ["vcs parcelam? aceita pix?"],
+      "expect": "Responde formas de pagamento com base no business_info. Não inventa condições não configuradas."
+    },
+    {
+      "id": "S7-fora_escopo",
+      "intent": "fora_escopo",
+      "expected_path": "monolith",
+      "turns": ["qual a previsão do tempo amanhã?"],
+      "expect": "Redireciona educadamente pro escopo de vendas sem ser ríspido. Não responde a pergunta fora de escopo."
+    }
+  ]
+}

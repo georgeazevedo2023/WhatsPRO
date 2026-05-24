@@ -13,6 +13,17 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.44.0 (2026-05-23/24) — Sprint C 3/3: C6 E2E 7/7 + C7 dashboard Roteamento + 2 bugs raiz + canal de controle WhatsApp
+
+Fecha o Sprint C. Validação E2E real dos 7 intents do router (lead↔IA, instâncias reais), dashboard admin de roteamento, e 2 bugs de raiz achados nos testes. Andamento do plano orquestrador: 68% → **~72%**.
+
+- **C6 — E2E 7/7 nota 10.** Runner formal `scripts/e2e-router-runner.mjs` + `scripts/e2e-scenarios.json` (gated por env, fora do CI). Cada cenário com reset frio do lead. Relatório: [[wiki/relatorio-e2e-router-2026-05-23]]. saudacao (handler determinístico), qualificacao/produto/handoff/objecao (router→product_specialist gpt-4.1), pagamento/fora_escopo (router→monolith gpt-4.1-mini).
+- **C7 — Dashboard admin "Roteamento".** RPC `get_router_dashboard` (SECURITY DEFINER, guard `is_super_admin`) agrega `ai_agent_runs`: pizza de intents, latência P50/P95 por specialist, custo/modelo, hop loops, volume diário. Frontend `src/pages/dashboard/AdminRouting.tsx` (recharts) + rota `admin/routing` + item no Sidebar. Validado com dados reais.
+- **Bug A (raiz) — gpt-5-mini devolvia resposta VAZIA → fallback "Em que posso te ajudar?".** `llmProvider.ts` passava `max_completion_tokens = agent.max_tokens (1024)` pra reasoning models; o raciocínio consumia o teto e a resposta saía vazia. **Afetava EletropisoV2 em PROD.** Fix: piso `Math.max(maxTokens, 4096)` p/ reasoning. Monolith do agent de teste migrado p/ `gpt-4.1-mini` (gpt-5-mini@4096 funcionava mas 15-25s, lento demais).
+- **Bug B (raiz) — objeção atropelada por qualificação.** Monolith respondia "achei caro" com "interno ou externo?". Fix: `objecao` adicionada a `salesFunnelIntents` (roteia pro product_specialist) + **regra 10** de objeção no prompt do specialist (empatia + defesa de valor, sem desconto automático, pedido aberto). Validado E2E: "Entendo sua preocupação... rendimento/cobertura/durabilidade/garantia... PIX/12x... continuar ou ver outras opções?".
+- **Canal de controle WhatsApp.** Edge function `e2e-control-webhook` (verify_jwt=false) + tabela `e2e_control_inbox`: operador comanda a sessão via WhatsApp (instância Testador). Achado UAZAPI: webhook manda remetente como `@lid` interno; número real está em `sender_pn`/`chatid`.
+- **Pendência PROD:** EletropisoV2 (`1062059a`, gpt-5-mini monolith, max_tokens=1024) deve migrar p/ gpt-4.1-mini OU já recebeu o floor no deploy do ai-agent (mitiga vazio, mas fica lento). Recomendado migrar modelo.
+
 ### v7.43.1→v7.43.13 (2026-05-23) — Sprint C hardening: 9 bugs raiz + 6/6 cenários E2E nota 10
 
 Sessão longa de validação E2E real (2 instâncias UAZAPI conversando entre si: Testador `558185749970` → Eletropiso sandbox `558181696546`). Fechou 9 bugs **de raiz** (zero remendos) + escolha de modelo por benchmark + decisão arquitetural do router pipeline.

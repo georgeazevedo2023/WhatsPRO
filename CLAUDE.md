@@ -6,7 +6,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🎯 Andamento do Plano Orquestrador — **68% concluído** (1º specialist em prod)
+## 🎯 Andamento do Plano Orquestrador — **72% concluído** (Sprint C completo: router + specialist + 7/7 E2E + dashboard)
 
 > Objetivo: monolito (1 LLM mega 17 KB) → **router LLM tiny + 5-6 specialists** + camada determinística + memória longa. Atualizado a cada sprint. Detalhe completo: [[wiki/plano-orquestrador-subagentes]] · [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -33,14 +33,16 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **B5 Onda 5** — extrai dispatchResponse (steps 15.5-22 + final Response, -188 lin) | ✅ Shipped (v7.41.16) | 4% | 60% |
 | **Sprint C parcial 1/3** — C1 ai_agent_runs + C3 routing_mode flag + C2 router LLM (gpt-5-nano, 7 intents, defesa 4 níveis) | ✅ Shipped (v7.42.0) | 3% | **63%** |
 | **Sprint C parcial 2/3** — C4 product_specialist + C5 hop guard + wire-in + migração gpt-5-mini | ✅ Shipped (v7.43.0) | 5% | **68%** |
-| Sprint C parcial 3/3 — C6 E2E sandbox + C7 dashboard Roteamento | ⏳ | 7% | — |
+| **Sprint C parcial 3/3** — C6 E2E 7/7 nota 10 + C7 dashboard Roteamento + 2 bugs raiz (gpt-5-mini vazio + objecao→specialist) + canal controle WhatsApp | ✅ Shipped (v7.44.0) | 4% | **72%** |
 | Sprint D — 5 specialists completos + migração 100% | ⏳ | 15% | — |
 | B4 — Varredura R134 idempotência | ⏳ (hardening, não-bloqueador) | 5% | — |
 | **Sprint C** — Router + product_specialist POC | ⏳ MARCO | 15% | — |
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |
 | Sprint E — Memória longa + proatividade + RAG | ⏳ Inteligência avançada | 10% | — |
 
-**Hoje (2026-05-23):** Sprint C avançou pra parcial 2/3 (v7.43.0) — primeiro specialist em prod. Sessão produziu 3 releases: v7.42.0 (foundations DB+router) → v7.42.1 (hardening pós-auditoria: Bug #1 fechado isReasoningModel + UI flag + 2 testes router) → v7.43.0 (product_specialist + hopGuard + wire-in). EletropisoV2 migrado pra gpt-5-mini. ai-agent v101→v102→v103→**v104 ACTIVE**. Wire-in atrás de flag `routing_mode='router'` (default monolith, prod intocada). Apenas intent='produto' tem specialist; outras 6 fazem fallback monolith. Vitest 1282 pass / 9 fails pré-existentes. Andamento: 60% → **68%**. **Próxima sessão: validar E2E ativando routing_mode='router' em 1 agent + C6 sandbox testing + C7 dashboard Roteamento.**
+**Hoje (2026-05-24):** Sprint C FECHADO (parcial 3/3, v7.44.0). C6 — 7 cenários E2E reais nota 10 (lead Testador→Eletropiso router, enviados ao operador via WhatsApp). C7 — dashboard "Roteamento" (RPC + AdminRouting.tsx). 2 bugs de raiz: gpt-5-mini devolvia resposta vazia (afeta EletropisoV2 PROD; fix piso 4096 reasoning + monolith→gpt-4.1-mini) e objeção atropelada por qualificação (objecao→specialist + regra 10). Canal de controle WhatsApp criado (e2e-control-webhook + e2e_control_inbox; achado: UAZAPI manda remetente como @lid, real em sender_pn). Andamento 68%→**72%**. **Próxima: Sprint D — qualification/handoff/objection/greeting specialists dedicados + migração routing_mode='router' default.** Pendência PROD: EletropisoV2 deve migrar p/ gpt-4.1-mini.
+
+**(histórico)** Sprint C parcial 2/3 (v7.43.0) — primeiro specialist em prod. Sessão produziu 3 releases: v7.42.0 (foundations DB+router) → v7.42.1 (hardening pós-auditoria: Bug #1 fechado isReasoningModel + UI flag + 2 testes router) → v7.43.0 (product_specialist + hopGuard + wire-in). EletropisoV2 migrado pra gpt-5-mini. ai-agent v101→v102→v103→**v104 ACTIVE**. Wire-in atrás de flag `routing_mode='router'` (default monolith, prod intocada). Apenas intent='produto' tem specialist; outras 6 fazem fallback monolith. Vitest 1282 pass / 9 fails pré-existentes. Andamento: 60% → **68%**. **Próxima sessão: validar E2E ativando routing_mode='router' em 1 agent + C6 sandbox testing + C7 dashboard Roteamento.**
 
 **Métricas-alvo 90 dias:** prompt <8 KB (hoje 17 KB) · incidentes/14d <3 (hoje ~10) · router + 5 specialists · debug claro ("specialist X falhou na intent Y") · memória longa por lead.
 

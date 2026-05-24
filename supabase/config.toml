@@ -5,6 +5,9 @@ project_id = "prfcbfumyrrycsrcrvms"
 [functions.whatsapp-webhook]
 verify_jwt = false
 
+[functions.e2e-control-webhook]
+verify_jwt = false
+
 [functions.fire-outgoing-webhook]
 verify_jwt = false
 

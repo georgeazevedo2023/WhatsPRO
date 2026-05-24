@@ -2121,7 +2121,12 @@ ${contextBlock}`
           // vão pro product_specialist, que tem o contexto e o prompt v6 sabe qualificar,
           // montar pedido completo e escalar com resumo via handoff_to_human.
           // Mandar pro monolith causava qualif determinística genérica + "Em que posso ajudar?".
-          const salesFunnelIntents = ['produto', 'qualificacao', 'handoff']
+          // v7.43.14 (2026-05-23): objecao adicionada ao funil. E2E real mostrou que o
+          // monolith atropela objeção de preço com pergunta de qualificação determinística
+          // ("interno ou externo?") em vez de defender valor — mesmo problema que motivou
+          // mover produto/qualificacao/handoff. O specialist (gpt-4.1) trata objeção
+          // consultivamente (regra 10 do prompt). objecao agora é dono do specialist.
+          const salesFunnelIntents = ['produto', 'qualificacao', 'handoff', 'objecao']
           if (salesFunnelIntents.includes(routerResult.intent)) {
             log.info('Dispatching to product_specialist (hop 1)', { intent: routerResult.intent })
             // Bug fix (v7.43.1): service_categories é object {default, categories[]},
