@@ -598,7 +598,7 @@ describe('carousel batching — exclui já-mostrados + lote novo', () => {
     expect(ctx.mediaState.carouselSent).toBe(true)
   })
 
-  it('quando TODOS já foram mostrados → retorna [INTERNO] sem inventar + NÃO envia carrossel', async () => {
+  it('quando TODOS já foram mostrados → coleta+transbordo (NUNCA diz "acabou") + NÃO envia carrossel', async () => {
     const products = [P('p1', 1), P('p2', 2)]
     const { supabase, calls } = makeSupabase({ primary: () => ({ data: products }) })
     mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
@@ -606,8 +606,11 @@ describe('carousel batching — exclui já-mostrados + lote novo', () => {
       conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1', shown_product_ids: ['p1', 'p2'] },
     })
     const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
-    expect(result).toContain('todas as opções')
-    expect(result).toContain('NÃO invente')
+    // Regra de ouro: nunca dizer que não tem; coletar + transbordar com resumo
+    expect(result).toContain('handoff_to_human')
+    expect(result).toContain('PROIBIDO')
+    expect(result).toContain('não temos')      // citado como PROIBIDO
+    expect(result).not.toContain('essas eram todas as opções dessa linha') // frase antiga removida
     expect(ctx.mediaState.carouselSent).toBe(false) // nada enviado
   })
 

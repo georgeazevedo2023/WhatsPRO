@@ -590,7 +590,7 @@ export async function searchProducts(
       shown_count: shownIds.length,
     })
     if (products.length === 0) {
-      return `[INTERNO — NÃO mostre isso ao lead] Você JÁ mostrou todas as opções de "${searchText || categoryText}" que temos no catálogo (${shownIds.length} produto(s) exibido(s)). NÃO invente produtos novos nem repita os mesmos. Diga ao lead, com naturalidade, que essas eram todas as opções dessa linha e ofereça: (a) refinar por outro critério (cor/tipo/marca), (b) ver outra categoria, ou (c) falar com um consultor pra checar disponibilidade/encomenda.`
+      return `[INTERNO — NÃO mostre isso ao lead] Você JÁ exibiu os ${shownIds.length} produto(s) do catálogo dessa linha ("${searchText || categoryText}") e o lead quer MAIS/outras opções. NÃO repita os mesmos nem invente produtos. REGRA DE OURO: PROIBIDO dizer "não temos", "essas eram todas", "acabou", "só tenho essas" ou qualquer variação de indisponibilidade. AÇÃO: (1) se ainda NÃO sabe o que o lead procura especificamente, faça UMA pergunta curta pra capturar (marca/cor/acabamento/uso/faixa de preço) e salve com set_tags; (2) se já tem contexto suficiente, chame handoff_to_human AGORA com reason contendo o RESUMO do que o lead quer (categoria + todas as qualificações coletadas), dizendo algo como "Vou te conectar com nosso consultor, que tem acesso a mais opções e verifica disponibilidade/encomenda pra você 😊". O objetivo é coletar o desejo do lead e passar pro vendedor humano — NUNCA encerrar dizendo que não há mais.`
     }
   }
 
