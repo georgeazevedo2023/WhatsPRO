@@ -8,10 +8,12 @@
  * helpers separados. Cada onda adiciona campos novos sem quebrar callers.
  */
 
+// `object`: metadados podem ser interfaces tipadas (sem index signature), que não
+// são atribuíveis a Record<string, unknown>. `object` aceita qualquer não-primitivo.
 export type Logger = {
-  info: (msg: string, meta?: Record<string, unknown>) => void
-  warn: (msg: string, meta?: Record<string, unknown>) => void
-  error?: (msg: string, meta?: Record<string, unknown>) => void
+  info: (msg: string, meta?: object) => void
+  warn: (msg: string, meta?: object) => void
+  error?: (msg: string, meta?: object) => void
 }
 
 export type FunnelData = {

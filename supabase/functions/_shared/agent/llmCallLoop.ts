@@ -45,7 +45,8 @@ export interface ToolCallLogEntry {
 }
 
 export type ExecuteToolSafeFn = (name: string, args: Record<string, any>) => Promise<string>
-export type SendPresenceFn = (state: string) => void
+// union literal: impl real aceita só 'composing'|'recording' (contravariância vs string).
+export type SendPresenceFn = (state: 'composing' | 'recording') => void
 
 export interface LlmCallLoopAgentConfig {
   temperature?: number | null

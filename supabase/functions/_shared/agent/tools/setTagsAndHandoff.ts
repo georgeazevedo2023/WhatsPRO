@@ -61,7 +61,7 @@ export interface PendingStateRefs {
   forcedNextQuestion: PendingForcedNextQuestion | null
 }
 
-export type SendTextMsgFn = (text: string) => Promise<void>
+export type SendTextMsgFn = (text: string) => Promise<void | boolean>
 export type BroadcastEventFn = (evt: Record<string, any>) => void
 export type PickHandoffMessageFn = (opts: {
   agent: any

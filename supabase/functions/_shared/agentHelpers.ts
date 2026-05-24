@@ -267,7 +267,7 @@ export async function insertLogSafe(
   payload: LogEventPayload,
 ): Promise<void> {
   try {
-    const { error } = await supabase.from('ai_agent_logs').insert(payload)
+    const { error } = await supabase.from('ai_agent_logs').insert(payload as any)
     if (error) {
       logger.warn('ai_agent_logs insert failed (silent fail prevented)', {
         event: payload.event,

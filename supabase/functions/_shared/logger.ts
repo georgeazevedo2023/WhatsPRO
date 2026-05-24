@@ -11,14 +11,18 @@
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
+// `object` (não Record<string, unknown>): metadados de log podem ser interfaces
+// tipadas (HopGuardResult, LogEventPayload, etc.), que não têm index signature e
+// portanto não são atribuíveis a Record<string, unknown>. `object` aceita qualquer
+// não-primitivo e o spread `...data` continua válido.
 interface Logger {
-  debug: (msg: string, data?: Record<string, unknown>) => void
-  info: (msg: string, data?: Record<string, unknown>) => void
-  warn: (msg: string, data?: Record<string, unknown>) => void
-  error: (msg: string, data?: Record<string, unknown>) => void
+  debug: (msg: string, data?: object) => void
+  info: (msg: string, data?: object) => void
+  warn: (msg: string, data?: object) => void
+  error: (msg: string, data?: object) => void
 }
 
-function log(level: LogLevel, fn: string, reqId: string, msg: string, data?: Record<string, unknown>) {
+function log(level: LogLevel, fn: string, reqId: string, msg: string, data?: object) {
   const entry = {
     level,
     fn,

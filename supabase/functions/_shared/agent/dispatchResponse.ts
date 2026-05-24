@@ -46,9 +46,13 @@ export interface ToolCallLogEntry {
   result?: string
 }
 
-export type SendTextMsgFn = (text: string) => Promise<void>
+// Promise<void | boolean>: a impl real (index.ts) retorna boolean (sucesso do envio);
+// Promise<boolean> não é atribuível a Promise<void>, então a união cobre ambos.
+export type SendTextMsgFn = (text: string) => Promise<void | boolean>
 export type SendTtsFn = (text: string) => Promise<boolean>
-export type SendPresenceFn = (state: string) => void
+// union literal: a impl real aceita só 'composing'|'recording'; (state: string) exigiria
+// que ela tratasse qualquer string (contravariância) → erro tsc.
+export type SendPresenceFn = (state: 'composing' | 'recording') => void
 export type BroadcastEventFn = (evt: Record<string, any>) => void
 export type PickHandoffMessageFn = (opts: {
   agent: any

@@ -335,7 +335,7 @@ export async function searchProducts(
       fallback = fallback.or(broadTerms)
       const { data: broadProducts } = await fallback.limit(50)
       wordByWordBroadProducts = broadProducts || []
-      const filtered = wordByWordBroadProducts.filter((p: any) => {
+      const filtered = wordByWordBroadProducts!.filter((p: any) => {
         const haystack = stripAccents(`${p.title} ${p.description || ''} ${p.category || ''}`)
         return words.every((w: string) => haystack.includes(stripAccents(w)))
       })

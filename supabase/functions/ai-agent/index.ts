@@ -162,9 +162,12 @@ Deno.serve(async (req) => {
       supabase.from('instances').select('token').eq('id', instance_id).maybeSingle(),
     ])
 
-    const agent = agentResult.data
-    const conversation = conversationResult.data
-    const instance = instanceResult.data
+    // Casts `any`: os selects retornam shapes específicos nullable que fluem pra dezenas
+    // de ctx que esperam `& Record<string, any>` não-nulo. Guardas de null logo abaixo
+    // garantem não-nulidade em runtime; o cast só alinha o tsc (zero efeito runtime).
+    const agent = agentResult.data as any
+    const conversation = conversationResult.data as any
+    const instance = instanceResult.data as any
 
     if (!agent || !agent.enabled) {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'agent_disabled' }), {
@@ -198,7 +201,7 @@ Deno.serve(async (req) => {
       .from('contacts')
       .select('id, name, phone, jid, ia_blocked_instances')
       .eq('id', conversation.contact_id)
-      .maybeSingle()
+      .maybeSingle() as { data: any }
 
     if (!contact?.jid) {
       return new Response(JSON.stringify({ error: 'Contact JID not found' }), {
@@ -727,7 +730,9 @@ Deno.serve(async (req) => {
     }
 
     // Sprint B3: load active profile via shared helper (funnel.profile_id -> agent default).
-    profileData = (await loadActiveProfile(supabase, {
+    // supabase as any: o client tipado gera instanciação de tipo "excessivamente profunda"
+    // (TS2589) ao fluir pelos genéricos de loadActiveProfile. Cast no arg corta a recursão.
+    profileData = (await loadActiveProfile(supabase as any, {
       agentId: agent_id,
       funnelProfileId: funnelData?.profile_id ?? null,
     })) as ProfileRow | null
@@ -1021,7 +1026,7 @@ Deno.serve(async (req) => {
       const { data: counterRow, error: counterErr } = await supabase
         .rpc('increment_lead_msg_count', { p_conversation_id: conversation_id })
         .single()
-      leadMsgCount = counterErr ? 0 : (counterRow?.lead_msg_count ?? 0)
+      leadMsgCount = counterErr ? 0 : ((counterRow as any)?.lead_msg_count ?? 0)
     }
 
     if (
@@ -1383,14 +1388,14 @@ ${contextBlock}`
         })
       }
 
-      if (!greetResult?.inserted) {
+      if (!(greetResult as any)?.inserted) {
         log.info('Greeting duplicate detected (atomic lock) — skipping')
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_duplicate' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
 
-      const savedMsgId = greetResult.message_id
+      const savedMsgId = (greetResult as any).message_id
 
       // We're the only one — send via UAZAPI (TTS or text)
       const maxTts = agent.voice_max_text_length || 150
@@ -1962,7 +1967,9 @@ ${contextBlock}`
           // Sincroniza mutações de pendingState de volta pros closures locais
           pendingExitActionHandoff = pendingState.exitActionHandoff
           pendingExitActionSearch = pendingState.exitActionSearch
-          pendingForcedNextQuestion = pendingState.forcedNextQuestion
+          // cast: pendingState.forcedNextQuestion é inferido como `never` e o CFA do TS
+          // estreitaria pendingForcedNextQuestion pra never nos usos seguintes.
+          pendingForcedNextQuestion = pendingState.forcedNextQuestion as { text: string; category: string; fieldKey: string } | null
           if (setTagsResult !== null) return setTagsResult
           return `Tool '${name}' não implementada.`
         }
@@ -2388,7 +2395,10 @@ ${contextBlock}`
     // mesmo a categoria janelas não ter field ambiente). Override roda mesmo se
     // o LLM já gerou texto — esse texto é DESCARTADO em favor do phrasing oficial.
     if (pendingForcedNextQuestion) {
-      const expected = pendingForcedNextQuestion.text
+      // cast local: o CFA do TS estreita pendingForcedNextQuestion pra `never` por causa
+      // da atribuição dentro do closure executeToolSafe. pfq restaura o shape real.
+      const pfq = pendingForcedNextQuestion as { text: string; category: string; fieldKey: string }
+      const expected = pfq.text
       // Se LLM acertou (texto contém a frase ou o key do field), aceita.
       const normalizedResp = (responseText || '').toLowerCase()
       const normalizedExpected = expected.toLowerCase()
@@ -2396,14 +2406,14 @@ ${contextBlock}`
       const matchedExpected = normalizedResp.includes(normalizedExpected.substring(0, Math.min(40, normalizedExpected.length)))
       if (usedSendPoll || !matchedExpected) {
         log.info('R130: forcing exact next question (LLM divergiu)', {
-          field: pendingForcedNextQuestion.fieldKey,
-          category: pendingForcedNextQuestion.category,
+          field: pfq.fieldKey,
+          category: pfq.category,
           llm_response_preview: (responseText || '').substring(0, 100),
           used_send_poll: usedSendPoll,
         })
         responseText = expected
       } else {
-        log.info('R130: LLM seguiu o phrasing — sem override', { field: pendingForcedNextQuestion.fieldKey })
+        log.info('R130: LLM seguiu o phrasing — sem override', { field: pfq.fieldKey })
       }
     }
 
