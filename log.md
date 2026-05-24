@@ -9,6 +9,26 @@ type: log
 
 ---
 
+## 2026-05-24 (noite V) — Transbordo personalizado #4 + anti-repetição de nome + strip bare (v7.51.0)
+
+**Trigger:** dono mandou (1) commitar a v7.50.1 pendente, (2) implementar #4 (msg fora-horário personalizada citando nome+item), (3) E2E 10 cenários no EletropisoV2 até nota 10 cobrindo o fluxo completo (saudação→qualif→contagem→score→1 produto/carrossel→multi-item→resumo pro vendedor→transbordo), (4) testar msg fora-horário com contexto. Durante o E2E o dono testou em paralelo na prod e deu feedback: "funcionou, mas repetiu muito meu nome, em cada mensagem".
+
+**Commit v7.50.1:** a release fantasma (P5 nameCapture + telhas offline) foi commitada (`95b98bb`), deno 0, 7 testes nameCapture verdes.
+
+**#4 Transbordo personalizado (`personalizeHandoffMessage` em businessHours.ts):** prefixa `"{Nome}, anotei seu pedido: {item}."` antes da msg de transbordo. `cleanHandoffItem` extrai só a parte legível do reason (tira "Pedido completo:", pega 1ª frase descartando meta-notas pro vendedor, descarta códigos snake_case, cap 160 p/ multi-item). Aplicado nos **8 paths de handoff**. Config fora-horário atualizada (sandbox+V2): texto do dono + janela de horário, sem "anotei" (evita duplicar com o prefixo).
+
+**P7-strong anti-repetição (`buildNameUsageDirective` em greetingPolicy.ts):** determinístico — olha as últimas msgs do bot; se o nome apareceu nas últimas 2, injeta supressão no prompt. Fonte do problema: regra "máx 1x por mensagem" era cumprida mas o LLM usava em TODA msg. **E2E: nome 7/9 → 1/5.**
+
+**Strip bare tool-call:** `stripLeakedToolCalls` agora pega `functions.handoff_to_human` SEM parênteses (gpt-4.1 vazou solto no fim da msg, e o handoff NÃO executava nesse caso — R147 estendido ao product specialist). Strip cosmético + nota: o caminho determinístico (trigger/sale_closed) executa o handoff de forma confiável.
+
+**E2E real (sandbox router, lead 558185749970→agente 558181696546):** fluxo lâmpada completo nota 10 — greeting cita loja+pede nome; "George" capturado; qualifica (voltagem→ambiente→tipo, contagem); score 40→carrossel (2 tintas); 1 produto (impermeabilizante, carrossel de 2 imagens do MESMO produto — anotado); multi-item; resumo rico pro vendedor ("Pedido completo: 1 tinta Fosco + 1 manta" + qualification_chain); transbordo personalizado nome+item; fila round-robin (Lucas→Rafaella). **EletropisoV2 PROD validado pelo dono** (lâmpada LED, msg final "George, anotei seu pedido: 1 lâmpada LED amarela 12W, bulbo tradicional…"). 930 testes (4 fails pré-existentes), deno 0, ~6 deploys CLI.
+
+**Achados anotados (não-bloqueadores):** (a) saudação determinística + specialist às vezes pedem o nome 2x no 1º turno; (b) 1 produto com múltiplas imagens vira carrossel multi-card em vez de send_media; (c) LLM esporadicamente verbaliza handoff_to_human (mitigado por strip; determinístico executa). 
+
+**Frase de retomada:** *"v7.51.0 transbordo personalizado + parcimônia de nome shipped (E2E nota 10, prod validada). Backlog: double-ask de nome no 1º turno; 1-produto→send_media; premium #2 cart engine."*
+
+---
+
 ## 2026-05-24 (noite IV) — Captura determinística de nome (P5) + auditoria de atendimento real (v7.50.1)
 
 **Trigger:** dono testou na V2 (lead George) e o atendimento cortou seco. Pediu auditoria do atendimento + correções (zero gambiarra) + teste + aviso pra ele testar.

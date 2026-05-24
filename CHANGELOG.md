@@ -13,6 +13,18 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.51.0 (2026-05-24) — Transbordo personalizado (nome+item) + anti-repetição de nome + strip bare tool-call
+
+Fecha o backlog #4 (msg fora-horário personalizada) e o feedback do dono ("o nome repete em toda mensagem"). E2E real prod (sandbox router + EletropisoV2): fluxo completo saudação→qualif→score→carrossel→multi-item→resumo→transbordo, nota 10.
+
+- **#4 Transbordo personalizado** — `personalizeHandoffMessage` (novo, `businessHours.ts`, 11 testes): prefixa a msg de transbordo com `"{Nome}, anotei seu pedido: {item}."` citando o primeiro nome + o item/pedido. `cleanHandoffItem` extrai só a parte legível do `reason` (escrito pro vendedor): tira prefixo "Pedido completo:"/"Pedido de", pega só a 1ª frase (descarta meta-notas tipo "Lead já confirmou…"), descarta códigos snake_case ("telha_fora_hora"), cap 160 (cabe multi-item). Aplicado nos **8 paths de handoff** (handoff_to_human tool, set_tags inline E3, sale_closed, trigger, message-limit, validator, exit-action E2, exitActionDispatcher) — cada um threada `leadName` (+ `itemSummary` quando há reason rico). No-op gracioso sem nome/item.
+- **Config msg fora-horário** (sandbox + EletropisoV2 prod): texto + janela de horário, sem "Anotei seu pedido" (que duplicava com o prefixo dinâmico).
+- **P7-strong anti-repetição de nome** — `buildNameUsageDirective` (novo, `greetingPolicy.ts`, 6 testes): determinístico (olha msgs do bot no histórico); se o primeiro nome apareceu nas últimas 2 mensagens do bot, injeta diretiva de SUPRESSÃO no prompt do specialist. Resultado E2E: nome caiu de **7/9 → 1/5 mensagens** (concentrado em saudação/fechamento). Wire no `specialistBase` (vale pra todos os specialists).
+- **Strip bare tool-call leak** — `stripLeakedToolCalls` agora pega `functions.NOME` SEM parênteses (gpt-4.1 vazou `functions.handoff_to_human` solto no fim da msg). O prefixo `functions.` é sinal forte. +1 teste.
+- **E2E real:** sandbox router (lead 558185749970 → agente 558181696546) fluxo lâmpada completo + EletropisoV2 prod validado pelo dono ("George, anotei seu pedido: 1 lâmpada LED amarela 12W, bulbo tradicional, para quarto, 220V. No momento estamos fora…"). 930 testes (4 fails pré-existentes), deno 0, deploys CLI.
+
+---
+
 ### v7.50.1 (2026-05-24) — Captura determinística de nome (P5) + auditoria de atendimento real
 
 Auditoria de atendimento real V2 (George: "Olá"→"George"+"Qual preço de telha brasilit 244x110"→handoff seco). **Diagnóstico inicial errado** (culpei o gatilho "preço", mas o código já o pula em perguntas); a raiz real (achada nos `ai_agent_runs`): **"telha" não era categoria** → search 0 resultados + fora-de-horário → R120 handoff forçado; e o nome "George" se perdia (product specialist não chamava `update_lead_profile`).

@@ -15,6 +15,15 @@ describe('stripLeakedToolCalls', () => {
     expect(out).toBe('Vou buscar pra você!')
   })
 
+  it('remove vazamento BARE functions.handoff_to_human (sem parênteses) — caso E2E 2026-05-24', () => {
+    const leaked = 'Perfeito, Carlos! Já vou te passar para um de nossos vendedores finalizar seu pedido da tinta Fosco e da manta.\nfunctions.handoff_to_human'
+    const out = stripLeakedToolCalls(leaked)
+    expect(out).toContain('Perfeito, Carlos!')
+    expect(out).toContain('finalizar seu pedido da tinta Fosco e da manta.')
+    expect(out).not.toContain('functions.')
+    expect(out).not.toContain('handoff_to_human')
+  })
+
   it('não toca em texto legítimo com parênteses', () => {
     const legit = 'Temos tinta acrílica (interno) e esmalte (externo). Qual prefere?'
     expect(stripLeakedToolCalls(legit)).toBe(legit)

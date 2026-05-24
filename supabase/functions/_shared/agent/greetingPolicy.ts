@@ -112,6 +112,9 @@ Você JÁ conhece este lead. NÃO peça o nome de novo.
     )
   }
 
+  // P7-strong: ver buildNameUsageDirective (injetada à parte no specialistBase),
+  // que é determinística (olha o histórico) — não dependemos só desta linha.
+
   // P5: registrar o nome (e cidade) em QUALQUER etapa/specialist, sempre que o
   // lead informar e ainda não soubermos. Vale inclusive em conversa já em andamento.
   if (!leadName) {
@@ -121,4 +124,32 @@ Você JÁ conhece este lead. NÃO peça o nome de novo.
   }
 
   return parts.length ? parts.join('\n\n') : null
+}
+
+/**
+ * P7-strong (2026-05-24, feedback do dono: "repetiu muito meu nome, em cada msg").
+ *
+ * Anti-repetição DETERMINÍSTICA do primeiro nome. A regra de prompt "máx 1x por
+ * mensagem" não bastava — o LLM usava 1x mas em TODA mensagem ("Prazer George",
+ * "George você procura", "Perfeito George"…), o que soa robótico. Aqui olhamos as
+ * últimas mensagens do BOT no histórico: se o nome já apareceu nas últimas 2, este
+ * turno recebe uma diretiva de SUPRESSÃO explícita. Resultado: nome no máx ~1 a
+ * cada 3 mensagens, concentrado em momentos de destaque (saudação/fechamento).
+ *
+ * Retorna null quando não há nome ou quando o nome NÃO foi usado recentemente
+ * (aí o prompt-base do specialist, que já pede parcimônia, basta).
+ */
+export function buildNameUsageDirective(
+  geminiContents: Array<{ role?: string; parts?: Array<{ text?: string }> }> | null | undefined,
+  fullName?: string | null,
+): string | null {
+  const first = (fullName || '').trim().split(/\s+/)[0]
+  if (!first || first.length < 2) return null
+  const re = new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+  const modelTexts = (geminiContents || [])
+    .filter((c) => c?.role === 'model')
+    .map((c) => (c?.parts || []).map((p) => p?.text || '').join(' '))
+  const usedRecently = modelTexts.slice(-2).some((t) => re.test(t))
+  if (!usedRecently) return null
+  return `[USO DO NOME] Você JÁ usou o nome "${first}" há pouco. NÃO comece nem inclua o nome do lead NESTA mensagem — repetir o nome em mensagens seguidas soa robótico e artificial. Use o primeiro nome no MÁXIMO 1 vez a cada 3-4 mensagens, reservado pra momentos de destaque (saudação inicial, fechamento do pedido). Na maioria das mensagens, NÃO cite o nome.`
 }

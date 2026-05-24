@@ -134,7 +134,15 @@ export interface DispatchResponseResult {
  * legítimo (parênteses normais) não é tocado.
  */
 const LEAKED_TOOL_NAMES = 'handoff_to_human|search_products|set_tags|send_carousel|send_media|send_poll|update_lead_profile|assign_label|move_kanban'
-const LEAKED_TOOL_RE = new RegExp(`(?:functions\\.)?(?:${LEAKED_TOOL_NAMES})\\s*\\(\\s*\\{[\\s\\S]*?\\}\\s*\\)`, 'g')
+// Dois casos (2026-05-24): (1) `functions.NOME` com OU sem `(...)` — o prefixo
+// `functions.` é sinal forte de vazamento (não aparece em PT legítimo), então
+// removemos mesmo "bare" (ex.: gpt-4.1 emitiu só `functions.handoff_to_human` no
+// fim da msg). (2) `NOME({...})` sem prefixo — call com objeto de args.
+const LEAKED_TOOL_RE = new RegExp(
+  `(?:functions\\.)(?:${LEAKED_TOOL_NAMES})\\b\\s*(?:\\([\\s\\S]*?\\))?` +
+    `|(?:${LEAKED_TOOL_NAMES})\\s*\\(\\s*\\{[\\s\\S]*?\\}\\s*\\)`,
+  'g',
+)
 export function stripLeakedToolCalls(text: string): string {
   if (!text) return text
   const stripped = text.replace(LEAKED_TOOL_RE, '').replace(/\bfunctions\.\s*$/g, '')

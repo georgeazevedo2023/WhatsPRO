@@ -152,3 +152,65 @@ export function enrichOutsideHoursMessage(
   if (!hoursText) return message
   return `Estamos fora do horário (${hoursText}). ${message}`
 }
+
+/**
+ * #4 (2026-05-24) — personaliza a mensagem de transbordo citando o PRIMEIRO NOME
+ * do lead e o item/pedido que ele estava fechando, pra não soar como template frio.
+ *
+ * Ex.: msg base "No momento estamos fora do horário..." + leadName "George" +
+ *   itemSummary "Pedido de 50 telhas Brasilit 244x110" →
+ *   "George, anotei seu pedido: 50 telhas Brasilit 244x110. No momento estamos fora..."
+ *
+ * No-op gracioso quando não há nem nome nem item legível. Códigos internos de
+ * reason (ex.: "telha_fora_hora") são ignorados — nunca viram texto pro lead.
+ * Não duplica o nome se a mensagem base já começa com ele.
+ */
+export function personalizeHandoffMessage(
+  message: string,
+  opts: { leadName?: string | null; itemSummary?: string | null },
+): string {
+  if (!message) return message
+  const name = (opts.leadName || '').trim().split(/\s+/)[0] || '' // só o primeiro nome
+  const item = cleanHandoffItem(opts.itemSummary)
+  if (!name && !item) return message // nada a personalizar
+
+  const alreadyHasName =
+    name && new RegExp(`^${escapeRegExp(name)}[,!?.\\s]`, 'i').test(message.trimStart())
+  const namePart = name && !alreadyHasName ? `${name}, ` : ''
+  let ackPart = ''
+  if (item) {
+    ackPart = namePart ? `anotei seu pedido: ${item}. ` : `Anotei seu pedido: ${item}. `
+  } else if (namePart) {
+    ackPart = 'anotei tudo aqui. '
+  }
+  const prefix = (namePart + ackPart).trim()
+  return prefix ? `${prefix} ${message}` : message
+}
+
+/**
+ * Normaliza o reason de handoff em item legível pro LEAD. O reason é escrito pro
+ * VENDEDOR (rico, com prefixos tipo "Pedido completo:" e meta-notas tipo "Lead já
+ * confirmou que é só isso") — aqui extraímos só a parte que faz sentido pro lead.
+ */
+function cleanHandoffItem(raw?: string | null): string {
+  let s = (raw || '').trim()
+  if (!s) return ''
+  // reason interno tipo "telha_fora_hora" / "search_fail" (snake_case sem espaço) → não é item
+  if (/^[a-z0-9]+(_[a-z0-9]+)+$/i.test(s)) return ''
+  // remove prefixos redundantes ("Pedido completo:", "Pedido:", "Resumo:", "Pedido de"…)
+  s = s.replace(
+    /^(pedido(\s+(completo|de))?|resumo|or[çc]amento(\s+de)?|interesse em|consulta sobre|sobre)\s*[:\-–]?\s*/i,
+    '',
+  ).trim()
+  // pega só a 1ª frase (o item) — descarta meta-notas pro vendedor ("Lead já confirmou…")
+  const firstSentence = s.split(/(?<=[.!?])\s+/)[0]
+  if (firstSentence && firstSentence.trim().length >= 8) s = firstSentence.trim()
+  s = s.replace(/[.!?]+$/, '').trim()
+  // cap generoso (cabe pedido multi-item de 2-3 produtos), trunca só se exceder muito
+  if (s.length > 160) s = s.slice(0, 160).trim() + '…'
+  return s
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}

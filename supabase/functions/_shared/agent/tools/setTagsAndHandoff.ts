@@ -17,7 +17,7 @@
 
 import { STATUS_IA } from '../../constants.ts'
 import { mergeTags } from '../../agentHelpers.ts'
-import { isOutsideBusinessHours } from '../../businessHours.ts'
+import { isOutsideBusinessHours, personalizeHandoffMessage } from '../../businessHours.ts'
 import { validateSetTagsInput, validateInteresseCategory } from '../../setTagsValidator.ts'
 import {
   getCategoriesOrDefault,
@@ -610,12 +610,18 @@ export async function setTags(
     const notifyOutsideE3 = agent.notify_outside_hours_on_handoff !== false
     const outsideHoursE3 =
       notifyOutsideE3 && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-    const handoffMsgE3 = pickHandoffMessage({
-      agent,
-      profileData,
-      funnelData,
-      outsideHours: outsideHoursE3,
-    })
+    const handoffMsgE3 = personalizeHandoffMessage(
+      pickHandoffMessage({
+        agent,
+        profileData,
+        funnelData,
+        outsideHours: outsideHoursE3,
+      }),
+      {
+        leadName: (leadProfile as { full_name?: string | null } | null)?.full_name || null,
+        itemSummary: String(pendingState.exitActionHandoff?.reason || ''),
+      },
+    )
     const { result: queueResE3, finalMessage: finalMsgE3 } = await runQueueAssignment(handoffMsgE3)
     await sendTextMsg(finalMsgE3)
     await supabase.from('conversation_messages').insert({
@@ -734,7 +740,13 @@ export async function handoffToHuman(
   const notifyOutside = agent.notify_outside_hours_on_handoff !== false
   const outsideHours =
     notifyOutside && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-  const handoffMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours })
+  // #4 (2026-05-24): personaliza citando nome + item do pedido (args.reason é o
+  // resumo rico que o specialist montou — ex.: "Pedido de 50 telhas Brasilit").
+  // Vale dentro E fora do horário; no-op se não houver nome/item legível.
+  const handoffMsg = personalizeHandoffMessage(
+    pickHandoffMessage({ agent, profileData, funnelData, outsideHours }),
+    { leadName, itemSummary: String(args.reason || '') },
+  )
 
   // Empathy message if reason indicates negative sentiment
   const negativeReasons = [

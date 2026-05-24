@@ -53,7 +53,7 @@ import { dispatchCrmTool } from '../_shared/agent/tools/crmTools.ts'
 import { dispatchSearchTool } from '../_shared/agent/tools/searchProducts.ts'
 import { dispatchSetTagsHandoffTool } from '../_shared/agent/tools/setTagsAndHandoff.ts'
 import type { PendingExitActionHandoff, PendingExitActionSearch } from '../_shared/agent/preLLMAutoExtract.ts'
-import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
+import { isOutsideBusinessHours, enrichOutsideHoursMessage, personalizeHandoffMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -798,7 +798,14 @@ Deno.serve(async (req) => {
       log.info('Sale closed detected — triggering automatic handoff', { saleType: pendingSaleClosedHandoff })
       const notifyOutsideSC = agent.notify_outside_hours_on_handoff !== false
       const outsideHoursSC = notifyOutsideSC && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      const handoffMsgSC = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursSC })
+      // #4: personaliza citando o nome (este path é pré-leadProfile load → fetch leve).
+      // Não há resumo rico aqui (sale_closed é fast-path determinístico), então cita só o nome.
+      const { data: lpForSC } = await supabase
+        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      const handoffMsgSC = personalizeHandoffMessage(
+        pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursSC }),
+        { leadName: (lpForSC as { full_name?: string | null } | null)?.full_name || null },
+      )
       const { result: queueResSC, finalMessage: finalMsgSC } = await runQueueAssignment(handoffMsgSC)
       await sendTextMsg(finalMsgSC)
       await supabase.from('conversation_messages').insert({
@@ -914,6 +921,9 @@ Deno.serve(async (req) => {
           // Get lead name from profile (more reliable than contact.name which may be "E2E Test")
           const { data: lpForName } = await supabase.from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
           const leadNameForEmpathy = lpForName?.full_name || contact?.name || null
+
+          // #4: personaliza o transbordo citando o nome (trigger não tem resumo rico de item).
+          handoffMsg = personalizeHandoffMessage(handoffMsg, { leadName: lpForName?.full_name || null })
 
           if (hasNegativeSentiment && leadNameForEmpathy && !empathyAlreadySent) {
             const empathyMsg = `Peço desculpas pela experiência, ${leadNameForEmpathy}. Entendo sua frustração e vou resolver isso agora.`
@@ -1053,10 +1063,15 @@ Deno.serve(async (req) => {
       // Bug 16b: respeitar horário comercial (antes sempre usava handoff_message)
       const notifyOutsideAuto = agent.notify_outside_hours_on_handoff !== false
       const outsideHoursAuto = notifyOutsideAuto && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      const handoffMsg = pickHandoffMessage({
-        agent, profileData, funnelData, outsideHours: outsideHoursAuto,
-        fallbackRegular: 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado!',
-      })
+      const { data: lpForAuto } = await supabase
+        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      const handoffMsg = personalizeHandoffMessage(
+        pickHandoffMessage({
+          agent, profileData, funnelData, outsideHours: outsideHoursAuto,
+          fallbackRegular: 'Vou te encaminhar para nosso consultor para um atendimento mais personalizado!',
+        }),
+        { leadName: (lpForAuto as { full_name?: string | null } | null)?.full_name || null },
+      )
 
       // D30: atribui via fila ANTES de enviar
       const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
@@ -1638,7 +1653,7 @@ ${contextBlock}`
     if (pendingExitActionHandoff) {
       const handoffResult = await dispatchExitActionHandoff({
         supabase, conversation, conversation_id, agent_id, agent,
-        profileData, funnelData, startTime, corsHeaders,
+        profileData, funnelData, leadName, startTime, corsHeaders,
         sendTextMsg, broadcastEvent, runQueueAssignment, pickHandoffMessage,
       }, pendingExitActionHandoff, log)
       if (handoffResult.dispatched && handoffResult.response) {
@@ -2483,8 +2498,11 @@ ${contextBlock}`
           // Sem qualif pendente — handoff real. Aplicar pickHandoffMessage (Bug 22).
           const notifyOutsideV = agent.notify_outside_hours_on_handoff !== false
           const outsideHoursV = notifyOutsideV && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-          const handoffMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursV }) ||
-            'Só um instante, vou te encaminhar para nosso consultor de vendas.'
+          const handoffMsg = personalizeHandoffMessage(
+            pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursV }) ||
+              'Só um instante, vou te encaminhar para nosso consultor de vendas.',
+            { leadName },
+          )
           const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
           await sendTextMsg(finalMessage)
           await supabase.from('conversation_messages').insert({
@@ -2570,7 +2588,10 @@ ${contextBlock}`
       log.info('Bug 24 v2: exit_action=handoff via set_tags — LLM ignorou exitInstruction, disparando direto', pendingExitActionHandoff)
       const notifyOutsideE2 = agent.notify_outside_hours_on_handoff !== false
       const outsideHoursE2 = notifyOutsideE2 && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      const handoffMsgE2 = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursE2 })
+      const handoffMsgE2 = personalizeHandoffMessage(
+        pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursE2 }),
+        { leadName, itemSummary: pendingExitActionHandoff?.reason },
+      )
       const { result: queueResE2, finalMessage: finalMsgE2 } = await runQueueAssignment(handoffMsgE2)
       await sendTextMsg(finalMsgE2)
       await supabase.from('conversation_messages').insert({

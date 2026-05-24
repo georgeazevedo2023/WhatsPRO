@@ -1,5 +1,43 @@
 import { describe, it, expect } from 'vitest'
-import { classifyLeadRecency, buildOpeningDirective } from './greetingPolicy.ts'
+import { classifyLeadRecency, buildOpeningDirective, buildNameUsageDirective } from './greetingPolicy.ts'
+
+describe('buildNameUsageDirective', () => {
+  const modelMsg = (t: string) => ({ role: 'model', parts: [{ text: t }] })
+  const userMsg = (t: string) => ({ role: 'user', parts: [{ text: t }] })
+
+  it('suprime quando o nome foi usado na última msg do bot (caso George)', () => {
+    const hist = [userMsg('quero lampada'), modelMsg('Perfeito, George! Qual voltagem?')]
+    const out = buildNameUsageDirective(hist, 'George')
+    expect(out).toContain('NÃO')
+    expect(out).toContain('George')
+  })
+
+  it('suprime quando usado em qualquer uma das últimas 2 do bot', () => {
+    const hist = [modelMsg('Oi George!'), userMsg('led'), modelMsg('Qual ambiente?')]
+    expect(buildNameUsageDirective(hist, 'George Azevedo')).toContain('NÃO') // "George" na penúltima
+  })
+
+  it('null quando o nome NÃO foi usado recentemente', () => {
+    const hist = [modelMsg('Qual voltagem?'), userMsg('220v'), modelMsg('Qual ambiente?')]
+    expect(buildNameUsageDirective(hist, 'George')).toBeNull()
+  })
+
+  it('null quando não há nome', () => {
+    expect(buildNameUsageDirective([{ role: 'model', parts: [{ text: 'oi' }] }], null)).toBeNull()
+    expect(buildNameUsageDirective([], '')).toBeNull()
+  })
+
+  it('só considera msgs do BOT (model), ignora o que o lead escreveu', () => {
+    const hist = [userMsg('aqui é o George'), modelMsg('Qual voltagem?')]
+    // nome só apareceu em msg do user → não suprime
+    expect(buildNameUsageDirective(hist, 'George')).toBeNull()
+  })
+
+  it('usa só o primeiro nome (match por word-boundary)', () => {
+    const hist = [modelMsg('Pronto, Ana! Já anotei.')]
+    expect(buildNameUsageDirective(hist, 'Ana Paula')).toContain('Ana')
+  })
+})
 
 describe('classifyLeadRecency', () => {
   it('novo: primeiro contato (nunca interagiu, sem nome)', () => {

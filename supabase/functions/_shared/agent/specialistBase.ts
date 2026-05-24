@@ -25,6 +25,7 @@
 import { runLlmCallLoop, type ToolCallLogEntry, type ExecuteToolSafeFn, type SendPresenceFn } from './llmCallLoop.ts'
 import { dispatchResponse, type SendTextMsgFn, type SendTtsFn, type BroadcastEventFn, type PickHandoffMessageFn, type RunQueueAssignmentFn } from './dispatchResponse.ts'
 import { buildLeadMemoryBlock, consolidateLeadMemory } from './leadMemory.ts'
+import { buildNameUsageDirective } from './greetingPolicy.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
 import type { Logger } from './context.ts'
 import type { Intent } from './router.ts'
@@ -180,10 +181,13 @@ export async function runSpecialist(
   // determinística num follow-up (não via instrução solta no prompt). classifyLeadRecency
   // segue sendo a fonte única usada pelo bloco determinístico do monolith/router.
   const basePrompt = def.buildPrompt(ctx)
-  // Ordem: [memória do lead] → [prompt do specialist] → [resultado da pré-busca].
+  // P7-strong: anti-repetição determinística do nome (feedback do dono — o LLM
+  // citava o nome em toda mensagem). Olha o histórico; suprime se usado há pouco.
+  const nameDirective = buildNameUsageDirective(ctx.geminiContents, ctx.leadProfile?.full_name)
+  // Ordem: [memória do lead] → [prompt do specialist] → [uso do nome] → [pré-busca].
   // A pré-busca vai por último (mais perto da decisão) pra o product specialist
   // tratá-la como verdade-base "search já feito" e compor em 1 round.
-  const systemPrompt = [memoryBlock, basePrompt, ctx.preSearchContext]
+  const systemPrompt = [memoryBlock, basePrompt, nameDirective, ctx.preSearchContext]
     .filter(Boolean)
     .join('\n\n')
   const promptChars = systemPrompt.length

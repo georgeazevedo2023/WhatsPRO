@@ -234,3 +234,80 @@ describe('enrichOutsideHoursMessage', () => {
     expect(enrichOutsideHoursMessage('', wh)).toBe('')
   })
 })
+
+// #4 (2026-05-24): personalizeHandoffMessage — nome + item no transbordo
+import { personalizeHandoffMessage } from '../businessHours.ts'
+
+describe('personalizeHandoffMessage', () => {
+  const base = 'No momento estamos fora do horário de atendimento. Nosso consultor dará prosseguimento. 😊'
+
+  it('cita nome + item (caso George/telhas)', () => {
+    const out = personalizeHandoffMessage(base, {
+      leadName: 'George',
+      itemSummary: 'Pedido de 50 telhas Brasilit 244x110',
+    })
+    expect(out).toBe(`George, anotei seu pedido: 50 telhas Brasilit 244x110. ${base}`)
+  })
+
+  it('usa só o primeiro nome', () => {
+    const out = personalizeHandoffMessage(base, { leadName: 'Maria Silva', itemSummary: 'tinta acrílica branca' })
+    expect(out.startsWith('Maria, anotei seu pedido: tinta acrílica branca.')).toBe(true)
+    expect(out).not.toContain('Silva')
+  })
+
+  it('só nome (sem item) → "anotei tudo aqui"', () => {
+    const out = personalizeHandoffMessage(base, { leadName: 'Carlos', itemSummary: null })
+    expect(out).toBe(`Carlos, anotei tudo aqui. ${base}`)
+  })
+
+  it('só item (sem nome) → capitaliza Anotei', () => {
+    const out = personalizeHandoffMessage(base, { leadName: null, itemSummary: '10 lâmpadas LED 9W' })
+    expect(out).toBe(`Anotei seu pedido: 10 lâmpadas LED 9W. ${base}`)
+  })
+
+  it('no-op quando não há nome nem item', () => {
+    expect(personalizeHandoffMessage(base, {})).toBe(base)
+    expect(personalizeHandoffMessage(base, { leadName: '', itemSummary: '' })).toBe(base)
+  })
+
+  it('descarta código interno de reason (telha_fora_hora)', () => {
+    const out = personalizeHandoffMessage(base, { leadName: 'João', itemSummary: 'telha_fora_hora' })
+    expect(out).toBe(`João, anotei tudo aqui. ${base}`) // item ignorado, nome mantido
+  })
+
+  it('strip de prefixo redundante "Pedido de"/"interesse em"', () => {
+    expect(personalizeHandoffMessage(base, { itemSummary: 'interesse em porcelanato 60x60' }))
+      .toBe(`Anotei seu pedido: porcelanato 60x60. ${base}`)
+  })
+
+  it('não duplica nome se a msg já começa com ele', () => {
+    const msg = 'George, seu pedido foi anotado!'
+    const out = personalizeHandoffMessage(msg, { leadName: 'George', itemSummary: 'tinta' })
+    // não vira "George, ... George, ..."; só adiciona o ack sem repetir o nome
+    expect(out.match(/George/g)?.length).toBe(1)
+  })
+
+  it('msg vazia retorna vazia', () => {
+    expect(personalizeHandoffMessage('', { leadName: 'X', itemSummary: 'y' })).toBe('')
+  })
+
+  it('trunca item muito longo (cap 160)', () => {
+    const longItem = 'a'.repeat(220)
+    const out = personalizeHandoffMessage(base, { itemSummary: longItem })
+    expect(out).toContain('…')
+    expect(out.length).toBeLessThan(base.length + 185) // 160 do item + "Anotei seu pedido: …. "
+  })
+
+  it('strip "Pedido completo:" + descarta meta-nota pro vendedor (caso E2E multi-item)', () => {
+    const reason =
+      'Pedido completo: 1 tinta acrílica Fosco Standard 16L Branco Coral e 1 manta líquida 18Kg Quartzolit. Lead já confirmou que é só isso.'
+    const out = personalizeHandoffMessage(base, { leadName: 'Carlos', itemSummary: reason })
+    // mantém os 2 itens do orçamento
+    expect(out).toContain('1 tinta acrílica Fosco Standard 16L Branco Coral')
+    expect(out).toContain('1 manta líquida 18Kg Quartzolit')
+    // sem "Pedido completo:" duplicado e sem a meta-nota do vendedor
+    expect(out).not.toContain('Pedido completo:')
+    expect(out).not.toContain('Lead já confirmou')
+    expect(out.startsWith('Carlos, anotei seu pedido: 1 tinta acrílica')).toBe(true)
+  })
+})

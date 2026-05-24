@@ -19,7 +19,7 @@
  */
 
 import { mergeTags } from '../agentHelpers.ts'
-import { isOutsideBusinessHours } from '../businessHours.ts'
+import { isOutsideBusinessHours, personalizeHandoffMessage } from '../businessHours.ts'
 import { STATUS_IA } from '../constants.ts'
 import type { Logger } from './context.ts'
 import type {
@@ -67,6 +67,7 @@ export interface DispatchExitActionHandoffCtx {
   agent: any
   profileData: any | null | undefined
   funnelData: any | null | undefined
+  leadName?: string | null
   startTime: number
   corsHeaders: Record<string, string>
   sendTextMsg: SendTextFn
@@ -123,12 +124,15 @@ export async function dispatchExitActionHandoff(
   const notifyOutsideEA = ctx.agent.notify_outside_hours_on_handoff !== false
   const outsideHoursEA =
     notifyOutsideEA && isOutsideBusinessHours(ctx.agent.business_hours, ctx.agent.extended_hours_until)
-  const handoffMsgEA = ctx.pickHandoffMessage({
-    agent: ctx.agent,
-    profileData: ctx.profileData,
-    funnelData: ctx.funnelData,
-    outsideHours: outsideHoursEA,
-  })
+  const handoffMsgEA = personalizeHandoffMessage(
+    ctx.pickHandoffMessage({
+      agent: ctx.agent,
+      profileData: ctx.profileData,
+      funnelData: ctx.funnelData,
+      outsideHours: outsideHoursEA,
+    }),
+    { leadName: ctx.leadName, itemSummary: pendingExit.reason },
+  )
   const { result: queueResEA, finalMessage: finalMsgEA } = await ctx.runQueueAssignment(handoffMsgEA)
 
   await ctx.sendTextMsg(finalMsgEA)
