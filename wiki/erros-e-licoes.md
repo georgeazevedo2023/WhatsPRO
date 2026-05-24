@@ -19,6 +19,10 @@ audited_at: 2026-05-20
 
 ---
 
+## 🚨 R146/R147 — qualify-first expôs 2 bugs (E2E prod 2026-05-24, v7.50.0)
+**R146 — `so_se_pedir` cortava em 8 msgs:** código caía em `?? 8` (igual `apos_n_msgs`) contra o contrato-doc ("lead controla, max alto"). Qualify-first (+turnos) batia no handoff genérico antes do rico. Fix: default → 40. **Lição:** contrato-doc vs código divergentes = código errado.
+**R147 — handoff specialist (gpt-4.1-mini) vazava tool call como TEXTO** (`functions.handoff_to_human({...})`) em vez de invocá-la → handoff não executava + lead via sintaxe crua. Fix: → gpt-4.1 + `stripLeakedToolCalls`. **Lição:** specialist que DEPENDE de tool precisa de modelo confiável + saneamento.
+
 ## 🚨 R141 — TDZ `carouselSentInThisCall` (Wsmart Eletropiso 2026-05-22 19:42-23:05, prod) — CAUSA REAL DO CRASH
 
 **Erro:** após 3 deploys (R137 v1 crash, R138 sanitização, R139 regex) o crash continuava. Stack trace só apareceu quando R140 (observability fix) capturou em `ai_agent_logs.error`:

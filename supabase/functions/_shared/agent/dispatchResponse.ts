@@ -125,10 +125,29 @@ export interface DispatchResponseResult {
 // API pública
 // =============================================================================
 
+/**
+ * Defesa (2026-05-24): às vezes o LLM "verbaliza" a chamada de tool no TEXTO em
+ * vez de usar o canal de function-calling (ex.: gpt-4.1-mini emitiu
+ * `functions.handoff_to_human({reason: "..."})` no meio da mensagem). Sem isto, o
+ * lead vê sintaxe de função crua. Remove esses vazamentos de forma conservadora:
+ * só casa `functions.NOME({...})` e `NOME({...})` de tools conhecidas. Texto
+ * legítimo (parênteses normais) não é tocado.
+ */
+const LEAKED_TOOL_NAMES = 'handoff_to_human|search_products|set_tags|send_carousel|send_media|send_poll|update_lead_profile|assign_label|move_kanban'
+const LEAKED_TOOL_RE = new RegExp(`(?:functions\\.)?(?:${LEAKED_TOOL_NAMES})\\s*\\(\\s*\\{[\\s\\S]*?\\}\\s*\\)`, 'g')
+export function stripLeakedToolCalls(text: string): string {
+  if (!text) return text
+  const stripped = text.replace(LEAKED_TOOL_RE, '').replace(/\bfunctions\.\s*$/g, '')
+  if (stripped === text) return text // no-op quando não há vazamento (não toca texto legítimo)
+  // só normaliza/trima quando de fato removeu algo
+  return stripped.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
 export async function dispatchResponse(
   ctx: DispatchResponseCtx,
 ): Promise<DispatchResponseResult> {
   let { responseText } = ctx
+  responseText = stripLeakedToolCalls(responseText)
   const {
     agent, agent_id, conversation, conversation_id, contact,
     toolCallsLog, inputTokens, outputTokens, usedModel,

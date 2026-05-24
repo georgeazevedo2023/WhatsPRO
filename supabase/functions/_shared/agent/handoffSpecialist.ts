@@ -57,8 +57,15 @@ Não invente dados que não estão no histórico — resuma só o que foi dito.
 REGRA QUE SOBRESCREVE TUDO: nesta etapa você NÃO reabre qualificação nem refaz busca de produto. Confirme com gentileza e faça o handoff com o resumo mais completo possível — a qualidade desse resumo é o que faz o vendedor fechar a venda.`
 }
 
-/** SpecialistDef do handoff. Modelo default gpt-4.1-mini (tarefa de fechamento simples). */
-export function buildHandoffSpecialistDef(model = 'gpt-4.1-mini'): SpecialistDef {
+/**
+ * SpecialistDef do handoff. Modelo default gpt-4.1 (full).
+ * (2026-05-24) Era gpt-4.1-mini, mas no E2E o mini VAZOU a tool call como texto
+ * ("functions.handoff_to_human({...})") em vez de invocá-la pelo canal de tool —
+ * o lead via sintaxe crua e o handoff NÃO acontecia. gpt-4.1 (full, mesmo do
+ * product specialist) chama tools de forma confiável. Defesa adicional:
+ * stripLeakedToolCalls em dispatchResponse remove qualquer vazamento residual.
+ */
+export function buildHandoffSpecialistDef(model = 'gpt-4.1'): SpecialistDef {
   return {
     name: 'handoff',
     intent: 'handoff',

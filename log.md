@@ -9,6 +9,25 @@ type: log
 
 ---
 
+## 2026-05-24 (noite III) — qualificationGate shipped (v7.50.0) + E2E prod 10 cenários nota 10
+
+**Trigger:** dono pediu (1) implementar o `qualificationGate.ts` (fonte única buscar-vs-qualificar, frase de retomada da sessão anterior) e (2) E2E real em produção, 10 cenários, iterar até nota 10, depois auditar/documentar/commit/deploy.
+
+**Implementação (fix de raiz, zero gambiarra):** `_shared/agent/qualificationGate.ts` — `evaluateQualificationGate` lê o stage engine (score/exit_action) e devolve modo `qualify`/`search`/`qualify_then_handoff`/`no_category`. Wire no dispatch do router (index.ts): para `produto`/`qualificacao` o gate é AUTORIDADE — `qualify`→qualification_specialist (suprime pré-busca), `search`→product_specialist (mesmo se router disse qualificacao, honra exit_action quando lead responde curto), `offline`→product_specialist (qualifica+handoff). Único decisor, lê a MESMA fonte do score.
+
+**2 bugs de raiz achados NO E2E e corrigidos:**
+1. **`so_se_pedir` cortava em 8 msgs** — o cap de mensagens default era 8 (igual `apos_n_msgs`), contradizendo o contrato documentado ("lead controla, max alto"). Qualify-first (mais turnos) batia no handoff genérico antes do fechamento. Default → 40.
+2. **handoff specialist vazava tool call como texto** (`functions.handoff_to_human({...})`) com gpt-4.1-mini → handoff não executava + lead via sintaxe crua. Subido pra gpt-4.1 + `stripLeakedToolCalls` (defesa em dispatchResponse).
+
+**E2E real (sandbox router `e7131d35`, lead 558185749970 → agente 558181696546), 10 cenários nota 10:**
+1. Lead novo → "Olá! Bem-vindo a Eletropiso, com quem eu falo?" 2. Dá nome → "Prazer, Carlos!" + full_name persistido. 3. "tem tinta?" → **gate qualifica** (não busca): ambiente→tipo→cor (3 perguntas contadas). 4. score 40 (limiar) → **carrossel 3 tintas reais**. 5. Fechamento → **handoff_to_human RICO** ("Carlos, tinta acrílica branca fosco Coral 16L...") + msg transbordo + **fila** (Lucas). 6. Lead sem nome → atendido normal. 7. Lâmpada led (offline) → "Temos sim! Qual potência?" → handoff rico ("10 lâmpadas LED 9W garagem") + fila (Rafaella, round-robin). 8. "ar condicionado" (inexistente) → honesto + alternativa, sem alucinar. 9. Lead recorrente → "Olá Carlos! Que bom te ver de novo 😊". 10. Fila round-robin validada (Lucas→Rafaella→Lucas).
+
+**Infra de teste (sandbox only):** criado dept "Vendas Sandbox" com `queue_mode_enabled` + 2 membros + inbox default; horário estendido temporário (revertido ao fim). Pipeline: 1404 testes verdes (9 fails pré-existentes, intactas), deno 0, 5 deploys CLI (iteração). EletropisoV2 PROD recebe as melhorias (mesma fn) — `so_se_pedir` agora 40 msgs + handoff gpt-4.1.
+
+**Frase de retomada:** *"v7.50.0 qualificationGate shipped + E2E 10/10. Próximo premium: #2 cart engine (add/update + cross-sell no resumo) OU #3 refino-por-contagem ('achei 40 tintas, vamos afunilar')."*
+
+---
+
 ## 2026-05-24 (noite II) — Auditoria profunda qualify-first + fix de gênero no score (gambiarra revertida)
 
 **Trigger:** dono pediu fluxo consultivo qualify-first (cenário 21.27: qualifica até score → busca → muitos resultados → refina por cor → carrossel → escolha → validação → transbordo). Testei e achei gaps; tentei gating por threshold; dono cobrou "não quero gambiarra, audite mais profundo".

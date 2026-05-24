@@ -26,6 +26,7 @@ import { checkHopLimit, generateTurnId } from '../_shared/agent/hopGuard.ts'
 import { runSpecialist, type SpecialistCtx, type SpecialistDef } from '../_shared/agent/specialistBase.ts'
 import { buildGreetingSpecialistDef } from '../_shared/agent/greetingSpecialist.ts'
 import { buildQualificationSpecialistDef } from '../_shared/agent/qualificationSpecialist.ts'
+import { evaluateQualificationGate } from '../_shared/agent/qualificationGate.ts'
 import { buildObjectionSpecialistDef } from '../_shared/agent/objectionSpecialist.ts'
 import { buildHandoffSpecialistDef } from '../_shared/agent/handoffSpecialist.ts'
 // Bug 2 Fix (v7.43.1): detector de clique "Eu quero" → hint pro LLM continuar venda
@@ -1012,11 +1013,18 @@ Deno.serve(async (req) => {
     // - 'nunca': set MAX to Infinity to prevent auto-handoff entirely
     // - 'so_se_pedir': use a very high max (lead controls via explicit request)
     // M17 F3: Profile > Funnel > Agent
+    // qualify-first fix (2026-05-24): o contrato documentado de 'so_se_pedir' é
+    // "lead controla via pedido explícito" (max muito alto). O default antigo era 8
+    // — IGUAL ao 'apos_n_msgs' — então o cap de mensagens disparava handoff genérico
+    // no meio de um fluxo consultivo (qualify-first adiciona turnos: 3 perguntas +
+    // busca + escolha + fechamento já passa de 8). Cortava o handoff RICO do product
+    // specialist. Default de 'so_se_pedir' sobe pra 40 (safety net alto, configurável
+    // via funnel/agent). 'apos_n_msgs' e 'nunca' inalterados.
     const MAX_LEAD_MESSAGES = effectiveHandoffRule === 'nunca'
       ? Infinity
       : effectiveHandoffRule === 'apos_n_msgs'
         ? (profileData?.handoff_max_messages ?? funnelData?.handoff_max_messages ?? funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? 8)
-        : (funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? 8)
+        : (funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? 40)
 
     // ia_cleared: use message count from sessionStartDt (self-healing — counter may be stale)
     // No ia_cleared: use atomic counter (no race condition)
@@ -2171,7 +2179,50 @@ ${contextBlock}`
             pagamento: buildObjectionSpecialistDef(), // objection carrega business_info
             handoff: buildHandoffSpecialistDef(),
           }
-          const def = DISPATCH[routerResult.intent]
+          let def = DISPATCH[routerResult.intent]
+
+          // ── qualificationGate (2026-05-24): FONTE ÚNICA buscar-vs-qualificar ──
+          // O router classifica produto/qualificacao por heurística de mensagem; o
+          // gate é a AUTORIDADE determinística sobre "buscar ou qualificar primeiro",
+          // lendo o MESMO stage engine que governa o score (exit_action por stage).
+          // Honra o fluxo consultivo (qualifica → ENTÃO busca) sem 5º decisor/gambiarra:
+          //   - mode='qualify' (digital, score < limiar de busca): qualification_specialist
+          //     (pergunta o próximo campo, acumula score). Suprime pré-busca.
+          //   - mode='search' (digital, score >= limiar): FORÇA product_specialist —
+          //     mesmo que o router tenha dito 'qualificacao' ao ver uma resposta curta
+          //     (ex.: "branco"). É o que honra exit_action=search_products do stage.
+          //   - mode='qualify_then_handoff' (offline): product_specialist qualifica
+          //     brevemente + handoff (qualification_specialist não tem essa tool).
+          //   - mode='no_category': respeita a escolha do router (sem categoria a gatear).
+          if (routerResult.intent === 'produto' || routerResult.intent === 'qualificacao') {
+            const gate = evaluateQualificationGate({
+              tags: conversation.tags || [],
+              agent,
+              incomingText,
+            })
+            if (gate.categoryId) {
+              if (gate.readyToSearch && gate.mode === 'search') {
+                def = DISPATCH['produto']
+                log.info('qualificationGate: score atingiu limiar → product_specialist (busca)', {
+                  router_intent: routerResult.intent, category: gate.categoryId,
+                  score: gate.score, search_ready_score: gate.searchReadyScore,
+                })
+              } else if (gate.mode === 'qualify') {
+                def = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
+                routerProductPreSearch = null
+                log.info('qualificationGate: qualify-first → qualification_specialist', {
+                  router_intent: routerResult.intent, category: gate.categoryId,
+                  score: gate.score, search_ready_score: gate.searchReadyScore, reason: gate.reason,
+                })
+              } else if (gate.mode === 'qualify_then_handoff') {
+                def = DISPATCH['produto']
+                routerProductPreSearch = null
+                log.info('qualificationGate: categoria offline → product_specialist (qualifica+handoff)', {
+                  router_intent: routerResult.intent, category: gate.categoryId, catalog_status: gate.catalogStatus,
+                })
+              }
+            }
+          }
 
           if (isShadow) {
             // Shadow mode (lite): só o ROUTER roda e loga. NÃO rodamos o specialist,

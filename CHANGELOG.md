@@ -13,6 +13,18 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.50.0 (2026-05-24) — qualificationGate: fonte única buscar-vs-qualificar (fluxo consultivo qualify-first)
+
+Fecha o último 🔴 arquitetural: a decisão "buscar produto ou qualificar primeiro?" estava em **4 decisores rivais sem fonte de verdade** (stage engine, detectIncomingSearchSignal/R121, deriveProductSearchParams, LLM). Sob router, o product specialist criava caminho de busca paralelo que ignorava o estado de qualificação → "tem porcelanato?" caía em busca/qualif confusa. Agora há **1 decisor determinístico**.
+
+- **`_shared/agent/qualificationGate.ts`** (novo, 12 testes): `evaluateQualificationGate` lê o MESMO stage engine que governa o score e responde se o lead está pronto pra buscar. Modos: `qualify` (digital, score < limiar de busca → qualifica), `search` (score >= limiar → busca), `qualify_then_handoff` (offline → qualifica + handoff, nunca busca), `no_category` (respeita o router). NUNCA lança (degrade → ready).
+- **Wire no dispatch do router** (`ai-agent/index.ts`): para intents `produto`/`qualificacao`, o gate é a AUTORIDADE. `qualify` → redireciona pro qualification_specialist (pergunta o próximo campo, acumula score, suprime pré-busca). `search` → força product_specialist mesmo que o router tenha dito 'qualificacao' (honra `exit_action=search_products` do stage quando o lead responde curto tipo "branco"). `offline` → product_specialist (qualifica + handoff).
+- **Fix de raiz exposto pelo qualify-first:** `so_se_pedir` (handoff_rule default) caía no cap de **8 mensagens** — IGUAL ao `apos_n_msgs`, contradizendo o contrato documentado ("lead controla, max muito alto"). Fluxos consultivos (qualify-first = +turnos) eram cortados por handoff genérico antes do fechamento. Default sobe pra **40** (safety net alto, configurável).
+- **Fix handoff specialist:** era gpt-4.1-mini, que **vazou a tool call como TEXTO** (`functions.handoff_to_human({...})` na mensagem) em vez de invocá-la → handoff não acontecia + lead via sintaxe crua. Subido pra **gpt-4.1** (chama tools com confiança). Defesa: `stripLeakedToolCalls` em dispatchResponse remove vazamento residual (no-op em texto legítimo; 5 testes).
+- **E2E real em produção (sandbox router), 10 cenários nota 10:** lead novo/recorrente + saudação nova/retorno; dá nome/não dá; produto no catálogo (qualify-first 3 perguntas→carrossel); produto offline (lâmpada led → qualifica+handoff rico); produto inexistente (honesto+alternativa); transbordo com relatório rico ao vendedor; mensagem de transbordo; fila (round-robin Lucas→Rafaella). 1404 testes verdes, deno 0.
+
+---
+
 ### v7.49.1 (2026-05-24) — Fix: score de qualificação não acumulava (flexão de gênero/plural)
 
 O `fieldAutoExtractor` casava os `examples` com word-boundary EXATO → "branca" não casava o field cor ("branco"), "fosca" não casava acabamento ("fosco"). Resultado: campos de qualificação ditos pelo lead **não eram capturados e o `lead_score` nunca acumulava** (achado no E2E qualify-first). Fix: `buildCandidateRegex` flexiona a vogal final o/a + plural (`branc[oa]s?`, `fosc[oa]s?`); conservador (só mexe em terminação o/a; "coral"/"inox" intactos). E2E: score 15→50, ambiente/cor/acabamento capturados. 386 testes verdes.
