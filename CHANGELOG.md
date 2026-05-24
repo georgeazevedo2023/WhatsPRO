@@ -13,6 +13,11 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.45.1 (2026-05-24) — EletropisoV2 → router em PROD + zera 36 erros TS
+
+- **EletropisoV2 (`1062059a`) migrado pra `routing_mode='router'` em PROD** (a pedido do usuário, sem shadow). Config validada compatível (24 service_categories + business_info + greeting → os 5 specialists rodam). Código idêntico ao validado 6/6 no sandbox. Rollback instantâneo (`routing_mode='monolith'`). Monitoramento via dashboard Roteamento + `ai_agent_runs`. Evidência pró-migração: no histórico monolito, perguntas de produto ("telha brasilit") recebiam "Em que posso te ajudar?" genérico — router+product_specialist busca no catálogo.
+- **36 erros TS pré-existentes do `ai-agent/index.ts` zerados (`deno check`: 36 → 0).** Type-only, zero runtime, vitest sem regressão (1318 pass / 9 fails pré-existentes). Fixes: `SendTextMsgFn`→`Promise<void|boolean>`; `SendPresenceFn`→union literal; `Logger.meta`→`object` (logger.ts + context.ts); casts `any` em conversation/contact/instance/counterRow/greetResult (selects nullable+shape); `pfq` local pro CFA never; `loadActiveProfile(supabase as any)` (TS2589); `wordByWordBroadProducts!`; `insert(payload as any)`. (whatsapp-webhook tem 4 erros pré-existentes próprios, fora de escopo.)
+
 ### v7.45.0 (2026-05-24) — Sprint D: 4 specialists dedicados + specialistBase + shadow mode + 6/6 E2E nota 10
 
 Fecha a parte de código do Sprint D do plano orquestrador: o router agora despacha as **7 intents pra specialists dedicados** (não mais só o product). Monolito vira fallback de erro. Tudo atrás de `routing_mode` (default `monolith`, prod intocada). Andamento do plano: 72% → **~85%**.
