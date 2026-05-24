@@ -6,7 +6,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🎯 Andamento do Plano Orquestrador — **~85% concluído** (Sprint D: router + 5 specialists dedicados + shadow + 6/6 E2E)
+## 🎯 Andamento do Plano Orquestrador — **~88% concluído** (Sprint D completo + E.1 memória longa; EletropisoV2 em router PROD; 36 erros TS zerados)
 
 > Objetivo: monolito (1 LLM mega 17 KB) → **router LLM tiny + 5-6 specialists** + camada determinística + memória longa. Atualizado a cada sprint. Detalhe completo: [[wiki/plano-orquestrador-subagentes]] · [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -35,7 +35,10 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **Sprint C parcial 2/3** — C4 product_specialist + C5 hop guard + wire-in + migração gpt-5-mini | ✅ Shipped (v7.43.0) | 5% | **68%** |
 | **Sprint C parcial 3/3** — C6 E2E 7/7 nota 10 + C7 dashboard Roteamento + 2 bugs raiz (gpt-5-mini vazio + objecao→specialist) + canal controle WhatsApp | ✅ Shipped (v7.44.0) | 4% | **72%** |
 | **Sprint D código** — specialistBase + 4 specialists dedicados (greeting/qualif/objection/handoff) + dispatch 7 intents + shadow mode + 6/6 E2E nota 10 + 2 bugs raiz | ✅ Shipped (v7.45.0) | 13% | **~85%** |
-| Sprint D migração — shadow em agent real → router default → D6 aposentar monolito (após 30d) | ⏳ STAGED | — | — |
+| **EletropisoV2 → router PROD** + **36 erros TS zerados** (deno check 36→0, type-only) | ✅ Shipped (v7.45.1) | 2% | **~87%** |
+| **Sprint E.1** — memória longa por lead (structured-facts: injeção buildLeadMemoryBlock + consolidação fire-and-forget) + E2E returning lead | ✅ Shipped (v7.46.0) | 1% | **~88%** |
+| Sprint E.2 proatividade (follow-ups) + E.3 RAG | ⏳ | — | — |
+| D6 aposentar monolito (após 30d router estável) | ⏳ STAGED | — | — |
 | B4 — Varredura R134 idempotência | ⏳ (hardening, não-bloqueador) | 5% | — |
 | **Sprint C** — Router + product_specialist POC | ⏳ MARCO | 15% | — |
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |

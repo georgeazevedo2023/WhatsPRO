@@ -22,7 +22,7 @@ Primeiro pilar do Sprint E (inteligência avançada). Lead que volta após dias 
 - **`consolidateLeadMemory`** (fire-and-forget pós-resposta, SEM LLM): deriva `qualification_stage` das tags, extrai `products_seen` do toolCallsLog real (search/carousel/media), captura `interests` do tag `interesse:`, grava com merge+dedupe + `memory_updated_at`. Só fatos verificados (anti-poisoning). Não bloqueia o turno (resposta já enviada no dispatchResponse).
 - **Resume de qualificação**: o bloco de memória diz "Qualificação parou em: X" + "não pergunte o que já sabe" → specialist não refaz campos. Greeting refinado pra returning lead (cumprimenta pelo nome + referencia interesse pra retomar).
 - **E2E real**: turno 1 (lead "sou o Carlos, queria tinta branca") → product+carrossel, consolidação gravou products_seen (3 tintas) + stage=tintas. Turno 2 (retorno, conversa limpa, lead_profiles mantido) → bloco de memória injetado (prompt 1767→2765 chars), greeting reconheceu o lead.
-- **339 testes agent verdes** (334 + 5 leadMemory). deno check ai-agent: 0 erros. Tudo aditivo; isolamento tenant/lead via RLS existente do lead_profiles (risco #1 multi-agente: vazamento entre leads).
+- **334 testes agent verdes** (329 Sprint D + 5 leadMemory). deno check ai-agent: 0 erros. Tudo aditivo; isolamento tenant/lead via RLS existente do lead_profiles (risco #1 multi-agente: vazamento entre leads).
 
 ### v7.45.1 (2026-05-24) — EletropisoV2 → router em PROD + zera 36 erros TS
 
