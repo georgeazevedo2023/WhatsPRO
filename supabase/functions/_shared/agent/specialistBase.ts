@@ -91,6 +91,19 @@ export interface SpecialistCtx {
    * responde o lead. Serve pra coletar regressão silenciosa em tráfego real.
    */
   shadow?: boolean
+
+  /**
+   * Latência (2026-05-24): resultado de uma busca de produto JÁ executada
+   * deterministicamente ANTES do specialist (pré-LLM, mesma máquina R121/R137
+   * do monolith). Quando presente, vai no FIM do system prompt como bloco
+   * [INTERNO] e o product specialist responde em UM round (não precisa do round
+   * "decidir chamar search_products"). Isso reverte a regressão de latência
+   * (8-10s → ~4-5s) introduzida quando o pré-search foi desligado sob router.
+   * O carrossel já foi enviado pela pré-busca; a flag carouselSentInThisCall
+   * (compartilhada via executeToolSafe) garante idempotência se o LLM insistir
+   * em buscar de novo. Vazio = comportamento anterior (specialist decide buscar).
+   */
+  preSearchContext?: string
 }
 
 /**
@@ -167,7 +180,12 @@ export async function runSpecialist(
   // determinística num follow-up (não via instrução solta no prompt). classifyLeadRecency
   // segue sendo a fonte única usada pelo bloco determinístico do monolith/router.
   const basePrompt = def.buildPrompt(ctx)
-  const systemPrompt = memoryBlock ? `${memoryBlock}\n\n${basePrompt}` : basePrompt
+  // Ordem: [memória do lead] → [prompt do specialist] → [resultado da pré-busca].
+  // A pré-busca vai por último (mais perto da decisão) pra o product specialist
+  // tratá-la como verdade-base "search já feito" e compor em 1 round.
+  const systemPrompt = [memoryBlock, basePrompt, ctx.preSearchContext]
+    .filter(Boolean)
+    .join('\n\n')
   const promptChars = systemPrompt.length
   const toolDefs = def.toolDefs
 
@@ -178,6 +196,7 @@ export async function runSpecialist(
     model: def.model,
     tools_count: toolDefs.length,
     has_memory: !!memoryBlock,
+    has_presearch: !!ctx.preSearchContext,
     shadow: !!ctx.shadow,
   })
 

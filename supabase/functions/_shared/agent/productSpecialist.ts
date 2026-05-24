@@ -21,6 +21,8 @@
 
 import { runSpecialist, type SpecialistCtx, type SpecialistDef } from './specialistBase.ts'
 import { updateLeadProfileToolDef } from './specialistTools.ts'
+import { cleanSearchQuery } from './tools/searchProducts.ts'
+import { getCategoriesOrDefault, matchCategory, matchCategoryBySearchText } from '../serviceCategories.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
 
 // =============================================================================
@@ -260,6 +262,93 @@ export function buildProductSpecialistDef(model: string): SpecialistDef {
     // handoffGuard era proteção do monolith e bloqueava handoff multi-turn legítimo.
     disableHandoffGuard: true,
   }
+}
+
+/**
+ * Latência (2026-05-24) — Pré-busca determinística do product specialist.
+ *
+ * PROBLEMA: turnos de produto com search_products gastavam 2 rounds de LLM
+ * (round 1 só pra "decidir" chamar a tool, round 2 pra compor a resposta com o
+ * resultado). Medido em prod: ~8-10s vs ~2.5s dos turnos sem busca. O monolith
+ * era rápido porque buscava ANTES do LLM (R121/R137 inline) — mas isso foi
+ * desligado sob router (skipR121) por causa de carrossel duplicado.
+ *
+ * FIX DE RAIZ: derivar a busca pré-LLM também pro product specialist. O caller
+ * roda `runInlineSearchProducts` com este resultado, injeta o `[INTERNO]` como
+ * `preSearchContext`, e o specialist compõe em 1 round. Duplo carrossel é
+ * impossível: a flag carouselSentInThisCall (compartilhada via executeToolSafe)
+ * faz o search_products retornar "JÁ FOI ENVIADO" se o LLM tentar de novo.
+ *
+ * Cobertura (mais ampla que pendingExitActionSearch, que exigia marca/verbo):
+ *   - usa pendingExitActionSearch se o pré-LLM já decidiu (R121/R137/C2);
+ *   - senão deriva categoria (interesse: tag → matchCategoryBySearchText) e só
+ *     pré-busca se for catalog_status='digital' (offline → specialist qualifica,
+ *     e nem é o caso lento, pois não há carrossel a enviar);
+ *   - NUNCA pré-busca se o lead já recebeu produtos (produto:/aguardando_upsell)
+ *     — evita re-enviar carrossel quando ele está refinando a escolha.
+ *
+ * @returns {query, category} pronto pro runInlineSearchProducts, ou null (sem
+ *   pré-busca → specialist decide normalmente, comportamento anterior).
+ */
+/**
+ * Limpa a query da pré-busca pro nível do que o LLM produziria. O texto cru do
+ * lead ("bom dia! vocês têm tinta acrílica fosca?") tem saudação + verbo
+ * interrogativo que viram RUÍDO no ILIKE/fuzzy → 0 resultados → escalada espúria
+ * pra handoff. (Descoberto no E2E 2026-05-24: "vocês têm tinta acrílica fosca?"
+ * com ruído achou 0 produtos e caiu em handoff fora-de-horário.) Mesma família do
+ * stripLeadNameSuffix (R137/R138). Conservador: só remove no INÍCIO.
+ */
+export function cleanProductQuery(s: string): string {
+  if (!s) return ''
+  const stripped = s
+    // saudação no início ("bom dia!", "olá,", "oi")
+    .replace(/^\s*(?:oi+|ol[áa]+|e?\s*a[íi]|bom\s+dia|boa\s+tarde|boa\s+noite)[\s,!.]*/i, '')
+    // verbo interrogativo de produto ("vocês têm", "tem", "vendem", "trabalham com")
+    .replace(/^\s*(?:vcs?|voc[êe]s?)?\s*(?:tem|t[êe]m|vende[mn]?|fazem|trabalham?\s+com|tem\s+dispon[ií]ve(?:l|is))\s+/i, '')
+  return cleanSearchQuery(stripped)
+}
+
+export function deriveProductSearchParams(opts: {
+  incomingText: string
+  tags: string[]
+  agent: Record<string, any>
+  pendingSearch?: { query: string; category: string } | null
+}): { query: string; category: string } | null {
+  // 1. Pré-LLM já decidiu (marca/verbo/score-max) → confia, mas LIMPA a query
+  //    (R121 buildSearchQuery cai pro texto cru quando não há tags ainda).
+  if (opts.pendingSearch?.query) {
+    const cleaned = cleanProductQuery(opts.pendingSearch.query)
+    return { query: cleaned.length >= 2 ? cleaned : opts.pendingSearch.query, category: opts.pendingSearch.category }
+  }
+
+  const tags = Array.isArray(opts.tags) ? opts.tags : []
+
+  // 2. Lead já recebeu produtos → não re-buscar (está escolhendo entre os enviados).
+  const alreadyReceived = tags.some(
+    (t) => typeof t === 'string' && (t.startsWith('produto:') || t === 'aguardando_upsell'),
+  )
+  if (alreadyReceived) return null
+
+  // 3. Deriva categoria (interesse: tag tem prioridade; senão pelo texto).
+  const cfg = getCategoriesOrDefault(opts.agent)
+  const interesseTag = tags.find((t) => typeof t === 'string' && t.startsWith('interesse:'))
+  const interesseValue = interesseTag ? interesseTag.split(':')[1] || '' : ''
+  const category =
+    matchCategory(interesseValue, cfg) || matchCategoryBySearchText(opts.incomingText || '', cfg)
+  if (!category) return null
+
+  // 4. Só pré-busca catálogo DIGITAL (offline → qualif, sem carrossel = já rápido).
+  const catalogStatus = (category as any).catalog_status || 'digital'
+  if (catalogStatus !== 'digital') return null
+
+  // 5. Monta query: texto do lead LIMPO (sem saudação/verbo) + interesse. cleanProductQuery
+  //    evita 0-resultados por ruído ("vocês têm"). Interesse vem depois como reforço.
+  const cleanedIncoming = cleanProductQuery(opts.incomingText || '')
+  const rawQuery = [interesseValue, cleanedIncoming].filter(Boolean).join(' ')
+  const query = cleanSearchQuery(rawQuery) || cleanedIncoming
+  if (!query || query.length < 2) return null
+
+  return { query, category: interesseValue || (category as any).id || '' }
 }
 
 /**

@@ -5,7 +5,151 @@ import { describe, it, expect, vi } from 'vitest'
   env: { get: vi.fn(() => '') },
 }
 
-const { buildProductSpecialistPrompt, getProductSpecialistToolDefs } = await import('./productSpecialist.ts')
+const { buildProductSpecialistPrompt, getProductSpecialistToolDefs, deriveProductSearchParams, cleanProductQuery } = await import('./productSpecialist.ts')
+
+describe('cleanProductQuery (latência: query da pré-busca sem ruído)', () => {
+  it('remove saudação + verbo interrogativo do início', () => {
+    expect(cleanProductQuery('bom dia! vocês têm tinta acrílica fosca?')).toBe('tinta acrílica fosca')
+  })
+  it('remove "vocês têm"', () => {
+    expect(cleanProductQuery('vocês têm tinta branca?')).toBe('tinta branca')
+  })
+  it('remove "tem" simples', () => {
+    expect(cleanProductQuery('tem manta líquida?')).toBe('manta líquida')
+  })
+  it('remove "vendem"', () => {
+    expect(cleanProductQuery('vendem cimento?')).toBe('cimento')
+  })
+  it('preserva query já limpa', () => {
+    expect(cleanProductQuery('tinta acrílica fosca')).toBe('tinta acrílica fosca')
+  })
+  it('não corrompe "trabalham com" no meio (só início)', () => {
+    expect(cleanProductQuery('tinta que trabalham com')).toBe('tinta que trabalham com')
+  })
+})
+
+// Categoria válida mínima (isValidConfig exige stages com fields/exit_action/phrasing).
+function makeCategory(id: string, interesseMatch: string, catalogStatus: string) {
+  return {
+    id,
+    label: id,
+    interesse_match: interesseMatch,
+    catalog_status: catalogStatus,
+    stages: [
+      {
+        id: 's1', label: 'S1', min_score: 0, max_score: 100,
+        exit_action: 'search_products',
+        fields: [{ key: 'cor', label: 'cor', examples: 'branco', score_value: 10, priority: 1 }],
+        phrasing: 'Qual {label}? ({examples})',
+      },
+    ],
+  }
+}
+function makeAgentConfig(cats: any[]) {
+  return {
+    service_categories: {
+      categories: cats,
+      default: {
+        stages: [
+          {
+            id: 'd1', label: 'D1', min_score: 0, max_score: 100,
+            exit_action: 'handoff',
+            fields: [{ key: 'x', label: 'x', examples: 'y', score_value: 10, priority: 1 }],
+            phrasing: 'p',
+          },
+        ],
+      },
+    },
+  }
+}
+
+describe('deriveProductSearchParams (latência: pré-busca 1-round)', () => {
+  const digitalCfg = makeAgentConfig([makeCategory('tintas', 'tinta|esmalte|verniz', 'digital')])
+  const offlineCfg = makeAgentConfig([makeCategory('ferramentas', 'trena|martelo|ferramenta', 'offline')])
+
+  it('confia no pendingSearch quando pré-LLM já decidiu (R121/R137)', () => {
+    const r = deriveProductSearchParams({
+      incomingText: 'qualquer coisa',
+      tags: [],
+      agent: digitalCfg,
+      pendingSearch: { query: 'Coral 18L', category: 'tintas' },
+    })
+    expect(r).toEqual({ query: 'Coral 18L', category: 'tintas' })
+  })
+
+  it('deriva busca de categoria digital a partir do TEXTO ("tinta branca")', () => {
+    const r = deriveProductSearchParams({
+      incomingText: 'vocês têm tinta branca?',
+      tags: [],
+      agent: digitalCfg,
+    })
+    expect(r).not.toBeNull()
+    expect(r!.category).toBe('tintas')
+    expect(r!.query.toLowerCase()).toContain('tinta')
+  })
+
+  it('deriva busca a partir da tag interesse:', () => {
+    const r = deriveProductSearchParams({
+      incomingText: 'a fosca',
+      tags: ['interesse:tintas'],
+      agent: digitalCfg,
+    })
+    expect(r).not.toBeNull()
+    expect(r!.category).toBe('tintas')
+  })
+
+  it('NÃO pré-busca se o lead já recebeu produtos (produto: tag)', () => {
+    const r = deriveProductSearchParams({
+      incomingText: 'tinta branca',
+      tags: ['interesse:tintas', 'produto:coral_18l'],
+      agent: digitalCfg,
+    })
+    expect(r).toBeNull()
+  })
+
+  it('NÃO pré-busca em aguardando_upsell', () => {
+    const r = deriveProductSearchParams({
+      incomingText: 'tinta branca',
+      tags: ['aguardando_upsell'],
+      agent: digitalCfg,
+    })
+    expect(r).toBeNull()
+  })
+
+  it('NÃO pré-busca categoria OFFLINE (specialist qualifica, sem carrossel)', () => {
+    const r = deriveProductSearchParams({
+      incomingText: 'vocês têm trena?',
+      tags: [],
+      agent: offlineCfg,
+    })
+    expect(r).toBeNull()
+  })
+
+  it('retorna null quando nenhuma categoria casa', () => {
+    const r = deriveProductSearchParams({
+      incomingText: 'oi tudo bem',
+      tags: [],
+      agent: digitalCfg,
+    })
+    expect(r).toBeNull()
+  })
+
+  it('retorna null quando texto vazio e sem tags', () => {
+    const r = deriveProductSearchParams({ incomingText: '', tags: [], agent: digitalCfg })
+    expect(r).toBeNull()
+  })
+
+  it('pendingSearch tem prioridade mesmo com produto: tag', () => {
+    // pré-LLM já decidiu buscar (caso raro mas explícito) — respeita a decisão.
+    const r = deriveProductSearchParams({
+      incomingText: 'x',
+      tags: ['produto:y'],
+      agent: digitalCfg,
+      pendingSearch: { query: 'manta', category: 'impermeabilizantes' },
+    })
+    expect(r).toEqual({ query: 'manta', category: 'impermeabilizantes' })
+  })
+})
 
 describe('buildProductSpecialistPrompt', () => {
   it('inclui persona com nome do agent', () => {

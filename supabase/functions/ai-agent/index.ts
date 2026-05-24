@@ -20,7 +20,7 @@ import { dispatchResponse } from '../_shared/agent/dispatchResponse.ts'
 // Sprint C4+C5 (2026-05-23): router LLM + product_specialist + hop guard
 import { classifyIntent, logRouterRun, type Intent } from '../_shared/agent/router.ts'
 import { classifyLeadRecency } from '../_shared/agent/greetingPolicy.ts'
-import { buildProductSpecialistDef } from '../_shared/agent/productSpecialist.ts'
+import { buildProductSpecialistDef, deriveProductSearchParams } from '../_shared/agent/productSpecialist.ts'
 import { checkHopLimit, generateTurnId } from '../_shared/agent/hopGuard.ts'
 // Sprint D (2026-05-24): specialistBase + 4 specialists dedicados (greeting/qualif/objection/handoff)
 import { runSpecialist, type SpecialistCtx, type SpecialistDef } from '../_shared/agent/specialistBase.ts'
@@ -555,6 +555,11 @@ Deno.serve(async (req) => {
     let pendingSaleClosedHandoff: string | null = null
     let pendingExitActionHandoff: { reason: string; queueMotivo: string } | null = null
     let pendingExitActionSearch: { query: string; category: string } | null = null
+    // Latência (2026-05-24): sob router, captura a busca decidida pré-LLM (R121/R137/C2)
+    // SÓ pro product specialist consumir (pré-busca → 1 round). pendingExitActionSearch
+    // segue nulo pros demais specialists (set_tags handler não pode religar busca em
+    // qualification/greeting/etc). Ver deriveProductSearchParams + bloco de dispatch.
+    let routerProductPreSearch: { query: string; category: string } | null = null
     // R130 (2026-05-21): override pós-LLM — quando set_tags adiciona interesse:NEW e
     // tem próximo field não respondido, forçar essa pergunta exata. LLM tende a
     // improvisar/inventar fields ou usar send_poll com opções erradas.
@@ -1656,10 +1661,17 @@ ${contextBlock}`
         pendingExitActionSearch = null
       }
     } else if (pendingExitActionSearch && skipR121) {
-      log.info('R121 inline skipped — routing_mode=router (specialist handles search)', {
+      // Latência (2026-05-24): NÃO buscamos inline aqui (ainda não sabemos a intent —
+      // o router classifica só lá embaixo). Mas a query/categoria que o pré-LLM
+      // decidiu (R121/R137/C2) é precisa — guardamos em routerProductPreSearch pro
+      // product specialist consumir (pré-busca → 1 round). Limpamos pendingExitActionSearch
+      // pra o set_tags handler de QUALQUER specialist não religar busca; só o product
+      // branch usa routerProductPreSearch.
+      routerProductPreSearch = pendingExitActionSearch
+      log.info('R121 inline deferred — routing_mode=router (product specialist will pre-search)', {
         category: pendingExitActionSearch.category,
+        query: pendingExitActionSearch.query,
       })
-      // Limpa flag pra evitar set_tags handler reativar
       pendingExitActionSearch = null
     }
 
@@ -2173,6 +2185,43 @@ ${contextBlock}`
             // Fallthrough pro monolith abaixo
           } else if (def) {
             log.info(`Dispatching to ${def.name}_specialist (hop 1)`, { intent: routerResult.intent })
+
+            // ── Latência (2026-05-24): pré-busca determinística do product specialist ──
+            // Turnos de produto com search gastavam 2 rounds de LLM (decidir buscar →
+            // compor). Aqui buscamos ANTES do specialist (mesma máquina R121 do monolith)
+            // e injetamos o resultado como preSearchContext → o specialist responde em
+            // 1 round (~8-10s → ~4-5s). Carrossel é enviado UMA vez pela pré-busca; se o
+            // LLM tentar search_products de novo, carouselSentInThisCall retorna "JÁ
+            // ENVIADO" (idempotente). Só roda pro product specialist, fora de SHADOW, e
+            // quando o lead ainda não recebeu produtos (deriveProductSearchParams decide).
+            let preSearchContext = ''
+            if (def.name === 'product' && conversation.status_ia !== STATUS_IA.SHADOW) {
+              const searchParams = deriveProductSearchParams({
+                incomingText,
+                tags: conversation.tags || [],
+                agent,
+                pendingSearch: routerProductPreSearch,
+              })
+              if (searchParams) {
+                try {
+                  const inlineSearch = await runInlineSearchProducts({
+                    supabase, conversation, conversation_id, agent_id, executeToolSafe,
+                  }, searchParams, log)
+                  preSearchContext = inlineSearch.inlineSearchContext
+                  if (inlineSearch.toolCall) toolCallsLog.push(inlineSearch.toolCall)
+                  log.info('Product pre-search done (1-round path)', {
+                    query: searchParams.query, category: searchParams.category,
+                    has_context: !!preSearchContext,
+                  })
+                } catch (err) {
+                  // Não-fatal: sem pré-busca, o specialist cai no caminho de 2 rounds.
+                  log.warn?.('Product pre-search failed (non-fatal, specialist will search)', {
+                    error: (err as Error).message,
+                  })
+                }
+              }
+            }
+
             const specialistCtx: SpecialistCtx = {
               turn_id,
               agent, agent_id, conversation, conversation_id, contact,
@@ -2192,6 +2241,7 @@ ${contextBlock}`
               hasEverInteracted,
               startTime,
               supabase, log, corsHeaders,
+              preSearchContext: preSearchContext || undefined,
             }
             const specialistResult = await runSpecialist(specialistCtx, def)
 

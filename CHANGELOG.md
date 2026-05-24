@@ -13,6 +13,20 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.48.0 (2026-05-24) — Latência do product specialist: pré-busca determinística (2 rounds → 1)
+
+Fecha a única regressão real da auditoria de paridade: o product specialist gastava **~8-16s** em turnos com `search_products` (vs ~2.5s sem busca). Causa raiz medida nos `ai_agent_runs` reais: **2 rounds de LLM** (round 1 só pra "decidir" chamar a tool → executa busca + envia carrossel → round 2 pra compor). O monolito era rápido (1-3s) porque buscava ANTES do LLM (R121/R137 inline); esse pré-search foi **desligado sob router** (`skipR121`) por causa de um bug de carrossel duplicado.
+
+- **Fix de raiz (não gambiarra):** re-liga o pré-search **para o product specialist**, injetando o resultado como `preSearchContext` no fim do prompt → o specialist compõe em **1 round**. Duplo carrossel é estruturalmente impossível: a flag `carouselSentInThisCall` (compartilhada via `executeToolSafe`) faz o `search_products` retornar "JÁ ENVIADO" se o LLM insistir.
+- **`specialistBase.ts`** — novo campo `preSearchContext` no `SpecialistCtx`, injetado no system prompt (após memória + prompt base).
+- **`productSpecialist.ts`** — `deriveProductSearchParams()` (cobertura > pendingExitActionSearch: deriva categoria por interesse-tag/texto, só DIGITAL, nunca quando lead já recebeu produtos) + `cleanProductQuery()`.
+- **`index.ts`** — captura a busca decidida pré-LLM (`routerProductPreSearch`) só pro product specialist (mantém `pendingExitActionSearch` nulo pros demais → set_tags handler não religa busca); roda `runInlineSearchProducts` antes do specialist e passa `preSearchContext`.
+- **Bug exposto + corrigido no E2E:** a pré-busca com query crua ("**vocês têm** tinta acrílica fosca?") achava 0 produtos (stopwords) → escalava pra handoff espúrio. `cleanProductQuery` stripa saudação + verbo interrogativo no início (família `stripLeadNameSuffix` R137/R138) → query limpa acha produto. Sem isso, seria regressão de qualidade vs o LLM (que limpa a query sozinho).
+- **E2E real (sandbox Eletropiso router, 3 cenários, nota 10):** "vcs têm tinta branca?" (cold) → greeting + carrossel + resposta; "tinta acrílica fosca" (isolado) → carrossel + "Temos sim! ...R$427,90... Qual dessas opções atende melhor?"; "tinta coral branca fosca" (cold+marca) → carrossel + resposta consultiva. **Product hop ~6s (era ~8-16s), 1 search, 1 round LLM, 1 carrossel.**
+- **362 testes agent verdes** (+15: 9 `deriveProductSearchParams` + 6 `cleanProductQuery`). deno check 0. Deploy CLI no ai-agent (afeta EletropisoV2 PROD + sandbox — ambos router).
+
+---
+
 ### v7.47.0 (2026-05-24) — Saudação/reconhecimento migrados pro router (decisão A)
 
 Fecha o defeito #2 da auditoria de paridade: sob `routing_mode='router'`, a saudação configurada era pulada (`index.ts:1373`) e o lead frio que abria com produto (ex.: "vcs têm tinta?") caía direto no product specialist — sem boas-vindas, sem citar a loja, sem pedir o nome. Validado ao vivo na prod (EletropisoV2 respondendo "Tudo bem? Me conta..." genérico).
