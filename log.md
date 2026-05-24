@@ -9,6 +9,12 @@ type: log
 
 ---
 
+## 2026-05-24 (madrugada II) — Fix PROD EletropisoV2 (v7.44.1)
+
+EletropisoV2 (`1062059a`, Lucas, monolith) trocada gpt-5-mini → gpt-4.1-mini (Bug A afetava prod: resposta vazia). Config no banco, efeito imediato. Validação passiva. Frase de retomada abaixo.
+
+---
+
 ## 2026-05-24 (madrugada) — Sprint C 3/3 (v7.44.0): C6 E2E 7/7 + C7 dashboard + 2 bugs raiz + canal WhatsApp
 
 **Trigger:** user pediu "siga p/ próxima fase + auditе + testes reais nas 2 instâncias até nota 10, me enviando cada teste pro 5581993856099". Depois pediu canal de controle WhatsApp bidirecional.

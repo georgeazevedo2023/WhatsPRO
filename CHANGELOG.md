@@ -13,6 +13,10 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.44.1 (2026-05-24) — Fix PROD: EletropisoV2 gpt-5-mini → gpt-4.1-mini
+
+EletropisoV2 (`1062059a`, instância nova do Lucas `558781592373`, monolith) estava em **gpt-5-mini** com `max_tokens=1024` — mesmo Bug A da v7.44.0 (reasoning consumia o teto → resposta vazia → fallback "Em que posso te ajudar?"). Trocada p/ **gpt-4.1-mini** (non-reasoning, rápido, confiável). Config no banco (efeito imediato; o piso 4096 de reasoning já estava deployado como defesa). Validação passiva na próxima msg real (não testei ao vivo p/ não interferir em cliente). Eletropiso antiga (agent desabilitado D35) segue em gpt-4.1-mini.
+
 ### v7.44.0 (2026-05-23/24) — Sprint C 3/3: C6 E2E 7/7 + C7 dashboard Roteamento + 2 bugs raiz + canal de controle WhatsApp
 
 Fecha o Sprint C. Validação E2E real dos 7 intents do router (lead↔IA, instâncias reais), dashboard admin de roteamento, e 2 bugs de raiz achados nos testes. Andamento do plano orquestrador: 68% → **~72%**.
