@@ -13,15 +13,24 @@ audited_at: 2026-05-21
 
 ---
 
-### v7.50.0 (2026-05-24) — qualificationGate: fonte única buscar-vs-qualificar (fluxo consultivo qualify-first)
+### v7.50.1 (2026-05-24) — Captura determinística de nome (P5) + auditoria de atendimento real
 
-Fecha o último 🔴 arquitetural: a decisão "buscar produto ou qualificar primeiro?" estava em **4 decisores rivais sem fonte de verdade** (stage engine, detectIncomingSearchSignal/R121, deriveProductSearchParams, LLM). Sob router, o product specialist criava caminho de busca paralelo que ignorava o estado de qualificação → "tem porcelanato?" caía em busca/qualif confusa. Agora há **1 decisor determinístico**.
+Auditoria de atendimento real V2 (George: "Olá"→"George"+"Qual preço de telha brasilit 244x110"→handoff seco). **Diagnóstico inicial errado** (culpei o gatilho "preço", mas o código já o pula em perguntas); a raiz real (achada nos `ai_agent_runs`): **"telha" não era categoria** → search 0 resultados + fora-de-horário → R120 handoff forçado; e o nome "George" se perdia (product specialist não chamava `update_lead_profile`).
 
-- **`_shared/agent/qualificationGate.ts`** (novo, 12 testes): `evaluateQualificationGate` lê o MESMO stage engine que governa o score e responde se o lead está pronto pra buscar. Modos: `qualify` (digital, score < limiar de busca → qualifica), `search` (score >= limiar → busca), `qualify_then_handoff` (offline → qualifica + handoff, nunca busca), `no_category` (respeita o router). NUNCA lança (degrade → ready).
-- **Wire no dispatch do router** (`ai-agent/index.ts`): para intents `produto`/`qualificacao`, o gate é a AUTORIDADE. `qualify` → redireciona pro qualification_specialist (pergunta o próximo campo, acumula score, suprime pré-busca). `search` → força product_specialist mesmo que o router tenha dito 'qualificacao' (honra `exit_action=search_products` do stage quando o lead responde curto tipo "branco"). `offline` → product_specialist (qualifica + handoff).
-- **Fix de raiz exposto pelo qualify-first:** `so_se_pedir` (handoff_rule default) caía no cap de **8 mensagens** — IGUAL ao `apos_n_msgs`, contradizendo o contrato documentado ("lead controla, max muito alto"). Fluxos consultivos (qualify-first = +turnos) eram cortados por handoff genérico antes do fechamento. Default sobe pra **40** (safety net alto, configurável).
-- **Fix handoff specialist:** era gpt-4.1-mini, que **vazou a tool call como TEXTO** (`functions.handoff_to_human({...})` na mensagem) em vez de invocá-la → handoff não acontecia + lead via sintaxe crua. Subido pra **gpt-4.1** (chama tools com confiança). Defesa: `stripLeakedToolCalls` em dispatchResponse remove vazamento residual (no-op em texto legítimo; 5 testes).
-- **E2E real em produção (sandbox router), 10 cenários nota 10:** lead novo/recorrente + saudação nova/retorno; dá nome/não dá; produto no catálogo (qualify-first 3 perguntas→carrossel); produto offline (lâmpada led → qualifica+handoff rico); produto inexistente (honesto+alternativa); transbordo com relatório rico ao vendedor; mensagem de transbordo; fila (round-robin Lucas→Rafaella). 1404 testes verdes, deno 0.
+- **P5 captura determinística de nome** — `nameCapture.ts` (`extractLeadName`+`wasNameAsked`, 7 testes). Pré-router: se a última msg do bot foi o pedido de nome e `full_name` é null, extrai e persiste o nome (inclusive bundled "George\nQual preço...") sem depender do LLM (regra de prompt era ignorada + estourava o teto de 4KB).
+- **Categoria `telhas` (offline)** (sandbox+V2) — loja vende, faltava cadastro → qualifica+handoff rico (como piso cerâmico). R120 mantido (correto pra produto genuinamente inexistente). Fix do gatilho "preço" **descartado** (não estava quebrado — zero gambiarra).
+- **E2E sandbox (fora-de-horário, replica George) nota 10:** nome capturado + telha reconhecida + consultivo; "50 telhas, é só isso"→handoff rico + msg fora-horário + fila. 1391 testes verdes.
+
+---
+
+### v7.50.0 (2026-05-24) — qualificationGate: fonte única buscar-vs-qualificar (qualify-first)
+
+Fecha o último 🔴 arquitetural: "buscar ou qualificar primeiro?" estava em **4 decisores rivais sem fonte de verdade**. Agora há **1 decisor determinístico** (`_shared/agent/qualificationGate.ts`, 12 testes) que lê o MESMO stage engine do score: modos `qualify` (score < limiar→qualifica), `search` (score ≥ limiar→busca), `qualify_then_handoff` (offline), `no_category`.
+
+- **Wire no dispatch do router** (`ai-agent/index.ts`): pra `produto`/`qualificacao` o gate é AUTORIDADE. `qualify`→qualification_specialist (acumula score, suprime pré-busca); `search`→product_specialist mesmo se router disse qualificacao (honra exit_action quando lead responde curto "branco"); `offline`→product (qualifica+handoff).
+- **Fix R146:** `so_se_pedir` caía no cap de **8 msgs** (igual `apos_n_msgs`, contra o contrato "lead controla, max alto") → cortava fluxo consultivo. Default → **40**.
+- **Fix R147:** handoff specialist gpt-4.1-mini vazava tool call como TEXTO (`functions.handoff_to_human({...})`) → handoff não executava + lead via sintaxe crua. → **gpt-4.1** + `stripLeakedToolCalls` (defesa, 5 testes).
+- **E2E prod (sandbox router) 10 cenários nota 10:** novo/recorrente, dá/não nome, catálogo/offline/inexistente, qualif contada, handoff rico, msg transbordo, fila round-robin. 1404 testes verdes.
 
 ---
 
@@ -245,56 +254,7 @@ Extração do loop principal de function calling do monolito `ai-agent/index.ts`
 
 ---
 
-### v7.41.6 (2026-05-22) — R138 + R137 v2: sanitiza query antes de PostgREST + 6 integration tests reais
+## 📦 Releases anteriores (v7.41.6 e abaixo) arquivadas
 
-Versão definitiva do fix Sandrielly, depois de **v7.41.4 quebrar em prod** (search crashou ao rodar inline com query ruidosa contendo vírgulas) e **v7.41.5 reverter** (volta loop original).
-
-**Causa raiz descoberta em prod (`ai_agent_logs` da conv 5b78ee46-b861):**
-- R137 wire (v7.41.4) construía query `"iquine por quanto esta a tinta pintalar da , de 3,6l? com george"` direto do texto do lead.
-- `searchProducts.ts:277` passa essa query pra `.or('title.ilike.%VALUE%,description.ilike.%VALUE%,...')` da PostgREST.
-- `escapeLike` em `agentHelpers.ts:172` só escapa `%`, `_`, `\` — **NÃO escapa `,`**.
-- Vírgula no `VALUE` quebra parser PostgREST `.or()` (`,` é o separator). 400 Bad Request → throw → `executeToolSafe` retorna *"Erro interno ao executar search_products"* → LLM perde caminho viável → handoff sem qualif.
-- Bug é pré-existente (qualquer query LLM com vírgula crashava), mas R137 expôs ao construir query bruta.
-
-**Fix em 2 camadas (defesa profunda):**
-- **Camada 1 — `searchProducts.ts`**: novo helper exportado `cleanSearchQuery(raw)` strip de `, ; : " ' ? ! ( ) [ ] { }` → espaço + colapsa whitespace. Aplicado no entry: `args.query` e `args.category` sanitizados ANTES de qualquer uso. Protege contra LLM mandando vírgulas (rare) E callers internos (R137 wire) passando texto bruto.
-- **Camada 2 — `preLLMAutoExtract.ts`**: R137 wire re-adicionado COM sanitização:
-  - `stripLeadNameSuffix(query)` remove `com X`, `meu nome é X`, `sou X` do final
-  - `cleanSearchQuery(stripped)` strip punctuation
-  - `buildSearchQuery(...)` combina com tags existentes
-  - `cleanSearchQuery(combined)` 2ª passada (defesa)
-  - Skip se query < 2 chars após cleanup
-
-**Testes integration NOVOS (`r137-integration.test.ts`, 6 cenários):**
-1. Sandrielly EXATO inside hours catálogo vazio → R137 dispara + search sem crash + PATH A enrichment
-2. Sandrielly EXATO outside hours catálogo vazio → R137 dispara + search sem crash + R120 handoff
-3. "Quanto custa a Coral fosca?" (marca isolada sem verbo) → R137 brand_mentioned + search limpo
-4. "Preciso de tinta acrílica fosca" (R121 verboso) → R121 inline > R137 + search limpo
-5. "Boa tarde, tudo bem?" (saudação pura) → no_signal, R137 NÃO dispara
-6. REGRESSÃO: query EXATA do log prod 22:13:09 não causa crash em `.or()`
-
-**Supabase mock realístico** que rejeita malformed `.or()` exatamente como PostgREST 400 — se code passar vírgula/parênteses/"?" pro filter, teste falha.
-
-**Vitest:** +6 integration scenarios + 8 unit tests cleanSearchQuery + 2 sanitization tests = **+16 testes novos**. Suite total: 1165 pass / 9 fail pré-existentes idênticos. tsc 0.
-
-**Deploy:** ai-agent v89→**v90 (revert R137 v7.41.4)**→**v91 ACTIVE (R138+R137 v2)** via CLI. SHA `f869b307...` novo. verify_jwt:false preservado.
-
-**Lição aprendida (autocrítica honesta):**
-- v7.41.4 testou R137 isoladamente em `preLLMAutoExtract.test.ts`, mas NÃO exercitou o caminho real `runInlineSearchProducts → dispatchSearchTool → searchProducts → .or() do PostgREST`. Mocks de teste eram limpos demais.
-- Bug pré-existente do `escapeLike` ficou latente desde sempre — só apareceu quando R137 passou query ruidosa.
-- v7.41.6 introduziu mock de supabase que **simula a rejeição PostgREST**, garantindo que regressão futura é detectada antes de prod.
-
-**Frase de retomada:** *"executar B5 Onda 4 llmCallLoop"*.
-
----
-
-### v7.41.4 (2026-05-22) — R137 v1 (REVERTIDO — bug crash em prod)
-
-Primeira tentativa do R137 wire. Crashou em prod no caso Sandrielly (1 ocorrência). Causa: query bruta com vírgulas/`?` quebrou PostgREST `.or()`. Reverteu na v7.41.5, re-implementado correto na v7.41.6.
-
----
-
-## 📦 Releases anteriores (v7.41.3 e abaixo — Sprint B5 ondas 3a-3d) arquivadas em 2026-05-23
-
-Movidas pra [[wiki/changelog/2026-05-part10]] (hard limit 300 linhas). Conteúdo: v7.41.3 (Onda 3d set_tags+handoff), v7.41.2 (Onda 3c searchProducts), v7.41.1 (Onda 3b crmTools), v7.41.0 (Onda 3a mediaTools).
+Detalhe em [[wiki/changelog/2026-05-part10]] + histórico git (hard limit 300 linhas). Inclui v7.41.6 (R138+R137 v2 sanitiza query PostgREST), v7.41.4 (R137 v1 revertido), v7.41.3→v7.41.0 (Sprint B5 ondas 3a-3d).
 

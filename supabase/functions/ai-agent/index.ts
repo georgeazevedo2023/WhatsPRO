@@ -27,6 +27,7 @@ import { runSpecialist, type SpecialistCtx, type SpecialistDef } from '../_share
 import { buildGreetingSpecialistDef } from '../_shared/agent/greetingSpecialist.ts'
 import { buildQualificationSpecialistDef } from '../_shared/agent/qualificationSpecialist.ts'
 import { evaluateQualificationGate } from '../_shared/agent/qualificationGate.ts'
+import { extractLeadName, wasNameAsked } from '../_shared/agent/nameCapture.ts'
 import { buildObjectionSpecialistDef } from '../_shared/agent/objectionSpecialist.ts'
 import { buildHandoffSpecialistDef } from '../_shared/agent/handoffSpecialist.ts'
 // Bug 2 Fix (v7.43.1): detector de clique "Eu quero" → hint pro LLM continuar venda
@@ -2121,6 +2122,36 @@ ${contextBlock}`
       log.warn('product choice detection failed (non-fatal)', { error: (err as Error).message })
     }
 
+    // ── P5 (2026-05-24): captura DETERMINÍSTICA de nome ───────────────────
+    // Quando o greeting pediu o nome ("com quem eu falo?") e o lead respondeu — mesmo
+    // que junto de um produto (ex.: "George\nQual preço de telha?") — capturamos o nome
+    // sem depender do LLM (o product specialist costuma focar no produto e esquecer o
+    // update_lead_profile). Escopo estreito: só dispara se a ÚLTIMA outgoing foi o pedido
+    // de nome e ainda não conhecemos o full_name. Persiste no DB e injeta no ctx do turno.
+    let capturedLeadName: string | null = null
+    if (!leadProfile?.full_name) {
+      const { data: lastOutRow } = await supabase
+        .from('conversation_messages')
+        .select('content')
+        .eq('conversation_id', conversation_id)
+        .eq('direction', 'outgoing')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (wasNameAsked(lastOutRow?.content)) {
+        const captured = extractLeadName(incomingText)
+        if (captured) {
+          capturedLeadName = captured
+          await supabase.from('lead_profiles').upsert(
+            { contact_id: contact.id, full_name: captured },
+            { onConflict: 'contact_id' },
+          )
+          if (leadProfile) (leadProfile as Record<string, unknown>).full_name = captured
+          log.info('P5: nome capturado deterministicamente após pedido de nome', { captured })
+        }
+      }
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // Sprint C+D: router pipeline. Behind feature flag agent.routing_mode.
     //   'monolith' (default) — pula tudo, usa o LLM mega abaixo.
@@ -2281,7 +2312,8 @@ ${contextBlock}`
               incomingText,
               toolCallsLog,
               executeToolSafe,
-              profileData, funnelData, leadProfile,
+              profileData, funnelData,
+              leadProfile: leadProfile || (capturedLeadName ? { full_name: capturedLeadName } : null),
               incomingHasAudio,
               queuedMessages: queuedMessages || [],
               pendingHandoffTrigger,

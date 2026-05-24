@@ -9,6 +9,25 @@ type: log
 
 ---
 
+## 2026-05-24 (noite IV) — Captura determinística de nome (P5) + auditoria de atendimento real (v7.50.1)
+
+**Trigger:** dono testou na V2 (lead George) e o atendimento cortou seco. Pediu auditoria do atendimento + correções (zero gambiarra) + teste + aviso pra ele testar.
+
+**Auditoria — meu 1º diagnóstico estava ERRADO (corrigido auditando ai_agent_runs reais):** culpei o gatilho "preço", mas o código JÁ pula "preço" em perguntas (INFO_TERMS + isQuestion). Causa raiz real do handoff seco do George: **"telha brasilit" não casava categoria** → search_products 0 resultados + fora de horário → R120 (handoff imediato forçado). E o nome "George" se perdia (product specialist não chamava update_lead_profile; regra de prompt foi ignorada no teste).
+
+**Correções (só raiz):**
+- ❌ Descartei o fix do gatilho "preço" (não estava quebrado — fixar seria gambiarra).
+- ✅ **Categoria `telhas` offline** (sandbox + V2) — loja vende, faltava cadastro. Vira qualifica+handoff rico. NÃO mexi no R120 (correto pra produto genuinamente inexistente).
+- ✅ **P5 captura determinística de nome** — `nameCapture.ts` (extractLeadName + wasNameAsked, 7 testes). Pré-router: se última outgoing foi o pedido de nome e full_name desconhecido, extrai e persiste (inclusive bundled "George\nQual preço..."). Regra de prompt no product specialist tentada e REVERTIDA (LLM ignorava + estourava o teto de 4KB do prompt).
+
+**E2E sandbox (fora de horário, replicando George) nota 10:** "Olá"→saudação; "George"+"Qual preço de telha brasilit 244x110"→`full_name=George` capturado + `interesse:telhas`/`marca_telha:Brasilit` + resposta consultiva (sem seco); "50 telhas, é só isso"→handoff_to_human rico ("Pedido de 50 telhas Brasilit 244x110") + msg fora-horário + fila round-robin (rafaella). 1391 testes verdes, deno 0, deploys CLI.
+
+**Pendente (cosmético, deferido):** #4 personalizar a msg de fora-de-horário citando nome+item (hoje é template genérico; o nome+item já vão no reason do handoff e no painel).
+
+**Frase de retomada:** *"v7.50.1 P5 nome determinístico + telhas offline shipped. V2 conv 5b78ee46 resetada pro dono testar. Backlog: #4 msg fora-horário personalizada; premium #2 cart engine."*
+
+---
+
 ## 2026-05-24 (noite III) — qualificationGate shipped (v7.50.0) + E2E prod 10 cenários nota 10
 
 **Trigger:** dono pediu (1) implementar o `qualificationGate.ts` (fonte única buscar-vs-qualificar, frase de retomada da sessão anterior) e (2) E2E real em produção, 10 cenários, iterar até nota 10, depois auditar/documentar/commit/deploy.
