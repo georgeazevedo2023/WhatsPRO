@@ -13,6 +13,19 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.47.0 (2026-05-24) — Saudação/reconhecimento migrados pro router (decisão A)
+
+Fecha o defeito #2 da auditoria de paridade: sob `routing_mode='router'`, a saudação configurada era pulada (`index.ts:1373`) e o lead frio que abria com produto (ex.: "vcs têm tinta?") caía direto no product specialist — sem boas-vindas, sem citar a loja, sem pedir o nome. Validado ao vivo na prod (EletropisoV2 respondendo "Tudo bem? Me conta..." genérico).
+
+- **Novo `_shared/agent/greetingPolicy.ts`** — fonte ÚNICA `classifyLeadRecency()` (novo/recorrente/ativo, 3 sinais) + `buildOpeningDirective()`. Monolith e router leem daqui (acabou o drift). 13 testes.
+- **`index.ts`** — bloco de saudação determinístico RELIGADO no router pro 1º contato (antes só monolith). Garante a saudação configurada SEMPRE (cita "Eletropiso" + pede nome via `greeting_message`); se a msg trouxe produto, segue pro product specialist responder (saudação + produto). `shouldGreet`/`isReturningLead` agora derivam de `classifyLeadRecency` (fonte única).
+- **`productSpecialist.ts`** — `update_lead_profile` trocada pela tool COMPARTILHADA (`specialistTools`): ganha `full_name` + `city` (antes só `name`, sem cidade — não conseguia salvar nome/cidade ditos junto com produto).
+- **Decisão de arquitetura:** tentamos injetar "diretiva de abertura" no prompt do specialist, mas (a) o product specialist ignorava o cumprimento (fluxo de tool dominava) e (b) a regra "registre o nome além de responder" causava resposta DUPLICADA. Por isso a saudação é determinística (confiável) e o specialist fica com prompt limpo.
+- **Validação E2E sandbox:** cold-open "bom dia, vcs têm tinta branca?" → "Olá! Bem-vindo a Eletropiso, com quem eu falo?" + carrossel + descrição (1 resposta, sem duplicar). 347 testes agent verdes, deno check 0 erros. Deploy CLI no EletropisoV2 (prod).
+- **Follow-ups conhecidos:** persistência de nome mid-conversa (P5) ainda não confiável (LLM usa o nome no texto mas não chama a tool — precisa extração determinística); saudação não espelha "bom dia" (usa texto fixo configurado); retomada de memória do recorrente (P2-A) pendente. Demais defeitos da auditoria (#1 search stall, #4 handoff por keyword sem resumo, #6 validator nos specialists) seguem em backlog.
+
+---
+
 ### v7.46.0 (2026-05-24) — Sprint E.1: memória longa por lead (injeção + consolidação)
 
 Primeiro pilar do Sprint E (inteligência avançada). Lead que volta após dias é reconhecido com histórico. Decisão arquitetural fundamentada em pesquisa (Mem0 arXiv:2504.19413 + Zep arXiv:2501.13956 + LangMem): **memória ESTRUTURADA, não vector RAG** — domínio de vendas bounded + Postgres já presente = structured-facts vence em exatidão/custo/latência/RTBF. `lead_profiles` já era a tabela (full_name/interests/objections/conversation_summaries/...); faltava wiring.

@@ -76,6 +76,8 @@ export interface SpecialistCtx {
 
   // Flags
   hasInteracted: boolean
+  /** já interagiu ALGUMA vez (qualquer data) — p/ classificar lead recorrente */
+  hasEverInteracted: boolean
 
   // Misc
   startTime: number
@@ -154,6 +156,16 @@ export async function runSpecialist(
   // Vazio pra lead novo. Vai no TOPO do system prompt (posição = verdade-base) pra
   // o specialist CONTINUAR de onde parou (reconhece returning lead, não re-pergunta).
   const memoryBlock = buildLeadMemoryBlock(ctx.leadProfile)
+
+  // NOTA (decisão A, 2026-05-24): a SAUDAÇÃO/reconhecimento do 1º contato é feita de
+  // forma DETERMINÍSTICA no index.ts (bloco greeting, religado pro router) — confiável,
+  // cita a loja e pede o nome SEMPRE. Tentamos injetar uma "diretiva de abertura" aqui
+  // no prompt do specialist, mas (a) o product specialist ignorava o cumprimento (fluxo
+  // de tool dominava) e (b) a regra de "registrar nome além de responder" fazia o LLM
+  // responder DUPLICADO. Por isso o specialist NÃO recebe diretiva de abertura — fica
+  // com seu prompt limpo. A captura de nome mid-conversa (P5) será tratada de forma
+  // determinística num follow-up (não via instrução solta no prompt). classifyLeadRecency
+  // segue sendo a fonte única usada pelo bloco determinístico do monolith/router.
   const basePrompt = def.buildPrompt(ctx)
   const systemPrompt = memoryBlock ? `${memoryBlock}\n\n${basePrompt}` : basePrompt
   const promptChars = systemPrompt.length

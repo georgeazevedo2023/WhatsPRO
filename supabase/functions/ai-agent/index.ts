@@ -19,6 +19,7 @@ import { runLlmCallLoop } from '../_shared/agent/llmCallLoop.ts'
 import { dispatchResponse } from '../_shared/agent/dispatchResponse.ts'
 // Sprint C4+C5 (2026-05-23): router LLM + product_specialist + hop guard
 import { classifyIntent, logRouterRun, type Intent } from '../_shared/agent/router.ts'
+import { classifyLeadRecency } from '../_shared/agent/greetingPolicy.ts'
 import { buildProductSpecialistDef } from '../_shared/agent/productSpecialist.ts'
 import { checkHopLimit, generateTurnId } from '../_shared/agent/hopGuard.ts'
 // Sprint D (2026-05-24): specialistBase + 4 specialists dedicados (greeting/qualif/objection/handoff)
@@ -1345,15 +1346,19 @@ ${contextBlock}`
     // ── NORMAL MODE ──────────────────────────────────────────────────────
 
     // 9. Greeting check — only on the first outbound interaction in this conversation.
-    const shouldGreet = !hasInteracted && !!agent.greeting_message
-
-    // Returning lead: has confirmed name AND has ever interacted (any time, not just 24h)
+    // Fonte única (greetingPolicy.classifyLeadRecency) — a MESMA usada pelo pipeline
+    // router (specialistBase). Antes a lógica vivia inline aqui e sumia no router; agora
+    // monolith e router classificam idêntico, sem drift. Semântica preservada 1:1:
+    //   shouldGreet      = era `!hasInteracted && greeting_message`
+    //   isReturningLead  = era `full_name && hasEverInteracted && !hasInteracted`
     // IMPORTANT: never use contact.name (WhatsApp pushName like "E2E Test") as leadName —
     // only use lead_profiles.full_name which is confirmed by the lead in conversation.
     const leadFullName = leadProfile?.full_name || null
     // Always use FIRST NAME for responses — avoids LLM truncating compound names
     const leadName = leadFullName?.split(' ')[0] || null
-    const isReturningLead = !!leadProfile?.full_name && hasEverInteracted && !hasInteracted
+    const leadRecency = classifyLeadRecency({ hasInteracted, hasEverInteracted, fullName: leadFullName })
+    const isReturningLead = leadRecency === 'recorrente'
+    const shouldGreet = leadRecency !== 'ativo' && !!agent.greeting_message
 
     let greetingText = agent.greeting_message || ''
     let isJustGreeting = false // will be set inside greeting block if applicable
@@ -1366,12 +1371,15 @@ ${contextBlock}`
     }
 
     // Send greeting: new lead (static greeting) OR returning lead (personalized welcome-back).
-    // Sprint D: sob routing_mode='router', o greeting_specialist é DONO da saudação
-    // (substitui este handler determinístico — plano D4). Pulamos aqui pra que o fluxo
-    // alcance o router → greeting_specialist (LLM, name-aware). monolith e shadow mantêm
-    // a saudação determinística (atomic dedup + TTS + returning-lead).
-    const greetingHandledBySpecialist = agent.routing_mode === 'router'
-    if (!greetingHandledBySpecialist && (((shouldGreet && !isReturningLead) || isReturningLead))) {
+    // 2026-05-24 (decisão A do dono): a saudação do PRIMEIRO CONTATO é determinística
+    // nos DOIS modos (monolith E router). Antes, sob router, era delegada ao greeting
+    // specialist (plano D4) — mas validação E2E mostrou que, quando o lead abre com
+    // PRODUTO, o router manda pro product specialist, que ignora a instrução de saudar
+    // (fluxo de tool domina). Resultado: lead frio não era cumprimentado nem tinha o
+    // nome pedido. Religar este bloco determinístico (já blindado: dedup atômico + TTS +
+    // template recorrente) garante a saudação SEMPRE; se a msg trouxe produto, ele segue
+    // pro router/product specialist responder o produto (2 bolhas: saudação + produto).
+    if (((shouldGreet && !isReturningLead) || isReturningLead)) {
       // Atomic greeting deduplication via advisory lock RPC
       const { data: greetResult, error: greetError } = await supabase
         .rpc('try_insert_greeting', {
@@ -2181,6 +2189,7 @@ ${contextBlock}`
               sendTextMsg, sendTts, sendPresence, broadcastEvent,
               pickHandoffMessage, runQueueAssignment,
               hasInteracted,
+              hasEverInteracted,
               startTime,
               supabase, log, corsHeaders,
             }

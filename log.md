@@ -9,6 +9,36 @@ type: log
 
 ---
 
+## 2026-05-24 (tarde, domingo) — Saudação/reconhecimento migrados pro router (v7.47.0, PROD)
+
+**Trigger:** após auditoria de paridade + 10 perguntas de discussão com o dono (contrato aprovado), implementar a migração das regras de saudação pro router. Dono testou ao vivo na prod e cobrou: lead frio não recebia saudação configurada.
+
+**Causa raiz (defeito #2):** sob `routing_mode='router'`, o bloco determinístico de saudação era pulado (`index.ts:1373`); lead que abria com produto ia direto pro product specialist (sem boas-vindas/nome/loja).
+
+**Entrega:** `greetingPolicy.ts` (fonte única `classifyLeadRecency` + `buildOpeningDirective`, 13 testes) + bloco de saudação determinístico RELIGADO no router pro 1º contato + `productSpecialist` usa tool compartilhada (ganha `full_name`+`city`). **Decisão A:** saudação determinística (confiável) em vez de injetar diretiva no prompt do specialist — tentativa de injeção falhou (product specialist ignorava o cumprimento; regra de captura de nome causava resposta DUPLICADA). 347 testes verdes, deno 0 erros. Deploy CLI no EletropisoV2 (prod). E2E sandbox OK: "bom dia, vcs têm tinta?" → "Olá! Bem-vindo a Eletropiso, com quem eu falo?" + carrossel.
+
+**Follow-ups:** P5 persistência de nome mid-conversa (extração determinística), espelhar cumprimento, retomada de memória do recorrente (P2-A); + defeitos #1/#4/#6 da auditoria. Ver [[project_router_parity_gaps]].
+
+**Frase de retomada:** *"continuar greeting router: P5 persistência de nome determinística + retomada memória recorrente (P2-A) + defeitos #1 search stall, #4 handoff keyword, #6 validator specialists"*.
+
+---
+
+## 2026-05-24 (manhã, domingo) — E2E jornada completa router (sandbox Eletropiso) nota 9/10
+
+**Trigger:** user pediu jornada E2E real nas 2 instâncias sandbox (lead Sandbox IA `558185749970` → agent Eletropiso `558181696546`/`174af654` em routing_mode=router), forwardando cada passo (lead+IA) pro operador `5581993856099` e card de transbordo estilo "Cliente/Motivo/Resumo/Tags/Score". Reiniciar até nota 10.
+
+**Infra:** sender `scripts/uaz-send.mjs` (UTF-8-safe, Windows — corrige acentos/emoji corrompidos no curl). Reset FRIO via MCP (ai_agent_logs + ai_agent_runs + conversation + lead_profile + conversation_messages limpos). Conversa de teste `e7131d35`. Produção EletropisoV2 `558781592373` (is_sandbox=false) **intocada**.
+
+**RUN #1 abortado (erro de roteiro meu):** cenário pediu "porcelanato", mas catálogo real do agent (7 produtos) NÃO tem piso — só Tintas(3)/Impermeabilizante/Telhas/Cubas/Vernizes. Busca vazia → IA qualificava à toa. Reiniciei com cenário casado.
+
+**RUN #2 (Fernanda, nota 9/10):** 6 turnos, roteamento 100% correto: saudação→greeting, nome→greeting+update_lead_profile (persistido), produto→product+search_products (**carrossel real 3 tintas**), escolha→SDR oferece +item/handoff, multi-produto→2ª busca (manta Quartzolit), "fechar os 2 itens"→**handoff_to_human com resumo rico e preciso** (1 lata Coral Fosco parede interna + 1 Manta 18kg laje 50m²). Msg fora-de-horário **correta** (domingo). Tags qualif gravadas (`tintas/acrílica/fosco/Coral/impermeabilizante_laje`), `conversation_summaries` populado, `full_name=Fernanda`. Card de vendedor + nota enviados ao operador via WhatsApp.
+
+**3 gaps menores (BACKLOG — paridade router, não-bloqueadores):** (1) `lead_score` não acumula sob router — `index.ts:2203` faz `return` e pula o pós-processamento do monolito (score/sentiment). (2) `sentiment` não capturado sob router. (3) 1 produto enviado como `carousel` em vez de foto (viola `feedback_single_product_send_media`). User optou por **aceitar 9/10 e documentar** (fixes tocam ai-agent HIGH RISK → sprint futuro). 4º item (cidade não coletada) era do meu roteiro, não bug.
+
+**Frase de retomada:** *"executar Sprint paridade router: lead_score+sentiment sob router (index.ts:2203 pula pós-proc) + 1-produto-foto"*.
+
+---
+
 ## 2026-05-24 (madrugada II) — Fix PROD EletropisoV2 (v7.44.1)
 
 EletropisoV2 (`1062059a`, Lucas, monolith) trocada gpt-5-mini → gpt-4.1-mini (Bug A afetava prod: resposta vazia). Config no banco, efeito imediato. Validação passiva. Frase de retomada abaixo.

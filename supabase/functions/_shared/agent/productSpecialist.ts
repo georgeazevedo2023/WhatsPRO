@@ -20,6 +20,7 @@
  */
 
 import { runSpecialist, type SpecialistCtx, type SpecialistDef } from './specialistBase.ts'
+import { updateLeadProfileToolDef } from './specialistTools.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
 
 // =============================================================================
@@ -207,20 +208,12 @@ export function getProductSpecialistToolDefs(): LLMToolDef[] {
         required: ['tags'],
       },
     },
-    {
-      name: 'update_lead_profile',
-      description: 'Atualiza perfil do lead (nome confirmado, objeções, contexto).',
-      strict: true,
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: ['string', 'null'], description: 'Nome do lead confirmado' },
-          objections: { type: ['array', 'null'], items: { type: 'string' }, description: 'Objeções coletadas' },
-          notes: { type: ['string', 'null'], description: 'Anotações livres' },
-        },
-        required: ['name', 'objections', 'notes'],
-      },
-    },
+    // Fix #3/P5 (2026-05-24): usa a tool COMPARTILHADA (specialistTools) em vez de
+    // uma cópia inline desatualizada. A antiga só tinha name/objections/notes (sem
+    // `city` e usando `name` em vez de `full_name`), então o product specialist nunca
+    // conseguia salvar nome/cidade ditos junto com o produto. A compartilhada tem
+    // full_name + city + interesses + reason + ticket — alinhada ao handler (crmTools).
+    updateLeadProfileToolDef,
     {
       // Bug 11 fix (v7.43.13): specialist é dono do fluxo de venda completo, incluindo
       // o fechamento. handoff_to_human escala pro vendedor humano com o pedido montado.
