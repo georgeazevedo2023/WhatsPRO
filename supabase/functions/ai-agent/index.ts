@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
     // 1-2. Load agent + conversation + instance in parallel (~300ms saved)
     const [agentResult, conversationResult, instanceResult] = await Promise.all([
       supabase.from('ai_agents').select('*').eq('id', agent_id).maybeSingle(),
-      supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at').eq('id', conversation_id).maybeSingle(),
+      supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at, shown_product_ids').eq('id', conversation_id).maybeSingle(),
       supabase.from('instances').select('token').eq('id', instance_id).maybeSingle(),
     ])
 

@@ -9,6 +9,24 @@ type: log
 
 ---
 
+## 2026-05-24 (noite) — Carousel batching "mais opções" (v7.49.0) + auditoria dos 3 cenários premium
+
+**Trigger:** após auditar os 3 cenários consultivos (21.27-21.29) que o dono mandou como alvo premium, mapeamos o que já temos vs falta. Decisão: vector NÃO é necessário (catálogo bounded + funil de qualificação já entrega facetas — busca facetada > embeddings). Prioridade #1 = carousel batching. Dono mandou implementar→testar→auditar→documentar→commit→deploy.
+
+**Feature (v7.49.0):** lead rejeita carrossel ("nenhuma dessas") ou pede mais → agente mostra LOTE NOVO excluindo os já vistos; quando esgota, oferece refinar/categoria/consultor sem inventar. Migration `conversations.shown_product_ids text[]`; `searchProducts` exclui+cap5+persiste+mensagem-esgotado; router `produto` cobre "mais opções"; productSpecialist regra 6b.
+
+**2 bugs raiz achados NO E2E (corrigidos na fonte, zero remendo):** (1) query do catálogo não selecionava `id` → exclusão/persistência eram no-op silencioso (unit tests passavam pq o mock tinha id); (2) `conversations` carregado sem `shown_product_ids` (select de colunas) → exclusão cega entre turnos. Fix: adicionar a coluna nos 2 selects.
+
+**E2E real sandbox router 3 estados nota 10:** lote1 (5 cards/cap, persiste 5) → lote2 "nenhuma dessas" (router→produto, exclui 5, mostra 2 DIFERENTES "[E2E] Opção 3/4", persiste 7, texto consultivo) → esgotado "tem mais?" (sem carrossel, "essas eram todas... refinar/categoria/consultor"). Catálogo ampliado p/ 7 tintas temp durante teste, depois removido; sandbox conv limpa.
+
+**Pipeline:** 366 testes agent verdes (+4). deno 0. Deploy CLI (4 deploys: feature + fix id + fix conv-select). EletropisoV2 PROD + sandbox.
+
+**Backlog premium restante (ordem):** #2 cart engine, #3 refino-por-contagem, #4 modo consultivo/indecisão, #5 busca facetada (não vector), #6 profundidade de catálogo.
+
+**Frase de retomada:** *"v7.49.0 carousel batching shipped (nota 10). Próximo premium: #2 cart engine (add_cart/update_cart estruturado + cross-sell no resumo)"*.
+
+---
+
 ## 2026-05-24 (tarde III) — Latência do product specialist resolvida na fonte (v7.48.0) + auditoria de objetivos
 
 **Trigger:** após auditoria profunda (objetivos principal/secundários, nota antes 5.7 → hoje 8.3), user pediu pra resolver o único 🔴 crítico — latência do product specialist (~8s) — **sem gambiarra**, testar real até nota 10, depois auditar/documentar/commit/deploy. Antes disso: recuperação do índice git corrompido + commit/push da v7.47.0 (release fantasma) + auditoria Playwright (dashboard Roteamento + tab Agente IA, dados reais de prod).

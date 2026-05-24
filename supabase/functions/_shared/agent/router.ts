@@ -78,7 +78,7 @@ export const ROUTER_SYSTEM_PROMPT = `<role>Você classifica a INTENÇÃO da últ
 
 <intents>
 - saudacao: lead APENAS cumprimentou ("oi", "bom dia") ou disse o nome. Sem produto/pergunta.
-- produto: lead MENCIONA qualquer produto, categoria, marca, tipo de item ou pede preço — COM OU SEM detalhes. Exemplos: "queria tinta", "preço do Coral 18L", "tem fechadura digital?", "quanto custa porta de madeira?". Inclui pedidos vagos como "vcs tem tinta?" e específicos como "Coral fosca branca 18L pra sala".
+- produto: lead MENCIONA qualquer produto, categoria, marca, tipo de item ou pede preço — COM OU SEM detalhes. Exemplos: "queria tinta", "preço do Coral 18L", "tem fechadura digital?", "quanto custa porta de madeira?". Inclui pedidos vagos como "vcs tem tinta?" e específicos como "Coral fosca branca 18L pra sala". TAMBÉM inclui o lead REJEITAR as opções já mostradas ou pedir MAIS depois de um carrossel ("nenhuma dessas", "tem outras?", "mais opções", "quero ver mais", "não gostei dessas") — ainda é fluxo de produto (mostrar outro lote).
 - qualificacao: lead RESPONDE a uma pergunta de qualificação JÁ FEITA pelo bot (ex.: "interno", "branco", "550 reais"). Veja o histórico — só use se a última msg do bot foi uma pergunta de campo.
 - handoff: lead pediu explicitamente falar com vendedor humano / sentimento muito negativo / venda já fechada.
 - objecao: lead reclamou de preço, prazo, qualidade, comparou concorrente.

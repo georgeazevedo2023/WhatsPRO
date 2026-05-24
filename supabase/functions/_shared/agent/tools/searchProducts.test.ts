@@ -565,3 +565,77 @@ describe('dispatchSearchTool', () => {
     expect(res).toBeNull()
   })
 })
+
+// =============================================================================
+// Carousel batching (2026-05-24) — "mais opções" / "nenhuma dessas"
+// =============================================================================
+
+describe('carousel batching — exclui já-mostrados + lote novo', () => {
+  const P = (id: string, n: number) => ({
+    id,
+    title: `Tinta ${n}`,
+    category: 'tintas',
+    price: 10 * n,
+    images: [`url${n}`],
+    in_stock: true,
+  })
+
+  it('exclui produtos já mostrados e persiste o lote acumulado', async () => {
+    const products = [P('p1', 1), P('p2', 2), P('p3', 3), P('p4', 4)]
+    const { supabase, calls } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, {
+      conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1', shown_product_ids: ['p1', 'p2'] },
+    })
+    const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    expect(result).toContain('Carrossel')
+    // persistiu shown_product_ids = união {p1,p2} ∪ {p3,p4}
+    const upd = calls.find(
+      (c) => c.table === 'conversations' && c.op === 'update' && c.payload?.shown_product_ids,
+    )
+    expect(upd).toBeTruthy()
+    expect(upd!.payload.shown_product_ids.sort()).toEqual(['p1', 'p2', 'p3', 'p4'])
+    expect(ctx.mediaState.carouselSent).toBe(true)
+  })
+
+  it('quando TODOS já foram mostrados → retorna [INTERNO] sem inventar + NÃO envia carrossel', async () => {
+    const products = [P('p1', 1), P('p2', 2)]
+    const { supabase, calls } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, {
+      conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1', shown_product_ids: ['p1', 'p2'] },
+    })
+    const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    expect(result).toContain('todas as opções')
+    expect(result).toContain('NÃO invente')
+    expect(ctx.mediaState.carouselSent).toBe(false) // nada enviado
+  })
+
+  it('cap de 5 cards por lote (não despeja 8 de uma vez)', async () => {
+    const products = Array.from({ length: 8 }, (_, i) => P(`p${i + 1}`, i + 1))
+    const { supabase, calls } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, {
+      conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' },
+    })
+    await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    const upd = calls.find(
+      (c) => c.table === 'conversations' && c.op === 'update' && c.payload?.shown_product_ids,
+    )
+    expect(upd).toBeTruthy()
+    expect(upd!.payload.shown_product_ids).toHaveLength(5) // só 5 enviados/registrados
+  })
+
+  it('sem shown_product_ids prévios → comportamento normal (envia + registra)', async () => {
+    const products = [P('p1', 1), P('p2', 2)]
+    const { supabase, calls } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, { conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' } })
+    const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    expect(result).toContain('Carrossel')
+    const upd = calls.find(
+      (c) => c.table === 'conversations' && c.op === 'update' && c.payload?.shown_product_ids,
+    )
+    expect(upd!.payload.shown_product_ids.sort()).toEqual(['p1', 'p2'])
+  })
+})

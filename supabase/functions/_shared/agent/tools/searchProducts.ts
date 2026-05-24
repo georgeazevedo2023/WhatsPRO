@@ -262,7 +262,10 @@ export async function searchProducts(
   const baseQuery = () =>
     supabase
       .from('ai_agent_products')
-      .select('title, category, subcategory, description, price, images, in_stock')
+      // `id` é OBRIGATÓRIO pro carousel batching (exclusão de já-mostrados +
+      // persistência em conversations.shown_product_ids). Sem id, p.id=undefined
+      // e o batching vira no-op silencioso.
+      .select('id, title, category, subcategory, description, price, images, in_stock')
       .eq('agent_id', agent_id)
       .eq('enabled', true)
 
@@ -318,7 +321,9 @@ export async function searchProducts(
     query = query.or(`category.ilike.%${safeCat}%,subcategory.ilike.%${safeCat}%`)
   }
 
-  let { data: products } = await query.limit(10)
+  // Carousel batching (2026-05-24): limit 20 (era 10) dá headroom pra múltiplos
+  // lotes — o carrossel mostra MAX_CARDS_PER_BATCH por vez e exclui já-mostrados.
+  let { data: products } = await query.limit(20)
 
   // Fallback: AND word-by-word
   let wordByWordBroadProducts: any[] | null = null
@@ -568,8 +573,32 @@ export async function searchProducts(
     })
   }
 
-  // Auto-send media/carousel when products have images
-  const withImages = products.filter((p: any) => p.images?.[0])
+  // ── Carousel batching (2026-05-24): exclui produtos JÁ mostrados nesta conversa ──
+  // "nenhuma dessas" / "mais opções" → o specialist chama search_products de novo;
+  // aqui removemos os IDs já exibidos (conversations.shown_product_ids) → o lead vê
+  // um LOTE NOVO em vez dos mesmos cards. Quando esgota, retorna mensagem [INTERNO]
+  // pro specialist oferecer refinar/consultor (NÃO inventar produto).
+  const shownIds: string[] = Array.isArray((conversation as any).shown_product_ids)
+    ? (conversation as any).shown_product_ids
+    : []
+  if (shownIds.length > 0 && products && products.length > 0) {
+    const beforeExcl = products.length
+    products = products.filter((p: any) => !shownIds.includes(p.id))
+    log.info('Carousel batching: excluiu produtos já mostrados', {
+      before: beforeExcl,
+      after: products.length,
+      shown_count: shownIds.length,
+    })
+    if (products.length === 0) {
+      return `[INTERNO — NÃO mostre isso ao lead] Você JÁ mostrou todas as opções de "${searchText || categoryText}" que temos no catálogo (${shownIds.length} produto(s) exibido(s)). NÃO invente produtos novos nem repita os mesmos. Diga ao lead, com naturalidade, que essas eram todas as opções dessa linha e ofereça: (a) refinar por outro critério (cor/tipo/marca), (b) ver outra categoria, ou (c) falar com um consultor pra checar disponibilidade/encomenda.`
+    }
+  }
+
+  // Auto-send media/carousel when products have images.
+  // MAX_CARDS_PER_BATCH: lote enxuto (5) — habilita o "lote 2" do batching e evita
+  // despejar 10+ cards de uma vez (UX premium dos cenários 21.27-21.29).
+  const MAX_CARDS_PER_BATCH = 5
+  const withImages = products.filter((p: any) => p.images?.[0]).slice(0, MAX_CARDS_PER_BATCH)
   let mediaSent = false
   if (mediaState.carouselSent) {
     log.info('Skipping auto-media — already sent in this call')
@@ -867,6 +896,28 @@ export async function searchProducts(
         content: agent.carousel_text || 'Confira:',
         media_type: 'carousel',
         media_url: carouselMediaUrl2,
+      })
+    }
+  }
+
+  // ── Carousel batching: persiste os IDs ENVIADOS nesta chamada ────────────────
+  // Próximo "mais opções" exclui estes → lote novo. Só quando ESTA chamada enviou
+  // (mediaSent) e há IDs. Dedupe com os já registrados. Não-fatal.
+  if (mediaSent && withImages.length > 0) {
+    try {
+      const sentIds = withImages.map((p: any) => p.id).filter(Boolean)
+      const merged = Array.from(new Set([...shownIds, ...sentIds]))
+      if (merged.length > shownIds.length) {
+        ;(conversation as any).shown_product_ids = merged // sincroniza in-memory
+        await supabase.from('conversations').update({ shown_product_ids: merged }).eq('id', conversation_id)
+        log.info('Carousel batching: registrou produtos exibidos', {
+          sent: sentIds.length,
+          total_shown: merged.length,
+        })
+      }
+    } catch (err) {
+      log.warn?.('Carousel batching: falha ao persistir shown_product_ids (não-fatal)', {
+        error: (err as Error).message,
       })
     }
   }

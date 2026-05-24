@@ -13,6 +13,20 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.49.0 (2026-05-24) — Carousel batching: "mais opções" / "nenhuma dessas" (lote novo sem repetir)
+
+Premium gap #1 dos cenários consultivos (21.27-21.29): quando o lead rejeitava o carrossel ("nenhuma dessas") ou pedia mais, não havia 2º lote — repetia os mesmos ou travava. Agora o agente mostra um **lote NOVO excluindo os já vistos**, e quando esgota oferece refinar/categoria/consultor (sem inventar produto).
+
+- **Migration** `conversations.shown_product_ids text[]` — rastreia produtos exibidos em carrosséis NESTA conversa.
+- **`searchProducts.ts`**: exclui `shown_product_ids` dos resultados; **cap de 5 cards/lote** (`MAX_CARDS_PER_BATCH`, era até 10 — habilita o "lote 2" e evita despejar 10 de uma vez); persiste os IDs enviados (dedupe); quando a exclusão zera, retorna `[INTERNO]` instruindo o specialist a NÃO inventar e oferecer alternativas.
+- **`router.ts`**: intent `produto` agora cobre "nenhuma dessas / tem outras? / quero ver mais / não gostei".
+- **`productSpecialist.ts`**: regra 6b — em rejeição/pedido de mais, re-chama `search_products` (exclusão automática) ou, se esgotou, oferece refinar/categoria/consultor.
+- **2 bugs raiz achados e corrigidos NO E2E (sem gambiarra):** (1) a query do catálogo não selecionava `id` → exclusão/persistência eram no-op silencioso; (2) o `conversations` era carregado sem `shown_product_ids` → exclusão não via os já-mostrados entre turnos. Ambos resolvidos na fonte (select + select).
+- **E2E real sandbox router (3 estados, nota 10):** lote 1 "vcs têm tinta?" → carrossel de 5 (cap) + persiste 5; lote 2 "nenhuma dessas, tem outras?" → router→produto, exclui os 5, mostra **2 produtos DIFERENTES** + texto consultivo, persiste 5→7; esgotado "tem mais?" → SEM carrossel, "essas eram todas as opções, posso refinar por cor/tipo/marca, ver outra categoria ou chamar um consultor". (Catálogo de teste ampliado temporariamente p/ 7 tintas durante o E2E, depois removido.)
+- **366 testes agent verdes** (+4 batching). deno check 0. Deploy CLI no ai-agent (EletropisoV2 PROD + sandbox).
+
+---
+
 ### v7.48.0 (2026-05-24) — Latência do product specialist: pré-busca determinística (2 rounds → 1)
 
 Fecha a única regressão real da auditoria de paridade: o product specialist gastava **~8-16s** em turnos com `search_products` (vs ~2.5s sem busca). Causa raiz medida nos `ai_agent_runs` reais: **2 rounds de LLM** (round 1 só pra "decidir" chamar a tool → executa busca + envia carrossel → round 2 pra compor). O monolito era rápido (1-3s) porque buscava ANTES do LLM (R121/R137 inline); esse pré-search foi **desligado sob router** (`skipR121`) por causa de um bug de carrossel duplicado.
