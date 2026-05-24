@@ -9,6 +9,27 @@ type: log
 
 ---
 
+## 2026-05-24 (noite II) — Auditoria profunda qualify-first + fix de gênero no score (gambiarra revertida)
+
+**Trigger:** dono pediu fluxo consultivo qualify-first (cenário 21.27: qualifica até score → busca → muitos resultados → refina por cor → carrossel → escolha → validação → transbordo). Testei e achei gaps; tentei gating por threshold; dono cobrou "não quero gambiarra, audite mais profundo".
+
+**Auditoria profunda — causa raiz (NÃO é bug pontual):** "buscar vs qualificar" é decidido em **4 lugares independentes sem fonte única de verdade**, que se contradizem:
+1. Stage engine (`service_categories`+`preLLMAutoExtract` C2): score atinge `exit_action=search_products`.
+2. `detectIncomingSearchSignal` (R121/R137): regex "quero/tem X"+marca — **força busca em "quero tinta" vago**.
+3. `deriveProductSearchParams` (pré-busca v7.48): categoria digital + sem produto.
+4. LLM do product_specialist.
+Na migração monolito→router, o stage engine (qualify-first) ficou no pré-LLM mas o router+product_specialist criou caminho paralelo de busca que NÃO consulta o estado de qualificação → inter-agent misalignment (MAST). Meu threshold no dispatch era um **5º decisor** = gambiarra.
+
+**Fix de raiz proposto (próxima sessão):** `_shared/agent/qualificationGate.ts` — fonte ÚNICA determinística (lê stage/score/exit_action) respondendo "lead pronto pra buscar?". Religar #2/#3/dispatch/specialist nele → 1 decisor só.
+
+**Shipped agora (validado):** flexão de gênero/plural no `fieldAutoExtractor` (`buildCandidateRegex`: "branca"→cor:branco, "fosca"→acabamento:fosco). Era bug real — matcher não casava gênero, **por isso o score nunca acumulava**. E2E: score 15→50, campos capturados. **Revertida** a gambiarra do threshold no dispatch (índice.ts voltou a `const def`; imports órfãos removidos). 386 testes verdes, deno 0, deploy.
+
+**Estado:** EletropisoV2 prod = router + gênero-fix + batching + rule "não temos". Qualify-first NÃO está ativo (revertido) — segue search-first até o qualificationGate.
+
+**Frase de retomada:** *"implementar qualificationGate.ts (fonte única qualify-vs-search lendo stage engine) + religar detectIncomingSearchSignal/deriveProductSearchParams/dispatch/product_specialist nele; depois rodar 5 cenários consultivos completos (saudação→nome→qualif+score→busca quando stage libera→refino por contagem→carrossel batching→escolha→validação→upsell→transbordo c/ resumo) até nota 10. Fix de gênero no score JÁ está em prod."*
+
+---
+
 ## 2026-05-24 (noite) — Carousel batching "mais opções" (v7.49.0) + auditoria dos 3 cenários premium
 
 **Trigger:** após auditar os 3 cenários consultivos (21.27-21.29) que o dono mandou como alvo premium, mapeamos o que já temos vs falta. Decisão: vector NÃO é necessário (catálogo bounded + funil de qualificação já entrega facetas — busca facetada > embeddings). Prioridade #1 = carousel batching. Dono mandou implementar→testar→auditar→documentar→commit→deploy.

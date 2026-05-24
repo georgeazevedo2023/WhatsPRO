@@ -141,6 +141,25 @@ function escapeRegex(s: string): string {
 }
 
 /**
+ * Monta o regex de match de um candidato com FLEXÃO de gênero + número.
+ * O lead responde "branca"/"fosca" enquanto o example é "branco"/"fosco" — sem
+ * flexão, o word-boundary exato não casava (gênero) e o field não era extraído
+ * → score nunca acumulava. (Achado no E2E qualify-first 2026-05-24.)
+ *
+ * Regra: candidato com >=4 chars terminando em 'o'/'a' → último vogal vira [oa]
+ * + 's' opcional (branco→branc[oa]s? casa branco/branca/brancos/brancas;
+ * fosco→fosc[oa]s? casa fosco/fosca). Demais candidatos: só plural opcional 's'.
+ * Conservador: não mexe em terminações que não sejam o/a (coral, inox, etc.).
+ */
+function buildCandidateRegex(norm: string): RegExp {
+  if (norm.length >= 4 && /[oa]$/.test(norm)) {
+    const stem = escapeRegex(norm.slice(0, -1))
+    return new RegExp(`\\b${stem}[oa]s?\\b`, 'i')
+  }
+  return new RegExp(`\\b${escapeRegex(norm)}s?\\b`, 'i')
+}
+
+/**
  * Extrai fields detectados na mensagem do lead.
  *
  * @param rawText        Texto bruto da mensagem incoming
@@ -180,7 +199,7 @@ export function autoExtractFields(
     for (const candidate of candidates) {
       const normCandidate = normalizeText(candidate)
       if (normCandidate.length < 3) continue
-      const re = new RegExp(`\\b${escapeRegex(normCandidate)}\\b`, 'i')
+      const re = buildCandidateRegex(normCandidate)
       const m = text.match(re)
       if (m && typeof m.index === 'number' && !hasNegationBefore(text, m.index)) {
         // Preserva o candidato ORIGINAL (com acento/case) como value pra LLM ver naturalmente

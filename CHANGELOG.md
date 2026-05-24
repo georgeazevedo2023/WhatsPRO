@@ -13,6 +13,14 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.49.1 (2026-05-24) — Fix: score de qualificação não acumulava (flexão de gênero/plural)
+
+O `fieldAutoExtractor` casava os `examples` com word-boundary EXATO → "branca" não casava o field cor ("branco"), "fosca" não casava acabamento ("fosco"). Resultado: campos de qualificação ditos pelo lead **não eram capturados e o `lead_score` nunca acumulava** (achado no E2E qualify-first). Fix: `buildCandidateRegex` flexiona a vogal final o/a + plural (`branc[oa]s?`, `fosc[oa]s?`); conservador (só mexe em terminação o/a; "coral"/"inox" intactos). E2E: score 15→50, ambiente/cor/acabamento capturados. 386 testes verdes.
+
+**Nota:** tentativa de gating qualify-first por threshold no dispatch foi **revertida** (gambiarra — era um 5º decisor de "buscar vs qualificar"). Auditoria identificou a raiz: 4 decisores rivais sem fonte única. Fix de raiz = `qualificationGate.ts` (próxima sessão). Ver `log.md`.
+
+---
+
 ### v7.49.0 (2026-05-24) — Carousel batching: "mais opções" / "nenhuma dessas" (lote novo sem repetir)
 
 Premium gap #1 dos cenários consultivos (21.27-21.29): quando o lead rejeitava o carrossel ("nenhuma dessas") ou pedia mais, não havia 2º lote — repetia os mesmos ou travava. Agora o agente mostra um **lote NOVO excluindo os já vistos**, e quando esgota oferece refinar/categoria/consultor (sem inventar produto).
