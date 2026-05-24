@@ -571,8 +571,8 @@ export default function AIAgentTab() {
                         </div>
                         <p className="text-xs text-muted-foreground">
                           <strong>Monolito</strong> (recomendado): pipeline atual, 1 LLM call mega.<br/>
-                          <strong>Router POC</strong>: classifyIntent (gpt-5-nano) + specialist por intent.
-                          Em desenvolvimento — só ativar com coordenação. Não tem rollback automático.
+                          <strong>Router</strong>: classifyIntent (gpt-4.1-mini) + specialist dedicado por intent (Sprint D — 5 specialists).<br/>
+                          <strong>Shadow</strong>: router classifica e registra a intent, mas o Monolito responde o lead (coleta de regressão, sem risco).
                         </p>
                         <Select
                           value={(config.routing_mode as string) || 'monolith'}
@@ -583,15 +583,25 @@ export default function AIAgentTab() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="monolith">Monolito (recomendado)</SelectItem>
-                            <SelectItem value="router">Router POC (experimental)</SelectItem>
+                            <SelectItem value="shadow">Shadow (router loga, monolito responde)</SelectItem>
+                            <SelectItem value="router">Router (specialists dedicados)</SelectItem>
                           </SelectContent>
                         </Select>
                         {config.routing_mode === 'router' && (
                           <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-100/40 dark:bg-amber-950/30 rounded p-2">
                             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                             <span>
-                              Modo Router ativo — agent vai usar pipeline experimental. Specialists
-                              ainda em desenvolvimento (Sprint C4+). Rollback: voltar pra Monolito aqui.
+                              Modo Router ativo — agent usa router + specialists dedicados (greeting/qualification/
+                              product/objection/handoff). Monolito vira fallback de erro. Rollback: voltar pra Monolito aqui.
+                            </span>
+                          </div>
+                        )}
+                        {config.routing_mode === 'shadow' && (
+                          <div className="flex items-start gap-2 text-xs text-sky-700 dark:text-sky-400 bg-sky-100/40 dark:bg-sky-950/30 rounded p-2">
+                            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                            <span>
+                              Modo Shadow — o router classifica a intent e grava em ai_agent_runs para análise,
+                              mas o Monolito continua respondendo o lead. Zero risco; use para validar a accuracy do router.
                             </span>
                           </div>
                         )}

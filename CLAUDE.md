@@ -6,7 +6,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🎯 Andamento do Plano Orquestrador — **72% concluído** (Sprint C completo: router + specialist + 7/7 E2E + dashboard)
+## 🎯 Andamento do Plano Orquestrador — **~85% concluído** (Sprint D: router + 5 specialists dedicados + shadow + 6/6 E2E)
 
 > Objetivo: monolito (1 LLM mega 17 KB) → **router LLM tiny + 5-6 specialists** + camada determinística + memória longa. Atualizado a cada sprint. Detalhe completo: [[wiki/plano-orquestrador-subagentes]] · [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -34,13 +34,16 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **Sprint C parcial 1/3** — C1 ai_agent_runs + C3 routing_mode flag + C2 router LLM (gpt-5-nano, 7 intents, defesa 4 níveis) | ✅ Shipped (v7.42.0) | 3% | **63%** |
 | **Sprint C parcial 2/3** — C4 product_specialist + C5 hop guard + wire-in + migração gpt-5-mini | ✅ Shipped (v7.43.0) | 5% | **68%** |
 | **Sprint C parcial 3/3** — C6 E2E 7/7 nota 10 + C7 dashboard Roteamento + 2 bugs raiz (gpt-5-mini vazio + objecao→specialist) + canal controle WhatsApp | ✅ Shipped (v7.44.0) | 4% | **72%** |
-| Sprint D — 5 specialists completos + migração 100% | ⏳ | 15% | — |
+| **Sprint D código** — specialistBase + 4 specialists dedicados (greeting/qualif/objection/handoff) + dispatch 7 intents + shadow mode + 6/6 E2E nota 10 + 2 bugs raiz | ✅ Shipped (v7.45.0) | 13% | **~85%** |
+| Sprint D migração — shadow em agent real → router default → D6 aposentar monolito (após 30d) | ⏳ STAGED | — | — |
 | B4 — Varredura R134 idempotência | ⏳ (hardening, não-bloqueador) | 5% | — |
 | **Sprint C** — Router + product_specialist POC | ⏳ MARCO | 15% | — |
 | **Sprint D** — 5 specialists + migração 100% | ⏳ | 15% | — |
 | Sprint E — Memória longa + proatividade + RAG | ⏳ Inteligência avançada | 10% | — |
 
-**Hoje (2026-05-24):** Sprint C FECHADO (parcial 3/3, v7.44.0). C6 — 7 cenários E2E reais nota 10 (lead Testador→Eletropiso router, enviados ao operador via WhatsApp). C7 — dashboard "Roteamento" (RPC + AdminRouting.tsx). 2 bugs de raiz: gpt-5-mini devolvia resposta vazia (afeta EletropisoV2 PROD; fix piso 4096 reasoning + monolith→gpt-4.1-mini) e objeção atropelada por qualificação (objecao→specialist + regra 10). Canal de controle WhatsApp criado (e2e-control-webhook + e2e_control_inbox; achado: UAZAPI manda remetente como @lid, real em sender_pn). Andamento 68%→**72%**. **Próxima: Sprint D — qualification/handoff/objection/greeting specialists dedicados + migração routing_mode='router' default.** Pendência PROD: EletropisoV2 deve migrar p/ gpt-4.1-mini.
+**Hoje (2026-05-24, noite):** Sprint D código FECHADO (v7.45.0). Router despacha **7 intents pra specialists dedicados** (greeting/qualification/product/objection/handoff); monolito vira fallback de erro. `specialistBase.ts` (contrato único, productSpecialist refatorado) + 4 specialists novos + shadow mode + dispatch table. **E2E real 6/6 nota 10** (sandbox router, via canal de controle WhatsApp): saudacao/nome/produto/objeção/handoff/pagamento, router conf 0.9-1.0. 2 bugs raiz achados no E2E e corrigidos (nome via update_lead_profile; regra universal de texto). 350 testes agent verdes, zero erro TS novo. Tudo atrás de flag — **prod intocada, migração STAGED** (não flipei default). Andamento 72%→**~85%**. **Próxima: shadow mode em agent real alguns dias → migrar EletropisoV2 p/ router (com go-ahead) → D6 aposentar monolito após 30d.** Pendência: 36 erros TS pré-existentes (hardening separado).
+
+**(histórico)** **2026-05-24 (tarde):** Sprint C FECHADO (parcial 3/3, v7.44.0). C6 — 7 cenários E2E reais nota 10 (lead Testador→Eletropiso router, enviados ao operador via WhatsApp). C7 — dashboard "Roteamento" (RPC + AdminRouting.tsx). 2 bugs de raiz: gpt-5-mini devolvia resposta vazia (afeta EletropisoV2 PROD; fix piso 4096 reasoning + monolith→gpt-4.1-mini) e objeção atropelada por qualificação (objecao→specialist + regra 10). Canal de controle WhatsApp criado (e2e-control-webhook + e2e_control_inbox; achado: UAZAPI manda remetente como @lid, real em sender_pn). Andamento 68%→**72%**. **Próxima: Sprint D — qualification/handoff/objection/greeting specialists dedicados + migração routing_mode='router' default.** Pendência PROD: EletropisoV2 deve migrar p/ gpt-4.1-mini.
 
 **(histórico)** Sprint C parcial 2/3 (v7.43.0) — primeiro specialist em prod. Sessão produziu 3 releases: v7.42.0 (foundations DB+router) → v7.42.1 (hardening pós-auditoria: Bug #1 fechado isReasoningModel + UI flag + 2 testes router) → v7.43.0 (product_specialist + hopGuard + wire-in). EletropisoV2 migrado pra gpt-5-mini. ai-agent v101→v102→v103→**v104 ACTIVE**. Wire-in atrás de flag `routing_mode='router'` (default monolith, prod intocada). Apenas intent='produto' tem specialist; outras 6 fazem fallback monolith. Vitest 1282 pass / 9 fails pré-existentes. Andamento: 60% → **68%**. **Próxima sessão: validar E2E ativando routing_mode='router' em 1 agent + C6 sandbox testing + C7 dashboard Roteamento.**
 

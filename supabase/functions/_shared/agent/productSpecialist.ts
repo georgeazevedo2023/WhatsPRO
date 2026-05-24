@@ -19,72 +19,22 @@
  * NUNCA chama handoff_to_human diretamente — escala via router/monolith se necessário.
  */
 
-import { runLlmCallLoop, type ToolCallLogEntry, type ExecuteToolSafeFn, type SendPresenceFn } from './llmCallLoop.ts'
-import { dispatchResponse, type SendTextMsgFn, type SendTtsFn, type BroadcastEventFn, type PickHandoffMessageFn, type RunQueueAssignmentFn } from './dispatchResponse.ts'
+import { runSpecialist, type SpecialistCtx, type SpecialistDef } from './specialistBase.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
-import type { Logger } from './context.ts'
 
 // =============================================================================
 // Tipos públicos
 // =============================================================================
 
-export interface ProductSpecialistCtx {
-  /** turn_id gerado upstream pra agrupar hops do mesmo turno em ai_agent_runs */
-  turn_id: string
-
-  // Core data (compartilhado com monolith)
-  agent: Record<string, any>
-  agent_id: string
-  conversation: { tags?: string[] | null; inbox_id?: string | null; status_ia?: string | null } & Record<string, any>
-  conversation_id: string
-  contact: { id: string } & Record<string, any>
-
-  // Categories e service info
-  serviceCategories: any[] // array de categorias do agent (já carregadas upstream)
-
-  // LLM context
-  geminiContents: any[] // histórico já agrupado/formatado pelo upstream
-  incomingText: string
-  toolCallsLog: ToolCallLogEntry[] // ref mutável compartilhada
-  executeToolSafe: ExecuteToolSafeFn
-
-  // Lead / profile / funnel
-  profileData: any
-  funnelData: any
-  leadProfile: any
-
-  // Incoming / queue
-  incomingHasAudio: boolean
-  queuedMessages: any[]
-
-  // Deferred handoff (compatibilidade c/ dispatchResponse)
-  pendingHandoffTrigger: string | null
-  pendingHandoffTriggerMsg: string
-
-  // Callbacks (reusados do monolith)
-  sendTextMsg: SendTextMsgFn
-  sendTts: SendTtsFn
-  sendPresence: SendPresenceFn
-  broadcastEvent: BroadcastEventFn
-  pickHandoffMessage: PickHandoffMessageFn
-  runQueueAssignment: RunQueueAssignmentFn
-
-  // Flags
-  hasInteracted: boolean
-
-  // Misc
-  startTime: number
-  supabase: any
-  log: Logger
-  corsHeaders: Record<string, string>
-
-  /** Modelo do specialist (default: gpt-5-mini — reasoning, structured outputs nativos) */
+/** @deprecated use SpecialistCtx — mantido só pra compat de assinatura no index.ts */
+export interface ProductSpecialistCtx extends SpecialistCtx {
+  /** Modelo do specialist (default: gpt-4.1 — bench Sprint C). Override p/ debug. */
   specialistModel?: string
 }
 
 export interface ProductSpecialistResult {
-  /** Response 200 pronta pro caller propagar */
-  response: Response
+  /** Response 200 pronta pro caller propagar. NULL em shadow mode. */
+  response: Response | null
   /** Inputs/outputs reais (debug/dashboard C7) */
   inputTokens: number
   outputTokens: number
@@ -296,150 +246,44 @@ export function getProductSpecialistToolDefs(): LLMToolDef[] {
 // =============================================================================
 
 /**
- * Roda o pipeline do product_specialist: prompt enxuto → LLM loop → dispatch.
- *
- * Insere row em `ai_agent_runs` (hop_n=1, specialist='product') no final.
- *
- * Em caso de errorResponse do llmCallLoop (3 falhas LLM), propaga a Response 502.
- * Em caso de empty response, ainda chama dispatchResponse (que loga empty_response).
+ * SpecialistDef do product_specialist. Sprint D: o pipeline (LLM loop → log →
+ * dispatch) agora vive em specialistBase.runSpecialist. Aqui ficam só as 3 coisas
+ * que distinguem este specialist: modelo, tools (strict) e o prompt builder.
+ */
+export function buildProductSpecialistDef(model: string): SpecialistDef {
+  return {
+    name: 'product',
+    intent: 'produto',
+    model,
+    toolDefs: getProductSpecialistToolDefs(),
+    buildPrompt: (ctx) =>
+      buildProductSpecialistPrompt({
+        agentName: (ctx.agent.name as string) || 'consultor',
+        serviceCategories: ctx.serviceCategories,
+        collectedTags: (ctx.conversation.tags as string[]) || [],
+        businessInfo: ctx.agent.business_info,
+      }),
+    // Bug 12 (v7.43.13): specialist controla fechamento via prompt regra 9.
+    // handoffGuard era proteção do monolith e bloqueava handoff multi-turn legítimo.
+    disableHandoffGuard: true,
+  }
+}
+
+/**
+ * Roda o pipeline do product_specialist. Wrapper fino sobre runSpecialist
+ * (mantido pra compat de assinatura no index.ts).
  */
 export async function runProductSpecialist(ctx: ProductSpecialistCtx): Promise<ProductSpecialistResult> {
-  // Decisão de modelo v7.43.6 (validada em bench real 5 cenários × 5 modelos):
-  //   gpt-4.1-mini:  50/50 lat 1.9s, custo ~$10.50/mês — descartado a pedido (qualidade humana 8/10)
-  //   gpt-4.1 ✅:    50/50 lat 2.1s, custo ~$53/mês — ESCOLHIDO: qualidade humana 10/10
-  //   gpt-5.4:       50/50 lat 2.5s, custo ~$84/mês — markdown problemático no WhatsApp
-  //   gpt-5.5:       50/50 lat 3.0s, custo ~$167/mês — overkill, às vezes omite CTA
-  //   gpt-5-mini:    50/50 lat 11.2s, custo ~$32/mês — reasoning queima budget
-  // gpt-4.1 (full size, non-reasoning): score 10/10 técnico + 10/10 redação natural.
-  // Latência empata com mini (2.1s vs 1.9s), tom WhatsApp mais natural ("Veja as opções
-  // que encontrei!" vs "Achei algumas tintas..."). Sem reasoning desperdiçado.
-  const specialistModel = ctx.specialistModel || 'gpt-4.1'
-  const systemPrompt = buildProductSpecialistPrompt({
-    agentName: (ctx.agent.name as string) || 'consultor',
-    serviceCategories: ctx.serviceCategories,
-    collectedTags: (ctx.conversation.tags as string[]) || [],
-    businessInfo: ctx.agent.business_info,
-  })
-  const promptChars = systemPrompt.length
-  const toolDefs = getProductSpecialistToolDefs()
-
-  ctx.log.info('Product specialist starting', {
-    turn_id: ctx.turn_id,
-    prompt_chars: promptChars,
-    model: specialistModel,
-    tools_count: toolDefs.length,
-  })
-
-  // Step 1: LLM call loop (reusa pipeline do Sprint B5 Onda 4)
-  // v7.43.8: removido maxTokens override (era remendo pra reasoning models que
-  // nem usamos mais). gpt-4.1 é non-reasoning, não precisa de override.
-  const llmLoopResult = await runLlmCallLoop({
-    agent: ctx.agent,
-    llmModel: specialistModel,
-    systemPrompt,
-    toolDefs,
-    geminiContents: ctx.geminiContents,
-    toolCallsLog: ctx.toolCallsLog,
-    executeToolSafe: ctx.executeToolSafe,
-    conversation: ctx.conversation,
-    hasInteracted: ctx.hasInteracted,
-    sendPresence: ctx.sendPresence,
-    log: ctx.log,
-    supabase: ctx.supabase,
-    agent_id: ctx.agent_id,
-    conversation_id: ctx.conversation_id,
-    startTime: ctx.startTime,
-    corsHeaders: ctx.corsHeaders,
-    // Bug 12 (v7.43.13): specialist controla fechamento via prompt regra 9 (só escala
-    // após pedido completo). handoffGuard era proteção do monolith e bloqueava o
-    // handoff legítimo de pedido multi-turn (busca foi turno anterior).
-    disableHandoffGuard: true,
-  })
-
-  // Step 2: log hop_n=1 em ai_agent_runs (não bloqueia em falha)
-  try {
-    await ctx.supabase.from('ai_agent_runs').insert({
-      conversation_id: ctx.conversation_id,
-      agent_id: ctx.agent_id,
-      turn_id: ctx.turn_id,
-      hop_n: 1,
-      specialist: 'product',
-      intent: 'produto',
-      model: llmLoopResult.usedModel,
-      input_tokens: llmLoopResult.inputTokens,
-      output_tokens: llmLoopResult.outputTokens,
-      latency_ms: Date.now() - ctx.startTime,
-      tools_called: ctx.toolCallsLog.length > 0 ? ctx.toolCallsLog : null,
-      prompt_chars: promptChars,
-      metadata: {
-        error_response: !!llmLoopResult.errorResponse,
-        // Bug 4 fix visibility (v7.43.2): pega último erro real do ai_agent_logs
-        // pra dashboard C7 + debug sem precisar parsear logs externos.
-        error_message: llmLoopResult.errorResponse ? 'LLM 3x failure (see ai_agent_logs)' : null,
-      },
-    })
-  } catch (err) {
-    ctx.log.warn?.('ai_agent_runs hop 1 insert failed (non-fatal)', { error: (err as Error).message })
-  }
-
-  // Step 3: se LLM falhou catastroficamente, propaga (caller decide fallback)
-  if (llmLoopResult.errorResponse) {
-    ctx.log.warn?.('Product specialist: LLM loop returned errorResponse — caller should fallback to monolith', {
-      input_tokens: llmLoopResult.inputTokens,
-      output_tokens: llmLoopResult.outputTokens,
-    })
-    return {
-      response: llmLoopResult.errorResponse,
-      inputTokens: llmLoopResult.inputTokens,
-      outputTokens: llmLoopResult.outputTokens,
-      promptChars,
-      errorResponse: llmLoopResult.errorResponse,
-      errorMessage: 'LLM loop 3x failure',
-    }
-  }
-
-  // v7.43.8: removido fallback contextual (era remendo). Com gpt-4.1 + prompt v3,
-  // response sempre vem com texto válido. Se vier vazio, é um bug de raiz que
-  // precisa ser corrigido na origem, não mascarado com texto pré-fabricado.
-
-  // Step 4: dispatchResponse (reusa pipeline do Sprint B5 Onda 5)
-  const { response } = await dispatchResponse({
-    responseText: llmLoopResult.responseText,
-    agent: ctx.agent,
-    agent_id: ctx.agent_id,
-    conversation: ctx.conversation,
-    conversation_id: ctx.conversation_id,
-    contact: ctx.contact,
-    toolCallsLog: ctx.toolCallsLog,
-    inputTokens: llmLoopResult.inputTokens,
-    outputTokens: llmLoopResult.outputTokens,
-    usedModel: llmLoopResult.usedModel,
-    hadExplicitHandoffInLoop: ctx.toolCallsLog.some((t) => t.name === 'handoff_to_human'),
-    profileData: ctx.profileData,
-    funnelData: ctx.funnelData,
-    leadProfile: ctx.leadProfile,
-    incomingText: ctx.incomingText,
-    incomingHasAudio: ctx.incomingHasAudio,
-    queuedMessages: ctx.queuedMessages,
-    pendingHandoffTrigger: ctx.pendingHandoffTrigger,
-    pendingHandoffTriggerMsg: ctx.pendingHandoffTriggerMsg,
-    startTime: ctx.startTime,
-    sendTextMsg: ctx.sendTextMsg,
-    sendTts: ctx.sendTts,
-    sendPresence: ctx.sendPresence,
-    broadcastEvent: ctx.broadcastEvent,
-    pickHandoffMessage: ctx.pickHandoffMessage,
-    runQueueAssignment: ctx.runQueueAssignment,
-    supabase: ctx.supabase,
-    log: ctx.log,
-    corsHeaders: ctx.corsHeaders,
-  })
-
+  // Modelo gpt-4.1 (full, non-reasoning) escolhido em bench Sprint C (v7.43.6):
+  // 10/10 técnico + 10/10 redação WhatsApp, lat 2.1s. Override via ctx.specialistModel.
+  const def = buildProductSpecialistDef(ctx.specialistModel || 'gpt-4.1')
+  const result = await runSpecialist(ctx, def)
   return {
-    response,
-    inputTokens: llmLoopResult.inputTokens,
-    outputTokens: llmLoopResult.outputTokens,
-    promptChars,
-    errorResponse: null,
+    response: result.response,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    promptChars: result.promptChars,
+    errorResponse: result.errorResponse,
+    errorMessage: result.errorMessage,
   }
 }

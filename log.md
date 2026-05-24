@@ -230,3 +230,23 @@ EletropisoV2 (`1062059a`, Lucas, monolith) trocada gpt-5-mini → gpt-4.1-mini (
 
 ---
 
+## 2026-05-24 (noite) — Sprint D: 4 specialists dedicados + specialistBase + shadow + E2E 6/6 (v7.45.0)
+
+Router agora despacha as **7 intents pra specialists dedicados**; monolito vira fallback de erro. Tudo atrás de `routing_mode` (default monolith — prod intocada). Canal de controle WhatsApp reativado (operador comandou parte da sessão).
+
+**Pesquisa primeiro** (papers/GitHub/forums/X, 3 agentes): router→1 specialist é o lado SEGURO do debate (15× tokens é fan-out, não se aplica); boundaries claros = maior anti-alucinação (MAST: 36.9% das falhas = inter-agent misalignment); migração NUNCA flipar de vez (shadow→canary→%); feel-felt-found + SPIN + escape-hatch nos prompts.
+
+**Código (atrás de flag):** `specialistBase.ts` (`runSpecialist` extraído do productSpecialist; este refatorado, 18/18 verdes); 4 specialists (greeting/qualification/objection/handoff) + `specialistTools.ts`; wire-in `DISPATCH[intent]→def`; greeting determinístico desligado sob router; shadow mode (migration 20260524100000) + UI Select + SYNC.
+
+**E2E real 6/6 nota 10** (sandbox router 558181696546, lead Testador): bom dia→greeting; "João Pedro"→greeting+persiste nome; "tinta branca"→product+carrossel; "achei caro"→objection feel-felt-found; "quero vendedor"→handoff+transbordo; "aceita pix"→objection business_info. Router conf 0.9-1.0.
+
+**2 bugs raiz achados no E2E (zero remendo):** greeting salvava nome via `set_tags(lead_name:)` rejeitado → troquei p/ `update_lead_profile(full_name)`; objection chamava tool sem texto → REGRA UNIVERSAL de texto nos 4 specialists.
+
+**Pipeline:** 350 testes agent verdes (329+21). Zero erro TS novo (36 pré-existentes, baseline confirmado via git stash — NÃO corrigidos, hardening separado). ai-agent v123+.
+
+**Andamento Plano Orquestrador:** 72% → **~85%**. Migração default→router STAGED (não flipei; prod intocada).
+
+**Frase de retomada:** *"Sprint D shipped (v7.45.0, 6/6 E2E). Próximo: shadow em agent real + migrar EletropisoV2 p/ router após validação + D6 aposentar monolito"*.
+
+---
+

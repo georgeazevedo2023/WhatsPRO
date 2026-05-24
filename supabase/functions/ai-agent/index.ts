@@ -19,8 +19,14 @@ import { runLlmCallLoop } from '../_shared/agent/llmCallLoop.ts'
 import { dispatchResponse } from '../_shared/agent/dispatchResponse.ts'
 // Sprint C4+C5 (2026-05-23): router LLM + product_specialist + hop guard
 import { classifyIntent, logRouterRun, type Intent } from '../_shared/agent/router.ts'
-import { runProductSpecialist } from '../_shared/agent/productSpecialist.ts'
+import { buildProductSpecialistDef } from '../_shared/agent/productSpecialist.ts'
 import { checkHopLimit, generateTurnId } from '../_shared/agent/hopGuard.ts'
+// Sprint D (2026-05-24): specialistBase + 4 specialists dedicados (greeting/qualif/objection/handoff)
+import { runSpecialist, type SpecialistCtx, type SpecialistDef } from '../_shared/agent/specialistBase.ts'
+import { buildGreetingSpecialistDef } from '../_shared/agent/greetingSpecialist.ts'
+import { buildQualificationSpecialistDef } from '../_shared/agent/qualificationSpecialist.ts'
+import { buildObjectionSpecialistDef } from '../_shared/agent/objectionSpecialist.ts'
+import { buildHandoffSpecialistDef } from '../_shared/agent/handoffSpecialist.ts'
 // Bug 2 Fix (v7.43.1): detector de clique "Eu quero" → hint pro LLM continuar venda
 import { detectProductChoice, buildProductChoiceHint } from '../_shared/agent/productChoiceDetector.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
@@ -1354,8 +1360,13 @@ ${contextBlock}`
       log.info('Returning lead — sending welcome-back greeting', { leadName })
     }
 
-    // Send greeting: new lead (static greeting) OR returning lead (personalized welcome-back)
-    if ((shouldGreet && !isReturningLead) || isReturningLead) {
+    // Send greeting: new lead (static greeting) OR returning lead (personalized welcome-back).
+    // Sprint D: sob routing_mode='router', o greeting_specialist é DONO da saudação
+    // (substitui este handler determinístico — plano D4). Pulamos aqui pra que o fluxo
+    // alcance o router → greeting_specialist (LLM, name-aware). monolith e shadow mantêm
+    // a saudação determinística (atomic dedup + TTS + returning-lead).
+    const greetingHandledBySpecialist = agent.routing_mode === 'router'
+    if (!greetingHandledBySpecialist && (((shouldGreet && !isReturningLead) || isReturningLead))) {
       // Atomic greeting deduplication via advisory lock RPC
       const { data: greetResult, error: greetError } = await supabase
         .rpc('try_insert_greeting', {
@@ -2076,14 +2087,20 @@ ${contextBlock}`
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Sprint C4+C5 (2026-05-23): router pipeline experimental (POC)
-    // Behind feature flag agent.routing_mode='router'. Default 'monolith'.
-    // Atualmente só intent='produto' tem specialist (product_specialist).
-    // Outras intents fazem fallback pro monolith com log.
+    // Sprint C+D: router pipeline. Behind feature flag agent.routing_mode.
+    //   'monolith' (default) — pula tudo, usa o LLM mega abaixo.
+    //   'router'  — router classifica intent → 1 specialist responde o lead.
+    //   'shadow'  — router + specialist RODAM e logam em ai_agent_runs, mas NÃO
+    //               enviam ao lead; o monolith responde. Coleta regressão silenciosa
+    //               em tráfego real antes de migrar (best practice: shadow→canary→%).
+    // Sprint D: TODAS as 7 intents têm specialist dedicado (greeting/qualification/
+    // product/objection/handoff). pagamento→objection (carrega business_info),
+    // fora_escopo→greeting (redireciona). Monolith vira só fallback de erro.
     // ─────────────────────────────────────────────────────────────────────
-    if (agent.routing_mode === 'router') {
+    const isShadow = agent.routing_mode === 'shadow'
+    if (agent.routing_mode === 'router' || isShadow) {
       const turn_id = generateTurnId()
-      log.info('Router pipeline START', { turn_id, conversation_id })
+      log.info('Router pipeline START', { turn_id, conversation_id, shadow: isShadow })
 
       try {
         const hopCheck = await checkHopLimit({
@@ -2113,28 +2130,35 @@ ${contextBlock}`
           })
           log.info('Router result', { intent: routerResult.intent, confidence: routerResult.confidence, fallback: routerResult.fallback })
 
-          // Dispatch por intent. v7.43.12+v7.43.13 (Bug 10a+11 fix raiz): product_specialist
-          // é dono de TODO o ciclo de venda (descoberta → qualificação → pedido → fechamento/
-          // handoff), não só do 1º turno. Enquanto qualification/handoff specialists não
-          // existem (Sprint D), as 3 intents do funil de venda — produto, qualificacao
-          // (resposta de campo) e handoff (fechamento "é só isso" / lead pede vendedor) —
-          // vão pro product_specialist, que tem o contexto e o prompt v6 sabe qualificar,
-          // montar pedido completo e escalar com resumo via handoff_to_human.
-          // Mandar pro monolith causava qualif determinística genérica + "Em que posso ajudar?".
-          // v7.43.14 (2026-05-23): objecao adicionada ao funil. E2E real mostrou que o
-          // monolith atropela objeção de preço com pergunta de qualificação determinística
-          // ("interno ou externo?") em vez de defender valor — mesmo problema que motivou
-          // mover produto/qualificacao/handoff. O specialist (gpt-4.1) trata objeção
-          // consultivamente (regra 10 do prompt). objecao agora é dono do specialist.
-          const salesFunnelIntents = ['produto', 'qualificacao', 'handoff', 'objecao']
-          if (salesFunnelIntents.includes(routerResult.intent)) {
-            log.info('Dispatching to product_specialist (hop 1)', { intent: routerResult.intent })
-            // Bug fix (v7.43.1): service_categories é object {default, categories[]},
-            // não array. Antes passava o objeto e .slice() explodia silenciosamente.
-            // getCategoriesOrDefault retorna o config; extraímos .categories[].
-            const catConfig = getCategoriesOrDefault(agent)
-            const serviceCategories = (catConfig?.categories as any[]) || []
-            const productResult = await runProductSpecialist({
+          // Tabela de dispatch intent→specialist (Sprint D). Whitelist declarada
+          // (best practice: handoff targets declarados + enforçados). Cada def é
+          // { name, intent, model, buildPrompt, toolDefs } — pipeline em runSpecialist.
+          const catConfig = getCategoriesOrDefault(agent)
+          const serviceCategories = (catConfig?.categories as any[]) || []
+          const DISPATCH: Record<Intent, SpecialistDef> = {
+            saudacao: buildGreetingSpecialistDef(),
+            fora_escopo: buildGreetingSpecialistDef(), // redireciona educadamente
+            qualificacao: buildQualificationSpecialistDef(),
+            produto: buildProductSpecialistDef(agent.specialist_model || 'gpt-4.1'),
+            objecao: buildObjectionSpecialistDef(),
+            pagamento: buildObjectionSpecialistDef(), // objection carrega business_info
+            handoff: buildHandoffSpecialistDef(),
+          }
+          const def = DISPATCH[routerResult.intent]
+
+          if (isShadow) {
+            // Shadow mode (lite): só o ROUTER roda e loga. NÃO rodamos o specialist,
+            // porque executeToolSafe tem efeitos colaterais reais (envia carrossel,
+            // grava tags, faz handoff) — rodar em paralelo dispararia ações duplicadas.
+            // Medimos a accuracy do router (que é o teto de qualidade do sistema) sem
+            // risco. O monolith responde o lead normalmente.
+            log.info('Router pipeline SHADOW END — intent classified & logged; monolith answers', {
+              intent: routerResult.intent, would_dispatch: def?.name || 'none', confidence: routerResult.confidence,
+            })
+            // Fallthrough pro monolith abaixo
+          } else if (def) {
+            log.info(`Dispatching to ${def.name}_specialist (hop 1)`, { intent: routerResult.intent })
+            const specialistCtx: SpecialistCtx = {
               turn_id,
               agent, agent_id, conversation, conversation_id, contact,
               serviceCategories,
@@ -2152,29 +2176,29 @@ ${contextBlock}`
               hasInteracted,
               startTime,
               supabase, log, corsHeaders,
-            })
-            // Bug 4 fix (v7.43.2): se specialist falhou catastroficamente,
-            // faz fallback pro monolith em vez de retornar 502 ao webhook
-            // (que mata o turno e deixa lead sem resposta).
-            if (productResult.errorResponse) {
-              log.error('Specialist failed catastrophically — falling back to monolith', {
-                error: productResult.errorMessage || 'unknown',
-              })
-              // Fallthrough pro monolith abaixo (não retorna a errorResponse)
-            } else {
-              log.info('Router pipeline END (product_specialist)', {
-                input_tokens: productResult.inputTokens,
-                output_tokens: productResult.outputTokens,
-                prompt_chars: productResult.promptChars,
-              })
-              return productResult.response
             }
-          }
+            const specialistResult = await runSpecialist(specialistCtx, def)
 
-          log.info('Router: intent without specialist yet, falling back to monolith', {
-            intent: routerResult.intent,
-          })
-          // Fallthrough pro monolith abaixo
+            // Bug 4 fix (v7.43.2): falha catastrófica do LLM → fallback monolith
+            // (não retorna 502 ao webhook, que mataria o turno).
+            if (specialistResult.errorResponse) {
+              log.error('Specialist failed catastrophically — falling back to monolith', {
+                specialist: def.name, error: specialistResult.errorMessage || 'unknown',
+              })
+              // Fallthrough pro monolith abaixo
+            } else {
+              log.info(`Router pipeline END (${def.name}_specialist)`, {
+                intent: routerResult.intent,
+                input_tokens: specialistResult.inputTokens,
+                output_tokens: specialistResult.outputTokens,
+                prompt_chars: specialistResult.promptChars,
+              })
+              return specialistResult.response as Response
+            }
+          } else {
+            log.warn('Router: intent sem specialist mapeado (fallback monolith)', { intent: routerResult.intent })
+            // Fallthrough pro monolith abaixo
+          }
         }
       } catch (err) {
         log.error('Router pipeline error (fallback to monolith)', { error: (err as Error).message })

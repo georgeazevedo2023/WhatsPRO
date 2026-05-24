@@ -13,6 +13,19 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.45.0 (2026-05-24) — Sprint D: 4 specialists dedicados + specialistBase + shadow mode + 6/6 E2E nota 10
+
+Fecha a parte de código do Sprint D do plano orquestrador: o router agora despacha as **7 intents pra specialists dedicados** (não mais só o product). Monolito vira fallback de erro. Tudo atrás de `routing_mode` (default `monolith`, prod intocada). Andamento do plano: 72% → **~85%**.
+
+- **`_shared/agent/specialistBase.ts` — contrato único.** Extraído do `productSpecialist` (~140 lin de boilerplate: LLM loop → log `ai_agent_runs` → `dispatchResponse`). `runSpecialist(ctx, def)` recebe um `SpecialistDef { name, intent, model, buildPrompt, toolDefs, disableHandoffGuard }`. `productSpecialist` refatorado pra delegar (18/18 testes seguem verdes, zero regressão). Cada novo specialist é só prompt + tools + boundary → zero drift.
+- **4 specialists novos** (`greetingSpecialist`, `qualificationSpecialist`, `objectionSpecialist`, `handoffSpecialist`) + `specialistTools.ts` (tool defs canônicas compartilhadas). Prompt design fundamentado em pesquisa 2026 (OpenAI/Anthropic/MAST): role estreito, boundary explícito, regra-chave por último, instrução positiva + porquê, escape hatch anti-arg-inventado, **REGRA UNIVERSAL "sempre responda com texto; tool nunca substitui a resposta"**, feel-felt-found (objection), SPIN 1-pergunta (qualification).
+- **Tabela de dispatch intent→specialist** (`index.ts`): saudacao+fora_escopo→greeting, qualificacao→qualification, produto→product, objecao+pagamento→objection, handoff→handoff. Whitelist declarada (best practice handoff targets). Greeting determinístico hardcoded **desligado sob `routing_mode='router'`** (greeting_specialist assume — plano D4).
+- **Shadow mode** (`routing_mode='shadow'`, migration `20260524100000`): router classifica + loga em `ai_agent_runs`, mas o monolito responde o lead (zero efeito colateral — lite shadow, só o router roda; specialist não, pra não disparar tools reais). UI Select + SYNC. Best practice shadow→canary→% antes de migrar default.
+- **2 bugs de raiz achados no E2E e corrigidos:** (A) greeting capturava nome via `set_tags(lead_name:)` → **rejeitado** pelo whitelist `VALID_KEYS` → trocado p/ `update_lead_profile(full_name)` (persiste de verdade). (B) objection chamava tools e **não emitia texto** (lead no silêncio) → regra universal de texto aplicada aos 4 specialists.
+- **E2E real 6/6 nota 10** (sandbox router `558181696546`, lead Testador): bom dia→greeting, "meu nome é João Pedro"→greeting+persiste nome, "tinta branca pra sala"→product+carrossel, "achei caro/concorrente"→objection (feel-felt-found), "quero vendedor"→handoff (transbordo+fora-horário), "aceita pix/parcela?"→objection (business_info). Router conf 0.9-1.0 em todas.
+- **350 testes agent verdes** (329 + 21 novos). Zero erro TS novo (36 pré-existentes, confirmado via baseline). ai-agent deployado (v123+).
+- **Migração default→router: STAGED.** Default segue `monolith`; EletropisoV2 prod intocada. Migração real só após shadow limpo + go-ahead. Aposentar monolito (D6) fica p/ sprint futura após 30d estável.
+
 ### v7.44.1 (2026-05-24) — Fix PROD: EletropisoV2 gpt-5-mini → gpt-4.1-mini
 
 EletropisoV2 (`1062059a`, instância nova do Lucas `558781592373`, monolith) estava em **gpt-5-mini** com `max_tokens=1024` — mesmo Bug A da v7.44.0 (reasoning consumia o teto → resposta vazia → fallback "Em que posso te ajudar?"). Trocada p/ **gpt-4.1-mini** (non-reasoning, rápido, confiável). Config no banco (efeito imediato; o piso 4096 de reasoning já estava deployado como defesa). Validação passiva na próxima msg real (não testei ao vivo p/ não interferir em cliente). Eletropiso antiga (agent desabilitado D35) segue em gpt-4.1-mini.
