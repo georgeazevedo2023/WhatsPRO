@@ -13,6 +13,17 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.46.0 (2026-05-24) — Sprint E.1: memória longa por lead (injeção + consolidação)
+
+Primeiro pilar do Sprint E (inteligência avançada). Lead que volta após dias é reconhecido com histórico. Decisão arquitetural fundamentada em pesquisa (Mem0 arXiv:2504.19413 + Zep arXiv:2501.13956 + LangMem): **memória ESTRUTURADA, não vector RAG** — domínio de vendas bounded + Postgres já presente = structured-facts vence em exatidão/custo/latência/RTBF. `lead_profiles` já era a tabela (full_name/interests/objections/conversation_summaries/...); faltava wiring.
+
+- **Migration `20260524120000`** (aditiva): `lead_profiles.products_seen jsonb`, `qualification_stage text`, `memory_updated_at timestamptz` (validity timestamp, ideia Zep).
+- **`leadMemory.ts` — `buildLeadMemoryBlock(leadProfile)`**: monta bloco compacto key:value (~150-250 tokens: Nome/Interesses/Estágio/Produtos vistos/Objeções/Orçamento/Resumo/Última visita) injetado no TOPO do system prompt de TODO specialist via `specialistBase`. Vazio pra lead novo. "Retrieval > ingestion": injeta poucos fatos relevantes, não o transcript. Anti-poisoning: só fatos semânticos, nunca regras procedurais.
+- **`consolidateLeadMemory`** (fire-and-forget pós-resposta, SEM LLM): deriva `qualification_stage` das tags, extrai `products_seen` do toolCallsLog real (search/carousel/media), captura `interests` do tag `interesse:`, grava com merge+dedupe + `memory_updated_at`. Só fatos verificados (anti-poisoning). Não bloqueia o turno (resposta já enviada no dispatchResponse).
+- **Resume de qualificação**: o bloco de memória diz "Qualificação parou em: X" + "não pergunte o que já sabe" → specialist não refaz campos. Greeting refinado pra returning lead (cumprimenta pelo nome + referencia interesse pra retomar).
+- **E2E real**: turno 1 (lead "sou o Carlos, queria tinta branca") → product+carrossel, consolidação gravou products_seen (3 tintas) + stage=tintas. Turno 2 (retorno, conversa limpa, lead_profiles mantido) → bloco de memória injetado (prompt 1767→2765 chars), greeting reconheceu o lead.
+- **339 testes agent verdes** (334 + 5 leadMemory). deno check ai-agent: 0 erros. Tudo aditivo; isolamento tenant/lead via RLS existente do lead_profiles (risco #1 multi-agente: vazamento entre leads).
+
 ### v7.45.1 (2026-05-24) — EletropisoV2 → router em PROD + zera 36 erros TS
 
 - **EletropisoV2 (`1062059a`) migrado pra `routing_mode='router'` em PROD** (a pedido do usuário, sem shadow). Config validada compatível (24 service_categories + business_info + greeting → os 5 specialists rodam). Código idêntico ao validado 6/6 no sandbox. Rollback instantâneo (`routing_mode='monolith'`). Monitoramento via dashboard Roteamento + `ai_agent_runs`. Evidência pró-migração: no histórico monolito, perguntas de produto ("telha brasilit") recebiam "Em que posso te ajudar?" genérico — router+product_specialist busca no catálogo.

@@ -38,7 +38,7 @@ function knownLeadName(ctx: SpecialistCtx): string | null {
 export function buildGreetingPrompt(args: { agentName: string; businessName?: string; leadName?: string | null }): string {
   const { agentName, businessName, leadName } = args
   const nameLine = leadName
-    ? `O lead já é conhecido: ${leadName}. Cumprimente pelo nome (sem pedir o nome de novo).`
+    ? `O lead JÁ É CONHECIDO: ${leadName}. Cumprimente-o PELO NOME (não peça o nome de novo). Se houver "MEMÓRIA DO LEAD" acima, referencie naturalmente UM fato relevante (o produto/interesse que ele via) pra RETOMAR de onde parou — ex.: "Oi ${leadName}! Você estava vendo [interesse], quer continuar?". Não recite todos os fatos, escolha o mais útil.`
     : `O lead ainda não disse o nome. Cumprimente e, na MESMA mensagem, pergunte com quem você fala (peça o nome de forma leve).`
 
   return `Você é ${agentName || 'o atendente'}${businessName ? ` da ${businessName}` : ''}, atendendo no WhatsApp em português brasileiro. Você cuida da ABERTURA da conversa.

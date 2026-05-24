@@ -22,7 +22,7 @@ describe('buildGreetingPrompt', () => {
   it('usa o nome quando lead é conhecido (não pede de novo)', () => {
     const p = buildGreetingPrompt({ agentName: 'X', leadName: 'Marcos' })
     expect(p).toContain('Marcos')
-    expect(p).toContain('sem pedir o nome de novo')
+    expect(p).toContain('não peça o nome de novo')
   })
 
   it('regra-chave (não qualificar/buscar/handoff) vem por último', () => {

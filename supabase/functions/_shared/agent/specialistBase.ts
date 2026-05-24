@@ -24,6 +24,7 @@
 
 import { runLlmCallLoop, type ToolCallLogEntry, type ExecuteToolSafeFn, type SendPresenceFn } from './llmCallLoop.ts'
 import { dispatchResponse, type SendTextMsgFn, type SendTtsFn, type BroadcastEventFn, type PickHandoffMessageFn, type RunQueueAssignmentFn } from './dispatchResponse.ts'
+import { buildLeadMemoryBlock, consolidateLeadMemory } from './leadMemory.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
 import type { Logger } from './context.ts'
 import type { Intent } from './router.ts'
@@ -149,7 +150,12 @@ export async function runSpecialist(
   def: SpecialistDef,
   hopN = 1,
 ): Promise<SpecialistResult> {
-  const systemPrompt = def.buildPrompt(ctx)
+  // Sprint E.1: prepend memória longa do lead (fatos estruturados de lead_profiles).
+  // Vazio pra lead novo. Vai no TOPO do system prompt (posição = verdade-base) pra
+  // o specialist CONTINUAR de onde parou (reconhece returning lead, não re-pergunta).
+  const memoryBlock = buildLeadMemoryBlock(ctx.leadProfile)
+  const basePrompt = def.buildPrompt(ctx)
+  const systemPrompt = memoryBlock ? `${memoryBlock}\n\n${basePrompt}` : basePrompt
   const promptChars = systemPrompt.length
   const toolDefs = def.toolDefs
 
@@ -159,6 +165,7 @@ export async function runSpecialist(
     prompt_chars: promptChars,
     model: def.model,
     tools_count: toolDefs.length,
+    has_memory: !!memoryBlock,
     shadow: !!ctx.shadow,
   })
 
@@ -275,6 +282,21 @@ export async function runSpecialist(
     log: ctx.log,
     corsHeaders: ctx.corsHeaders,
   })
+
+  // Sprint E.1: consolida memória do lead (estágio + produtos vistos) APÓS o envio.
+  // Fire-and-forget — a resposta já foi enviada no dispatchResponse; não bloqueamos
+  // o retorno do turno. Só fatos verificados do toolCallsLog real.
+  if (ctx.contact?.id) {
+    void consolidateLeadMemory({
+      supabase: ctx.supabase,
+      contactId: ctx.contact.id,
+      currentTags: (ctx.conversation.tags as string[]) || [],
+      toolCallsLog: ctx.toolCallsLog,
+      existingProductsSeen: ctx.leadProfile?.products_seen,
+      existingInterests: ctx.leadProfile?.interests,
+      log: ctx.log,
+    }).catch(() => { /* já tratado internamente */ })
+  }
 
   return {
     response,
