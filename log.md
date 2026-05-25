@@ -9,6 +9,22 @@ type: log
 
 ---
 
+## 2026-05-24 (noite VII) — E2E 2 cenários + loop da fila validado nota 10 + fix leak _fora_hora (v7.52.2)
+
+**Trigger:** dono pediu doc/commit/deploy + 2 cenários E2E completos (Playwright) do fluxo (saudação→qualif→score→1produto/carrossel→multi-item→resumo→transbordo + msg fora-horário) + testar o LOOP da fila (virada + timeout 00:00→próximo) e corrigir até nota 10.
+
+**E2E real (sandbox router 558185749970→558181696546):**
+- **Cenário 1 (fora de horário):** saudação→nome(Maria)→qualif impermeabilizante→handoff out-of-hours personalizado. **Bug achado:** R120 monta reason `"{texto}_fora_hora"` e o sufixo vazou colado na frase ("...parede interna_fora_hora"). **Fix:** `cleanHandoffItem` remove sufixos de código + cauda snake_case (+1 teste, 39 total). Deploy CLI.
+- **Cenário 2 (extended_hours = inside):** saudação→nome(Pedro)→**carrossel 3 tintas**→cuba→multi-item→handoff regular. Fluxo limpo.
+
+**LOOP DA FILA — NOTA 10** (dept sandbox ce8d6cd2, 3 membros pos 1/2/3, timeout 1min): rotação natural via cron Rafaella(2)→Djavan(3)→**WRAP Lucas(1)**→Rafaella(2)→Djavan(3); avança a cada expiry (00:00), **virada do último pro primeiro confirmada** (pick_next_assignee 2ª tentativa), rotation_number incrementa, **Case E "fila deu volta completa"** notifica gestor (rot>eligible). Timing ~1-2min consistente. **Mecânica do loop sem bug — não precisou correção.**
+
+**Achados anotados (não-fix, backlog):** (a) 1-produto sai como carrossel em vez de send_media (regra [[feedback_single_product_send_media]], recorrente); (b) stall ao trocar de categoria após atingir score num turno fora-de-horário (recuperou na 2ª msg). Estado sandbox restaurado (djavan removido, timeout 5, extended_hours null). **Catálogo: dono trocou os produtos — NÃO cadastrar nenhum sem autorização.**
+
+**Frase de retomada:** *"v7.52.2 loop da fila validado nota 10 + leak _fora_hora corrigido. Backlog: 1-produto→send_media; stall product-switch fora-horário; premium #2 cart engine."*
+
+---
+
 ## 2026-05-24 (noite VI-b) — Visibilidade controlável pelos toggles (v7.52.1, revisa a dura)
 
 **Trigger:** dono apontou o painel UsersTab (3 toggles "Visibilidade de conversas") e perguntou se desmarcar ali era o controle. Percebeu o conflito: a v7.52.0 tinha regra DURA (agente sempre só Minhas) que ignorava os toggles → toggles "mortos". Dono escolheu modelo **flexível (toggles mandam)**.

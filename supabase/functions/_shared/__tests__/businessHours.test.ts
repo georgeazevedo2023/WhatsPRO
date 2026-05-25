@@ -275,6 +275,15 @@ describe('personalizeHandoffMessage', () => {
     expect(out).toBe(`João, anotei tudo aqui. ${base}`) // item ignorado, nome mantido
   })
 
+  it('strip do sufixo de código COLADO na frase (caso E2E "interna_fora_hora")', () => {
+    const reason = 'impermeabilizante manta líquida para laje externa 20m² + tinta acrílica branca para parede interna_fora_hora'
+    const out = personalizeHandoffMessage(base, { leadName: 'Maria', itemSummary: reason })
+    expect(out).not.toContain('_fora_hora')
+    expect(out).toContain('parede interna')
+    expect(out).toContain('manta líquida')
+    expect(out.startsWith('Maria, anotei seu pedido:')).toBe(true)
+  })
+
   it('strip de prefixo redundante "Pedido de"/"interesse em"', () => {
     expect(personalizeHandoffMessage(base, { itemSummary: 'interesse em porcelanato 60x60' }))
       .toBe(`Anotei seu pedido: porcelanato 60x60. ${base}`)

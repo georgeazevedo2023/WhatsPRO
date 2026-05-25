@@ -13,6 +13,14 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.52.2 (2026-05-24) — Fix leak `_fora_hora` no transbordo + validação E2E (2 cenários + loop da fila)
+
+E2E real (sandbox router) descobriu 1 leak: o handoff forçado fora-de-horário (R120) monta o reason como `"{texto}_fora_hora"` e o sufixo de código ficava COLADO na última palavra, vazando pro lead ("...parede interna**_fora_hora**"). `cleanHandoffItem` agora remove sufixos de código conhecidos (`_fora_hora`/`_sem_resultado`/`_offline`…) e qualquer cauda snake_case colada. +1 teste (39 total).
+
+**Validação E2E (2 cenários):** (1) fora-de-horário → transbordo personalizado nome+item; (2) dentro do horário (extended) → saudação→nome→carrossel 3 tintas→1 produto→multi-item→resumo→handoff. **Loop da fila validado nota 10** (dept sandbox 3 membros, timeout 1min): avança a cada 00:00, **vira do último (pos3) pro primeiro (pos1)**, continua ciclando, alerta gestor "fila deu volta completa". Sem bug na mecânica do loop. Achados anotados (não-fix): 1-produto sai como carrossel (não send_media); stall ao trocar de categoria após score em turno fora-de-horário.
+
+---
+
 ### v7.52.1 (2026-05-24) — Visibilidade do atendente vira controlável pelos toggles do admin (revisa v7.52.0)
 
 Ajuste após o dono perguntar "pra atendente não ver não atribuídas/todas, é só desmarcar no painel?". A v7.52.0 tinha uma **regra dura** (role agente sempre só "Minhas", ignorando os toggles) — o que deixava os 3 toggles de "Visibilidade de conversas" do UsersTab **mortos** pra atendente. Modelo escolhido pelo dono: **os toggles mandam** (flexível).
@@ -259,31 +267,9 @@ Extração do loop principal de function calling do monolito `ai-agent/index.ts`
 - Onda 5 — `dispatchResponse` (~240 lin) — última do split B5
 - Sprint C — Router LLM + product_specialist POC (~2-3 semanas, marco)
 
-### v7.41.7 → v7.41.14 (2026-05-22 noite II) — Sessão maratona R140-R145
+### v7.41.7 → v7.41.14 (2026-05-22) — Sessão maratona R140-R145 (arquivada)
 
-**8 versões em ~6 horas** atacando bug Sandrielly definitivamente. ai-agent v89→v99 ACTIVE.
-
-| Versão | R# | Resultado |
-|---|---|---|
-| v7.41.7 | R139 (regex) + **R140 (stack trace)** | R140 foi o divisor — sem ele eu chutava |
-| v7.41.8 | **R141 TDZ** | causa REAL do crash: `let carouselSentInThisCall` em linha 1928 referenciado por `executeTool` em linha 1751 → ReferenceError pré-LLM. Movido pra linha 497 |
-| v7.41.9 | R142 chain rica | buildQualificationChain inclui ambiente/cor/voltagem/volume |
-| v7.41.10 | R143 seed sem fields | preLLMAutoExtract persiste interesse:CAT mesmo se extracted=[] (caso Jessica) |
-| v7.41.11 | R144 fuzzy I2 | auto-correct singular↔plural/regex/levenshtein-1 antes de bloquear |
-| v7.41.12 | R145 v1 dedup | falso-positivo (60s window) — SUPERSEDIDA |
-| v7.41.13 | R145 v2 + ia_cleared | ainda bloqueava (placeholder) — SUPERSEDIDA |
-| v7.41.14 | **R145 v3** | + startTime barrier → finalmente correto |
-
-**Lição central:** R140 (observability) deveria ter sido v7.41.5 não v7.41.7. Stack trace persistido em `ai_agent_logs.error` revelou TDZ em 1 query — sem isso eu testei 2 hipóteses erradas (vírgula, regex unicode).
-
-**Doc cleanup (commit 5082784):**
-- Nova wiki `wiki/erros/familias-r-codes.md` (205 lin) agrupa ~140 R# em 10 famílias
-- `regras-preventivas.md`: + R137-R145, status [RESOLVIDA]/[SUPERSEDIDA], fix R86/R87 duplicados
-- index.md: pointer pra famílias
-
-**Pipeline final:** tsc 0 · vitest 1184 pass / 9 fails pré-existentes · ai-agent v99 ACTIVE · 8 camadas determinísticas protegendo qualif→handoff.
-
-**Frase de retomada próxima sessão:** *"continuar Sprint B5 Onda 4 llmCallLoop após valida cenários Jessica/Wsmart em prod"*.
+8 versões atacando o crash Sandrielly: R140 (stack trace, o divisor) → R141 (TDZ `carouselSentInThisCall`, causa real) → R142 chain rica → R143 seed sem fields → R144 fuzzy auto-correct → R145 v3 dedup+startTime barrier. Detalhe em [[wiki/erros/familias-r-codes]] + git.
 
 ---
 

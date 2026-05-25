@@ -197,6 +197,13 @@ function cleanHandoffItem(raw?: string | null): string {
   if (!s) return ''
   // reason interno tipo "telha_fora_hora" / "search_fail" (snake_case sem espaço) → não é item
   if (/^[a-z0-9]+(_[a-z0-9]+)+$/i.test(s)) return ''
+  // 2026-05-24: o handoff forçado (R120 fora-de-horário/sem-resultado) monta o reason
+  // como "{texto}_fora_hora" — o sufixo de código fica COLADO na última palavra e
+  // vazava pro lead ("...parede interna_fora_hora"). Remove sufixos de código conhecidos
+  // e qualquer cauda snake_case colada (sem espaço antes do "_").
+  s = s.replace(/_(?:fora_hora|fora_horario|fora_de_hora|sem_resultado|offline|search_fail)\b/gi, ' ')
+  s = s.replace(/\S*_[a-z]{3,}(?:_[a-z]{3,})+\b/gi, (m) => m.replace(/_[a-z]{3,}(?:_[a-z]{3,})+\b/i, ''))
+  s = s.replace(/\s{2,}/g, ' ').trim()
   // remove prefixos redundantes ("Pedido completo:", "Pedido:", "Resumo:", "Pedido de"…)
   s = s.replace(
     /^(pedido(\s+(completo|de))?|resumo|or[çc]amento(\s+de)?|interesse em|consulta sobre|sobre)\s*[:\-–]?\s*/i,
