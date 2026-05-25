@@ -17,6 +17,8 @@ type: log
 
 **Lição:** regra dura por role que ignora a UI de permissões existente = UX contraditória (toggles que não fazem nada). Quando já existe mecanismo granular (toggles), reforçar via DEFAULT + role-aware insert > sobrescrever via override hard.
 
+**Deploy + auditoria final (prod):** push v7.50.1→v7.52.1 (`17dde32..c82c7d4`), CI buildou imagem GHCR, webhook Portainer (HTTP 204) → `crm.wsmart.com.br` atualizado. **Auditoria EletropisoV2 (Playwright + DB):** 12 atendentes (agente) + 1 gestor (josafa). Pegou 4 atendentes ainda destravados + 5 sem posição na fila (adicionados pelo painel prod antigo) → corrigidos. Estado final verificado EM PROD: 12 atendentes "SÓ MINHAS" (Rafaella toggles OFF no painel) + fila Vendas ON/10min com os 12 no round-robin (diálogo QueueConfig). Healthcheck CI falhou por 3 mismatches schema pré-existentes (TicketResolutionDrawer/useVendorDetail — não-bloqueador, não toca o build).
+
 ---
 
 ## 2026-05-24 (noite VI) — Atendente só "Minhas" + fila ON + timeout 10min (v7.52.0)
