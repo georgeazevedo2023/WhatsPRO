@@ -13,6 +13,16 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.52.0 (2026-05-24) — Atendente só vê "Minhas" + fila ON (timeout 10min) + paridade UI
+
+Pedido do dono (EletropisoV2 prod): atendentes não devem mais ver conversas não atribuídas/de outros; ativar a fila; subir o timeout de rodízio.
+
+- **Atendente (role `agente`) só vê a aba "Minhas"** — `useHelpdeskInboxes` agora lê `role` e força `canViewUnassigned/canViewAllInDept/canViewAll = false` para `agente`, independente dos flags no banco (durável até pra atendentes novos, cujo default de `can_view_unassigned` é true). `gestor`/`admin` seguem honrando os flags granulares. DB: flags zerados pros 14 agentes existentes (consistência de dados). As tabs "Não atribuídas"/"Todas" somem; só gestor/admin as veem.
+- **Fila ativada** no dept Vendas (EletropisoV2): `queue_mode_enabled=true`. Handoffs entram em round-robin entre os 7 atendentes (queue_position 10-70 atribuídas) e caem na aba "Minhas" de cada um.
+- **Timeout de rodízio 5 → 10 min** — `departments.queue_mode_timeout_minutes=10` no dept + default da coluna 5→10 (migration `20260524180000`) + `TIMEOUT_DEFAULT` 5→10 no `QueueConfig.tsx` (paridade: o painel admin abre mostrando 10 e novos depts começam em 10).
+
+---
+
 ### v7.51.0 (2026-05-24) — Transbordo personalizado (nome+item) + anti-repetição de nome + strip bare tool-call
 
 Fecha o backlog #4 (msg fora-horário personalizada) e o feedback do dono ("o nome repete em toda mensagem"). E2E real prod (sandbox router + EletropisoV2): fluxo completo saudação→qualif→score→carrossel→multi-item→resumo→transbordo, nota 10.

@@ -64,7 +64,10 @@ interface Props {
 
 const TIMEOUT_MIN = 1;
 const TIMEOUT_MAX = 15;
-const TIMEOUT_DEFAULT = 5;
+// Padrão 10 min (2026-05-24, pedido do dono — antes 5). Paridade com o default do
+// banco (departments.queue_mode_timeout_minutes) e com o tempo de pular de um
+// atendente pro próximo na fila round-robin.
+const TIMEOUT_DEFAULT = 10;
 
 function SortableMemberRow({ member, onTogglePaused, onToggleGestorInQueue }: {
   member: Member;

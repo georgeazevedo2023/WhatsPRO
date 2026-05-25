@@ -9,6 +9,22 @@ type: log
 
 ---
 
+## 2026-05-24 (noite VI) — Atendente só "Minhas" + fila ON + timeout 10min (v7.52.0)
+
+**Trigger:** dono mostrou a tela do atendente (Rafaella) vendo "Não atribuídas (10)" e "Todas (50)". Pediu: (1) atendentes só veem "Minhas" (quando cair handoff aparece lá); (2) ativar a fila a partir de agora; (3) timeout de rodízio 5→10min com paridade no painel admin.
+
+**Permissões (role-driven, durável):** `useHelpdeskInboxes` passou a ler `inbox_users.role`; para `agente` força os 3 flags de view = false (não depende dos flags do banco — pega atendente novo também, cujo default `can_view_unassigned` é true). DB: flags zerados pros 14 agentes (consistência). gestor/admin intactos. As abas "Não atribuídas"/"Todas" só aparecem pra gestor/admin agora.
+
+**Fila ON:** dept Vendas (`5240c457`) `queue_mode_enabled=true`; 7 membros ganharam `queue_position` 10-70 (estavam null → round-robin não funcionaria). Handoff entra no rodízio e cai na "Minhas" do atendente da vez.
+
+**Timeout 5→10:** dept atualizado; default da coluna `queue_mode_timeout_minutes` 5→10 (migration `20260524180000`); `TIMEOUT_DEFAULT` 5→10 no `QueueConfig.tsx`. Paridade: painel admin abre em 10, novos depts começam em 10, cron requeue usa 10.
+
+**Validação:** mudanças DB aplicadas e conferidas (queue ON/10min, 14/14 agentes restritos, posições 10-70). Frontend: HMR limpo no dev server, sem erro novo (os erros tsc são dívida pré-existente da tipagem supabase, vite build ignora). Atendente vê o efeito no próximo refresh.
+
+**Frase de retomada:** *"v7.52.0 atendente só Minhas + fila ON + timeout 10min shipped. Pendente: testar com login de atendente real; backlog premium #2 cart engine."*
+
+---
+
 ## 2026-05-24 (noite V) — Transbordo personalizado #4 + anti-repetição de nome + strip bare (v7.51.0)
 
 **Trigger:** dono mandou (1) commitar a v7.50.1 pendente, (2) implementar #4 (msg fora-horário personalizada citando nome+item), (3) E2E 10 cenários no EletropisoV2 até nota 10 cobrindo o fluxo completo (saudação→qualif→contagem→score→1 produto/carrossel→multi-item→resumo pro vendedor→transbordo), (4) testar msg fora-horário com contexto. Durante o E2E o dono testou em paralelo na prod e deu feedback: "funcionou, mas repetiu muito meu nome, em cada mensagem".

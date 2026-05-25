@@ -41,7 +41,7 @@ export function useHelpdeskInboxes(inboxParam: string | null, deptParam: string 
         } else {
           const { data, error } = await supabase
             .from('inbox_users')
-            .select('can_view_all, can_view_unassigned, can_view_all_in_dept, inboxes(id, name, instance_id, webhook_outgoing_url)')
+            .select('role, can_view_all, can_view_unassigned, can_view_all_in_dept, inboxes(id, name, instance_id, webhook_outgoing_url)')
             .eq('user_id', user.id);
           if (!error && data) {
             const newPermissionsMap: Record<string, InboxPermissions> = {};
@@ -49,10 +49,16 @@ export function useHelpdeskInboxes(inboxParam: string | null, deptParam: string 
               .map((d: { inboxes: Inbox | null }) => {
                 const inbox = (d as any).inboxes as Inbox | null;
                 if (inbox) {
+                  // Política (2026-05-24, pedido do dono): role 'agente' (atendente) só
+                  // enxerga "Minhas" — NUNCA "Não atribuídas" nem "Todas", independente
+                  // dos flags no banco. Garante o comportamento até pra atendentes novos
+                  // (cujo default de can_view_unassigned no banco é true). 'gestor'/'admin'
+                  // seguem honrando os flags granulares.
+                  const isAgente = (d as any).role === 'agente';
                   newPermissionsMap[inbox.id] = {
-                    canViewAll: (d as any).can_view_all ?? false,
-                    canViewUnassigned: (d as any).can_view_unassigned ?? true,
-                    canViewAllInDept: (d as any).can_view_all_in_dept ?? true,
+                    canViewAll: isAgente ? false : ((d as any).can_view_all ?? false),
+                    canViewUnassigned: isAgente ? false : ((d as any).can_view_unassigned ?? true),
+                    canViewAllInDept: isAgente ? false : ((d as any).can_view_all_in_dept ?? true),
                   };
                 }
                 return inbox;
