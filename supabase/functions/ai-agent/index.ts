@@ -158,6 +158,21 @@ Deno.serve(async (req) => {
       })
     }
 
+    // R148 (2026-05-25): persistência leve do motivo de saída PRÉ-ROUTER. Os early-returns
+    // entre os steps 1-13 não gravam ai_agent_runs (o router só roda no step ~15) e a maioria
+    // não grava ai_agent_logs — ficavam invisíveis, só com log.info nos edge logs. Foi o que
+    // mascarou o stall do duplicate_response_guard. Isto deixa rastro queryável de QUALQUER
+    // early-return silencioso. Fire-and-forget defensivo: observabilidade nunca quebra o fluxo.
+    const recordEarlyReturn = async (reason: string, extra: Record<string, unknown> = {}) => {
+      try {
+        await supabase.from('ai_agent_logs').insert({
+          agent_id, conversation_id, event: 'early_return',
+          latency_ms: Date.now() - startTime,
+          metadata: { reason, ...extra },
+        })
+      } catch { /* observability é best-effort */ }
+    }
+
     // 1-2. Load agent + conversation + instance in parallel (~300ms saved)
     const [agentResult, conversationResult, instanceResult] = await Promise.all([
       supabase.from('ai_agents').select('*').eq('id', agent_id).maybeSingle(),
@@ -1420,6 +1435,7 @@ ${contextBlock}`
 
       if (greetError) {
         log.warn('try_insert_greeting RPC failed — skipping greeting to avoid duplicate', { error: greetError.message })
+        await recordEarlyReturn('greeting_rpc_error', { error: greetError.message })
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_rpc_error' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -1427,6 +1443,7 @@ ${contextBlock}`
 
       if (!(greetResult as any)?.inserted) {
         log.info('Greeting duplicate detected (atomic lock) — skipping')
+        await recordEarlyReturn('greeting_duplicate')
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'greeting_duplicate' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -1490,7 +1507,7 @@ ${contextBlock}`
       log.info('First interaction — greeting sent + real question, continuing to LLM', { textPreview: incomingText.substring(0, 80) })
     }
 
-    // 9.5 Duplicate response guard — prevents debounce retry from sending duplicate LLM responses
+    // 9.5 Duplicate response guard — prevents debounce RETRY from sending duplicate LLM responses
     // Only checks NON-greeting outgoing messages in last 15s (greeting external_id starts with "ai_greeting_")
     // Greetings are excluded because they should NOT block the next real message from being processed
     const greetingBlockEntered = (shouldGreet && !isReturningLead) || isReturningLead
@@ -1498,18 +1515,54 @@ ${contextBlock}`
     if (!justSentGreetingContinuing) {
       const { data: recentOutMsgs } = await supabase
         .from('conversation_messages')
-        .select('id, external_id')
+        .select('id, external_id, created_at')
         .eq('conversation_id', conversation_id)
         .eq('direction', 'outgoing')
         .gte('created_at', new Date(Date.now() - 15000).toISOString())
+        .order('created_at', { ascending: false })
         .limit(5)
       // Filter out greetings and out-of-hours messages — only count real AI responses
       const realResponses = (recentOutMsgs || []).filter(m =>
         !m.external_id?.startsWith('ai_greeting_') && !m.external_id?.startsWith('ai_oof_'))
       if (realResponses.length > 0) {
-        log.info('Duplicate guard: AI response sent in last 15s — stopping', { count: realResponses.length })
-        return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate_response_guard' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        // R148 (2026-05-25): este guard existe pra barrar RETRY do debounce (o MESMO
+        // input processado 2x — ex.: 5xx gateway timeout faz o caller reprocessar),
+        // NÃO um follow-up legítimo. Antes ele bloqueava QUALQUER processamento dentro
+        // de 15s de uma resposta real → derrubava SILENCIOSAMENTE a 2ª msg do lead
+        // enviada logo após o bot responder (stall sem ai_agent_runs nem resposta).
+        // Fonte do "fora-de-horário": o prefixo ai_oof_ acima é código MORTO (nunca é
+        // atribuído), então a msg de transbordo fora-horário contava como resposta real.
+        // Fix na fonte: só bloqueia se a última resposta real foi enviada DEPOIS da
+        // mensagem de entrada mais recente do lead (= já respondemos tudo → é retry).
+        // Se existe msg do lead mais nova que a última resposta → follow-up genuíno → processa.
+        const lastResponseAt = new Date(realResponses[0].created_at as string).getTime()
+        const { data: lastIncoming } = await supabase
+          .from('conversation_messages')
+          .select('created_at')
+          .eq('conversation_id', conversation_id)
+          .eq('direction', 'incoming')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        const lastIncomingAt = lastIncoming?.created_at
+          ? new Date(lastIncoming.created_at as string).getTime()
+          : 0
+        if (lastResponseAt >= lastIncomingAt) {
+          // Já respondemos a mensagem de entrada mais recente → é retry do debounce. Bloqueia.
+          log.info('Duplicate guard: última entrada já respondida — retry, stopping', {
+            count: realResponses.length, last_response_at: realResponses[0].created_at, last_incoming_at: lastIncoming?.created_at ?? null,
+          })
+          await recordEarlyReturn('duplicate_response_guard', {
+            count: realResponses.length,
+            last_response_at: realResponses[0].created_at,
+            last_incoming_at: lastIncoming?.created_at ?? null,
+          })
+          return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'duplicate_response_guard' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+        log.info('Duplicate guard: follow-up genuíno (msg do lead mais nova que a resposta) — processando', {
+          last_response_at: realResponses[0].created_at, last_incoming_at: lastIncoming?.created_at ?? null,
         })
       }
     }

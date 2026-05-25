@@ -9,6 +9,22 @@ type: log
 
 ---
 
+## 2026-05-25 — Fix achado #2 early-return silencioso na fonte + observability + badge "fora de horário" (v7.52.4)
+
+**Trigger:** dono pediu (1) abrir localhost + ler vault/doc + status; (2) atacar o achado #2 (early-return silencioso, frase de retomada), **auditando antes**; (3) no meio, via screenshot, perguntou por que o badge mostrava "Alberto (pausado)" se logado como Alberto ele não estava pausado; (4) "faça os dois". Deploy escolhido: **direto em prod**.
+
+**Auditoria (achado #2):** mapeei todos os early-returns entre as linhas 127–2182 do `ai-agent/index.ts` (router/`logRouterRun`→`ai_agent_runs` só roda a partir de ~2182, então qualquer return antes = sintoma exato: rápido, sem `ai_agent_runs`, sem resposta). **Causa raiz: `duplicate_response_guard` (~1508).** Ele existe pra barrar retry do debounce, mas só perguntava "mandei resposta real nos últimos 15s?" — sem distinguir retry (mesmo input) de **follow-up novo**. Lead manda 2ª msg 2s após o bot responder → debounce processa lote separado → guard acha a resposta do turno anterior nos 15s → **descarta silenciosamente**. Bate 577ms (só queries), sem `ai_agent_runs` (pré-router), e — crucial — **não grava nem `ai_agent_logs`** (só `log.info`), por isso a sessão anterior não achou rastro. **Achado secundário:** o prefixo `ai_oof_` no filtro do guard é **código morto** (grep no repo: só aparece na linha do filtro, nunca é atribuído) → msg de fora-horário contava como resposta real (origem do "fora-de-horário" no cenário).
+
+**Fix na fonte:** guard agora pega `created_at` da última resposta real + `created_at` da última msg incoming; bloqueia **só** se `lastResponseAt >= lastIncomingAt` (já respondemos a entrada mais recente → retry). Se há msg do lead mais nova → processa (follow-up). Robusto pro cenário "msg chega depois da resposta". **Observability:** `recordEarlyReturn(reason, extra)` persiste em `ai_agent_logs` (`event='early_return'`) nos returns silenciosos pré-router (duplicate_guard/greeting_rpc_error/greeting_duplicate). Migration `20260525000000` adiciona o event ao CHECK (R88).
+
+**Badge fila (UX):** descoberto que "(pausado)" no badge vem de `handoff_queue_events.paused_at`, setado SÓ pelo cron `requeue-conversations` Case B (horário fechou) — **NÃO** é a pausa pessoal do atendente (`department_members.queue_paused` / botão header). Colisão de palavra confundia o gestor. `ConversationItem.tsx`: badge fora-horário agora é ícone de relógio + "(fora de horário)" + tooltip. Removido import `Pause` órfão.
+
+**Validação:** `deno check ai-agent/index.ts` limpo. Vitest 1398 pass / 9 fails **pré-existentes** (FormBuilder, useForms, e testes `_shared` de detecção que importam módulos Deno — vitest não resolve; zero overlap com os 3 arquivos tocados). Migration aplicada em prod (`prfcbfumyrrycsrcrvms`) e constraint conferido (`has_early_return=true`). **Deploy edge fn pendente** (CLI sem token no ambiente — entregue ao dono o comando). Frontend (badge) via CI no push.
+
+**Frase de retomada:** *"v7.52.4 early-return guard corrigido na fonte + observability early_return + badge fora-de-horário. CONFIRMAR: deploy do ai-agent foi feito (CLI). Depois: validar `ai_agent_logs event=early_return` em prod + premium #2 cart engine."*
+
+---
+
 ## 2026-05-24 (noite VIII) — 1 produto = foto única com legenda (v7.52.3) + investigação stall #2
 
 **Trigger:** dono pediu atacar os 2 achados + ver doc UAZAPI + testar foto de 1 produto com legenda + doc/commit/deploy + frase de retomada (vai encerrar). **Aviso do dono: NÃO cadastrar produtos sem autorização** (ele trocou o catálogo) — ver [[feedback_no_catalog_products_without_authorization]].
@@ -267,19 +283,9 @@ Router agora despacha as **7 intents pra specialists dedicados**; monolito vira 
 
 ---
 
-## 2026-05-24 (madrugada) — EletropisoV2 router PROD + 36 erros TS zerados + Sprint E.1 memória longa (v7.45.1 + v7.46.0)
+## 2026-05-24 (madrugada) — EletropisoV2 router PROD + 36 erros TS + E.1 memória longa (arquivado)
 
-Sessão contínua via canal de controle WhatsApp. Usuário mandou: migrar EletropisoV2 pra router em prod (sem shadow), corrigir os 36 erros TS, e seguir pro próximo sprint.
-
-**v7.45.1:** EletropisoV2 (`1062059a`) → `routing_mode='router'` em PROD (config validada: 24 cats + business_info + greeting). Rollback=monolith. Achado: monolito dava "Em que posso ajudar?" genérico a perguntas de produto ("telha brasilit") — router corrige. **36 erros TS do ai-agent zerados** (deno check 36→0, type-only, vitest sem regressão): SendTextMsgFn/SendPresenceFn/Logger→object + casts any em conversation/contact/instance/counterRow/greetResult + pfq local (CFA never) + loadActiveProfile(supabase as any) TS2589. Commits daf6502+ec8e9c4+6424489.
-
-**v7.46.0 — Sprint E.1 (memória longa por lead):** pesquisa (Mem0/Zep/LangMem) → memória ESTRUTURADA, não vector (domínio bounded + Postgres). lead_profiles já era a tabela. migration aditiva (products_seen/qualification_stage/memory_updated_at). `leadMemory.ts`: buildLeadMemoryBlock injeta bloco key:value no topo de todo specialist; consolidateLeadMemory (fire-and-forget, sem LLM) deriva stage/products/interests de tool calls reais. greeting refinado p/ returning lead. **E2E real**: turno1 "sou Carlos, queria tinta" → captura (Carlos/tintas/3 produtos); turno2 retorno (conv limpa, lead_profiles mantido) → "Claro que lembro! Você estava vendo tintas, quer continuar?". 334 testes agent verdes. commit f6dcd94.
-
-**Andamento Plano Orquestrador:** ~85% → **~88%** (Sprint E.1 de 3 pilares do E).
-
-**Pendências:** Sprint E.2 (proatividade) + E.3 (RAG); monitorar EletropisoV2 router (0 runs ainda, tráfego baixo madrugada); D6 aposentar monolito após 30d; nome capturado quando vem junto com produto (product_specialist não persiste — edge case). 36 erros pré-existentes do whatsapp-webhook (fora de escopo).
-
-**Frase de retomada:** *"Sprint E.1 memória longa shipped (v7.46.0). Próximo: Sprint E.2 proatividade (follow-ups) OU E.3 RAG; monitorar EletropisoV2 router em prod"*.
+> Movido pra [[wiki/log-arquivo-2026-05-24-sprintd-e1]] (hard limit 300). v7.45.1 (EletropisoV2→router PROD + 36 erros TS zerados) + v7.46.0 (Sprint E.1 memória longa estruturada por lead).
 
 ---
 

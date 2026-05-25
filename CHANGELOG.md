@@ -13,6 +13,16 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.52.4 (2026-05-25) — Fix achado #2 (early-return silencioso) na fonte + observability + badge "fora de horário"
+
+Fecha o achado #2 deferido na v7.52.3: a 2ª msg do lead enviada ~2s após uma resposta caía no **`duplicate_response_guard`** e retornava **silenciosamente** (sem `ai_agent_runs`, sem resposta, sem rastro em tabela nenhuma — só `log.info`). Causa raiz confirmada por auditoria de código.
+
+- **Fix na fonte (`ai-agent/index.ts`):** o guard existe pra barrar **retry do debounce** (mesmo input 2x), não follow-up legítimo. Antes bloqueava QUALQUER processamento dentro de 15s de uma resposta real → derrubava a 2ª msg. Agora só bloqueia se a última resposta real veio **depois** da mensagem de entrada mais recente do lead (= retry); se há msg do lead mais nova que a resposta → **processa** (follow-up genuíno). Achado secundário documentado: o prefixo `ai_oof_` no filtro era **código morto** (nunca atribuído) — origem do "fora-de-horário" no cenário.
+- **Observability (`recordEarlyReturn` + migration `20260525000000`):** persiste o motivo de saída dos early-returns pré-router em `ai_agent_logs` (`event='early_return'` + `latency_ms` + metadata). Cobre duplicate_guard / greeting_rpc_error / greeting_duplicate (empty_response já gravava). Novo event adicionado ao CHECK constraint (evita R88, INSERT silencioso falho).
+- **UX badge da fila (`ConversationItem.tsx`):** o badge "Em fila — {nome} (pausado)" colidia com o toggle pessoal "Pausar/Disponível" do atendente e confundia o gestor. O `paused_at` do `handoff_queue_events` é setado SÓ pelo cron `requeue-conversations` (Case B = **horário fechou**), não tem relação com a pausa do atendente. Agora mostra ícone de **relógio** + **"(fora de horário)"** + tooltip explicando que é o rodízio congelado fora-de-horário.
+
+---
+
 ### v7.52.3 (2026-05-24) — 1 produto = foto única com legenda (send_media), não carrossel
 
 Fecha o achado recorrente: 1 produto com ≥2 fotos virava **carrossel multi-foto** (parecia vários produtos). Regra do dono: **1 produto = `send/media` (1ª foto + legenda título/preço); 2+ produtos = carrossel**.

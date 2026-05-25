@@ -5,7 +5,7 @@ import { smartDateBR } from '@/lib/dateUtils';
 import { ConversationLabels } from './ConversationLabels';
 import type { Label, Conversation } from '@/types';
 import { PRIORITY_COLOR_MAP } from '@/lib/constants';
-import { UserCheck, StickyNote, Building2, Clock, Hourglass, Pause } from 'lucide-react';
+import { UserCheck, StickyNote, Building2, Clock, Hourglass } from 'lucide-react';
 
 interface QueueBadge {
   assignee_name: string | null;
@@ -118,11 +118,20 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {/* D30: badge "Em fila" tem prioridade visual sobre agentName */}
             {queueBadge && queueBadge.assignee_name && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/40 rounded px-1 py-0.5 tabular-nums">
-                {queueBadge.paused ? <Pause className="w-2.5 h-2.5" /> : <Hourglass className="w-2.5 h-2.5" />}
+              <span
+                className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/40 rounded px-1 py-0.5 tabular-nums"
+                title={queueBadge.paused
+                  ? 'Rodízio da fila congelado — fora do horário de atendimento. NÃO é o atendente que está pausado; o relógio reinicia quando o horário reabrir.'
+                  : undefined}
+              >
+                {/* queueBadge.paused vem de handoff_queue_events.paused_at, que o cron
+                    requeue-conversations seta SÓ no Case B (horário fechou). Não tem
+                    relação com a pausa pessoal do atendente (department_members.queue_paused
+                    / botão "Pausar" do header). Por isso "fora de horário", não "pausado". */}
+                {queueBadge.paused ? <Clock className="w-2.5 h-2.5" /> : <Hourglass className="w-2.5 h-2.5" />}
                 Em fila — {queueBadge.assignee_name}
                 {queueBadge.paused
-                  ? ' (pausado)'
+                  ? ' (fora de horário)'
                   : queueBadge.seconds_remaining !== null && ` (${fmtCountdown(queueBadge.seconds_remaining)})`}
               </span>
             )}
