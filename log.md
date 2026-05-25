@@ -19,9 +19,9 @@ type: log
 
 **Badge fila (UX):** descoberto que "(pausado)" no badge vem de `handoff_queue_events.paused_at`, setado SÓ pelo cron `requeue-conversations` Case B (horário fechou) — **NÃO** é a pausa pessoal do atendente (`department_members.queue_paused` / botão header). Colisão de palavra confundia o gestor. `ConversationItem.tsx`: badge fora-horário agora é ícone de relógio + "(fora de horário)" + tooltip. Removido import `Pause` órfão.
 
-**Validação:** `deno check ai-agent/index.ts` limpo. Vitest 1398 pass / 9 fails **pré-existentes** (FormBuilder, useForms, e testes `_shared` de detecção que importam módulos Deno — vitest não resolve; zero overlap com os 3 arquivos tocados). Migration aplicada em prod (`prfcbfumyrrycsrcrvms`) e constraint conferido (`has_early_return=true`). **Deploy edge fn pendente** (CLI sem token no ambiente — entregue ao dono o comando). Frontend (badge) via CI no push.
+**Validação + deploy:** `deno check ai-agent/index.ts` limpo. Vitest 1398 pass / 9 fails **pré-existentes** (FormBuilder, useForms, e testes `_shared` de detecção que importam módulos Deno — vitest não resolve; zero overlap com os 3 arquivos tocados). Migration aplicada em prod (`prfcbfumyrrycsrcrvms`) e constraint conferido (`has_early_return=true`). **ai-agent deployado via CLI** (token em `~/.claude.json`; MCP proibido por causa dos imports `_shared`). Commit `5884681` + push → CI rebuilda o frontend (badge). Deploy escolhido: direto em prod (sem E2E na sandbox).
 
-**Frase de retomada:** *"v7.52.4 early-return guard corrigido na fonte + observability early_return + badge fora-de-horário. CONFIRMAR: deploy do ai-agent foi feito (CLI). Depois: validar `ai_agent_logs event=early_return` em prod + premium #2 cart engine."*
+**Frase de retomada:** *"v7.52.4 SHIPPED (guard na fonte + observability early_return + badge fora-de-horário; migration+edge fn+front em prod). Depois: validar `ai_agent_logs event=early_return` aparecendo em prod (próximo follow-up real) + premium #2 cart engine."*
 
 ---
 
