@@ -13,6 +13,17 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.52.1 (2026-05-24) — Visibilidade do atendente vira controlável pelos toggles do admin (revisa v7.52.0)
+
+Ajuste após o dono perguntar "pra atendente não ver não atribuídas/todas, é só desmarcar no painel?". A v7.52.0 tinha uma **regra dura** (role agente sempre só "Minhas", ignorando os toggles) — o que deixava os 3 toggles de "Visibilidade de conversas" do UsersTab **mortos** pra atendente. Modelo escolhido pelo dono: **os toggles mandam** (flexível).
+
+- **Removida a regra dura** em `useHelpdeskInboxes` — volta a honrar os flags `can_view_*`. Default na ausência de valor agora é **false** (era true) → least privilege.
+- **Defaults por papel no UsersTab** (`ROLE_DEFAULT_VISIBILITY`): ao adicionar/criar membro ou trocar papel, `agente`→tudo false (só Minhas), `gestor`→não-atribuídas+todas-no-depto, `admin`→global. Admin libera/restringe caso a caso pelos toggles depois.
+- **Default das colunas** `inbox_users.can_view_unassigned`/`can_view_all_in_dept` → **false** (migration `20260524190000`, safe-by-default mesmo em inserts fora da UI). `can_view_all` já era false.
+- Resultado: desmarcar (ou marcar) os toggles no painel admin controla de verdade o que o atendente vê; atendente novo já nasce restrito a "Minhas".
+
+---
+
 ### v7.52.0 (2026-05-24) — Atendente só vê "Minhas" + fila ON (timeout 10min) + paridade UI
 
 Pedido do dono (EletropisoV2 prod): atendentes não devem mais ver conversas não atribuídas/de outros; ativar a fila; subir o timeout de rodízio.

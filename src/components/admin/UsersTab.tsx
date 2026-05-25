@@ -40,6 +40,15 @@ type InboxRole = Database['public']['Enums']['inbox_role'];
 type AppRole = 'super_admin' | 'gerente' | 'user';
 
 const ROLE_LABELS: Record<InboxRole, string> = { admin: 'Admin', gestor: 'Gestor', agente: 'Agente' };
+
+// Visibilidade padrão por papel (2026-05-24, pedido do dono): atendente (agente)
+// nasce restrito a "Minhas" — admin libera caso a caso pelos toggles. Gestor vê
+// tudo no depto; admin tem acesso global. Aplicado em insert + troca de papel.
+const ROLE_DEFAULT_VISIBILITY: Record<InboxRole, { can_view_unassigned: boolean; can_view_all_in_dept: boolean; can_view_all: boolean }> = {
+  agente: { can_view_unassigned: false, can_view_all_in_dept: false, can_view_all: false },
+  gestor: { can_view_unassigned: true, can_view_all_in_dept: true, can_view_all: false },
+  admin: { can_view_unassigned: true, can_view_all_in_dept: true, can_view_all: true },
+};
 const ROLE_COLORS: Record<InboxRole, string> = {
   admin: 'bg-primary/10 text-primary border-primary/20',
   gestor: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
@@ -225,7 +234,7 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
         if (error) throw error;
         toast.success('Removido da caixa de entrada');
       } else {
-        const { error } = await supabase.from('inbox_users').insert({ user_id: user.id, inbox_id: inboxId, role: 'agente' as InboxRole });
+        const { error } = await supabase.from('inbox_users').insert({ user_id: user.id, inbox_id: inboxId, role: 'agente' as InboxRole, ...ROLE_DEFAULT_VISIBILITY.agente });
         if (error) throw error;
         toast.success('Adicionado à caixa de entrada');
       }
@@ -241,7 +250,11 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
     const key = `${user.id}-${inboxId}`;
     setSavingInboxMembership(key);
     try {
-      const { error } = await supabase.from('inbox_users').update({ role: newRole }).eq('user_id', user.id).eq('inbox_id', inboxId);
+      // Troca de papel reseta a visibilidade pro padrão do novo papel (agente→só
+      // Minhas; gestor/admin→ampliado). Admin ainda pode ajustar pelos toggles depois.
+      const { error } = await supabase.from('inbox_users')
+        .update({ role: newRole, ...ROLE_DEFAULT_VISIBILITY[newRole] })
+        .eq('user_id', user.id).eq('inbox_id', inboxId);
       if (error) throw error;
       toast.success('Papel na caixa atualizado');
       fetchUsers();
@@ -325,7 +338,7 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
         }
         // Vincular caixa de entrada
         if (newUserInboxId) {
-          await supabase.from('inbox_users').insert({ user_id: newUserId, inbox_id: newUserInboxId, role: 'agente' as InboxRole });
+          await supabase.from('inbox_users').insert({ user_id: newUserId, inbox_id: newUserInboxId, role: 'agente' as InboxRole, ...ROLE_DEFAULT_VISIBILITY.agente });
         }
         // Vincular departamentos
         if (newUserDeptIds.size > 0) {

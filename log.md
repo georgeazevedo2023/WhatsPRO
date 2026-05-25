@@ -9,6 +9,16 @@ type: log
 
 ---
 
+## 2026-05-24 (noite VI-b) — Visibilidade controlável pelos toggles (v7.52.1, revisa a dura)
+
+**Trigger:** dono apontou o painel UsersTab (3 toggles "Visibilidade de conversas") e perguntou se desmarcar ali era o controle. Percebeu o conflito: a v7.52.0 tinha regra DURA (agente sempre só Minhas) que ignorava os toggles → toggles "mortos". Dono escolheu modelo **flexível (toggles mandam)**.
+
+**Mudança:** removi a regra dura do `useHelpdeskInboxes` (volta a honrar `can_view_*`, default ausente→false). `ROLE_DEFAULT_VISIBILITY` no UsersTab: insert/troca-de-papel seta visibilidade por papel (agente→tudo false, gestor→depto, admin→global). Default das colunas `can_view_unassigned`/`can_view_all_in_dept`→false (migration `20260524190000`, safe-by-default). Net: admin controla pelos toggles; atendente novo nasce restrito; gestor/admin amplos.
+
+**Lição:** regra dura por role que ignora a UI de permissões existente = UX contraditória (toggles que não fazem nada). Quando já existe mecanismo granular (toggles), reforçar via DEFAULT + role-aware insert > sobrescrever via override hard.
+
+---
+
 ## 2026-05-24 (noite VI) — Atendente só "Minhas" + fila ON + timeout 10min (v7.52.0)
 
 **Trigger:** dono mostrou a tela do atendente (Rafaella) vendo "Não atribuídas (10)" e "Todas (50)". Pediu: (1) atendentes só veem "Minhas" (quando cair handoff aparece lá); (2) ativar a fila a partir de agora; (3) timeout de rodízio 5→10min com paridade no painel admin.
