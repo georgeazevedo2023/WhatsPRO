@@ -18,7 +18,7 @@
  * Sem mudança de comportamento — equivalência semântica linha-a-linha.
  */
 
-import { generateCarouselCopies, cleanProductTitle } from '../../carousel.ts'
+import { cleanProductTitle } from '../../carousel.ts'
 import { fetchWithTimeout } from '../../fetchWithTimeout.ts'
 import { mergeTags, escapeLike } from '../../agentHelpers.ts'
 import { evaluateSearchGuard } from '../../searchGuard.ts'
@@ -605,133 +605,12 @@ export async function searchProducts(
     mediaSent = true
   }
 
-  if (withImages.length === 1 && (withImages[0].images as string[])?.length >= 2) {
-    // Single product with multiple photos → carousel multi-foto
-    const p = withImages[0]
-    const photos = (p.images as string[]).slice(0, 5)
-    const copies = await generateCarouselCopies(p, photos.length)
-    const btn1Text = agent.carousel_button_1 || 'Eu quero!'
-    const btn2Text = agent.carousel_button_2 || ''
-    const carousel = photos.map((img: string, idx: number) => ({
-      text:
-        copies[idx] ||
-        `${cleanProductTitle(p.title)}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
-      image: img,
-      buttons: [
-        { id: safeBtnId(`${p.title}_${idx}`), text: btn1Text, type: 'REPLY' },
-        ...(btn2Text
-          ? [{ id: safeBtnId(`info_${p.title}_${idx}`), text: btn2Text, type: 'REPLY' }]
-          : []),
-      ],
-    }))
-    log.info('Auto-carousel: single product multi-photo', {
-      title: p.title,
-      photoCount: photos.length,
-    })
-
-    const carouselMsg = agent.carousel_text || 'Confira nossas opções:'
-    const rawNum1 = contact.jid.split('@')[0]
-    const carouselPayloads = [
-      { phone: contact.jid, message: carouselMsg, carousel },
-      { number: contact.jid, text: carouselMsg, carousel },
-      { phone: rawNum1, message: carouselMsg, carousel },
-      { number: rawNum1, text: carouselMsg, carousel },
-    ]
-    for (const payload of carouselPayloads) {
-      try {
-        const res = await fetchWithTimeout(
-          `${uazapiUrl}/send/carousel`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', token: instance.token },
-            body: JSON.stringify(payload),
-          },
-          10000,
-        )
-        const resBody = await res.text()
-        log.info('Auto-carousel attempt', {
-          variant: Object.keys(payload)[0],
-          status: res.status,
-          body: resBody.substring(0, 120),
-        })
-        if (res.ok && !resBody.toLowerCase().includes('missing')) {
-          mediaSent = true
-          mediaState.carouselSent = true
-          break
-        }
-      } catch (err) {
-        log.error?.('Carousel attempt failed', { error: (err as Error).message })
-      }
-    }
-    if (mediaSent) {
-      const carouselMediaUrl1 = JSON.stringify({
-        message: agent.carousel_text || 'Confira:',
-        cards: carousel,
-      })
-      await supabase.from('conversation_messages').insert({
-        conversation_id,
-        direction: 'outgoing',
-        content: agent.carousel_text || 'Confira:',
-        media_type: 'carousel',
-        media_url: carouselMediaUrl1,
-        external_id: `ai_carousel_${Date.now()}`,
-      })
-      broadcastEvent({
-        conversation_id,
-        inbox_id: conversation.inbox_id,
-        direction: 'outgoing',
-        content: agent.carousel_text || 'Confira:',
-        media_type: 'carousel',
-        media_url: carouselMediaUrl1,
-      })
-    } else {
-      // #10: Carousel failed → fallback to individual photos
-      log.warn('Auto-carousel (multi-photo) all variants failed — sending individual photos')
-      for (const img of photos.slice(0, 3)) {
-        try {
-          const fbRes = await fetchWithTimeout(
-            `${uazapiUrl}/send/media`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', token: instance.token },
-              body: JSON.stringify({
-                number: contact.jid,
-                type: 'image',
-                file: img,
-                text: cleanProductTitle(p.title),
-              }),
-            },
-            10000,
-          )
-          if (fbRes.ok) {
-            mediaSent = true
-            log.info('Fallback photo sent')
-          }
-        } catch {
-          /* continue */
-        }
-      }
-      if (mediaSent) {
-        await supabase.from('conversation_messages').insert({
-          conversation_id,
-          direction: 'outgoing',
-          content: cleanProductTitle(p.title),
-          media_type: 'image',
-          media_url: photos[0],
-          external_id: `ai_fallback_${Date.now()}`,
-        })
-        broadcastEvent({
-          conversation_id,
-          inbox_id: conversation.inbox_id,
-          direction: 'outgoing',
-          content: cleanProductTitle(p.title),
-          media_type: 'image',
-          media_url: photos[0],
-        })
-      }
-    }
-  } else if (withImages.length === 1) {
-    // Single product 1 photo → send/media
+  if (withImages.length === 1) {
+    // #1 (2026-05-24, pedido do dono): 1 PRODUTO = SEMPRE foto única com legenda.
+    // Antes, 1 produto com ≥2 fotos virava carrossel multi-foto (confuso — parecia
+    // vários produtos). Regra agora: 1 produto → send/media (1ª foto + legenda
+    // título/preço); 2+ produtos → carrossel (branch abaixo). Foto extra do mesmo
+    // produto não justifica carrossel.
     const p = withImages[0]
     const title = cleanProductTitle(p.title)
     const price = `R$ ${p.price?.toFixed(2) || 'Sob consulta'}`

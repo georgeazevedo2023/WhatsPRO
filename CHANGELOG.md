@@ -13,6 +13,16 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.52.3 (2026-05-24) — 1 produto = foto única com legenda (send_media), não carrossel
+
+Fecha o achado recorrente: 1 produto com ≥2 fotos virava **carrossel multi-foto** (parecia vários produtos). Regra do dono: **1 produto = `send/media` (1ª foto + legenda título/preço); 2+ produtos = carrossel**.
+
+- **`searchProducts.ts`**: removido o branch "1 produto multi-foto → carrossel" (~125 lin). Agora todo caso de 1 produto cai no `send/media` com a 1ª imagem + legenda `"{título}\nR$ {preço}"` (formato confirmado na doc UAZAPI `/send/media`: `{number, type:"image", file, text}`). Import órfão `generateCarouselCopies` removido.
+- **E2E real validado:** "quero cuba de apoio quadrada" → chega **foto única** (`media_type=image`) com legenda "Cuba de Apoio Quadrada Branco – Luzarte\nR$ 119.90" + texto consultivo. Antes vinha carrossel. 69 testes verdes, deno 0, deploy CLI.
+- **Achado #2 deferido (não-fix):** stall ao mandar 2ª msg ~2s após resposta de um turno que atingiu score, fora-de-horário → ai-agent early-returna sem output (recupera na retry). Investigado: não é msg perdida no debounce (a msg É processada, 577ms, mas early-return silencioso pré-router). Causa exata exige mais tracing; impacto real baixo. Resume pra próxima sessão.
+
+---
+
 ### v7.52.2 (2026-05-24) — Fix leak `_fora_hora` no transbordo + validação E2E (2 cenários + loop da fila)
 
 E2E real (sandbox router) descobriu 1 leak: o handoff forçado fora-de-horário (R120) monta o reason como `"{texto}_fora_hora"` e o sufixo de código ficava COLADO na última palavra, vazando pro lead ("...parede interna**_fora_hora**"). `cleanHandoffItem` agora remove sufixos de código conhecidos (`_fora_hora`/`_sem_resultado`/`_offline`…) e qualquer cauda snake_case colada. +1 teste (39 total).

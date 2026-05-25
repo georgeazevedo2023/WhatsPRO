@@ -9,6 +9,18 @@ type: log
 
 ---
 
+## 2026-05-24 (noite VIII) — 1 produto = foto única com legenda (v7.52.3) + investigação stall #2
+
+**Trigger:** dono pediu atacar os 2 achados + ver doc UAZAPI + testar foto de 1 produto com legenda + doc/commit/deploy + frase de retomada (vai encerrar). **Aviso do dono: NÃO cadastrar produtos sem autorização** (ele trocou o catálogo) — ver [[feedback_no_catalog_products_without_authorization]].
+
+**Fix #1 (shipped):** `searchProducts.ts` — 1 produto com ≥2 fotos virava carrossel multi-foto. Removido esse branch (~125 lin); todo caso de 1 produto agora usa `/send/media` (1ª foto + legenda título/preço). Formato confirmado na doc UAZAPI local (`{number, type:"image", file, text}`) — a doc online é JS-render, não lê via fetch. **E2E real:** "quero cuba de apoio quadrada" → foto única (media_type=image) + legenda "Cuba...\nR$ 119.90" + texto consultivo. Antes: carrossel. 69 testes verdes, deno 0, deploy CLI v(nova).
+
+**Fix #2 (investigado, deferido):** stall = lead atinge score na categoria A, manda 2ª msg ~2s após a resposta (durante processamento), fora-de-horário → ai-agent roda 577ms mas early-returna SEM output e SEM ai_agent_runs (não chega no router). NÃO é msg perdida no debounce (a msg é processada). Causa exata = early-return silencioso pré-router (provável interação exit_action/score + concorrência). Não-óbvio, intermitente, recupera na retry, impacto real baixo. Documentado pra próxima sessão em vez de fix não-verificado.
+
+**Frase de retomada:** *"v7.52.3 1-produto=foto-única shipped. Atacar achado #2: ai-agent early-return silencioso (577ms, sem ai_agent_runs nem response) quando 2ª msg chega ~2s após resposta de turno que atingiu score, fora-de-horário — adicionar log no topo do ai-agent pra achar o ponto de return, depois corrigir. Premium #2 cart engine no backlog."*
+
+---
+
 ## 2026-05-24 (noite VII) — E2E 2 cenários + loop da fila validado nota 10 + fix leak _fora_hora (v7.52.2)
 
 **Trigger:** dono pediu doc/commit/deploy + 2 cenários E2E completos (Playwright) do fluxo (saudação→qualif→score→1produto/carrossel→multi-item→resumo→transbordo + msg fora-horário) + testar o LOOP da fila (virada + timeout 00:00→próximo) e corrigir até nota 10.
