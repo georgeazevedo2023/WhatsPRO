@@ -117,48 +117,45 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
   const conversationId = conversation?.id;
 
-  // Fetch latest N messages with 10s timeout to prevent stuck skeletons
+  // Fetch latest N messages com timeout de WALL-CLOCK (não só AbortController).
+  //
+  // Bug do skeleton infinito (2026-05-26): quando a sessão do supabase-js fica
+  // "zumbi" (refresh token inválido), a query REST trava ANTES do fetch — na
+  // resolução assíncrona do token. O AbortController sozinho NÃO cobre esse await
+  // (ele só aborta o fetch da rede, que nem começou), então `finally` nunca rodava
+  // e `loading` ficava preso → skeleton eterno. Promise.race com um timer que
+  // REJEITA garante que `loading` sempre vira false e cai no estado de erro (com
+  // "Tentar novamente"), independente de o promise interno resolver ou não.
   const fetchMessages = useCallback(async () => {
     if (!conversationId) return;
     setLoading(true);
     setFetchError(false);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      const { data, error } = await supabase
+      const query = supabase
         .from('conversation_messages')
         .select('*')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
         .limit(MESSAGES_PAGE_SIZE)
         .abortSignal(controller.signal);
-      clearTimeout(timeout);
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error('fetch_messages_timeout'));
+        }, 12000);
+      });
+      const { data, error } = await Promise.race([query, timeout]) as { data: Message[] | null; error: unknown };
       if (error) throw error;
       const msgs = ((data as Message[]) || []).slice().reverse();
       setMessages(msgs);
       setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        console.warn('[ChatPanel] Fetch messages timed out, retrying...');
-        // Retry once on timeout
-        try {
-          const { data } = await supabase
-            .from('conversation_messages')
-            .select('*')
-            .eq('conversation_id', conversationId)
-            .order('created_at', { ascending: false })
-            .limit(MESSAGES_PAGE_SIZE);
-          const msgs = ((data as Message[]) || []).slice().reverse();
-          setMessages(msgs);
-          setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
-        } catch {
-          setFetchError(true);
-        }
-      } else {
-        setFetchError(true);
-        handleError(err, 'Erro ao carregar mensagens', 'Fetch messages');
-      }
+      console.warn('[ChatPanel] Falha ao carregar mensagens (timeout ou erro)', err);
+      setFetchError(true);
     } finally {
+      if (timer) clearTimeout(timer);
       setLoading(false);
     }
   }, [conversationId]);

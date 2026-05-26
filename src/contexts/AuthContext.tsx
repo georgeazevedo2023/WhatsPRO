@@ -98,16 +98,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
-    // THEN check for existing session (runs once)
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchUserData(session.user.id);
-      }
-      setLoading(false);
-      initialDone = true;
+    // THEN check for existing session (runs once), com TIMEOUT de wall-clock.
+    //
+    // Bug da sessão zumbi (2026-05-26): se o refresh token está inválido e a
+    // resolução de sessão do supabase-js TRAVA (em vez de falhar limpo), o
+    // getSession() nunca resolve → `loading` fica preso em true → o app inteiro
+    // congela no spinner do ProtectedRoute. O race garante que, se a sessão não
+    // resolver em 8s, tratamos como SEM sessão e limpamos o token zumbi do
+    // localStorage (signOut) — o ProtectedRoute então redireciona pro /login.
+    const sessionTimeout = new Promise<{ data: { session: Session | null } }>((resolve) => {
+      setTimeout(() => resolve({ data: { session: null } }), 8000);
     });
+    Promise.race([supabase.auth.getSession(), sessionTimeout])
+      .then(async ({ data: { session } }) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchUserData(session.user.id);
+        }
+        setLoading(false);
+        initialDone = true;
+      })
+      .catch(async (err) => {
+        // Sessão zumbi / refresh falho → limpa estado e token persistido.
+        console.warn('[Auth] getSession falhou/travou — limpando sessão', err);
+        try { await supabase.auth.signOut(); } catch { /* best-effort */ }
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        initialDone = true;
+      });
 
     return () => subscription.unsubscribe();
   }, []);

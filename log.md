@@ -9,6 +9,24 @@ type: log
 
 ---
 
+## 2026-05-26 — "Catálogo é minoria": nunca negar + handoff determinístico + skeleton/sessão-zumbi (v7.55.0)
+
+**Trigger:** dono mandou auditar (1) skeleton infinito no Helpdesk e (2) IA dizendo "No momento não encontrei a caixa-d'água de 1000 litros" — viola regra: catálogo cadastrado é MINORIA, maioria é estoque físico; correto = coletar info + transbordar, nunca negar. "prossiga teste commit audite deploy".
+
+**Auditoria #1 (skeleton):** sessão zumbi — JWT expira, refresh token inválido (`400 Invalid Refresh Token`). A query REST do supabase-js trava ANTES do fetch (resolução de sessão async); o `AbortController` de 10s só aborta o fetch (que nem começou) → `finally` nunca roda → skeleton eterno + console limpo. Reproduzido via Playwright (login real, Daniel Reis carrega ok com sessão fresca → bug é condicional).
+
+**Auditoria #2 (não encontrei):** 3 causas-raiz reais — (a) validador determinístico (`responseValidator`, tem `'nao encontrei'`) estava telemetria-only desde Sprint B1; (b) **caminho do router NÃO passava por validador** (`index.ts:2430` retorna o specialist ANTES do bloco de validação; `specialistBase` não validava); (c) PATH C do `searchProducts` mandava "pergunte se aceita opção diferente" (moldura errada). Evidência em `ai_agent_runs` (Gabriel Lucas: product specialist gpt-4.1, search 0 → PATH C → LLM verbalizou "não encontrei").
+
+**Fixes (5):** validador religado+enforcement no `specialistBase` (backstop sanitiza negação/erro/leak, preserva handoff) · `NO_DENIAL_RULE` + reframe PATH A/C + regras 4/7 do product specialist · `ChatPanel` timeout wall-clock (`Promise.race`) · `AuthContext.getSession` timeout 8s+signOut · `HANDOFF_PATTERNS` ampliados.
+
+**Gap exposto no E2E (e corrigido):** sob router a conversa fragmenta entre product/qualification/greeting → item ausente do catálogo NUNCA transbordava (lead pendurado em "já busco..."). Fix determinístico: `handleZeroResults` grava `seller_handoff_pending`; pré-router força handoff specialist + seta `pendingHandoffTrigger` → `dispatchResponse` step 22 EXECUTA o handoff (fila+shadow+msg). Validado E2E: status_ia=shadow + assigned_to + "Carlos, anotei seu pedido: ...tinta Suvinil 18L. Vou conectar você com nosso vendedor". Bug "não encontrei" eliminado em 8 turnos.
+
+**Pipeline:** deno check 0 · 423 testes do agente verdes (1 fail pré-existente: productSpecialist.test.ts loader ESM `https:`) · ~5 deploys CLI (PROD compartilhada). **Aprendizado:** sandbox agent tem config própria (caixas_dagua offline; Tintas qualify-first) → reproduzir o caso exato exige escolher produto/categoria certo; validei o mecanismo de handoff forçado setando a tag direto.
+
+**Frase de retomada:** *"v7.55.0 catálogo-é-minoria shipped (nunca negar + handoff determinístico p/ item ausente + skeleton/sessão-zumbi). Monitorar EletropisoV2 (router PROD). Backlog premium: #4 modo consultivo, #5 busca facetada. Pendência: brand-filter na qualificação (busca mostrou Coral p/ pedido Suvinil)."*
+
+---
+
 ## 2026-05-26 — Premium #3 refino-por-contagem SHIPPED + E2E progressivo provado (v7.54.0)
 
 **Trigger:** dono pediu explicação do #3 → confirmou que já temos contadores de interação/pergunta com paridade admin → mandou implementar seguindo o molde.
@@ -246,33 +264,9 @@ type: log
 
 ---
 
-## 2026-05-24 (tarde III) — Latência do product specialist resolvida na fonte (v7.48.0) + auditoria de objetivos
+## 2026-05-24 (tarde/manhã) — v7.48.0 latência + v7.47.0 saudação router + E2E jornada 9/10 (arquivado)
 
-**Trigger:** após auditoria profunda (objetivos principal/secundários, nota antes 5.7 → hoje 8.3), user pediu pra resolver o único 🔴 crítico — latência do product specialist (~8s) — **sem gambiarra**, testar real até nota 10, depois auditar/documentar/commit/deploy. Antes disso: recuperação do índice git corrompido + commit/push da v7.47.0 (release fantasma) + auditoria Playwright (dashboard Roteamento + tab Agente IA, dados reais de prod).
-
-**Resumo (v7.48.0):** causa da latência = 2 rounds de LLM (pré-search inline desligado sob router). Fix: re-liga `deriveProductSearchParams`+`runInlineSearchProducts`+`preSearchContext` SÓ pro product specialist → 1 round (~6s, era 8-16s). `cleanProductQuery` strip saudação/verbo (query crua dava 0). E2E 3 cenários nota 10, 362 testes (+15), deno 0, deploy CLI.
-
-**Frase de retomada:** *"v7.48.0 latência product specialist shipped (pré-busca 2→1 round, nota 10 E2E). Próximo: monitorar latência prod + considerar paralelizar envio do carrossel; Sprint E.2 proatividade"*.
-
----
-
-## 2026-05-24 (tarde, domingo) — Saudação/reconhecimento migrados pro router (v7.47.0, PROD)
-
-**Trigger:** após auditoria de paridade + 10 perguntas de discussão com o dono (contrato aprovado), implementar a migração das regras de saudação pro router. Dono testou ao vivo na prod e cobrou: lead frio não recebia saudação configurada.
-
-**Causa raiz (defeito #2):** sob `routing_mode='router'`, o bloco determinístico de saudação era pulado (`index.ts:1373`); lead que abria com produto ia direto pro product specialist (sem boas-vindas/nome/loja).
-
-**Entrega:** `greetingPolicy.ts` (fonte única `classifyLeadRecency` + `buildOpeningDirective`, 13 testes) + bloco de saudação determinístico RELIGADO no router pro 1º contato + `productSpecialist` usa tool compartilhada (ganha `full_name`+`city`). **Decisão A:** saudação determinística (confiável) em vez de injetar diretiva no prompt do specialist — tentativa de injeção falhou (product specialist ignorava o cumprimento; regra de captura de nome causava resposta DUPLICADA). 347 testes verdes, deno 0 erros. Deploy CLI no EletropisoV2 (prod). E2E sandbox OK: "bom dia, vcs têm tinta?" → "Olá! Bem-vindo a Eletropiso, com quem eu falo?" + carrossel.
-
-**Follow-ups:** P5 persistência de nome mid-conversa (extração determinística), espelhar cumprimento, retomada de memória do recorrente (P2-A); + defeitos #1/#4/#6 da auditoria. Ver [[project_router_parity_gaps]].
-
-**Frase de retomada:** *"continuar greeting router: P5 persistência de nome determinística + retomada memória recorrente (P2-A) + defeitos #1 search stall, #4 handoff keyword, #6 validator specialists"*.
-
----
-
-## 2026-05-24 (manhã, domingo) — E2E jornada completa router (sandbox) nota 9/10 (resumida)
-
-> Jornada E2E real 6 turnos (Fernanda) roteamento 100% correto (saudação/nome/produto-carrossel/multi-item/handoff rico/fora-horário). 3 gaps backlog anotados (lead_score+sentiment pulados sob router `index.ts:2203`; 1-produto-foto). Detalhe em git/[[project_router_parity_gaps]].
+> Detalhe em CHANGELOG + git. v7.48.0: latência product specialist (2 rounds→1 via pré-busca `runInlineSearchProducts`+`preSearchContext`, ~6s). v7.47.0: saudação/reconhecimento migrados pro router (`greetingPolicy.ts` fonte única, bloco determinístico religado, decisão A). E2E jornada router 6 turnos nota 9/10; gaps em [[project_router_parity_gaps]].
 
 ---
 

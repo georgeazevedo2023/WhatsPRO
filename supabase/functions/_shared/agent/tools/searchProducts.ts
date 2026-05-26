@@ -38,6 +38,23 @@ import {
 import type { Logger } from '../context.ts'
 
 // =============================================================================
+// Regra de negócio: catálogo é a MINORIA do estoque (2026-05-26)
+// =============================================================================
+//
+// O catálogo cadastrado cobre só uma fração dos produtos; a MAIORIA está no
+// estoque FÍSICO da loja. Por isso "0 resultados no catálogo" NUNCA significa
+// "não temos". Toda instrução [INTERNO] de zero-resultados usa esta regra pra
+// proibir negação/sugestão de similar e direcionar a: coletar 1 info útil →
+// transbordar com resumo (o vendedor confere o estoque físico). Fecha o bug do
+// "No momento não encontrei a caixa-d'água de 1000 litros..." (2026-05-26).
+const NO_DENIAL_RULE =
+  'REGRA CRÍTICA: o catálogo cadastrado é a MINORIA dos produtos — a MAIORIA está no estoque FÍSICO da loja. ' +
+  '0 resultados no catálogo NÃO significa que a loja não tenha. ' +
+  'PROIBIDO dizer/insinuar: "não encontrei", "não temos", "não trabalhamos", "não disponível", "sem estoque", ' +
+  '"outras capacidades", "produto similar", "opção diferente", "outros tamanhos". ' +
+  'NUNCA negue a existência do produto nem ofereça substituto por conta própria — quem confere o estoque físico é o vendedor.'
+
+// =============================================================================
 // Tipos públicos
 // =============================================================================
 
@@ -173,7 +190,7 @@ function buildEnrichmentInstructions(
       ? ` REGRA DE FIDELIDADE: use EXATAMENTE os exemplos cadastrados nos parênteses das sugestões acima — NUNCA invente outros exemplos, NUNCA misture exemplos entre categorias. Se a sugestão acima diz "marca (Lorenzetti, Hydra)", sua frase DEVE conter "(Lorenzetti, Hydra)" literal.`
       : ''
 
-  return `AÇÃO: faça UMA pergunta de enriquecimento para coletar mais dados para o vendedor.${stageContext} ${suggestionText}${urgency} NÃO diga que o produto não foi encontrado.${exampleSentence}${phrasingDiscipline} Salve a resposta do lead com set_tags (chaves PERMITIDAS para esta categoria: ${uniqueKeys.join(', ')}). NÃO use chaves fora desta lista. PROIBIDO: dizer "não temos", "não trabalhamos", "não encontrei".`
+  return `AÇÃO: faça UMA pergunta de enriquecimento para coletar mais dados para o vendedor.${stageContext} ${suggestionText}${urgency} NÃO diga que o produto não foi encontrado.${exampleSentence}${phrasingDiscipline} Salve a resposta do lead com set_tags (chaves PERMITIDAS para esta categoria: ${uniqueKeys.join(', ')}). NÃO use chaves fora desta lista. ${NO_DENIAL_RULE}`
 }
 
 // =============================================================================
@@ -976,6 +993,11 @@ async function handleZeroResults(opts: {
     const newEnrichCount = enrichCount + 1
     failTags.enrich_count = String(newEnrichCount)
     failTags.search_fail = String(searchFailCount + 1)
+    // Catálogo-ausente → handoff determinístico (2026-05-26): marca que houve 0-resultados
+    // e o agente está coletando 1 info. No PRÓXIMO turno, o pré-router (index.ts) força o
+    // handoff specialist independente do intent — fecha o gap em que, sob router, a conversa
+    // fragmentava entre product/qualification/greeting e o item ausente nunca transbordava.
+    failTags.seller_handoff_pending = searchText ? cleanSearchQuery(searchText).slice(0, 60).replace(/\s+/g, '_') : '1'
 
     await supabase
       .from('conversations')
@@ -1028,7 +1050,7 @@ async function handleZeroResults(opts: {
       qualificationChain: qualChain,
     })
 
-    return `[INTERNO — NÃO mostre isso ao lead] Enriquecimento COMPLETO. Cadeia de qualificação: ${qualChain}. AÇÃO: chame handoff_to_human AGORA com motivo="${qualChain}". Diga algo como "Vou te conectar com nosso consultor que pode te ajudar a encontrar exatamente o que você precisa!" PROIBIDO: dizer "não encontrei", "não temos", "não trabalhamos".`
+    return `[INTERNO — NÃO mostre isso ao lead] Enriquecimento COMPLETO. Cadeia de qualificação: ${qualChain}. AÇÃO: chame handoff_to_human AGORA com motivo="${qualChain}". Diga algo como "Vou te conectar com nosso vendedor pra confirmar a melhor opção e o valor pra você!" ${NO_DENIAL_RULE}`
   }
 
   // === PATH C: NOT well-qualified → existing search_fail retry logic ===
@@ -1036,6 +1058,11 @@ async function handleZeroResults(opts: {
     ? Math.max(searchFailCount + 1, maxRetries - 1)
     : searchFailCount + 1
   failTags.search_fail = String(newCount)
+  // Catálogo-ausente → handoff determinístico no próximo turno (ver PATH A acima).
+  // Só quando NÃO vamos transbordar já neste turno (newCount < maxRetries).
+  if (newCount < maxRetries) {
+    failTags.seller_handoff_pending = searchText ? cleanSearchQuery(searchText).slice(0, 60).replace(/\s+/g, '_') : '1'
+  }
 
   await supabase
     .from('conversations')
@@ -1050,14 +1077,14 @@ async function handleZeroResults(opts: {
   })
 
   if (newCount >= maxRetries) {
-    return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" sem resultados após ${newCount} tentativas.${brandNotFound ? ` Termo "${brandNotFound}" não encontrado no catálogo.` : ''} AÇÃO: chame handoff_to_human AGORA com motivo="${searchText}". Diga algo como "Vou te conectar com nosso consultor que pode te ajudar a encontrar exatamente o que você precisa!" PROIBIDO: dizer "não encontrei", "não temos", "não trabalhamos".`
+    return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" sem resultados após ${newCount} tentativas no catálogo. AÇÃO: chame handoff_to_human AGORA com motivo="${searchText}", resumindo o que o lead pediu + qualquer preferência já coletada (marca/spec). Diga algo natural como "Vou te conectar com nosso vendedor pra confirmar a melhor opção e o valor pra você!" ${NO_DENIAL_RULE}`
   }
 
   const brandHint = brandNotFound
-    ? ` O termo "${brandNotFound}" não foi encontrado no catálogo. Pergunte se o lead aceita uma opção diferente. Se o lead RECUSAR, chame handoff_to_human. PROIBIDO: dizer "não trabalhamos com", "não temos".`
-    : ' AÇÃO: faça UMA pergunta para refinar — cor, acabamento, marca alternativa ou tamanho.'
+    ? ` O termo "${brandNotFound}" não consta no catálogo cadastrado (provavelmente está no estoque físico). AÇÃO: faça UMA pergunta útil pro vendedor — preferência de marca OU especificação do produto — salve com set_tags; no próximo turno transborde com handoff_to_human resumindo o pedido.`
+    : ' AÇÃO: faça UMA pergunta que ajude o vendedor a fechar — preferência de marca, especificação ou tamanho — sem negar a existência do produto.'
 
-  return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" retornou 0 produtos (tentativa ${newCount}/${maxRetries}).${brandHint} PROIBIDO: dizer "não encontrei", "não temos", "não trabalhamos". O lead NUNCA deve saber que a busca falhou.`
+  return `[INTERNO — NÃO mostre isso ao lead] Busca "${searchText}" retornou 0 produtos no catálogo (tentativa ${newCount}/${maxRetries}).${brandHint} ${NO_DENIAL_RULE} O lead NUNCA deve saber que a busca no catálogo falhou.`
 }
 
 // =============================================================================

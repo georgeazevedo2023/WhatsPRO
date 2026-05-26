@@ -26,6 +26,8 @@ import { runLlmCallLoop, type ToolCallLogEntry, type ExecuteToolSafeFn, type Sen
 import { dispatchResponse, type SendTextMsgFn, type SendTtsFn, type BroadcastEventFn, type PickHandoffMessageFn, type RunQueueAssignmentFn } from './dispatchResponse.ts'
 import { buildLeadMemoryBlock, consolidateLeadMemory } from './leadMemory.ts'
 import { buildNameUsageDirective } from './greetingPolicy.ts'
+import { validateLLMResponse } from '../responseValidator.ts'
+import { countMsgsSinceNameUse } from '../validatorAgent.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
 import type { Logger } from './context.ts'
 import type { Intent } from './router.ts'
@@ -158,6 +160,90 @@ export interface SpecialistResult {
 }
 
 // =============================================================================
+// Backstop de validação (2026-05-26)
+// =============================================================================
+//
+// Causa-raiz do bug "No momento não encontrei a caixa-d'água de 1000 litros":
+// quando routing_mode='router', a resposta do specialist era retornada SEM passar
+// por nenhum validador (o bloco de validação do monolith em index.ts fica APÓS o
+// `return specialistResult.response`). Resultado: frases negativas proibidas
+// vazavam pro lead. Aqui religamos o validador determinístico (responseValidator)
+// no caminho do router e o promovemos de telemetria → ENFORCEMENT para as 3 regras
+// de segurança de texto (negação / erro interno / vazamento de tag interna).
+//
+// Regras só-cosméticas (echo opener, recumprimento, name overuse, preço) seguem
+// telemetria-only aqui — reescrevê-las deterministicamente arriscaria distorcer a
+// resposta; o monolith continua tratando-as quando é fallback. O enforcement é
+// cirúrgico: substitui o texto SÓ quando ele é nocivo de enviar, preservando o
+// handoff que o LLM já tenha disparado no loop.
+const ENFORCED_BLOCK_RULES = new Set(['anti_negative_phrases', 'anti_internal_error', 'anti_internal_leak'])
+
+interface SanitizeResult {
+  text: string
+  enforced: boolean
+  rules: string[]
+}
+
+/** Extrai os textos das mensagens 'model' (saídas do bot) do histórico Gemini. */
+function extractOutgoingTexts(geminiContents: any[]): string[] {
+  return (geminiContents || [])
+    .filter((c) => c?.role === 'model')
+    .map((c) => (c?.parts || []).map((p: any) => p?.text || '').join(' ').trim())
+    .filter((t) => t.length > 0)
+}
+
+/**
+ * Roda o validador determinístico e, se houver violação de segurança (block),
+ * substitui o texto por uma ponte propositiva segura — preservando handoff.
+ */
+function sanitizeSpecialistResponse(
+  responseText: string,
+  ctx: SpecialistCtx,
+): SanitizeResult {
+  const text = (responseText || '').trim()
+  if (text.length < 15) return { text: responseText, enforced: false, rules: [] }
+
+  const leadName = (ctx.leadProfile?.full_name || '').trim() || null
+  const outgoing = extractOutgoingTexts(ctx.geminiContents)
+  const catalogPrices = ctx.toolCallsLog
+    .filter((t) => t.name === 'search_products' && t.result)
+    .flatMap((t) => String(t.result).match(/R\$\s*[\d.,]+/g) || [])
+
+  let result
+  try {
+    result = validateLLMResponse(text, {
+      messageCount: outgoing.length,
+      leadName,
+      msgsSinceLastNameUse: countMsgsSinceNameUse(leadName, outgoing.slice(-6).reverse()),
+      catalogPrices,
+    })
+  } catch (e) {
+    ctx.log.error?.('sanitizeSpecialistResponse: validateLLMResponse failed (non-fatal)', { error: (e as Error).message })
+    return { text: responseText, enforced: false, rules: [] }
+  }
+
+  if (result.valid) return { text: responseText, enforced: false, rules: [] }
+
+  const harmful = result.violations.filter((v) => v.severity === 'block' && ENFORCED_BLOCK_RULES.has(v.rule))
+  // Telemetria de TODAS as violações (mantém o sinal que existia no monolith).
+  ctx.log.warn('responseValidator (router) caught violations', {
+    violations: result.violations.map((v) => `${v.rule}:${v.severity}`),
+    enforced: harmful.length > 0,
+  })
+
+  if (harmful.length === 0) return { text: responseText, enforced: false, rules: [] }
+
+  // Substituição segura: se o LLM já chamou handoff_to_human no loop, a ponte é de
+  // transbordo (preserva o fluxo); senão, ponte que coleta 1 info útil sem negar.
+  const handoffCalled = ctx.toolCallsLog.some((t) => t.name === 'handoff_to_human')
+  const safeText = handoffCalled
+    ? 'Vou te conectar com nosso vendedor pra confirmar a melhor opção e o valor pra você. Só um instante! 🙌'
+    : 'Deixa eu confirmar essa informação certinho pra você. Você tem preferência de marca ou alguma especificação do produto?'
+
+  return { text: safeText, enforced: true, rules: harmful.map((v) => v.rule) }
+}
+
+// =============================================================================
 // Pipeline compartilhado
 // =============================================================================
 
@@ -285,10 +371,34 @@ export async function runSpecialist(
     }
   }
 
+  // Step 3.5: backstop de validação (router não passava por validador nenhum).
+  // Substitui texto nocivo (negação/erro-interno/leak) por ponte segura.
+  const sanitized = sanitizeSpecialistResponse(llmLoopResult.responseText, ctx)
+  const responseText = sanitized.text
+  if (sanitized.enforced) {
+    ctx.log.warn(`${def.name}_specialist: response SANITIZED by validator backstop`, {
+      rules: sanitized.rules,
+      original_preview: (llmLoopResult.responseText || '').substring(0, 160),
+    })
+    try {
+      await ctx.supabase.from('ai_agent_logs').insert({
+        agent_id: ctx.agent_id,
+        conversation_id: ctx.conversation_id,
+        event: 'response_sanitized',
+        metadata: {
+          source: `${def.name}_specialist`,
+          rules: sanitized.rules,
+          original_text: (llmLoopResult.responseText || '').substring(0, 500),
+          sanitized_text: responseText,
+        },
+      })
+    } catch { /* observability — non-fatal */ }
+  }
+
   // Step 4a: shadow mode → NÃO despacha (monolith responde o lead). Só logamos.
   if (ctx.shadow) {
     ctx.log.info(`${def.name}_specialist SHADOW — response computed, not sent`, {
-      response_preview: (llmLoopResult.responseText || '').substring(0, 120),
+      response_preview: (responseText || '').substring(0, 120),
       tools: ctx.toolCallsLog.map((t) => t.name),
     })
     return {
@@ -304,7 +414,7 @@ export async function runSpecialist(
 
   // Step 4b: dispatchResponse (reusa Sprint B5 Onda 5)
   const { response } = await dispatchResponse({
-    responseText: llmLoopResult.responseText,
+    responseText,
     agent: ctx.agent,
     agent_id: ctx.agent_id,
     conversation: ctx.conversation,

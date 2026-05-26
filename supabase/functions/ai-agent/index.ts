@@ -2293,6 +2293,39 @@ ${contextBlock}`
           }
           let def = DISPATCH[routerResult.intent]
 
+          // ── Catálogo-ausente → handoff determinístico (2026-05-26) ──────────
+          // Quando uma busca anterior voltou 0 produtos (item provavelmente no
+          // estoque físico, não no catálogo), o handleZeroResults gravou a tag
+          // seller_handoff_pending e o agente fez UMA pergunta de coleta. Neste
+          // turno (a resposta do lead), FORÇAMOS o handoff specialist — independente
+          // do que o router classificou. Fecha o gap em que, sob router, a conversa
+          // se fragmentava entre product/qualification/greeting e o item ausente do
+          // catálogo NUNCA transbordava (o lead ficava coletando perguntas em loop).
+          // O handoff specialist chama handoff_to_human; se ele só verbalizar, os
+          // HANDOFF_PATTERNS em dispatchResponse executam o handoff real (dupla rede).
+          const forcedSellerHandoff = (conversation.tags || []).some(
+            (t: string) => typeof t === 'string' && t.startsWith('seller_handoff_pending:'),
+          )
+          if (forcedSellerHandoff) {
+            def = buildHandoffSpecialistDef()
+            routerProductPreSearch = null
+            // Rede DETERMINÍSTICA: setar o deferred handoff trigger garante que o
+            // dispatchResponse (step 22) EXECUTE o handoff real (runQueueAssignment +
+            // status_ia=shadow + msg personalizada) mesmo que o LLM do handoff specialist
+            // não chame handoff_to_human nem verbalize um padrão reconhecido — foi o que
+            // estava deixando o lead pendurado ("já estou encaminhando..." sem fila criada).
+            const pendingTag = (conversation.tags || []).find(
+              (t: string) => typeof t === 'string' && t.startsWith('seller_handoff_pending:'),
+            )
+            pendingHandoffTrigger = pendingTag
+              ? (pendingTag.slice('seller_handoff_pending:'.length).replace(/_/g, ' ').trim() || 'consulta de produto')
+              : 'consulta de produto'
+            pendingHandoffTriggerMsg = incomingText
+            log.info('seller_handoff_pending → FORÇANDO handoff specialist + deferred trigger (catálogo-ausente)', {
+              router_intent: routerResult.intent, reason: pendingHandoffTrigger,
+            })
+          }
+
           // ── qualificationGate (2026-05-24): FONTE ÚNICA buscar-vs-qualificar ──
           // O router classifica produto/qualificacao por heurística de mensagem; o
           // gate é a AUTORIDADE determinística sobre "buscar ou qualificar primeiro",
@@ -2306,7 +2339,7 @@ ${contextBlock}`
           //   - mode='qualify_then_handoff' (offline): product_specialist qualifica
           //     brevemente + handoff (qualification_specialist não tem essa tool).
           //   - mode='no_category': respeita a escolha do router (sem categoria a gatear).
-          if (routerResult.intent === 'produto' || routerResult.intent === 'qualificacao') {
+          if (!forcedSellerHandoff && (routerResult.intent === 'produto' || routerResult.intent === 'qualificacao')) {
             const gate = evaluateQualificationGate({
               tags: conversation.tags || [],
               agent,

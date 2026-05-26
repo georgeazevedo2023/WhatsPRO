@@ -35,6 +35,14 @@ const HANDOFF_PATTERNS = [
   /(?:um|nosso|uma) atendente (?:humano|vai|irá)/i,
   /falar com (?:um |nosso )?vendedor/i,
   /(?<!não\s|sem\s)encaminhar (?:você|vc|voce) (?:para|ao|à)/i,
+  // 2026-05-26: handoffs VERBALIZADOS que o LLM emite sem chamar handoff_to_human.
+  // Sem estes padrões, a IA prometia vendedor mas NUNCA criava o handoff_queue_event
+  // (lead esperava em vão). Descoberto no E2E do fix "catálogo é minoria" (caixa-d'água):
+  // "Vou passar seu pedido para um vendedor que vai te informar... alguém entra em contato".
+  // Cobertura tripla (verbo+vendedor / vendedor+vai / alguém entra em contato).
+  /(?<!não\s|sem\s)(?:vou|vamos|já vou|estou|já estou)\s+(?:te\s+|lhe\s+)?(?:passar|passando|repassar|repassando|encaminhar|encaminhando|conectar|conectando|direcionar|direcionando|transferir|transferindo)(?:\s+\S+){0,5}?\s+(?:vendedor|consultor|atendente|especialista|time de vendas|equipe de vendas)/i,
+  /(?:vendedor|consultor|atendente|especialista)\s+(?:que\s+)?(?:vai|ir[áa])\s+(?:te\s+|lhe\s+)?(?:informar|atender|ajudar|entrar em contato|passar|retornar)/i,
+  /algu[ée]m\s+(?:vai\s+|já\s+vai\s+)?(?:entra|entrar)\s+em\s+contato/i,
 ]
 
 // =============================================================================

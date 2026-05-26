@@ -13,6 +13,17 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.55.0 (2026-05-26) — Catálogo é minoria: nunca negar produto + handoff determinístico + skeleton/sessão-zumbi
+
+Fecha 2 bugs auditados: (1) IA dizia "No momento não encontrei a caixa-d'água de 1000 litros" violando a regra de negócio (catálogo cadastrado é a MINORIA do estoque; maioria é físico); (2) skeleton infinito no Helpdesk (sessão zumbi). E2E real no sandbox router.
+
+- **Validador religado no router (causa-raiz #1):** sob `routing_mode='router'`, a resposta do specialist era retornada SEM passar por nenhum validador (o bloco do monolith fica APÓS o `return`). `specialistBase.runSpecialist` agora roda `validateLLMResponse` (determinístico) como **enforcement** das 3 regras de segurança de texto (negação / erro-interno / leak): se vazar, substitui por ponte segura (preserva handoff). Log `response_sanitized` em `ai_agent_logs`.
+- **PATH C / regras do product specialist reframadas:** constante `NO_DENIAL_RULE` em `searchProducts.ts` (catálogo=minoria; PROIBIDO "não encontrei/não temos/similar/outras capacidades/opção diferente"); 0-resultados → coletar 1 info útil → transbordar. Regra 4 (marca fora do catálogo) não manda mais dizer "não trabalhamos com X".
+- **Handoff determinístico p/ item ausente do catálogo (gap exposto no E2E):** sob router a conversa fragmentava entre product/qualification/greeting e o item nunca transbordava (lead pendurado em "já busco..."). `handleZeroResults` grava tag `seller_handoff_pending`; o pré-router (`index.ts`) força o handoff specialist + seta `pendingHandoffTrigger` → `dispatchResponse` (step 22) **EXECUTA** o handoff real (fila + status_ia=shadow + msg personalizada) independente do LLM. `HANDOFF_PATTERNS` ampliados (passar/encaminhar/conectar/estou encaminhando + "alguém entra em contato").
+- **Skeleton infinito (bug #2):** `ChatPanel.fetchMessages` agora usa timeout de wall-clock (`Promise.race`) — o `AbortController` sozinho não cobria o await da resolução de sessão travada → estado de erro com "Tentar novamente" em vez de skeleton eterno. `AuthContext.getSession` ganhou timeout de 8s + `signOut` → sessão zumbi (refresh token inválido) não congela mais o app.
+- **E2E real (sandbox router, prod compartilhada):** handoff forçado validado end-to-end (status_ia=shadow + assigned_to + "Carlos, anotei seu pedido: ...tinta Suvinil 18L. Vou conectar você com nosso vendedor"). Bug "não encontrei" eliminado em 8 turnos.
+- **Pipeline:** deno check 0 · vitest 423 pass (módulos do agente) · 1 fail pré-existente (productSpecialist.test.ts loader ESM `https:`) · deploy CLI ai-agent (PROD compartilhada sandbox+EletropisoV2).
+
 ### v7.53.1 (2026-05-26) — 3 fixes de polish (nome truncado, 1-produto-carrossel, double-ask) — E2E 3/3
 
 Fecha os 3 achados da v7.53.0. Causas raiz provadas antes de codar; E2E real sandbox router 3/3.
@@ -245,53 +256,7 @@ Sessão longa de validação E2E real (2 instâncias UAZAPI conversando entre si
 
 **Andamento plano orquestrador:** mantém **68%** (Sprint C parcial 2/3 agora sólido, sem gambiarras). Falta C6 E2E formal + C7 dashboard Roteamento.
 
-### v7.43.0 (2026-05-23) — Sprint C parcial 2/3: product_specialist + hop guard + wire-in
+### v7.43.0→v7.42.0 e abaixo (2026-05-23 e antes) — arquivadas
 
-**Primeiro specialist em prod (POC).** Wire-in do router pipeline atrás de feature flag `routing_mode='router'`. Default monolith preservado — zero impacto comportamental até admin ativar router em um agent.
-
-- **`_shared/agent/productSpecialist.ts` (380 lin):** `runProductSpecialist(ctx)` orquestra prompt enxuto (~3 KB target) + LLM loop (reusa `llmCallLoop.ts` da Onda 4) + dispatch (reusa `dispatchResponse.ts` da Onda 5). Prompt builder dinâmico: persona + 7 rules + 5 tools strict (search_products, send_carousel, send_media, set_tags, update_lead_profile) + catalog_summary (marca offline) + facts_collected (filtra tags internas). Default model `gpt-5-mini`.
-- **`_shared/agent/hopGuard.ts` (~100 lin):** `checkHopLimit(ctx)` consulta `ai_agent_runs` por turn_id; bloqueia se >= maxHops (default 2 = router + specialist). Defensivo: DB error → allow=true (não bloqueia pipeline por monitoring offline). `generateTurnId()` UUID v4.
-- **Wire-in `ai-agent/index.ts`:** novo bloco ANTES do monolith. Se `agent.routing_mode === 'router'`: gera turn_id → checkHopLimit → classifyIntent → logRouterRun → dispatch por intent. Apenas `intent='produto'` tem specialist; outras intents fazem fallthrough pro monolith com log. Erro no router pipeline = fallback automático pro monolith.
-- **Testes:** `productSpecialist.test.ts` 15 PASS (persona, offline flag, facts filter, tools strict, sizes) + `hopGuard.test.ts` 8 PASS (allow hop 0/1, block hop 2, custom maxHops, DB error defensive, UUID v4 valid).
-- **Migração modelo Eletropiso V2:** `gpt-4.1-mini` → `gpt-5-mini` via UPDATE direto (bug #1 fechado em v7.42.1, agora seguro). Sandbox Agent já em gpt-5-mini.
-- **Pipeline:** tsc 0 erros · vitest **1282 pass / 9 fails pré-existentes idênticos** (+23 novos) · deploy CLI ai-agent v103→**v104 ACTIVE**.
-
-**Estado:** primeiro carro do orquestrador está montado. Falta ligar — admin precisa setar `routing_mode='router'` em algum agent pra validar E2E. POC ainda só cobre intent='produto'; outras 6 intents (saudacao/qualificacao/handoff/objecao/pagamento/fora_escopo) fazem fallback pro monolith.
-
-**Andamento plano orquestrador:** 63% → **68%**.
-
-### v7.42.1 (2026-05-23) — Auditoria pós-Sprint-C-parcial-1: fecha 3 gaps (A+B+C)
-
-Auditoria honesta da v7.42.0 identificou 3 gaps; todos fechados nesta release. Sem nova feature visual pro lead — hardening que torna Sprint C4 viável.
-
-- **Fix B (crítico):** `_shared/llmProvider.ts` ganhou helper `isReasoningModel(model)` (regex `^(gpt-5|o1|o3|o4)\b`) + branch reasoning-model-aware no `callOpenAI`: usa `max_completion_tokens` em vez de `max_tokens` + omite `temperature` (gpt-5/o-series rejeitam custom temp). Sem este fix, router gpt-5-nano sempre caía no catch silencioso → 100% fallback `qualificacao` em prod. Bug latente desde Sprint A I3 (2026-05-21). **21 testes novos** `llmProvider.test.ts` cobrindo família + edge cases (case-insensitive, prefix boundary).
-- **Fix C (cobertura):** `router.test.ts` ganhou 2 testes pegos na auditoria: `confidence` retornado como string `"0.9"` → typeof number falha → fallback qualificacao; 2 JSON objects balanceados → parser pega substring entre `{` e `}` → JSON inválido → fallback. Total router: **23/23 PASS**.
-- **Fix A (UX):** novo Select "Modo de Roteamento" na tab Setup do `AIAgentTab.tsx`, visível só pra super_admin. Opções Monolito (recomendado) / Router POC (experimental) com aviso visual amarelo ao escolher Router. Antes era editável só via SQL/MCP.
-- **Pipeline:** tsc 0 erros · vitest **1259 pass / 9 fails pré-existentes idênticos** (+23 novos: 21 isReasoningModel + 2 router edge cases) · deploy CLI ai-agent v102→**v103 ACTIVE**.
-
-**Estado:** Sprint C parcial 1 (router + DB) **agora está completo de verdade**. Router pode ser ativado por agent sem fallback silencioso. Próxima sessão (Sprint C4) começa do estado limpo.
-
-### v7.42.0 (2026-05-23) — Sprint C parcial 1/3: Foundations + Router LLM (NOVO MARCO)
-
-Início do Sprint C — router LLM + product_specialist POC. Esta entrega cobre C1+C2+C3 (foundations + router em isolamento). Prod intocada (default `routing_mode='monolith'`).
-
-- **Migration C1:** tabela `ai_agent_runs` aplicada em prod (trace por hop do router → specialist). 11 colunas: conversation_id, agent_id, turn_id, hop_n, specialist (CHECK 9 valores), intent, confidence, model, tokens, latency_ms, tools_called, prompt_chars, metadata. 2 índices (conv+created DESC, agent+specialist+created DESC). RLS enabled (service_role only — dashboard Sprint C7 vai via RPC SECURITY DEFINER).
-- **Migration C3:** coluna `ai_agents.routing_mode TEXT NOT NULL DEFAULT 'monolith' CHECK IN ('monolith','router')`. Index parcial WHERE routing_mode <> 'monolith' (dashboard "quantos agents em router?"). `'routing_mode'` adicionado em ALLOWED_FIELDS do AIAgentTab.tsx.
-- **Router LLM:** `_shared/agent/router.ts` (~280 lin) exporta `classifyIntent(ctx)` + `logRouterRun(supabase, ...)` + constante `ROUTER_SYSTEM_PROMPT` (~800 chars XML-style). Modelo padrão `gpt-5-nano` (alvo <500ms, ~$0.0001/turno). Output JSON estrito com 7 intents (saudacao/qualificacao/produto/handoff/objecao/pagamento/fora_escopo).
-- **Defesa em profundidade:** parser tolera JSON puro / markdown fence ```json``` / texto extra envolvente. Fallback determinístico pra `qualificacao` em 4 cenários: parse JSON falhou / intent inválido / confidence < 0.6 (override mesmo com intent válido) / LLM exception. Sempre retorna `RouterResult` válido — pipeline nunca quebra.
-- **Testes:** `router.test.ts` **21 testes 100% PASS**: 7 intents × happy, defesa (5 fallbacks), construção prompt (system+user+tags+history), routerModel override, history truncado em 5, `logRouterRun` INSERT correto + non-fatal em DB failure.
-- **types.ts regenerado** via MCP (project prfcbfumyrrycsrcrvms) — `ai_agent_runs` + `routing_mode` agora tipados.
-- **Pipeline:** tsc 0 erros · vitest **1236 pass / 9 fails pré-existentes idênticos** (+21 novos) · deploy CLI ai-agent v101→**v102 ACTIVE**
-
-**Próximos passos do Sprint C (próximas sessões):**
-- **C4** — product_specialist (~60 lin, ~3 KB prompt) reusa tools/searchProducts.ts
-- **C5** — hop guard anti-loop (max 2 hops)
-- **C6** — E2E sandbox 10 cenários comparativos monolith vs router
-- **C7** — dashboard admin "Roteamento" (intents/latência/custo/accuracy)
-
-**Andamento plano orquestrador:** 60% → **63%** (Sprint C foundations + 1/4 do router work).
-
-### v7.41.16 e abaixo (2026-05-22 e antes) — arquivadas
-
-Sprint B5 (`llmCallLoop`/`dispatchResponse`, -49.3%) + maratona R140-R145 (crash Sandrielly: R141 TDZ) + v7.41.6 (R138/R137 sanitiza query) + ondas 3a-3d. Detalhe em [[wiki/changelog/2026-05-part10]] + [[wiki/erros/familias-r-codes]] + git.
+Sprint C parcial 1+2 (router LLM `router.ts` + `ai_agent_runs`/`routing_mode` + product_specialist POC + hopGuard + auditoria isReasoningModel) + Sprint B5 (`llmCallLoop`/`dispatchResponse`, -49.3%) + R140-R145 (R141 TDZ) + R138/R137. Detalhe em [[wiki/changelog/2026-05-part10]] + git.
 
