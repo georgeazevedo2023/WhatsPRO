@@ -13,6 +13,15 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.55.1 (2026-05-26) — Brand-filter na qualificação: respeita a marca pedida (não mostra outra) — E2E nota 10
+
+Fecha a pendência da v7.55.0: no fluxo qualify-first, lead pedia "tinta **Suvinil**" e recebia **Coral** (a marca se perdia — na hora da busca o `incomingText` é a resposta de qualificação, não o "Suvinil" original, e o filtro AND post-search não pegava o caso multi-palavra).
+
+- **`deriveProductSearchParams`** agora injeta a marca durável (`marca_preferida`/`marca_citada`) na query — antes a busca pós-qualificação ia sem a marca.
+- **Guard de marca explícito** em `searchProducts` (antes do auto-send): se o lead especificou marca e NENHUM produto resultante a contém → zera + `brandNotFound` → `handleZeroResults` (coleta+handoff). Robusto (usa a tag durável, não o frágil match palavra-a-palavra). [[feedback_search_must_filter_brand]]
+- **E2E real (sandbox router) nota 10:** "tinta Suvinil branca 18L" → qualifica (não nega) → busca com Suvinil → **0, NÃO mostra Coral** → coleta quantidade → handoff executa (status_ia=shadow + atribuído + "Anotei seu pedido: 2 galões de tinta Suvinil acrílica fosca branca, interno, 36L. Vou conectar com o consultor").
+- **Pipeline:** deno check 0 · searchProducts 36 testes (+1 brand enforcement; 2 mocks corrigidos pra realistas) · deploy CLI.
+
 ### v7.55.0 (2026-05-26) — Catálogo é minoria: nunca negar produto + handoff determinístico + skeleton/sessão-zumbi
 
 Fecha 2 bugs auditados: (1) IA dizia "No momento não encontrei a caixa-d'água de 1000 litros" violando a regra de negócio (catálogo cadastrado é a MINORIA do estoque; maioria é físico); (2) skeleton infinito no Helpdesk (sessão zumbi). E2E real no sandbox router.

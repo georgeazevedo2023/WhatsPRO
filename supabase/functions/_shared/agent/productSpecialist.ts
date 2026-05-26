@@ -357,10 +357,20 @@ export function deriveProductSearchParams(opts: {
   const catalogStatus = (category as any).catalog_status || 'digital'
   if (catalogStatus !== 'digital') return null
 
-  // 5. Monta query: texto do lead LIMPO (sem saudação/verbo) + interesse. cleanProductQuery
-  //    evita 0-resultados por ruído ("vocês têm"). Interesse vem depois como reforço.
+  // 5. Monta query: marca (durável) + interesse + texto do lead LIMPO. cleanProductQuery
+  //    evita 0-resultados por ruído ("vocês têm").
+  //    MARCA (2026-05-26): inclui marca_preferida/marca_citada das tags na query. Sem isto,
+  //    o fluxo qualify-first PERDIA a marca — na hora em que finalmente busca, o incomingText
+  //    é a resposta de qualificação (ex.: "Interno"), não o "Suvinil" original → a busca
+  //    mostrava outra marca (Coral) em vez de respeitar a pedida. Com a marca na query, o
+  //    post-search AND filter remove o que não bate → brandNotFound → coletar+handoff.
+  //    [[feedback_search_must_filter_brand]]
+  const marcaTag =
+    tags.find((t) => typeof t === 'string' && t.startsWith('marca_preferida:')) ||
+    tags.find((t) => typeof t === 'string' && t.startsWith('marca_citada:'))
+  const marca = marcaTag ? (marcaTag.split(':')[1] || '').replace(/_/g, ' ').trim() : ''
   const cleanedIncoming = cleanProductQuery(opts.incomingText || '')
-  const rawQuery = [interesseValue, cleanedIncoming].filter(Boolean).join(' ')
+  const rawQuery = [interesseValue, marca, cleanedIncoming].filter(Boolean).join(' ')
   const query = cleanSearchQuery(rawQuery) || cleanedIncoming
   if (!query || query.length < 2) return null
 

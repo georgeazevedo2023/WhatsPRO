@@ -23,7 +23,9 @@ type: log
 
 **Pipeline:** deno check 0 · 423 testes do agente verdes (1 fail pré-existente: productSpecialist.test.ts loader ESM `https:`) · ~5 deploys CLI (PROD compartilhada). **Aprendizado:** sandbox agent tem config própria (caixas_dagua offline; Tintas qualify-first) → reproduzir o caso exato exige escolher produto/categoria certo; validei o mecanismo de handoff forçado setando a tag direto.
 
-**Frase de retomada:** *"v7.55.0 catálogo-é-minoria shipped (nunca negar + handoff determinístico p/ item ausente + skeleton/sessão-zumbi). Monitorar EletropisoV2 (router PROD). Backlog premium: #4 modo consultivo, #5 busca facetada. Pendência: brand-filter na qualificação (busca mostrou Coral p/ pedido Suvinil)."*
+**v7.55.1 (mesma sessão) — brand-filter RESOLVIDO:** lead pedia "tinta Suvinil" e recebia Coral (marca se perdia no qualify-first). Fix 2 camadas: `deriveProductSearchParams` injeta marca durável na query + guard explícito em `searchProducts` antes do auto-send (lead pediu marca e nenhum produto a contém → zera+brandNotFound→coleta+handoff). E2E nota 10: Suvinil→0 (não mostra Coral)→coleta→handoff executa. 36 testes searchProducts (+1).
+
+**Frase de retomada:** *"v7.55.0+v7.55.1 catálogo-é-minoria + brand-filter shipped (nunca negar + handoff determinístico + respeita marca pedida + skeleton/sessão-zumbi). Monitorar EletropisoV2 (router PROD). Backlog premium: #4 modo consultivo, #5 busca facetada."*
 
 ---
 

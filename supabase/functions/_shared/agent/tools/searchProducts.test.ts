@@ -573,7 +573,7 @@ describe('dispatchSearchTool', () => {
 describe('carousel batching — exclui já-mostrados + lote novo', () => {
   const P = (id: string, n: number) => ({
     id,
-    title: `Tinta ${n}`,
+    title: `Tinta Coral ${n}`,
     category: 'tintas',
     price: 10 * n,
     images: [`url${n}`],
@@ -655,7 +655,7 @@ describe('carousel batching — exclui já-mostrados + lote novo', () => {
 describe('searchProducts — refino-por-contagem (premium #3)', () => {
   const P = (id: string, n: number) => ({
     id,
-    title: `Tinta ${n}`,
+    title: `Tinta Coral ${n}`,
     category: 'tintas',
     price: 10 * n,
     images: [`url${n}`],
@@ -710,6 +710,23 @@ describe('searchProducts — refino-por-contagem (premium #3)', () => {
     const ctx = baseCtx(supabase, { conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' }, incomingText: 'quero tinta' })
     const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
     expect(result).toContain('Carrossel')
+  })
+
+  it('brand enforcement: marca pedida AUSENTE do catálogo → coleta/handoff, NÃO mostra outra marca', async () => {
+    // P() gera "Tinta Coral N"; lead pediu Suvinil (tag durável) → nenhum produto tem a
+    // marca → guard zera + brandNotFound → fluxo coletar+handoff. NUNCA empurra Coral
+    // fingindo ser Suvinil (era o bug do qualify-first). [[feedback_search_must_filter_brand]]
+    const products = [P('p1', 1), P('p2', 2), P('p3', 3)]
+    const { supabase } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, {
+      conversation: { tags: ['interesse:tintas', 'marca_preferida:suvinil'], inbox_id: 'inb-1' },
+      incomingText: 'tinta suvinil',
+    })
+    const result = await searchProducts({ query: 'tinta suvinil' }, ctx, makeLog())
+    expect(result).toContain('[INTERNO')
+    expect(result).not.toContain('Carrossel')
+    expect(result.toLowerCase()).not.toContain('coral')
   })
 
   it('threshold=0 desliga o refino (mostra mesmo com muitos)', async () => {

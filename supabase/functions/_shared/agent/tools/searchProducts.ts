@@ -545,6 +545,34 @@ export async function searchProducts(
     }
   }
 
+  // Brand enforcement (2026-05-26): se o lead especificou uma MARCA (tag durável
+  // marca_preferida/marca_citada) e NENHUM produto resultante a contém, a marca não
+  // está no catálogo → NÃO mostrar outra marca fingindo ser a pedida (lead pediu
+  // Suvinil, recebia Coral). Zera + brandNotFound → handleZeroResults segue pro fluxo
+  // coletar+handoff (vendedor confere estoque físico). O filtro AND post-search não
+  // pega esse caso de forma confiável no qualify-first (query multi-palavra + match
+  // por categoria). [[feedback_search_must_filter_brand]]
+  if (products && products.length > 0) {
+    const marcaTagSP = (conversation.tags || []).find(
+      (t: string) => typeof t === 'string' && (t.startsWith('marca_preferida:') || t.startsWith('marca_citada:')),
+    )
+    const marcaWanted = marcaTagSP
+      ? stripAccents((marcaTagSP.split(':')[1] || '').replace(/_/g, ' ').trim().toLowerCase())
+      : ''
+    if (marcaWanted && marcaWanted.length >= 3) {
+      const anyHasBrand = products.some((p: any) =>
+        stripAccents(`${p.title} ${p.description || ''}`).toLowerCase().includes(marcaWanted),
+      )
+      if (!anyHasBrand) {
+        log.info('Brand enforcement: marca pedida ausente nos resultados → 0 + brandNotFound', {
+          marca: marcaWanted, query: searchText, before: products.length,
+        })
+        brandNotFound = brandNotFound || marcaWanted
+        products = []
+      }
+    }
+  }
+
   if (!products || products.length === 0) {
     return handleZeroResults({
       ctx,
