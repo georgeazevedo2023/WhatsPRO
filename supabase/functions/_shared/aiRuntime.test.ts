@@ -7,6 +7,7 @@ import {
   resolveNextFollowUpStep,
   shouldTriggerAiAgentFromWebhook,
   shouldTriggerShadowFromWebhook,
+  shouldPauseAiForHumanTakeover,
   type QueuedMessage,
   type WebhookShadowTriggerInput,
 } from './aiRuntime.ts'
@@ -276,6 +277,76 @@ describe('shouldTriggerShadowFromWebhook', () => {
       fromMe: true,
       mediaType: 'text',
       statusIa: 'shadow',
+    })).toBe(false)
+  })
+
+  it('does NOT extract when message was sent by our API (echo IA/Helpdesk)', () => {
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: true,
+      mediaType: 'text',
+      statusIa: 'shadow',
+      content: 'Posso te ajudar com mais alguma coisa?',
+      wasSentByApi: true,
+    })).toBe(false)
+  })
+
+  it('still extracts when wasSentByApi=false (vendor typed on phone)', () => {
+    expect(shouldTriggerShadowFromWebhook({
+      fromMe: true,
+      mediaType: 'text',
+      statusIa: 'shadow',
+      content: 'Tem desconto no produto?',
+      wasSentByApi: false,
+    })).toBe(true)
+  })
+})
+
+describe('shouldPauseAiForHumanTakeover', () => {
+  it('pauses when attendant replies from phone while AI is on', () => {
+    expect(shouldPauseAiForHumanTakeover({
+      fromMe: true,
+      wasSentByApi: false,
+      statusIa: 'ligada',
+    })).toBe(true)
+  })
+
+  it('does NOT pause on the AI/Helpdesk own echo (wasSentByApi=true)', () => {
+    expect(shouldPauseAiForHumanTakeover({
+      fromMe: true,
+      wasSentByApi: true,
+      statusIa: 'ligada',
+    })).toBe(false)
+  })
+
+  it('does NOT pause for incoming lead messages (fromMe=false)', () => {
+    expect(shouldPauseAiForHumanTakeover({
+      fromMe: false,
+      wasSentByApi: false,
+      statusIa: 'ligada',
+    })).toBe(false)
+  })
+
+  it('does NOT re-flip when already in shadow', () => {
+    expect(shouldPauseAiForHumanTakeover({
+      fromMe: true,
+      wasSentByApi: false,
+      statusIa: 'shadow',
+    })).toBe(false)
+  })
+
+  it('does NOT touch a conversation with AI manually disabled', () => {
+    expect(shouldPauseAiForHumanTakeover({
+      fromMe: true,
+      wasSentByApi: false,
+      statusIa: 'desligada',
+    })).toBe(false)
+  })
+
+  it('treats null status_ia as not-on (no pause)', () => {
+    expect(shouldPauseAiForHumanTakeover({
+      fromMe: true,
+      wasSentByApi: false,
+      statusIa: null,
     })).toBe(false)
   })
 })

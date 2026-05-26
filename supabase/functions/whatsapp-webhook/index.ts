@@ -1,5 +1,6 @@
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
-import { shouldTriggerAiAgentFromWebhook, shouldTriggerShadowFromWebhook } from '../_shared/aiRuntime.ts'
+import { shouldTriggerAiAgentFromWebhook, shouldTriggerShadowFromWebhook, shouldPauseAiForHumanTakeover } from '../_shared/aiRuntime.ts'
+import { STATUS_IA } from '../_shared/constants.ts'
 import { shouldReopenConversation } from '../_shared/conversationReopen.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
 import { unauthorizedResponse } from '../_shared/auth.ts'
@@ -634,6 +635,9 @@ Deno.serve(async (req) => {
     // Extract message fields from UAZAPI format
     const chatId = message.chatid || message.sender || ''
     const fromMe = message.fromMe === true
+    // UAZAPI: true quando a mensagem saiu pela nossa API (IA/Helpdesk); false = digitada
+    // no celular pelo atendente. Usado para detectar takeover humano (não dependemos do n8n filtrar).
+    const wasSentByApi = message.wasSentByApi === true
     const direction = fromMe ? 'outgoing' : 'incoming'
     const rawExternalId = message.messageid || message.id || ''
     const externalId = rawExternalId.includes(':') ? rawExternalId.split(':').pop()! : rawExternalId
@@ -1074,6 +1078,22 @@ Deno.serve(async (req) => {
       conversation.status_ia = statusIa
     }
 
+    // ── Takeover humano: atendente respondeu o lead pelo celular ──────────
+    // fromMe + wasSentByApi=false = mão humana no aparelho (não foi a IA/Helpdesk).
+    // Se a IA estava 'ligada', pausa para 'shadow': para de responder mas segue
+    // extraindo memória silenciosamente, sem atrapalhar o vendedor. O eco da própria
+    // IA (wasSentByApi=true) nunca chega aqui — o guard exige wasSentByApi=false.
+    let humanTakeoverPaused = false
+    if (shouldPauseAiForHumanTakeover({ fromMe, wasSentByApi, statusIa: conversation.status_ia })) {
+      await supabase
+        .from('conversations')
+        .update({ status_ia: STATUS_IA.SHADOW })
+        .eq('id', conversation.id)
+      conversation.status_ia = STATUS_IA.SHADOW
+      humanTakeoverPaused = true
+      log.info('Human takeover detected — AI paused to shadow', { conversationId: conversation.id })
+    }
+
     // ── UTM Campaign Attribution ──────────────────────────────────────
     if (direction === 'incoming' && content) {
       const refMatch = content.match(/ref_([A-Za-z0-9]{6,12})/)
@@ -1164,6 +1184,8 @@ Deno.serve(async (req) => {
     }
     if (statusIa) {
       broadcastPayload.status_ia = statusIa
+    } else if (humanTakeoverPaused) {
+      broadcastPayload.status_ia = STATUS_IA.SHADOW
     }
     // Broadcast via Realtime REST — with timeout and error resilience
     // If Realtime API is slow/down, don't block the webhook response
@@ -1357,13 +1379,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    // T1 M19 S1 — Shadow bilateral: vendor messages (fromMe:true) in shadow mode
-    // n8n filters wasSentByApi, so only human vendor messages reach here
+    // T1 M19 S1 — Shadow bilateral: vendor messages (fromMe:true) in shadow mode.
+    // wasSentByApi=false garante que só mensagens digitadas no celular (humano) extraem;
+    // o eco da nossa API (IA/Helpdesk) é descartado pelo guard (não dependemos do n8n).
     if (shouldTriggerShadowFromWebhook({
       fromMe,
       mediaType,
       statusIa: conversation.status_ia,
       content: content ?? undefined,
+      wasSentByApi,
     })) {
       const { data: shadowAgent } = await supabase
         .from('ai_agents')

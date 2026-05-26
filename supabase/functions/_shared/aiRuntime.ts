@@ -125,20 +125,51 @@ export interface WebhookShadowTriggerInput {
   mediaType: string
   statusIa?: string | null
   content?: string
+  /** UAZAPI flag: true quando NÓS enviamos via API (IA/Helpdesk). Default undefined = trata como humano. */
+  wasSentByApi?: boolean
 }
 
 /**
  * Determines if a vendor message (fromMe:true) in shadow mode should trigger
  * silent extraction. Called by whatsapp-webhook for outgoing messages.
- * n8n already filters wasSentByApi, so only human vendor messages reach here.
+ *
+ * IMPORTANTE: não dependemos mais de o n8n filtrar `wasSentByApi` (o fluxo atual
+ * repassa tudo cru). Quando o webhook informa `wasSentByApi=true`, isso é eco de
+ * mensagem enviada pela nossa API (IA/Helpdesk) — NÃO é o vendedor humano, então
+ * não extrai. Mensagens digitadas no celular chegam com wasSentByApi=false.
  */
 export function shouldTriggerShadowFromWebhook(input: WebhookShadowTriggerInput): boolean {
-  const { fromMe, mediaType, statusIa, content } = input
+  const { fromMe, mediaType, statusIa, content, wasSentByApi } = input
   if (!fromMe) return false
+  if (wasSentByApi === true) return false
   if (mediaType === 'audio') return false
   if (statusIa !== STATUS_IA.SHADOW) return false
   if (!content || content.trim().length < 5) return false
   return true
+}
+
+export interface HumanTakeoverInput {
+  /** Mensagem saiu do número do negócio (fromMe). */
+  fromMe: boolean
+  /** UAZAPI flag: true = enviada pela nossa API (IA/Helpdesk); false = digitada no celular. */
+  wasSentByApi: boolean
+  statusIa?: string | null
+}
+
+/**
+ * Detecta "tomada de controle humana": o atendente respondeu o lead DIRETO pelo
+ * celular (não pelo Helpdesk/IA). Sinal exato: fromMe=true + wasSentByApi=false.
+ * Só pausa quando a IA estava 'ligada' — assim o eco da própria IA (wasSentByApi=true)
+ * nunca a auto-pausa, e conversas já em shadow/desligada não são tocadas.
+ *
+ * Ao retornar true, o webhook flipa status_ia 'ligada'→'shadow': a IA para de
+ * responder mas continua extraindo memória silenciosamente (mesmo destino dos handoffs).
+ */
+export function shouldPauseAiForHumanTakeover(input: HumanTakeoverInput): boolean {
+  const { fromMe, wasSentByApi, statusIa } = input
+  if (!fromMe) return false
+  if (wasSentByApi) return false
+  return statusIa === STATUS_IA.LIGADA
 }
 
 /**
