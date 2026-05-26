@@ -27,7 +27,9 @@ type: log
 
 **v7.55.2 (mesma sessão):** (1) transbordo humanizado — `cleanHandoffItem` rejeita reason 3ª pessoa/interno → lead recebe só ponte ("Pedro, anotei tudo aqui…"), nunca "Lead quer…"; resumo rico vai em `private_note` ("📋 Resumo do pedido (interno)") nos 2 caminhos de handoff + painel Transbordo. (2) conversa persiste ao trocar de aba via `?conv=` na URL (HelpDesk.tsx) — validado por reload no Playwright. +2 testes anti-vazamento.
 
-**Frase de retomada:** *"v7.55.0→v7.55.2 shipped (catálogo-é-minoria + handoff determinístico + brand-filter + transbordo humanizado/nota interna + persistência da conversa na URL + skeleton/sessão-zumbi). Monitorar EletropisoV2 router PROD. Backlog premium: #4 modo consultivo, #5 busca facetada. Nota lateral: template handoff_message do agente ainda é configurável (owner pode deixar mais quente no admin)."*
+**v7.55.3 (mesma sessão):** categoria OFFLINE (sob consulta) unificada ao fluxo coleta+handoff. Caso Eduarda "porta sanfonada marrom 80cm" re-perguntava + não transbordava (offline ia pra qualif multi-stage). Fix: gate `qualify_then_handoff` → grava `seller_handoff_pending` → specialist acolhe o que o lead deu + 1 pergunta (marca) → próximo turno pré-router força handoff (reusa v7.55). Regra 3 reescrita. E2E nota 10.
+
+**Frase de retomada:** *"v7.55.0→v7.55.3 shipped (catálogo-é-minoria + handoff determinístico digital E offline + brand-filter + transbordo humanizado/nota interna + persistência da conversa na URL + skeleton/sessão-zumbi). Monitorar EletropisoV2 router PROD. FALTA: Sprint E.2 handoff por ABANDONO (lead some → transbordar com resumo). Backlog premium: #4 modo consultivo, #5 busca facetada. Lateral: template handoff_message é config do owner (deixar mais humano no admin)."*
 
 ---
 

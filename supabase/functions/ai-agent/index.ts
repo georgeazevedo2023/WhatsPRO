@@ -2362,7 +2362,20 @@ ${contextBlock}`
               } else if (gate.mode === 'qualify_then_handoff') {
                 def = DISPATCH['produto']
                 routerProductPreSearch = null
-                log.info('qualificationGate: categoria offline → product_specialist (qualifica+handoff)', {
+                // Offline = "vendemos, mas não está no catálogo digital" → MESMO destino do
+                // search-0 (v7.55): o specialist faz UMA pergunta (marca) ACOLHENDO o que o
+                // lead já deu, e marcamos seller_handoff_pending pra FORÇAR o handoff no
+                // PRÓXIMO turno (o pré-router assume e executa de verdade). Sem stages, sem
+                // re-perguntar, sem lead pendurado — fecha o caso Eduarda. (2026-05-26)
+                const alreadyPendingOffline = (conversation.tags || []).some(
+                  (t: string) => typeof t === 'string' && t.startsWith('seller_handoff_pending:'),
+                )
+                if (!alreadyPendingOffline) {
+                  const offlineTags = mergeTags(conversation.tags || [], { seller_handoff_pending: gate.categoryId })
+                  conversation.tags = offlineTags
+                  await supabase.from('conversations').update({ tags: offlineTags }).eq('id', conversation_id)
+                }
+                log.info('qualificationGate: categoria offline → product_specialist (1 pergunta marca + handoff forçado próx. turno)', {
                   router_intent: routerResult.intent, category: gate.categoryId, catalog_status: gate.catalogStatus,
                 })
               }

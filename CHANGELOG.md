@@ -13,6 +13,15 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.55.3 (2026-05-26) — Categoria offline (sob consulta) unificada ao fluxo "coleta 1 + handoff" (fecha caso porta sanfonada)
+
+Caso Eduarda: lead pediu *"porta sanfonada marrom ou preta de 80cm"* e a IA re-perguntou material/tamanho que ele já deu, disse *"verificar com consultor, aguarde"* e **não transbordou** (lead pendurado). Causa raiz: "portas" é `catalog_status: offline` → seguia caminho de qualificação multi-stage (material/ambiente/tipo, que nem casavam com "sanfonada/marrom/80cm") em vez do fluxo enxuto.
+
+- **Offline unificado ao destino do search-0 (v7.55):** quando `qualificationGate` retorna `qualify_then_handoff` (offline = "vendemos, mas não está no catálogo digital"), o `index.ts` grava `seller_handoff_pending` → o product specialist faz **UMA pergunta (marca) ACOLHENDO o que o lead já disse** (sem re-perguntar) e, no **próximo turno**, o pré-router **força o handoff de verdade** (fila + shadow + resumo). Sem stages, sem lead pendurado.
+- **Regra 3 (offline) do prompt reescrita:** acolhe atributos já dados, faz só a pergunta de marca, PROIBIDO "vou verificar/confirmar disponibilidade/aguarde", NÃO chama handoff_to_human no turno (o sistema transborda sozinho).
+- **E2E real (sandbox router, mesma msg da Eduarda) nota 10:** T1 *"Boa! Anotei: porta sanfonada marrom ou preta, de 80cm. Você tem alguma marca de preferência?"* → T2 "não" → handoff executado (status_ia=shadow + atribuído) + nota interna *"📋 Resumo: porta sanfonada marrom/preta 80cm, sem preferência de marca"*.
+- **Pipeline:** deno check 0 · vitest verde (qualificationGate 12, searchProducts 36) · deploy CLI.
+
 ### v7.55.2 (2026-05-26) — Transbordo humanizado (sem cara de IA) + resumo pro vendedor em nota interna + conversa persiste ao trocar de aba
 
 Dois pedidos do dono.
