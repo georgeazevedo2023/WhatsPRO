@@ -19,7 +19,8 @@ type: log
 
 **Validação:** `deno check` 0 · **437 agent + 5 stopwords + 9 novos verdes** · full suite 9 fails pré-existentes (zero overlap). Deploy CLI ai-agent. **E2E real sandbox router 2/2 PASS:** "quero a cuba de apoio quadrada" → query limpa "pias cuba de apoio quadrada" → **foto** (era 0+handoff); "queria ver tinta branca" → query "tinta branca" → **carrossel 3 tintas**.
 
-**Frase de retomada:** *"v7.53.2 fix R121 stopword shipped (E2E 2/2). Backlog: premium #3 refino-por-contagem com guardrail [[feedback_no_internal_count_or_jargon_to_lead]]. Cosmético: result string do searchProducts diz 'Carrossel com 1 produto' mesmo quando manda foto (interno ao LLM)."*
+**Follow-up (mesmo dia, doc UAZAPI):** dono apontou que carrossel de 1 card não existe → 1 produto TEM que ser send/media. Verifiquei o openapi: `/send/media` `required:[number,type,file]`+caption → nosso envio conforme ✅; `/send/carousel` NÃO declara mínimo (no v7.49.0 um carrossel de 2 renderizou) → "3" não é da doc. Dono manteve **2→carrossel**. Corrigida a string interna "Carrossel com 1 produto" mesmo mandando foto (`searchProducts.ts:819` `mediaType`='foto' p/ qualquer 1 produto — risco real: LLM falaria "veja o carrossel" com 1 foto). deno 0, 30 testes verdes, deploy CLI.
+**Frase de retomada:** *"v7.53.2 fix R121 stopword + string foto/carrossel shipped (E2E 2/2). Regra de mídia: 1 produto→send/media, 2+→carrossel (dono manteve 2→carrossel; doc não exige min 3). Backlog: premium #3 refino-por-contagem com [[feedback_no_internal_count_or_jargon_to_lead]]."*
 
 ---
 

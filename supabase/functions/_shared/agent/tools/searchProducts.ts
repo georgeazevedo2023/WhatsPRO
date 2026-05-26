@@ -816,8 +816,9 @@ export async function searchProducts(
     .join('\n')
 
   if (mediaSent) {
-    const mediaType =
-      withImages.length === 1 && (withImages[0].images as string[])?.length < 2 ? 'foto' : 'carrossel'
+    // 1 produto SEMPRE sai como foto única (send/media), independente de quantas fotos
+    // tenha — alinha com o envio real (linha ~615). Carrossel não existe com 1 card.
+    const mediaType = withImages.length === 1 ? 'foto' : 'carrossel'
     const productNames = withImages.slice(0, 3).map((p: any) => cleanProductTitle(p.title)).join(', ')
     const productCount = withImages.length
     const firstProduct = withImages[0]
