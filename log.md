@@ -9,6 +9,20 @@ type: log
 
 ---
 
+## 2026-05-26 — Premium #3 refino-por-contagem SHIPPED + E2E progressivo provado (v7.54.0)
+
+**Trigger:** dono pediu explicação do #3 → confirmou que já temos contadores de interação/pergunta com paridade admin → mandou implementar seguindo o molde.
+
+**Feature:** busca devolve MUITOS resultados → faz UMA pergunta que estreita (contagem = sinal INTERNO). `searchProducts.ts` pós-busca: `products.length > refine_results_threshold` (default 6) E faceta discriminante não preenchida → diretiva [INTERNO] pedindo a PRÓXIMA faceta (ambiente→cor→acabamento→marca; logística ignorada); senão carrossel. Progressivo + loop-free. Complementa o qualificationGate (narrows por score pré-busca). **SYNC RULE completa:** migração `refine_results_threshold int default 6` + types + RulesConfig (0=desliga) + ALLOWED_FIELDS + validationSchemas + backend. Guardrail [[feedback_no_internal_count_or_jargon_to_lead]] embutido.
+
+**Bug pego no E2E:** 1º design (guard `anyDiscriminatingFilled`, 1 pergunta só) era redundante com o gate → corrigi pra PROGRESSIVO. Esqueci de redeployar após a correção → 1º E2E falhou (v172 antigo); redeploy resolveu. Lição: após corrigir, redeploy ANTES de re-testar.
+
+**E2E real sandbox (threshold=1 temporário, 3 tintas):** gate qualificou ambiente→tipo→cor por score; ao buscar (3>1), refino perguntou **"acabamento fosco/acetinado/brilho?"** → depois **marca** (progressivo), **zero número/jargão vazado**, terminando ao esgotar facetas. `deno check` 0, 35 testes searchProducts (+5). Deploy CLI. Sandbox restaurado (threshold=6, limpa). Nota: com catálogo pequeno + threshold default 6 o refino raramente dispara (gate já narrows); valor cresce com catálogo grande — threshold=1 foi só pra demonstrar.
+
+**Frase de retomada:** *"v7.54.0 refino-por-contagem shipped (E2E progressivo provado). Backlog premium: #4 modo consultivo/indecisão, #5 busca facetada (overlap com #3)."*
+
+---
+
 ## 2026-05-26 — Fix R121 stopword (Opção A): query natural não zera mais a busca (v7.53.2)
 
 **Trigger:** dono mandou implementar a Opção A do achado da v7.53.1 ("quero a cuba…" → 0 resultados → handoff espúrio) e testar até nota 10.
@@ -236,15 +250,7 @@ type: log
 
 **Trigger:** após auditoria profunda (objetivos principal/secundários, nota antes 5.7 → hoje 8.3), user pediu pra resolver o único 🔴 crítico — latência do product specialist (~8s) — **sem gambiarra**, testar real até nota 10, depois auditar/documentar/commit/deploy. Antes disso: recuperação do índice git corrompido + commit/push da v7.47.0 (release fantasma) + auditoria Playwright (dashboard Roteamento + tab Agente IA, dados reais de prod).
 
-**Investigação (não-chute):** `ai_agent_runs` reais mostraram turnos de produto SEM busca em ~2.5s (1 round OK) e COM `search_products` em 7.8-15.8s. Causa raiz: **2 rounds de LLM** (decidir buscar → compor). O monolito era rápido por ter pré-search inline (R121/R137); desligado sob router (`skipR121`) por bug de carrossel duplicado.
-
-**Fix de raiz (v7.48.0):** re-liga o pré-search SÓ pro product specialist (`deriveProductSearchParams` + `runInlineSearchProducts` antes do specialist + `preSearchContext` injetado no prompt → 1 round). Anti-duplo-carrossel: `carouselSentInThisCall` (idempotente). `routerProductPreSearch` isola o flag dos outros specialists (set_tags handler não religa busca).
-
-**Bug exposto no E2E + corrigido:** pré-busca com query crua ("vocês têm tinta acrílica fosca?") achava 0 produtos (stopwords) → handoff espúrio fora-de-horário. `cleanProductQuery` stripa saudação+verbo no início → query limpa. Sem isso = regressão vs LLM (que limparia a query).
-
-**E2E real (sandbox router, 3 cenários nota 10):** tinta branca (cold) → greeting+carrossel+resposta; tinta acrílica fosca (isolado) → carrossel + "Temos sim! R$427,90...Qual atende melhor?"; tinta coral branca fosca (cold+marca) → consultiva. **Product hop ~6s (era 8-16s), 1 search, 1 round, 1 carrossel.** 362 testes agent verdes (+15), deno 0, deploy CLI.
-
-**Achado lateral (NÃO meu, fora de escopo):** cold-open com produto+marca pulou a saudação (greeting block v7.47.0) — meu fix só toca o path de produto pós-greeting. Backlog (P5/greeting follow-up). Próximo gargalo de latência: envio do carrossel UAZAPI (~4s, serial) — candidato a paralelização futura (maior risco).
+**Resumo (v7.48.0):** causa da latência = 2 rounds de LLM (pré-search inline desligado sob router). Fix: re-liga `deriveProductSearchParams`+`runInlineSearchProducts`+`preSearchContext` SÓ pro product specialist → 1 round (~6s, era 8-16s). `cleanProductQuery` strip saudação/verbo (query crua dava 0). E2E 3 cenários nota 10, 362 testes (+15), deno 0, deploy CLI.
 
 **Frase de retomada:** *"v7.48.0 latência product specialist shipped (pré-busca 2→1 round, nota 10 E2E). Próximo: monitorar latência prod + considerar paralelizar envio do carrossel; Sprint E.2 proatividade"*.
 
@@ -264,19 +270,9 @@ type: log
 
 ---
 
-## 2026-05-24 (manhã, domingo) — E2E jornada completa router (sandbox Eletropiso) nota 9/10
+## 2026-05-24 (manhã, domingo) — E2E jornada completa router (sandbox) nota 9/10 (resumida)
 
-**Trigger:** user pediu jornada E2E real nas 2 instâncias sandbox (lead Sandbox IA `558185749970` → agent Eletropiso `558181696546`/`174af654` em routing_mode=router), forwardando cada passo (lead+IA) pro operador `5581993856099` e card de transbordo estilo "Cliente/Motivo/Resumo/Tags/Score". Reiniciar até nota 10.
-
-**Infra:** sender `scripts/uaz-send.mjs` (UTF-8-safe, Windows — corrige acentos/emoji corrompidos no curl). Reset FRIO via MCP (ai_agent_logs + ai_agent_runs + conversation + lead_profile + conversation_messages limpos). Conversa de teste `e7131d35`. Produção EletropisoV2 `558781592373` (is_sandbox=false) **intocada**.
-
-**RUN #1 abortado (erro de roteiro meu):** cenário pediu "porcelanato", mas catálogo real do agent (7 produtos) NÃO tem piso — só Tintas(3)/Impermeabilizante/Telhas/Cubas/Vernizes. Busca vazia → IA qualificava à toa. Reiniciei com cenário casado.
-
-**RUN #2 (Fernanda, nota 9/10):** 6 turnos, roteamento 100% correto: saudação→greeting, nome→greeting+update_lead_profile (persistido), produto→product+search_products (**carrossel real 3 tintas**), escolha→SDR oferece +item/handoff, multi-produto→2ª busca (manta Quartzolit), "fechar os 2 itens"→**handoff_to_human com resumo rico e preciso** (1 lata Coral Fosco parede interna + 1 Manta 18kg laje 50m²). Msg fora-de-horário **correta** (domingo). Tags qualif gravadas (`tintas/acrílica/fosco/Coral/impermeabilizante_laje`), `conversation_summaries` populado, `full_name=Fernanda`. Card de vendedor + nota enviados ao operador via WhatsApp.
-
-**3 gaps menores (BACKLOG — paridade router, não-bloqueadores):** (1) `lead_score` não acumula sob router — `index.ts:2203` faz `return` e pula o pós-processamento do monolito (score/sentiment). (2) `sentiment` não capturado sob router. (3) 1 produto enviado como `carousel` em vez de foto (viola `feedback_single_product_send_media`). User optou por **aceitar 9/10 e documentar** (fixes tocam ai-agent HIGH RISK → sprint futuro). 4º item (cidade não coletada) era do meu roteiro, não bug.
-
-**Frase de retomada:** *"executar Sprint paridade router: lead_score+sentiment sob router (index.ts:2203 pula pós-proc) + 1-produto-foto"*.
+> Jornada E2E real 6 turnos (Fernanda) roteamento 100% correto (saudação/nome/produto-carrossel/multi-item/handoff rico/fora-horário). 3 gaps backlog anotados (lead_score+sentiment pulados sob router `index.ts:2203`; 1-produto-foto). Detalhe em git/[[project_router_parity_gaps]].
 
 ---
 

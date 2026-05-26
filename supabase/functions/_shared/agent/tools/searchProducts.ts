@@ -601,6 +601,47 @@ export async function searchProducts(
     }
   }
 
+  // ── Premium #3: refino-por-contagem (2026-05-26) ──────────────────────────
+  // Quando a busca devolve MUITOS resultados, um vendedor consultivo não despeja a
+  // vitrine — faz UMA pergunta que estreita ("é pra área interna ou externa?"). Usamos
+  // a CONTAGEM como sinal INTERNO: se products.length > refine_results_threshold (config
+  // do agente, default 6) E ainda há uma faceta DISCRIMINANTE não preenchida (cor/
+  // ambiente/acabamento/marca/tipo — NÃO logística como quantidade/área), pedimos a
+  // PRÓXIMA faceta antes de mostrar. Complementa o qualificationGate PÓS-busca: o gate
+  // qualifica por SCORE pré-busca; quando isso não basta pra estreitar o catálogo, o
+  // refino continua pela próxima faceta com base na largura REAL do resultado.
+  // PROGRESSIVO + loop-free: cada disparo mira a PRÓXIMA faceta não preenchida (avança
+  // ambiente→cor→acabamento→marca), limitado pelo nº de facetas; quando elas acabam OU
+  // os resultados caem ≤ limiar, mostra o carrossel (batching cuida da largura residual).
+  // GUARDRAIL (feedback_no_internal_count_or_jargon_to_lead): número e jargão
+  // ("afunilar/filtrar") são INTERNOS — o lead recebe só a pergunta natural.
+  // Só na 1ª leva (shownIds vazio) e categoria digital. threshold=0 desliga.
+  const refineThreshold = Number((agent as any).refine_results_threshold ?? 6)
+  if (
+    refineThreshold > 0 &&
+    shownIds.length === 0 &&
+    expectedCategory &&
+    (expectedCategory as any).catalog_status !== 'offline' &&
+    products && products.length > refineThreshold
+  ) {
+    const NON_DISCRIMINATING = new Set(['quantidade', 'area', 'metragem', 'qtd', 'litros', 'volume'])
+    const tagsNow = (conversation.tags as string[]) || []
+    const hasFacet = (key: string) =>
+      tagsNow.some((t) => typeof t === 'string' && t.startsWith(`${key}:`))
+    const nextFacet = flattenCategoryFields((expectedCategory as any).stages)
+      .filter((f) => !NON_DISCRIMINATING.has(f.key))
+      .find((f) => !hasFacet(f.key))
+    if (nextFacet) {
+      log.info('Premium #3: muitos resultados → pergunta a próxima faceta discriminante', {
+        count: products.length,
+        threshold: refineThreshold,
+        facet: nextFacet.key,
+        category: (expectedCategory as any).id,
+      })
+      return `[INTERNO — NÃO mostre isso ao lead] A busca encontrou MUITAS opções nesta linha. NÃO envie carrossel/foto agora. NUNCA diga ao lead o número de produtos nem use jargão ("afunilar", "filtrar", "muitas opções", "refinar"). Faça UMA pergunta curta, natural e consultiva pra entender melhor o que ele precisa, sobre "${nextFacet.label}" (opções típicas: ${nextFacet.examples}). Quando o lead responder, salve com set_tags no formato "${nextFacet.key}:valor" — aí eu te mostro as opções certas no próximo turno. Tom: vendedor atencioso, não robótico.`
+    }
+  }
+
   // Auto-send media/carousel when products have images.
   // MAX_CARDS_PER_BATCH: lote enxuto (5) — habilita o "lote 2" do batching e evita
   // despejar 10+ cards de uma vez (UX premium dos cenários 21.27-21.29).

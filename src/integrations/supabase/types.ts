@@ -510,6 +510,7 @@ export type Database = {
           max_enrichment_questions: number
           max_pre_search_questions: number
           max_qualification_retries: number
+          refine_results_threshold: number
           max_tokens: number
           model: string
           name: string
@@ -572,6 +573,7 @@ export type Database = {
           max_enrichment_questions?: number
           max_pre_search_questions?: number
           max_qualification_retries?: number
+          refine_results_threshold?: number
           max_tokens?: number
           model?: string
           name?: string
@@ -634,6 +636,7 @@ export type Database = {
           max_enrichment_questions?: number
           max_pre_search_questions?: number
           max_qualification_retries?: number
+          refine_results_threshold?: number
           max_tokens?: number
           model?: string
           name?: string

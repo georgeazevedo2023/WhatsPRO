@@ -21,6 +21,13 @@ Fecha os 3 achados da v7.53.0. Causas raiz provadas antes de codar; E2E real san
 - **#3 double-ask 1º turno:** flag `greetingSentThisTurn` no `SpecialistCtx` → `specialistBase` injeta diretiva "já cumprimentei/pedi nome neste turno, não repita" (genérica, todos os specialists).
 - `deno check` 0, 428 agent verdes (+12). E2E: #3 redireciona sem repedir nome; #1 "Prazer, João!"; #2 cuba 10 fotos → `image`. Deploy CLI ai-agent (prod compartilhada). **Achado (✅ fechado em v7.53.2):** pré-busca R121 com stopword ("quero") quebrava o AND-fallback → handoff espúrio.
 
+### v7.54.0 (2026-05-26) — Premium #3: refino-por-contagem (narrowing progressivo) + paridade admin
+
+Vendedor consultivo: quando a busca devolve MUITOS resultados, faz UMA pergunta que estreita em vez de despejar a vitrine (contagem = sinal INTERNO). Reusa o molde de config existente.
+- **Backend (`searchProducts.ts`):** pós-busca, se `products.length > refine_results_threshold` (default 6) E há faceta DISCRIMINANTE não preenchida (logística como quantidade/área é ignorada), retorna diretiva [INTERNO] pedindo a PRÓXIMA faceta; senão carrossel. **Progressivo + loop-free** (ambiente→cor→acabamento→marca; termina ao esgotar facetas ou resultados ≤ limiar). Complementa o `qualificationGate` (narrows por SCORE pré-busca). GUARDRAIL ([[feedback_no_internal_count_or_jargon_to_lead]]): número/jargão são internos, lead recebe só a pergunta natural.
+- **SYNC RULE completa:** migração `ai_agents.refine_results_threshold int default 6` + types + `RulesConfig` (input, 0=desliga) + `ALLOWED_FIELDS` + `validationSchemas` + backend.
+- `deno check` 0 · 35 testes searchProducts (+5 refino) verdes. **E2E real sandbox (threshold=1):** gate qualificou ambiente→tipo→cor por score; ao buscar (3>1), refino perguntou **acabamento** depois **marca** (progressivo, **zero número/jargão vazado**), terminando ao esgotar facetas. Deploy CLI.
+
 ### v7.53.2 (2026-05-26) — Fix R121 stopword (Opção A): linguagem natural não zera mais a busca
 
 Fecha o achado da v7.53.1. **Causa raiz:** `cleanProductQuery` só removia saudação + verbo **interrogativo** (`tem/vende`); faltava a família de **desejo** (`quero/queria/preciso/gostaria/procuro`); com a categoria prefixada, "quero" virava palavra do meio → AND-fallback (`words.every`) exigia "quero" no produto → 0 → handoff. **Fix em 2 camadas:** (1) `cleanProductQuery` ganhou a família de desejo + "ver" + artigo ("quero a cuba…"→"cuba…"); (2) `SEARCH_INTENT_STOP_WORDS`/`filterSearchIntentTerms` — AND-fallback dropa intenção/filler antes do `.every()` (distinto de `QUALIFICATION_STOP_WORDS`=cor/material, que são termos válidos); cobre LLM + R121. `deno check` 0 · 437 agent + 9 novos. **E2E real 2/2:** "quero a cuba de apoio quadrada"→foto (era 0+handoff); "queria ver tinta branca"→carrossel. Deploy CLI.
@@ -284,17 +291,7 @@ Início do Sprint C — router LLM + product_specialist POC. Esta entrega cobre 
 
 **Andamento plano orquestrador:** 60% → **63%** (Sprint C foundations + 1/4 do router work).
 
-### v7.41.15 → v7.41.16 (2026-05-22) — Sprint B5 Ondas 4-5 (`llmCallLoop` + `dispatchResponse`, FIM DO SPLIT) (arquivada)
+### v7.41.16 e abaixo (2026-05-22 e antes) — arquivadas
 
-Últimas 2 ondas do Sprint B5: extrai `llmCallLoop` (-184 lin) e `dispatchResponse` (-188 lin) do monolito. **Sprint B5 FECHADO** (11 ondas, `ai-agent/index.ts` 4544→~2306 lin, -49.3%). 56%→**60%**. Detalhe em git + [[wiki/changelog/2026-05-part10]].
-
-### v7.41.7 → v7.41.14 (2026-05-22) — Sessão maratona R140-R145 (arquivada)
-
-8 versões atacando o crash Sandrielly: R140 (stack trace, o divisor) → R141 (TDZ `carouselSentInThisCall`, causa real) → R142 chain rica → R143 seed sem fields → R144 fuzzy auto-correct → R145 v3 dedup+startTime barrier. Detalhe em [[wiki/erros/familias-r-codes]] + git.
-
----
-
-## 📦 Releases anteriores (v7.41.6 e abaixo) arquivadas
-
-Detalhe em [[wiki/changelog/2026-05-part10]] + histórico git (hard limit 300 linhas). Inclui v7.41.6 (R138+R137 v2 sanitiza query PostgREST), v7.41.4 (R137 v1 revertido), v7.41.3→v7.41.0 (Sprint B5 ondas 3a-3d).
+Sprint B5 (`llmCallLoop`/`dispatchResponse`, -49.3%) + maratona R140-R145 (crash Sandrielly: R141 TDZ) + v7.41.6 (R138/R137 sanitiza query) + ondas 3a-3d. Detalhe em [[wiki/changelog/2026-05-part10]] + [[wiki/erros/familias-r-codes]] + git.
 

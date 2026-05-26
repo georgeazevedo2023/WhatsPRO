@@ -158,6 +158,17 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
               Quando o lead ja qualificou (ex: tinta + interno + rosa) mas o produto nao foi encontrado, o agente faz perguntas extras (acabamento, marca) para enriquecer dados antes de transferir. O vendedor recebe a cadeia completa. 0 = transfere imediatamente. Recomendado: 2.
             </p>
           </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Estreitar busca quando houver muitas opcoes</Label>
+            <Input
+              type="number" min={0} max={50}
+              value={config.refine_results_threshold ?? 6}
+              onChange={(e) => onChange({ refine_results_threshold: parseInt(e.target.value) || 0 })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Quando o lead pede algo vago ("quero tinta") e a busca devolve MAIS que N produtos, o agente faz UMA pergunta natural pra estreitar (ex: "e pra area interna ou externa?") antes de mostrar — sem nunca citar o numero de produtos ao lead. 0 = desligado (mostra direto). Recomendado: 6.
+            </p>
+          </div>
         </CardContent>
       </Card>
 

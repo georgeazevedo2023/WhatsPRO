@@ -618,8 +618,13 @@ describe('carousel batching — exclui já-mostrados + lote novo', () => {
     const products = Array.from({ length: 8 }, (_, i) => P(`p${i + 1}`, i + 1))
     const { supabase, calls } = makeSupabase({ primary: () => ({ data: products }) })
     mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    // todas as facetas discriminantes já dadas → refino-por-contagem (premium #3) NÃO
+    // dispara (não há próxima faceta), exercitando o cap de 5 do carrossel diretamente.
     const ctx = baseCtx(supabase, {
-      conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' },
+      conversation: {
+        tags: ['interesse:tintas', 'ambiente:interno', 'cor:branco', 'acabamento:fosco', 'marca_preferida:coral'],
+        inbox_id: 'inb-1',
+      },
     })
     await searchProducts({ query: 'tinta' }, ctx, makeLog())
     const upd = calls.find(
@@ -640,5 +645,80 @@ describe('carousel batching — exclui já-mostrados + lote novo', () => {
       (c) => c.table === 'conversations' && c.op === 'update' && c.payload?.shown_product_ids,
     )
     expect(upd!.payload.shown_product_ids.sort()).toEqual(['p1', 'p2'])
+  })
+})
+
+// =============================================================================
+// Premium #3 — refino-por-contagem (2026-05-26)
+// =============================================================================
+
+describe('searchProducts — refino-por-contagem (premium #3)', () => {
+  const P = (id: string, n: number) => ({
+    id,
+    title: `Tinta ${n}`,
+    category: 'tintas',
+    price: 10 * n,
+    images: [`url${n}`],
+    in_stock: true,
+  })
+  // Usa o config DEFAULT (Eletropiso) — válido e usado em prod. Facetas discriminantes
+  // da categoria tintas, em ordem: ambiente → cor → acabamento → marca_preferida
+  // (quantidade/área são logísticas → NÃO disparam refino).
+
+  it('query vaga + >6 resultados + sem faceta → pergunta a 1ª faceta (ambiente), NÃO mostra carrossel', async () => {
+    const products = Array.from({ length: 7 }, (_, i) => P(`p${i + 1}`, i + 1))
+    const { supabase, calls } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, { conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' }, incomingText: 'quero tinta' })
+    const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    expect(result).toContain('[INTERNO')
+    expect(result).toContain('ambiente')
+    expect(result).not.toContain('Carrossel')
+    expect(result).toContain('NUNCA diga ao lead o número') // guardrail
+    const upd = calls.find((c) => c.table === 'conversations' && c.op === 'update' && c.payload?.shown_product_ids)
+    expect(upd).toBeFalsy()
+  })
+
+  it('PROGRESSIVO: ambiente já dado mas ainda >6 → pergunta a PRÓXIMA faceta (cor)', async () => {
+    const products = Array.from({ length: 7 }, (_, i) => P(`p${i + 1}`, i + 1))
+    const { supabase } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, { conversation: { tags: ['interesse:tintas', 'ambiente:interno'], inbox_id: 'inb-1' }, incomingText: 'tinta interna' })
+    const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    expect(result).toContain('[INTERNO')
+    expect(result).toContain('cor')           // avançou pra próxima faceta discriminante
+    expect(result).not.toContain('Carrossel')
+  })
+
+  it('TODAS as facetas discriminantes dadas (só resta logística) → mostra carrossel', async () => {
+    const products = Array.from({ length: 7 }, (_, i) => P(`p${i + 1}`, i + 1))
+    const { supabase } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, {
+      conversation: { tags: ['interesse:tintas', 'ambiente:interno', 'cor:branco', 'acabamento:fosco', 'marca_preferida:coral'], inbox_id: 'inb-1' },
+      incomingText: 'tinta interna branca',
+    })
+    const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    expect(result).toContain('Carrossel') // sem faceta discriminante restante → não refina
+    expect(result).not.toContain('[INTERNO')
+  })
+
+  it('poucos resultados (<= limiar) → mostra direto (não refina)', async () => {
+    const products = [P('p1', 1), P('p2', 2), P('p3', 3)]
+    const { supabase } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, { conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' }, incomingText: 'quero tinta' })
+    const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    expect(result).toContain('Carrossel')
+  })
+
+  it('threshold=0 desliga o refino (mostra mesmo com muitos)', async () => {
+    const products = Array.from({ length: 7 }, (_, i) => P(`p${i + 1}`, i + 1))
+    const { supabase } = makeSupabase({ primary: () => ({ data: products }) })
+    mockFetch(() => ({ ok: true, status: 200, body: '{"ok":true}' }))
+    const ctx = baseCtx(supabase, { conversation: { tags: ['interesse:tintas'], inbox_id: 'inb-1' }, agent: { refine_results_threshold: 0, business_hours: null }, incomingText: 'quero tinta' })
+    const result = await searchProducts({ query: 'tinta' }, ctx, makeLog())
+    expect(result).toContain('Carrossel')
+    expect(result).not.toContain('[INTERNO')
   })
 })
