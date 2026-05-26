@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { ShieldAlert, Clock, Frown, MessageSquare, SearchX } from 'lucide-react';
 import { BusinessHoursEditor } from './BusinessHoursEditor';
 import { ExtendedHoursConfig } from './ExtendedHoursConfig';
+import { AbandonHandoffConfig } from './AbandonHandoffConfig';
 
 interface RulesConfigProps {
   config: Record<string, any>;
@@ -206,6 +207,8 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
         value={config.extended_hours_until}
         onChange={onChange}
       />
+
+      <AbandonHandoffConfig config={config} onChange={onChange} />
     </div>
   );
 }

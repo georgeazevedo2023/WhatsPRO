@@ -97,6 +97,11 @@ const ALLOWED_FIELDS = [
   'notify_outside_hours_on_handoff',
   // Sprint C (2026-05-23): feature flag router LLM vs monolito
   'routing_mode',
+  // Sprint E.2 (2026-05-26): handoff por abandono (cutucada + transbordo automático)
+  'abandon_handoff_enabled',
+  'abandon_nudge_after_min',
+  'abandon_handoff_after_min',
+  'abandon_nudge_message',
 ];
 
 export default function AIAgentTab() {

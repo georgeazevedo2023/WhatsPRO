@@ -9,6 +9,22 @@ type: log
 
 ---
 
+## 2026-05-26 — Sprint E.2: handoff por ABANDONO (cutucada + transbordo automático) (v7.56.0)
+
+**Trigger:** continuação pós-v7.55.x. Dono pediu pra explicar o que faltava e prosseguir. Escolhido: (1) humanizar o `handoff_message` do EletropisoV2 (config) e (2) Sprint E.2 (handoff por abandono). "sim prossiga, documente, commit e deploy".
+
+**#2 template EletropisoV2 (config, não código):** `handoff_message` do agente em PROD trocado (com aprovação do dono via opções) por *"Já passei tudo pro nosso vendedor — ele te chama aqui mesmo daqui a pouquinho pra fechar com você. 😊"* (era *"…consultor de vendas…aguarde…prazer atender"*). Só EletropisoV2 (Eletropiso antigo mantido). O prefixo nome+item do `personalizeHandoffMessage` continua sendo adicionado.
+
+**#1 Sprint E.2 (feature nova, aprovada com plano):** buraco — no fluxo offline/sem-resultado a IA grava `seller_handoff_pending`, faz 1 pergunta (marca) e espera o PRÓXIMO turno do lead pro pré-router forçar o handoff. Se o lead some, conversa pendura pra sempre. Solução em **2 estágios** (decidido com o dono: cutucar o lead antes de passar pro vendedor): Estágio 1 cutucada após N min; Estágio 2 transbordo após M min da cutucada (com resumo). Lead responde a qualquer hora → pré-router existente resolve (timeline abortada).
+
+**Arquitetura (zero gambiarra):** novo cron dedicado `handoff-abandoned-leads` (2min) — NÃO toca `ai-agent/index.ts`/`dispatchResponse` (HIGH RISK); reusa as MESMAS primitivas do step 22 (`assignHandoff`, `personalizeHandoffMessage`, `formatCart*`, `isOutsideBusinessHours`). Decisão dos estágios extraída pura em `_shared/agent/abandonHandoff.ts` (testável). Scan pesado (prefix-match em `tags text[]` + joins) num RPC `find_abandoned_handoff_candidates`. 4 colunas de config por agente (default OFF) + UI `AbandonHandoffConfig` na tab Segurança + SYNC RULE (ALLOWED_FIELDS + types.ts).
+
+**Entrega:** tsc 0 · deno check 0 · 19 testes Vitest do helper (verdes); 4 fails pré-existentes (excludedProducts + loaders ESM) **fora do meu changeset** (confirmado via git status). Migration aplicada (cols + RPC + cron `*/2`). Deploy CLI (`handoff-abandoned-leads`, auth 401 sem token OK). **E2E real sandbox:** RPC inclusão=1 + 5 guards zeram (assigned/status/sem-tag/feature-off/>12h); estágio 2 disparado AO VIVO via cron autenticado → `status_ia=shadow` + tags limpas + nota interna *"📋 …🛒 1x porta sanfonada marrom 80cm"* + log `handoff_trigger {abandoned:true}` (`queue_off_no_default`, sem mensagear vendedor real — nulifiquei o assignee no teste). Fixtures limpas, sandbox restaurado ao estado original (agent enabled=false, assignee restaurado). **PROD intocada (feature OFF).** Andamento ~93% → **~94%**.
+
+**Pendência (próximo):** ligar a feature no EletropisoV2 (config, com OK do dono) + monitorar; stage 1 (cutucada com WhatsApp real) não foi disparado ao vivo (jid fake no teste) — send path é verbatim do `requeue-conversations` (provado em prod). Backlog premium: #4 modo consultivo, #5 busca facetada.
+
+---
+
 ## 2026-05-26 — "Catálogo é minoria": nunca negar + handoff determinístico + skeleton/sessão-zumbi (v7.55.0)
 
 **Trigger:** dono mandou auditar (1) skeleton infinito no Helpdesk e (2) IA dizendo "No momento não encontrei a caixa-d'água de 1000 litros" — viola regra: catálogo cadastrado é MINORIA, maioria é estoque físico; correto = coletar info + transbordar, nunca negar. "prossiga teste commit audite deploy".
@@ -252,21 +268,9 @@ type: log
 
 ---
 
-## 2026-05-24 (noite) — Carousel batching "mais opções" (v7.49.0) + auditoria dos 3 cenários premium
+## 2026-05-24 (noite) — Carousel batching "mais opções" (v7.49.0) (arquivado)
 
-**Trigger:** após auditar os 3 cenários consultivos (21.27-21.29) que o dono mandou como alvo premium, mapeamos o que já temos vs falta. Decisão: vector NÃO é necessário (catálogo bounded + funil de qualificação já entrega facetas — busca facetada > embeddings). Prioridade #1 = carousel batching. Dono mandou implementar→testar→auditar→documentar→commit→deploy.
-
-**Feature (v7.49.0):** lead rejeita carrossel ("nenhuma dessas") ou pede mais → agente mostra LOTE NOVO excluindo os já vistos; quando esgota, oferece refinar/categoria/consultor sem inventar. Migration `conversations.shown_product_ids text[]`; `searchProducts` exclui+cap5+persiste+mensagem-esgotado; router `produto` cobre "mais opções"; productSpecialist regra 6b.
-
-**2 bugs raiz achados NO E2E (corrigidos na fonte, zero remendo):** (1) query do catálogo não selecionava `id` → exclusão/persistência eram no-op silencioso (unit tests passavam pq o mock tinha id); (2) `conversations` carregado sem `shown_product_ids` (select de colunas) → exclusão cega entre turnos. Fix: adicionar a coluna nos 2 selects.
-
-**E2E real sandbox router 3 estados nota 10:** lote1 (5 cards/cap, persiste 5) → lote2 "nenhuma dessas" (router→produto, exclui 5, mostra 2 DIFERENTES "[E2E] Opção 3/4", persiste 7, texto consultivo) → esgotado "tem mais?" (sem carrossel, "essas eram todas... refinar/categoria/consultor"). Catálogo ampliado p/ 7 tintas temp durante teste, depois removido; sandbox conv limpa.
-
-**Pipeline:** 366 testes agent verdes (+4). deno 0. Deploy CLI (4 deploys: feature + fix id + fix conv-select). EletropisoV2 PROD + sandbox.
-
-**Backlog premium restante (ordem):** #2 cart engine, #3 refino-por-contagem, #4 modo consultivo/indecisão, #5 busca facetada (não vector), #6 profundidade de catálogo.
-
-**Frase de retomada:** *"v7.49.0 carousel batching shipped (nota 10). Próximo premium: #2 cart engine (add_cart/update_cart estruturado + cross-sell no resumo)"*.
+> Lead rejeita carrossel/pede mais → lote novo excluindo vistos (`shown_product_ids text[]`, cap 5, esgotado gracioso). 2 bugs raiz no E2E (query sem `id`; conv sem a coluna no select). E2E sandbox 3 estados nota 10. Decisão: vector NÃO necessário (busca facetada > embeddings). Detalhe em CHANGELOG + git.
 
 ---
 

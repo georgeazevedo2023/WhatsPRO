@@ -129,3 +129,7 @@ verify_jwt = false
 # Cron 6h (0 */6 * * *) — E2E automated tests (auth manual via verifyCronOrService)
 [functions.e2e-scheduled]
 verify_jwt = false
+
+# Cron 2min — Sprint E.2 handoff por abandono (auth manual via verifyCronOrService)
+[functions.handoff-abandoned-leads]
+verify_jwt = false

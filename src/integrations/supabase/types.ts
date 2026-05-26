@@ -478,6 +478,10 @@ export type Database = {
       }
       ai_agents: {
         Row: {
+          abandon_handoff_after_min: number
+          abandon_handoff_enabled: boolean
+          abandon_nudge_after_min: number
+          abandon_nudge_message: string | null
           blocked_numbers: string[] | null
           blocked_phrases: string[] | null
           blocked_topics: string[] | null
@@ -541,6 +545,10 @@ export type Database = {
           voice_reply_to_audio: boolean | null
         }
         Insert: {
+          abandon_handoff_after_min?: number
+          abandon_handoff_enabled?: boolean
+          abandon_nudge_after_min?: number
+          abandon_nudge_message?: string | null
           blocked_numbers?: string[] | null
           blocked_phrases?: string[] | null
           blocked_topics?: string[] | null
@@ -604,6 +612,10 @@ export type Database = {
           voice_reply_to_audio?: boolean | null
         }
         Update: {
+          abandon_handoff_after_min?: number
+          abandon_handoff_enabled?: boolean
+          abandon_nudge_after_min?: number
+          abandon_nudge_message?: string | null
           blocked_numbers?: string[] | null
           blocked_phrases?: string[] | null
           blocked_topics?: string[] | null
