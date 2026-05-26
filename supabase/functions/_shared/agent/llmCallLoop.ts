@@ -197,7 +197,11 @@ export async function runLlmCallLoop(ctx: LlmCallLoopCtx): Promise<LlmCallLoopRe
 
       // Handle tool calls
       if (llmResult.toolCalls.length > 0) {
-        const sideEffectTools = new Set(['send_carousel', 'send_media', 'send_poll', 'handoff_to_human'])
+        // Cart Engine (2026-05-25): add_to_cart/update_cart leem+escrevem
+        // conversations.cart_items (read-modify-write no objeto compartilhado). Se o LLM
+        // emitir 2 cart calls num turno, paralelo = race (última escrita vence, item some).
+        // Tratar como side-effect força execução SEQUENCIAL → merges compõem corretamente.
+        const sideEffectTools = new Set(['send_carousel', 'send_media', 'send_poll', 'handoff_to_human', 'set_cart'])
         const hasSideEffects = llmResult.toolCalls.some((tc) => sideEffectTools.has(tc.name))
 
         const toolResultEntries: { name: string; result: string }[] = []

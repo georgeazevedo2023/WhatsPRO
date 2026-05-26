@@ -63,18 +63,22 @@ export const handoffToHumanToolDef: LLMToolDef = {
   },
 }
 
-export const addToCartToolDef: LLMToolDef = {
-  name: 'add_to_cart',
+export const setCartToolDef: LLMToolDef = {
+  name: 'set_cart',
   strict: true,
-  description: 'Adiciona item(ns) ao pedido do lead QUANDO ELE CONFIRMA que quer levar. Use pra montar o pedido (inclusive multi-item, ao longo da conversa). NÃO use só pra mostrar/buscar produto (isso é search_products/send_carousel/send_media). Itens iguais somam quantidade.',
+  description: 'Define o pedido COMPLETO do lead (substitui o pedido anterior inteiro). Passe SEMPRE a lista inteira de itens que o lead quer levar AGORA: adicionar = incluir o item novo na lista; remover = omitir da lista; mudar quantidade = ajustar o número; cancelar tudo = lista vazia. É idempotente — NÃO duplica. Use quando o lead confirma o que quer levar (inclusive "adiciona/quero/inclui {item}"). NÃO use pra só mostrar/buscar produto (isso é search_products).',
   parameters: {
     type: 'object',
     properties: {
       items: {
         type: 'array',
-        description: 'Itens que o lead confirmou. Chamar add_to_cart de novo acumula no pedido.',
+        description: 'Lista COMPLETA e atual do pedido (TODOS os itens que o lead quer). Lista vazia = pedido limpo.',
         items: {
           type: 'object',
+          // OpenAI strict mode exige additionalProperties:false em TODO objeto, inclusive
+          // aninhado. O llmProvider só injeta no nível raiz (não recursivo), então o objeto
+          // de item PRECISA declarar explícito — senão é 400 → retry 3× → 502 (Bug 4 família).
+          additionalProperties: false,
           properties: {
             name: { type: 'string', description: 'Nome do produto (do catálogo ou como o lead pediu)' },
             qty: { type: 'integer', description: 'Quantidade. Use 1 se o lead não especificou.' },
@@ -86,21 +90,6 @@ export const addToCartToolDef: LLMToolDef = {
       },
     },
     required: ['items'],
-  },
-}
-
-export const updateCartToolDef: LLMToolDef = {
-  name: 'update_cart',
-  strict: true,
-  description: 'Edita o pedido já montado: muda a quantidade (set_qty), remove um item (remove) ou limpa tudo (clear). Use quando o lead corrige ("muda pra 2 latas", "tira a manta", "cancela tudo").',
-  parameters: {
-    type: 'object',
-    properties: {
-      action: { type: 'string', description: 'set_qty | remove | clear', enum: ['set_qty', 'remove', 'clear'] },
-      target: { type: ['string', 'null'], description: 'Nome do item alvo (para set_qty/remove). null para clear.' },
-      qty: { type: ['integer', 'null'], description: 'Nova quantidade (para set_qty). null caso contrário.' },
-    },
-    required: ['action', 'target', 'qty'],
   },
 }
 

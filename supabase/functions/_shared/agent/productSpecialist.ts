@@ -20,7 +20,7 @@
  */
 
 import { runSpecialist, type SpecialistCtx, type SpecialistDef } from './specialistBase.ts'
-import { updateLeadProfileToolDef, addToCartToolDef, updateCartToolDef } from './specialistTools.ts'
+import { updateLeadProfileToolDef, setCartToolDef } from './specialistTools.ts'
 import { cleanSearchQuery } from './tools/searchProducts.ts'
 import { getCategoriesOrDefault, matchCategory, matchCategoryBySearchText } from '../serviceCategories.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
@@ -128,11 +128,11 @@ FLUXO POR SITUAÇÃO:
 
 7. Search 0 resultados → APENAS texto oferecendo alternativa. NÃO repita o search.
 
-8. MONTAR O PEDIDO: lead escolheu/confirmou item (ou deu quantidade) → add_to_cart (name, qty, e product_id/unit_price se souber); o sistema devolve o resumo. Confirme e pergunte "Quer adicionar mais algum item ou já passo pro vendedor?". Lead corrigiu (mudar qtd / tirar / cancelar) → update_cart (set_qty / remove / clear). Mantenha o pedido aberto até o lead dizer que terminou.
+8. MONTAR O PEDIDO: lead confirma o que quer ("quero/adiciona/inclui {item}", qtd) → set_cart com o pedido COMPLETO atual (TODOS os itens; name/qty + product_id/unit_price se souber). set_cart SUBSTITUI o pedido (idempotente): adicionar=incluir na lista, mudar qtd=ajustar número, remover=omitir, cancelar=vazia — sempre mande a lista inteira, nunca só o delta. Item já decidido vai direto no set_cart (sem search_products). Confirme e pergunte "mais algum item ou já passo pro vendedor?". Mantenha aberto até concluir.
 
 9. FECHAMENTO: lead confirmou ("é só isso", "pode finalizar") OU pediu vendedor → handoff_to_human. O resumo itemizado (itens+qtd+total) é anexado AUTOMÁTICO ao transbordo; no reason ponha só as qualificações/observações pro vendedor. Escreva 1 frase curta confirmando ao lead.
 
-9b. CROSS-SELL (opcional, 1x no fechamento): se houver complemento ÓBVIO do catálogo (tinta→rolo/fita; impermeabilizante→trincha), ofereça UM item sem insistir e SEM inventar. Aceitou → add_to_cart.
+9b. CROSS-SELL (opcional, 1x no fechamento): se houver complemento ÓBVIO do catálogo (tinta→rolo/fita; impermeabilizante→trincha), ofereça UM item sem insistir e SEM inventar. Aceitou → set_cart com o item incluído.
 
 10. OBJEÇÃO DE PREÇO ("achei caro", "tá caro", "no concorrente é mais barato") → NÃO responda com pergunta de qualificação. Primeiro EMPATIA breve + defenda o VALOR do item cotado (qualidade, durabilidade, garantia, cobertura/rendimento). Se fizer sentido, lembre as formas de pagamento. NUNCA ofereça desconto por conta própria. Mantenha o pedido aberto e pergunte se quer seguir.
 
@@ -220,11 +220,11 @@ export function getProductSpecialistToolDefs(): LLMToolDef[] {
     // conseguia salvar nome/cidade ditos junto com o produto. A compartilhada tem
     // full_name + city + interesses + reason + ticket — alinhada ao handler (crmTools).
     updateLeadProfileToolDef,
-    // Premium #2 Cart Engine (2026-05-25): pedido estruturado. add_to_cart monta,
-    // update_cart edita; estado em conversations.cart_items; resumo itemizado vai
-    // automaticamente pro reason do handoff (setTagsAndHandoff).
-    addToCartToolDef,
-    updateCartToolDef,
+    // Premium #2 Cart Engine (2026-05-25): set_cart define o pedido completo
+    // (substitui, idempotente — evita double-count); estado em
+    // conversations.cart_items; resumo itemizado vai automaticamente pro reason
+    // do handoff (setTagsAndHandoff).
+    setCartToolDef,
     {
       // Bug 11 fix (v7.43.13): specialist é dono do fluxo de venda completo, incluindo
       // o fechamento. handoff_to_human escala pro vendedor humano com o pedido montado.

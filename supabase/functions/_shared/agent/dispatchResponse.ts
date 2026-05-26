@@ -19,7 +19,8 @@
 
 import { STATUS_IA } from '../constants.ts'
 import { mergeTags } from '../agentHelpers.ts'
-import { isOutsideBusinessHours } from '../businessHours.ts'
+import { isOutsideBusinessHours, personalizeHandoffMessage } from '../businessHours.ts'
+import { normalizeCart, formatCartOneLine, formatCartSummary } from './cart.ts'
 import { detectObjection } from '../objectionDetection.ts'
 import { splitAudioAndText } from '../ttsProviders.ts'
 import type { Logger } from './context.ts'
@@ -376,12 +377,22 @@ export async function dispatchResponse(
     const notifyOutsideDef = agent.notify_outside_hours_on_handoff !== false
     const outsideHoursDef =
       notifyOutsideDef && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-    const handoffMsg = pickHandoffMessage({
-      agent,
-      profileData,
-      funnelData,
-      outsideHours: outsideHoursDef,
-    })
+    // Premium #2 Cart Engine (2026-05-25): se houver pedido estruturado, personaliza
+    // a msg ao lead (nome + linha compacta) e anexa o itemizado+total ao reason que o
+    // vendedor recebe. Esta via (handoff deferido/verbalizado) é a que dispara quando o
+    // LLM NÃO chama handoff_to_human — então o inject precisa existir aqui também.
+    const cartItemsDef = normalizeCart((conversation as Record<string, unknown>).cart_items)
+    const cartOneLineDef = formatCartOneLine(cartItemsDef)
+    const cartFullDef = formatCartSummary(cartItemsDef)
+    const handoffMsg = personalizeHandoffMessage(
+      pickHandoffMessage({
+        agent,
+        profileData,
+        funnelData,
+        outsideHours: outsideHoursDef,
+      }),
+      { leadName: (leadProfile as { full_name?: string | null } | null)?.full_name || null, itemSummary: cartOneLineDef },
+    )
     // D30: atribui via fila ANTES de enviar
     const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
     await sendTextMsg(finalMessage)
@@ -411,6 +422,8 @@ export async function dispatchResponse(
         objection: objectionTagDeferred,
         deferred: true,
         incoming_text: incomingText.substring(0, 300),
+        cart_items: cartItemsDef,
+        order_summary: cartFullDef || null,
         queue: queueRes,
       },
     })

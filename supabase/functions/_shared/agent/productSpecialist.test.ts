@@ -255,9 +255,9 @@ describe('buildProductSpecialistPrompt', () => {
       collectedTags: ['interesse:tintas', 'cor:branco', 'ambiente:sala', 'marca_preferida:Coral'],
       businessInfo: 'Endereço: Av X, 1000. Tel: 11 9999-0000.',
     })
-    // Premium #2 (2026-05-25): +regras 8/9/9b do cart engine (montar/editar/cross-sell)
-    // subiram o alvo de 4096→4400. Segue compacto e muito abaixo do alvo global de 8 KB.
-    expect(p.length).toBeLessThan(4400)
+    // Premium #2 (2026-05-25): +regras 8/9/9b do cart engine (set_cart full-replace +
+    // cross-sell) subiram o alvo de 4096→4600. Segue compacto e muito abaixo do global 8 KB.
+    expect(p.length).toBeLessThan(4600)
     expect(p.length).toBeGreaterThan(1000) // não tão pequeno que perdeu conteúdo
   })
 
@@ -296,9 +296,9 @@ describe('buildProductSpecialistPrompt', () => {
 })
 
 describe('getProductSpecialistToolDefs', () => {
-  it('retorna exatamente 8 tools (premium #2: +add_to_cart +update_cart)', () => {
+  it('retorna exatamente 7 tools (premium #2: +set_cart)', () => {
     const tools = getProductSpecialistToolDefs()
-    expect(tools).toHaveLength(8)
+    expect(tools).toHaveLength(7)
   })
 
   it('todas com strict=true', () => {
@@ -312,13 +312,12 @@ describe('getProductSpecialistToolDefs', () => {
     const tools = getProductSpecialistToolDefs()
     const names = tools.map((t) => t.name).sort()
     expect(names).toEqual([
-      'add_to_cart',
       'handoff_to_human',
       'search_products',
       'send_carousel',
       'send_media',
+      'set_cart',
       'set_tags',
-      'update_cart',
       'update_lead_profile',
     ].sort())
     // Bug 11 fix (v7.43.13): handoff_to_human agora INCLUÍDO (specialist fecha o ciclo)

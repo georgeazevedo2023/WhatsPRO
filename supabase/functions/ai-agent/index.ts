@@ -2088,11 +2088,11 @@ ${contextBlock}`
           return `Tool '${name}' não implementada.`
         }
 
-        case 'add_to_cart':
-        case 'update_cart': {
+        case 'set_cart': {
           // Premium #2 Cart Engine (2026-05-25): pedido estruturado em
-          // conversations.cart_items. dispatchCartTool lê/escreve e devolve o
-          // resumo pro LLM ecoar. Helpers puros em _shared/agent/cart.ts.
+          // conversations.cart_items. set_cart SUBSTITUI o pedido pela lista
+          // completa (idempotente). dispatchCartTool persiste e devolve o resumo
+          // pro LLM ecoar. Helpers puros em _shared/agent/cart.ts.
           const cartResult = await dispatchCartTool(name, args, {
             supabase, agent_id, conversation, conversation_id,
           }, log)
