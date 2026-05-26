@@ -26,6 +26,20 @@ describe('cleanProductQuery (latência: query da pré-busca sem ruído)', () => 
   it('não corrompe "trabalham com" no meio (só início)', () => {
     expect(cleanProductQuery('tinta que trabalham com')).toBe('tinta que trabalham com')
   })
+  // 2026-05-26: família de desejo (quero/queria/preciso/gostaria/procuro) + "ver" +
+  // artigo. Antes "quero" sobrevivia e zerava a busca no AND-fallback.
+  it('remove "quero a" + artigo', () => {
+    expect(cleanProductQuery('quero a cuba de apoio quadrada')).toBe('cuba de apoio quadrada')
+  })
+  it('remove "queria ver"', () => {
+    expect(cleanProductQuery('queria ver tinta branca')).toBe('tinta branca')
+  })
+  it('remove "me manda a"', () => {
+    expect(cleanProductQuery('me manda a manta líquida')).toBe('manta líquida')
+  })
+  it('remove "procuro"', () => {
+    expect(cleanProductQuery('procuro telha de pvc')).toBe('telha de pvc')
+  })
 })
 
 // Categoria válida mínima (isValidConfig exige stages com fields/exit_action/phrasing).

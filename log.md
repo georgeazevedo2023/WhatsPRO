@@ -9,6 +9,20 @@ type: log
 
 ---
 
+## 2026-05-26 — Fix R121 stopword (Opção A): query natural não zera mais a busca (v7.53.2)
+
+**Trigger:** dono mandou implementar a Opção A do achado da v7.53.1 ("quero a cuba…" → 0 resultados → handoff espúrio) e testar até nota 10.
+
+**Auditoria fina (rastreei o código, confirmei o mecanismo exato):** `deriveProductSearchParams` (path B, `productSpecialist.ts:355`) monta `query = interesse + cleanProductQuery(incomingText)`. `cleanProductQuery` só removia, NO INÍCIO, saudação + verbo INTERROGATIVO (`tem/têm/vende/fazem/trabalham com`) — **a família de DESEJO (`quero/queria/preciso/gostaria/procuro`) faltava**. Com a categoria "pias" prefixada, "quero" virava palavra do meio → `searchProducts.ts:315` (ILIKE da frase inteira) dá 0 → AND-fallback (`words.every`, linha 345) exige TODAS as palavras no produto → "quero" não está → 0 → handoff fora-horário.
+
+**Fix Opção A (2 camadas, fonte):** **(1)** `cleanProductQuery` ganhou a família de desejo + "ver" opcional + artigo ("quero a cuba…"→"cuba…"). **(2)** novo `SEARCH_INTENT_STOP_WORDS` + `filterSearchIntentTerms` (`qualificationStopWords.ts`) — o AND-fallback dropa palavras de intenção/filler (quero/uma/vocês/preço/saber…) antes do `.every()` (DIFERENTE de `QUALIFICATION_STOP_WORDS` que tem cor/material — esses são termos de busca válidos). Defesa em profundidade: camada 1 limpa a query da pré-busca; camada 2 protege QUALQUER caminho (LLM, R121) no core da busca.
+
+**Validação:** `deno check` 0 · **437 agent + 5 stopwords + 9 novos verdes** · full suite 9 fails pré-existentes (zero overlap). Deploy CLI ai-agent. **E2E real sandbox router 2/2 PASS:** "quero a cuba de apoio quadrada" → query limpa "pias cuba de apoio quadrada" → **foto** (era 0+handoff); "queria ver tinta branca" → query "tinta branca" → **carrossel 3 tintas**.
+
+**Frase de retomada:** *"v7.53.2 fix R121 stopword shipped (E2E 2/2). Backlog: premium #3 refino-por-contagem com guardrail [[feedback_no_internal_count_or_jargon_to_lead]]. Cosmético: result string do searchProducts diz 'Carrossel com 1 produto' mesmo quando manda foto (interno ao LLM)."*
+
+---
+
 ## 2026-05-26 — 3 fixes de polish (nome truncado / 1-produto-carrossel / double-ask) + E2E 3/3 (v7.53.1)
 
 **Trigger:** auditar fundo + corrigir + testar real nas 2 instâncias até nota 10 os 3 achados da v7.53.0. Sessão PARALELA (takeover, abaixo) — toquei só em `ai-agent/index.ts` + `_shared/agent/{llmCallLoop,specialistBase,tools/mediaTools,tools/crmTools}` (+ testes).
@@ -193,24 +207,9 @@ type: log
 
 ---
 
-## 2026-05-24 (noite II) — Auditoria profunda qualify-first + fix de gênero no score (gambiarra revertida)
+## 2026-05-24 (noite II) — Auditoria qualify-first + fix de gênero no score (superada por v7.50.0)
 
-**Trigger:** dono pediu fluxo consultivo qualify-first (cenário 21.27: qualifica até score → busca → muitos resultados → refina por cor → carrossel → escolha → validação → transbordo). Testei e achei gaps; tentei gating por threshold; dono cobrou "não quero gambiarra, audite mais profundo".
-
-**Auditoria profunda — causa raiz (NÃO é bug pontual):** "buscar vs qualificar" é decidido em **4 lugares independentes sem fonte única de verdade**, que se contradizem:
-1. Stage engine (`service_categories`+`preLLMAutoExtract` C2): score atinge `exit_action=search_products`.
-2. `detectIncomingSearchSignal` (R121/R137): regex "quero/tem X"+marca — **força busca em "quero tinta" vago**.
-3. `deriveProductSearchParams` (pré-busca v7.48): categoria digital + sem produto.
-4. LLM do product_specialist.
-Na migração monolito→router, o stage engine (qualify-first) ficou no pré-LLM mas o router+product_specialist criou caminho paralelo de busca que NÃO consulta o estado de qualificação → inter-agent misalignment (MAST). Meu threshold no dispatch era um **5º decisor** = gambiarra.
-
-**Fix de raiz proposto (próxima sessão):** `_shared/agent/qualificationGate.ts` — fonte ÚNICA determinística (lê stage/score/exit_action) respondendo "lead pronto pra buscar?". Religar #2/#3/dispatch/specialist nele → 1 decisor só.
-
-**Shipped agora (validado):** flexão de gênero/plural no `fieldAutoExtractor` (`buildCandidateRegex`: "branca"→cor:branco, "fosca"→acabamento:fosco). Era bug real — matcher não casava gênero, **por isso o score nunca acumulava**. E2E: score 15→50, campos capturados. **Revertida** a gambiarra do threshold no dispatch (índice.ts voltou a `const def`; imports órfãos removidos). 386 testes verdes, deno 0, deploy.
-
-**Estado:** EletropisoV2 prod = router + gênero-fix + batching + rule "não temos". Qualify-first NÃO está ativo (revertido) — segue search-first até o qualificationGate.
-
-**Frase de retomada:** *"implementar qualificationGate.ts (fonte única qualify-vs-search lendo stage engine) + religar detectIncomingSearchSignal/deriveProductSearchParams/dispatch/product_specialist nele; depois rodar 5 cenários consultivos completos (saudação→nome→qualif+score→busca quando stage libera→refino por contagem→carrossel batching→escolha→validação→upsell→transbordo c/ resumo) até nota 10. Fix de gênero no score JÁ está em prod."*
+> Auditoria que originou o `qualificationGate` (4 decisores rivais buscar-vs-qualificar sem fonte única → MAST) + fix de gênero/plural no `fieldAutoExtractor` (branca→cor:branco; score parou de travar). Tudo capturado no v7.50.0 (noite III) abaixo.
 
 ---
 

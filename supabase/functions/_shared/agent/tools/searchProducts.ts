@@ -23,7 +23,7 @@ import { fetchWithTimeout } from '../../fetchWithTimeout.ts'
 import { mergeTags, escapeLike } from '../../agentHelpers.ts'
 import { evaluateSearchGuard } from '../../searchGuard.ts'
 import { isOutsideBusinessHours } from '../../businessHours.ts'
-import { filterNonBrandTerms } from '../../qualificationStopWords.ts'
+import { filterNonBrandTerms, filterSearchIntentTerms } from '../../qualificationStopWords.ts'
 import { autoExtractFields, flattenCategoryFields } from '../../fieldAutoExtractor.ts'
 import {
   getCategoriesOrDefault,
@@ -328,8 +328,15 @@ export async function searchProducts(
   // Fallback: AND word-by-word
   let wordByWordBroadProducts: any[] | null = null
   if ((!products || products.length === 0) && searchText && searchText.includes(' ')) {
-    const words = searchText.split(/\s+/).filter((w: string) => w.length > 2)
-    if (words.length > 1) {
+    const rawWords = searchText.split(/\s+/).filter((w: string) => w.length > 2)
+    // Drop palavras de INTENÇÃO/filler ("quero", "uma", "vocês"…) antes do AND-fallback:
+    // o `.every()` abaixo exige TODAS as palavras no produto, então uma única palavra de
+    // linguagem natural que não esteja no título zera a busca (caso real "quero a cuba de
+    // apoio quadrada" → "quero" não está no produto → 0 → handoff espúrio). Fallback p/
+    // rawWords se o filtro esvaziar (query feita só de stopwords).
+    const meaningful = filterSearchIntentTerms(rawWords)
+    const words = meaningful.length > 0 ? meaningful : rawWords
+    if (words.length >= 1) {
       const broadTerms = words
         .slice(0, 5)
         .map((w: string) => `title.ilike.%${escapeLike(w)}%,description.ilike.%${escapeLike(w)}%`)

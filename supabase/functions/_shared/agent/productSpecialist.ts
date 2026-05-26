@@ -312,8 +312,15 @@ export function cleanProductQuery(s: string): string {
   const stripped = s
     // saudação no início ("bom dia!", "olá,", "oi")
     .replace(/^\s*(?:oi+|ol[áa]+|e?\s*a[íi]|bom\s+dia|boa\s+tarde|boa\s+noite)[\s,!.]*/i, '')
-    // verbo interrogativo de produto ("vocês têm", "tem", "vendem", "trabalham com")
-    .replace(/^\s*(?:vcs?|voc[êe]s?)?\s*(?:tem|t[êe]m|vende[mn]?|fazem|trabalham?\s+com|tem\s+dispon[ií]ve(?:l|is))\s+/i, '')
+    // verbo de produto no início — interrogativo ("vocês têm", "tem", "vendem",
+    // "trabalham com") OU de desejo ("quero", "queria", "gostaria", "preciso",
+    // "procuro"). + "ver" opcional ("quero ver") + artigo opcional ("quero A cuba").
+    // 2026-05-26: a família de desejo faltava — "quero a cuba…" mantinha "quero" e
+    // zerava a busca no AND-fallback (words.every).
+    .replace(
+      /^\s*(?:vcs?|voc[êe]s?)?\s*(?:tem|t[êe]m|vende[mn]?|fazem|trabalham?\s+com|tem\s+dispon[ií]ve(?:l|is)|quero|queria|quer|gostaria|gostav[ao]|preciso|precisa(?:va|ndo)?|procuro|procura(?:ndo|va)?|(?:me\s+)?manda(?:r)?|(?:me\s+)?mostra(?:r)?)(?:\s+ver)?\s+(?:(?:de|do|da|dos|das|um|uma|uns|umas|o|a|os|as)\s+)?/i,
+      '',
+    )
   return cleanSearchQuery(stripped)
 }
 
