@@ -165,18 +165,31 @@ describe('sendCarousel', () => {
     expect(msgInsert!.payload.content).toBe('Tintas pra você')
   })
 
-  it('happy path single-product multi-foto: dispara Multi-photo carousel + copies mockadas', async () => {
+  // 2026-05-26: 1 PRODUTO (mesmo com várias fotos) NÃO vira carrossel multi-card —
+  // é redirecionado pra send_media (foto única + legenda). Antes virava carrossel de
+  // N fotos e o lead enxergava como vários produtos.
+  it('1 produto multi-foto → redireciona pra send_media (image), NÃO carrossel', async () => {
     mockFetchSequence([{ ok: true, status: 200, body: '{"ok":true}' }])
     const spy = makeSupabaseSpy()
     const ctx = baseCtx({ supabase: spy.supabase })
     const log = makeLog()
     const r = await sendCarousel({ product_ids: ['Tinta Coral 18L'] }, ctx, log)
 
-    expect(r).toContain('Carrossel enviado')
-    expect(r).toContain('fotos')
+    // Retorno é o de send_media, não de carrossel.
+    expect(r).toContain('Mídia enviada')
+    expect(r).not.toContain('Carrossel')
+    // Mensagem salva como image (1ª foto), com legenda título + preço.
+    const msgInsert = spy.calls.find((c) => c.table === 'conversation_messages')
+    expect(msgInsert!.payload.media_type).toBe('image')
+    expect(msgInsert!.payload.media_url).toBe('https://cdn.example/coral18l_1.jpg')
+    expect(msgInsert!.payload.content).toContain('Tinta Coral 18L')
+    expect(msgInsert!.payload.content).toContain('489')
+    // Broadcast obrigatório p/ helpdesk exibir em tempo real.
+    expect(ctx.broadcastEvent).toHaveBeenCalledTimes(1)
+    // log indica o redirect.
     expect(log.info).toHaveBeenCalledWith(
-      'Multi-photo carousel',
-      expect.objectContaining({ title: 'Tinta Coral 18L', photoCount: 2 }),
+      expect.stringContaining('redirecionado'),
+      expect.objectContaining({ title: 'Tinta Coral 18L' }),
     )
   })
 
@@ -185,8 +198,9 @@ describe('sendCarousel', () => {
       { ok: false, status: 400, body: 'missing field phone' },
       { ok: true, status: 200, body: '{"ok":true}' },
     ])
+    // 2 produtos = carrossel de verdade (1 produto agora vai pra send_media).
     const r = await sendCarousel(
-      { product_ids: ['Tinta Suvinil 3.6L'] },
+      { product_ids: ['Tinta Coral 18L', 'Tinta Suvinil 3.6L'] },
       baseCtx(),
       makeLog(),
     )
@@ -196,7 +210,7 @@ describe('sendCarousel', () => {
   it('todas 4 variantes falham → retorna erro', async () => {
     mockFetchSequence(Array(4).fill({ ok: false, status: 500, body: 'err' }))
     const r = await sendCarousel(
-      { product_ids: ['Tinta Suvinil 3.6L'] },
+      { product_ids: ['Tinta Coral 18L', 'Tinta Suvinil 3.6L'] },
       baseCtx(),
       makeLog(),
     )

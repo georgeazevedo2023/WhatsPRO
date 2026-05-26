@@ -81,6 +81,14 @@ export interface LlmCallLoopCtx {
    * stack trace persist). Injetado pelo index.ts.
    */
   executeToolSafe: ExecuteToolSafeFn
+  /**
+   * Primeiro nome confirmado do lead (lead_profiles.full_name → 1º token), se houver.
+   * Usado no post-LLM cleanup pra RESTAURAR o nome quando o LLM o trunca numa
+   * vocativa ("João" → "Jo"). O truncamento é geração do LLM (provado: nenhum
+   * regex determinístico nosso corta nomes); a restauração é determinística e
+   * estreita (só age quando o nome completo não aparece e o prefixo isolado aparece).
+   */
+  leadFirstName?: string
   /** Conversation row — só `.tags` é lida (handoff guard) */
   conversation: { tags?: string[] | null } & Record<string, any>
   /** Toggle pra ativar greeting strip + dedup nome (Bug 17 v2) */
@@ -369,6 +377,30 @@ export async function runLlmCallLoop(ctx: LlmCallLoopCtx): Promise<LlmCallLoopRe
     // ── Post-LLM cleanup ───────────────────────────────────────────────
     // Fix doubled names in response (e.g., "GeorgeGeorge" → "George")
     responseText = responseText.replace(/\b([A-ZÀ-Ú][a-zà-ú]{2,})\1\b/g, '$1')
+
+    // Restaura o 1º nome do lead quando o LLM o TRUNCA na vocativa ("João" → "Jo").
+    // Provado (2026-05-26) que nenhum regex determinístico nosso corta nomes — o
+    // encurtamento é geração do LLM (o próprio index.ts:1403 já reconhecia isso).
+    // Guarda estreita pra zero falso-positivo: só age quando (a) temos o 1º nome
+    // confirmado (>=3 chars), (b) o nome completo NÃO aparece na resposta (LLM usou
+    // só a forma curta) e (c) um prefixo isolado do nome (>=2 chars) aparece como
+    // token. Tenta do prefixo mais longo pro mais curto. `\b` evita pegar "Jo" dentro
+    // de "Jorge". Restaura pro nome que o lead de fato informou.
+    {
+      const fn = (ctx.leadFirstName || '').trim()
+      const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      if (fn.length >= 3 && responseText && !new RegExp(`\\b${escRe(fn)}\\b`, 'i').test(responseText)) {
+        for (let len = fn.length - 1; len >= 2; len--) {
+          const pref = fn.slice(0, len)
+          const prefRe = new RegExp(`\\b${escRe(pref)}\\b`, 'g')
+          if (prefRe.test(responseText)) {
+            responseText = responseText.replace(new RegExp(`\\b${escRe(pref)}\\b`, 'g'), fn)
+            ctx.log.info?.('Restaurado 1º nome truncado pelo LLM', { truncated: pref, restored: fn })
+            break
+          }
+        }
+      }
+    }
 
     // Strip greeting repetition from response (if LLM repeats it despite instructions)
     // Bug 17 fix v2 (2026-05-17): expandido pra cobrir Bom dia / Boa tarde / Boa noite /

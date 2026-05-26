@@ -13,6 +13,14 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.53.1 (2026-05-26) — 3 fixes de polish (nome truncado, 1-produto-carrossel, double-ask) — E2E 3/3
+
+Fecha os 3 achados da v7.53.0. Causas raiz provadas antes de codar; E2E real sandbox router 3/3.
+- **#1 "João"→"Jo":** teste provou que nenhum regex nosso corta "João" → é o LLM. Fix: restauração determinística no `llmCallLoop` (prefixo isolado do 1º nome confirmado → nome cheio; `\bJo\b` não pega "Jorge"). Bônus: dedup de `crmTools` comia apelidos lowercase ("dudu"→"du") → agora exige cada metade ≥3 chars + case-insensitive.
+- **#2 1-produto-multi-imagem→carrossel:** a tool `send_carousel` com 1 produto agora redireciona pra `send_media` (foto única, idempotente à regra). `sendMedia` passou a broadcastar o INSERT (helpdesk não exibia em tempo real).
+- **#3 double-ask 1º turno:** flag `greetingSentThisTurn` no `SpecialistCtx` → `specialistBase` injeta diretiva "já cumprimentei/pedi nome neste turno, não repita" (genérica, todos os specialists).
+- `deno check` 0, 428 agent verdes (+12). E2E: #3 redireciona sem repedir nome; #1 "Prazer, João!"; #2 cuba 10 fotos → `image`. Deploy CLI ai-agent (prod compartilhada). **Backlog achado:** pré-busca R121 com stopword ("quero") quebra o AND-fallback (`every`) → 0 resultados → handoff espúrio; `cleanSearchQuery` só tira pontuação.
+
 ### v7.53.0 (2026-05-25) — Cart Engine (premium #2): pedido estruturado + resumo itemizado no transbordo
 
 Premium #2 do backlog consultivo. Antes o pedido multi-item vivia como texto livre raspado pro reason do handoff — frágil (sem subtotal, sem edição, sem cross-sell). Agora há um **motor de pedido estruturado** por conversa. SDR: monta o pedido e entrega itemizado ao vendedor; **sem checkout/pagamento** (isso é o M11 separado).

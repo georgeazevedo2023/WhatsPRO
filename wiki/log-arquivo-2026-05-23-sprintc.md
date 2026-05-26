@@ -196,3 +196,30 @@ description: Sprint C iniciado→parcial 2/3→auditoria hardening→hardening E
 
 ---
 
+## 2026-05-24 (madrugada) — Sprint C 3/3 (v7.44.0): C6 E2E 7/7 + C7 dashboard + 2 bugs raiz + canal WhatsApp
+
+**Trigger:** user pediu "siga p/ próxima fase + auditе + testes reais nas 2 instâncias até nota 10, me enviando cada teste pro 5581993856099". Depois pediu canal de controle WhatsApp bidirecional.
+
+**C6 — 7 cenários E2E reais (lead Testador `558185749970` → Eletropiso router `558181696546`), cada um nota 10, enviados ao operador:**
+- Reset FRIO por cenário (3 fontes de contaminação descobertas): `ai_agent_logs` (fonte de `hasInteracted` — sem limpar, IA pula saudação configurada), `conversations` (status_ia/tags/ai_summary), `lead_profiles` (conversation_summaries/notes). Marcador `greeting_sent` sintético p/ testar router sem o handler de saudação interceptar.
+- saudacao→handler determinístico; qualificacao/produto/handoff/objecao→product_specialist (gpt-4.1); pagamento/fora_escopo→monolith (gpt-4.1-mini).
+- Runner formal commitado: `scripts/e2e-router-runner.mjs` + `e2e-scenarios.json`. Relatório: `wiki/relatorio-e2e-router-2026-05-23.md`.
+
+**2 bugs de raiz (achados nos testes):**
+- **Bug A:** gpt-5-mini devolvia resposta vazia (max_completion_tokens=1024 consumido pelo reasoning) → fallback "Em que posso te ajudar?". Afeta EletropisoV2 PROD. Fix: piso 4096 p/ reasoning em `llmProvider.ts` + monolith de teste → gpt-4.1-mini.
+- **Bug B:** objeção atropelada por qualificação ("interno ou externo?"). Fix: `objecao`→`salesFunnelIntents` (specialist) + regra 10 (empatia+valor) no prompt. Validado: resposta consultiva nota 10.
+
+**C7 — Dashboard "Roteamento":** RPC `get_router_dashboard` (SECURITY DEFINER + is_super_admin) + `AdminRouting.tsx` (recharts) + rota + sidebar. Validado com dados reais.
+
+**Canal de controle WhatsApp:** `e2e-control-webhook` + tabela `e2e_control_inbox`. Operador comanda via WhatsApp. **Achado UAZAPI:** webhook envia remetente como `@lid` interno; número real em `sender_pn`. Polling do orquestrador lê o inbox a cada ~35-60s (não é push — sou turn-based).
+
+**Deploy:** token novo achado em `~/.claude.json` (conta `eletropiso.wsmart@gmail.com`). ai-agent + e2e-control-webhook deployados via CLI. Migrations (C7 RPC + e2e_control_inbox) via apply_migration.
+
+**Pipeline:** tsc 0 erros · vitest (productSpecialist 18, llmProvider 21, agent 312 pass; 9 fails UI pré-existentes). Andamento orquestrador: 68% → **~72%**.
+
+## 2026-05-24 (madrugada II) — Fix PROD EletropisoV2 (v7.44.1)
+
+EletropisoV2 (`1062059a`, Lucas, monolith) trocada gpt-5-mini → gpt-4.1-mini (Bug A afetava prod: resposta vazia). Config no banco, efeito imediato. Validação passiva.
+
+---
+

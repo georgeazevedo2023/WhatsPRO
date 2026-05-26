@@ -370,3 +370,40 @@ describe('runLlmCallLoop — token ceiling', () => {
     expect((ctx.log.warn as any).mock.calls.some((c: any[]) => c[0]?.includes('Token ceiling reached'))).toBe(true)
   })
 })
+
+describe('runLlmCallLoop — restauração de 1º nome truncado (2026-05-26)', () => {
+  it('restaura "Jo" → "João" na vocativa quando leadFirstName="João"', async () => {
+    mockState.callLLMQueue.push(makeLLMResponse({ text: 'Prazer, Jo! Te mostro as tintas 👇' }))
+    const ctx = makeCtx({ leadFirstName: 'João' })
+    const result = await runLlmCallLoop(ctx)
+    expect(result.responseText).toBe('Prazer, João! Te mostro as tintas 👇')
+  })
+
+  it('NÃO toca quando o nome completo já está presente', async () => {
+    mockState.callLLMQueue.push(makeLLMResponse({ text: 'João, e o Jo aqui do lado?' }))
+    const ctx = makeCtx({ leadFirstName: 'João' })
+    const result = await runLlmCallLoop(ctx)
+    expect(result.responseText).toBe('João, e o Jo aqui do lado?')
+  })
+
+  it('NÃO mexe em "Jo" dentro de outra palavra (Jorge)', async () => {
+    mockState.callLLMQueue.push(makeLLMResponse({ text: 'O Jorge vai te atender.' }))
+    const ctx = makeCtx({ leadFirstName: 'João' })
+    const result = await runLlmCallLoop(ctx)
+    expect(result.responseText).toBe('O Jorge vai te atender.')
+  })
+
+  it('restaura prefixo mais longo primeiro ("Mari" → "Maria")', async () => {
+    mockState.callLLMQueue.push(makeLLMResponse({ text: 'Oi Mari, tudo bem?' }))
+    const ctx = makeCtx({ leadFirstName: 'Maria' })
+    const result = await runLlmCallLoop(ctx)
+    expect(result.responseText).toBe('Oi Maria, tudo bem?')
+  })
+
+  it('no-op quando não há leadFirstName', async () => {
+    mockState.callLLMQueue.push(makeLLMResponse({ text: 'Prazer, Jo!' }))
+    const ctx = makeCtx()
+    const result = await runLlmCallLoop(ctx)
+    expect(result.responseText).toBe('Prazer, Jo!')
+  })
+})

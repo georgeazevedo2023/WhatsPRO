@@ -160,12 +160,17 @@ export async function updateLeadProfile(
   const updates: Record<string, any> = { last_contact_at: new Date().toISOString() }
 
   if (args.full_name) {
-    // Fix duplicated names (e.g. "PedroPedro" → "Pedro")
+    // Colapsa nome dobrado pelo LLM ("PedroPedro" → "Pedro", "GeorgeGeorge" → "George").
+    // Exige cada metade com >= 3 chars (length >= 6): o doubling do LLM repete o nome
+    // INTEIRO, gerando string longa; nomes curtos e apelidos reduplicados ("João",
+    // "Ana", "lulu", "bibi", "dudu") têm metades de 2 chars e eram comidos pela metade
+    // ("dudu"→"du"). Comparação case-insensitive cobre "joãoJoão" sem novo falso-positivo
+    // (um nome real que seja 2x um string de 3+ chars não existe na prática).
     let cleanName = args.full_name.trim()
-    if (cleanName.length >= 4) {
+    if (cleanName.length >= 6 && cleanName.length % 2 === 0) {
       const half = cleanName.length / 2
-      if (cleanName.length % 2 === 0 && cleanName.substring(0, half) === cleanName.substring(half)) {
-        cleanName = cleanName.substring(0, half)
+      if (cleanName.slice(0, half).toLowerCase() === cleanName.slice(half).toLowerCase()) {
+        cleanName = cleanName.slice(0, half)
       }
     }
     updates.full_name = cleanName

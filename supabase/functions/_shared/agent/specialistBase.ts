@@ -79,6 +79,14 @@ export interface SpecialistCtx {
   hasInteracted: boolean
   /** já interagiu ALGUMA vez (qualquer data) — p/ classificar lead recorrente */
   hasEverInteracted: boolean
+  /**
+   * Greeting determinístico (boas-vindas + pedido de nome) foi ENVIADO ao lead
+   * NESTE MESMO turno, em mensagem separada (index.ts), e a conversa seguiu pro
+   * specialist porque o lead trouxe uma pergunta/produto junto. Quando true, o
+   * specialist NÃO deve recumprimentar nem repedir o nome (evita double-ask no
+   * 1º turno). Default undefined/false = comportamento normal.
+   */
+  greetingSentThisTurn?: boolean
 
   // Misc
   startTime: number
@@ -181,13 +189,21 @@ export async function runSpecialist(
   // determinística num follow-up (não via instrução solta no prompt). classifyLeadRecency
   // segue sendo a fonte única usada pelo bloco determinístico do monolith/router.
   const basePrompt = def.buildPrompt(ctx)
+  // Anti double-ask no 1º turno (2026-05-26): quando o greeting determinístico já
+  // enviou boas-vindas + pedido de nome NESTE turno (lead abriu com saudação +
+  // pergunta), o specialist herdava o pedido de nome do próprio prompt (ex.: greeting
+  // specialist linha 42) e PEDIA O NOME DE NOVO → 2 bolhas pedindo nome no mesmo turno.
+  // Esta diretiva (determinística, no topo) suprime recumprimento + repedido de nome.
+  const greetingDoneDirective = ctx.greetingSentThisTurn
+    ? `[JÁ CUMPRIMENTADO NESTE TURNO] As boas-vindas e o pedido do nome JÁ foram enviados ao lead AGORA, nesta mesma conversa, numa mensagem separada (logo acima). NÃO cumprimente de novo (nada de "olá/oi/bem-vindo") e NÃO pergunte o nome outra vez. Vá DIRETO ao ponto: responda o que o lead pediu / faça seu trabalho. Se o lead informou o nome junto, registre com update_lead_profile sem repetir a pergunta.`
+    : null
   // P7-strong: anti-repetição determinística do nome (feedback do dono — o LLM
   // citava o nome em toda mensagem). Olha o histórico; suprime se usado há pouco.
   const nameDirective = buildNameUsageDirective(ctx.geminiContents, ctx.leadProfile?.full_name)
-  // Ordem: [memória do lead] → [prompt do specialist] → [uso do nome] → [pré-busca].
-  // A pré-busca vai por último (mais perto da decisão) pra o product specialist
-  // tratá-la como verdade-base "search já feito" e compor em 1 round.
-  const systemPrompt = [memoryBlock, basePrompt, nameDirective, ctx.preSearchContext]
+  // Ordem: [memória do lead] → [já cumprimentado] → [prompt do specialist] → [uso do
+  // nome] → [pré-busca]. A pré-busca vai por último (mais perto da decisão) pra o
+  // product specialist tratá-la como verdade-base "search já feito" e compor em 1 round.
+  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, nameDirective, ctx.preSearchContext]
     .filter(Boolean)
     .join('\n\n')
   const promptChars = systemPrompt.length
@@ -212,6 +228,7 @@ export async function runSpecialist(
     toolDefs,
     geminiContents: ctx.geminiContents,
     toolCallsLog: ctx.toolCallsLog,
+    leadFirstName: (ctx.leadProfile?.full_name || '').trim().split(/\s+/)[0] || undefined,
     executeToolSafe: ctx.executeToolSafe,
     conversation: ctx.conversation,
     hasInteracted: ctx.hasInteracted,

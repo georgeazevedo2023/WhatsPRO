@@ -2403,6 +2403,10 @@ ${contextBlock}`
               pickHandoffMessage, runQueueAssignment,
               hasInteracted,
               hasEverInteracted,
+              // Double-ask guard (2026-05-26): greeting determinístico já enviou
+              // boas-vindas + pedido de nome NESTE turno (chegamos aqui só quando NÃO
+              // era saudação pura — isJustGreeting retorna antes). Specialist não repete.
+              greetingSentThisTurn: greetingBlockEntered,
               startTime,
               supabase, log, corsHeaders,
               preSearchContext: preSearchContext || undefined,
@@ -2446,6 +2450,7 @@ ${contextBlock}`
       toolDefs,
       geminiContents,
       toolCallsLog,
+      leadFirstName: leadName || undefined,
       executeToolSafe,
       conversation,
       hasInteracted,

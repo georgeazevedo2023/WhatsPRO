@@ -307,6 +307,29 @@ describe('updateLeadProfile', () => {
     expect(upsertCall.payload.full_name).toBe('João Silva')
   })
 
+  // 2026-05-26: o dedup antigo (length>=4, cada metade>=2) comia nomes curtos e
+  // apelidos reduplicados lowercase. Agora exige cada metade >= 3 chars.
+  it.each(['João', 'Ana', 'lulu', 'bibi', 'dudu', 'Nono', 'Lili'])(
+    'NÃO trunca nome curto/apelido "%s"',
+    async (name) => {
+      const { supabase, calls } = makeSupabase({
+        'lead_profiles.upsert': () => ({ data: null, error: null }),
+      })
+      await updateLeadProfile({ full_name: name }, baseCtx(supabase), makeLog())
+      const upsertCall = calls.find((c) => c.table === 'lead_profiles' && c.op === 'upsert')!
+      expect(upsertCall.payload.full_name).toBe(name)
+    },
+  )
+
+  it('ainda colapsa doubling longo case-insensitive "georgeGeorge" → "george"', async () => {
+    const { supabase, calls } = makeSupabase({
+      'lead_profiles.upsert': () => ({ data: null, error: null }),
+    })
+    await updateLeadProfile({ full_name: 'georgeGeorge' }, baseCtx(supabase), makeLog())
+    const upsertCall = calls.find((c) => c.table === 'lead_profiles' && c.op === 'upsert')!
+    expect(upsertCall.payload.full_name).toBe('george')
+  })
+
   it('merge objections com existentes sem duplicar', async () => {
     const { supabase, calls } = makeSupabase({
       'lead_profiles.upsert': () => ({ data: null, error: null }),

@@ -9,6 +9,32 @@ type: log
 
 ---
 
+## 2026-05-26 — 3 fixes de polish (nome truncado / 1-produto-carrossel / double-ask) + E2E 3/3 (v7.53.1)
+
+**Trigger:** auditar fundo + corrigir + testar real nas 2 instâncias até nota 10 os 3 achados da v7.53.0. Sessão PARALELA (takeover, abaixo) — toquei só em `ai-agent/index.ts` + `_shared/agent/{llmCallLoop,specialistBase,tools/mediaTools,tools/crmTools}` (+ testes).
+
+**Causas raiz (3 Explore agents + verificação MANUAL, não chute):** **#1** rodei os 2 regexes determinísticos contra "João" — **nenhum trunca** → "Jo" é geração do LLM (`index.ts:1403` já admitia); footgun lateral: dedup `crmTools` comia apelido lowercase ("dudu"→"du"). **#2** `mediaTools.ts:77` `sendCarousel`(1 produto+≥2 fotos)→carrossel multi-card (v7.52.3 cobriu só `searchProducts`). **#3** `greetingSpecialist.ts:42` repede nome; `specialistBase` não sabia que o greeting determinístico já pediu o nome neste turno.
+
+**Fixes (zero gambiarra):** #1 restauração determinística no `llmCallLoop` (prefixo isolado do 1º nome→nome cheio; `\bJo\b` não pega "Jorge") + `leadFirstName` nos 2 call sites + dedup exige metade ≥3 chars + case-insensitive. #2 `sendCarousel`(1 produto)→`sendMedia` (idempotente) + `sendMedia` ganhou `broadcastEvent` (faltava). #3 flag `greetingSentThisTurn`→`specialistBase` injeta diretiva anti-recumprimento/anti-repedido (genérica). **Validação:** `deno check` 0 · 428 agent verdes (+12) · full suite 9 fails pré-existentes (zero overlap). Deploy CLI ai-agent v169 (prod compartilhada). **E2E real sandbox router (cold reset + poll DB) 3/3 PASS:** #3 greeting redireciona sem repedir nome; #1 "Prazer, João!" + `full_name=João`; #2 cuba (10 fotos)→`media_type=image`, não carrossel.
+
+**Achado backlog (fora de escopo):** pré-busca R121 (`categoria + texto cru`) com stopword "quero" quebra o AND-fallback (`words.every`) → 0 resultados → handoff espúrio; `cleanSearchQuery` só tira pontuação (fix futuro: `cleanProductQuery` no R121 inline). **Frase de retomada:** *"v7.53.1 3 fixes polish shipped (E2E 3/3). Backlog: (a) R121 inline stopword→handoff espúrio (cleanProductQuery); (b) premium #3 refino-por-contagem com [[feedback_no_internal_count_or_jargon_to_lead]]."*
+
+---
+
+## 2026-05-26 — Takeover pelo celular pausa a IA (fromMe + !wasSentByApi → shadow), commit 35c8b8e
+
+**Trigger:** dono relatou o problema real — quando o atendente pega o celular e responde o lead direto, a IA continua respondendo e atrapalha vendedor e lead. Discussão de cenário das 3 direções (incoming / outgoing helpdesk / fromMe celular). Dono colou o fluxo n8n atual e escolheu Opção A (flip → shadow) + implementar agora. **Rodava processo paralelo** → toquei só em `whatsapp-webhook/index.ts` + `_shared/aiRuntime.ts(.test)`, sem encostar em `ai-agent/index.ts`/`agent/*`.
+
+**Achado de raiz:** a premissa documentada no código (`whatsapp-webhook:1361`, `aiRuntime:133`) de que **"n8n filtra wasSentByApi"** é FALSA — o fluxo `eletropiso_2026` só tem Webhook→HTTP Request repassando `$json.body` cru, sem filtro. O webhook ignorava `message.wasSentByApi`. Logo, takeover humano nunca pausava a IA: `fromMe` bloqueia ai-agent, mas `status_ia='ligada'` (não shadow) também bloqueia a extração → mensagem só gravada, IA seguia respondendo a próxima do lead.
+
+**Fix na fonte:** novo helper determinístico `shouldPauseAiForHumanTakeover({fromMe,wasSentByApi,statusIa})` (true só se `fromMe && !wasSentByApi && ligada`); webhook lê `wasSentByApi`, flipa `ligada→shadow` + broadcast pro Helpdesk; `shouldTriggerShadowFromWebhook` ganhou guard `wasSentByApi===true→false` (não extrai eco da própria API). Shadow = IA cala mas segue extraindo memória (`ai-agent:1194-1349` retorna sem enviar). **8 testes novos, 30/30 verdes**, zero erro TS novo (4 erros deno são dívida pré-existente: `instance.user_id`, `.catch` PromiseLike — fora do diff). Deploy CLI prod `whatsapp-webhook`.
+
+**Achados anotados (não-fix):** (1) religar IA é manual (toggle Helpdesk / reabertura) — falta regra automática "religar após X h de silêncio do vendedor"; (2) n8n repassa o eco das próprias mensagens da IA (`fromMe:true,wasSentByApi:true`) → dedup por external_id provavelmente não pega (IA grava `ai_agent_<ts>` vs messageid real) → possível linha `outgoing` duplicada. Memória: [[project_human_takeover_phone_pause_ai]].
+
+**Frase de retomada:** *"Takeover pelo celular SHIPPED (commit 35c8b8e, deploy prod). Validar E2E real: vendedor responde pelo celular → IA cala. Investigar achado: eco da IA criando outgoing duplicado (n8n sem filtro). Depois: regra auto-religar IA pós-silêncio?"*
+
+---
+
 ## 2026-05-25 (tarde) — Cart Engine premium #2: pedido estruturado + transbordo itemizado (v7.53.0)
 
 **Trigger:** dono pediu explicação do premium #2 (formato de discussão), escolheu Opção A (carrinho em JSONB na conversa, sempre-ligado), aprovou escopo "tudo Fases 1-4 + sandbox E2E". Mapeei os pontos de integração com Explore agent antes de codar (plano aprovado).
@@ -19,7 +45,9 @@ type: log
 
 **3 bugs achados NO E2E e corrigidos na fonte (zero gambiarra):** (1) **502** — objeto aninhado de `add_to_cart` sem `additionalProperties:false` (OpenAI strict exige em aninhado; llmProvider só injeta na raiz) → 400→retry→502; (2) **double-count + race** — semântica ADD/merge + 2 cart calls paralelas num turno → item perdido. Fix de RAIZ: pivô pra **SET** (set_cart substitui, alinha com o modelo que re-declara o pedido inteiro) + cart tools em `sideEffectTools` (sequencial); (3) handoff via via deferida não tinha o carrinho → inject também lá. 18 cart + 415 agent verdes, deno 0, ~5 deploys CLI iterativos. Sandbox revertido (extended_hours→null, conversa limpa).
 
-**Frase de retomada:** *"v7.53.0 Cart Engine SHIPPED + E2E nota 10 (set_cart, transbordo itemizado em prod). Backlog premium: #3 refino-por-contagem, #4 modo consultivo, #5 busca facetada. Achado cosmético: nome às vezes trunca 'João'→'Jo' no 1º uso do greeting."*
+**Decisão (contagem/jargão pro lead):** dono perguntou se o agente pode vazar "achei 40 produtos" / "afunilar" ao lead, ou se resolver já. **Auditei o código:** NÃO existe esse risco hoje — falha de busca já é blindada (`[INTERNO — NÃO mostre]`, "lead NUNCA deve saber que falhou", proibido "não temos"); sucesso já vem com teto (≤5 do carrossel, `MÚLTIPLOS PRODUTOS (N)` é contagem pequena, não "40"). O "achei 40/afunilar" só nasceria AO construir o #3. **Sem fix agora** (não há bug ativo; regra fora de contexto incharia o prompt). Guardrail gravado em [[feedback_no_internal_count_or_jargon_to_lead]] pra entrar embutido no #3 (contagem = sinal interno; lead recebe pergunta consultiva natural, zero jargão). Residual aceitável: LLM pode dizer "encontrei 3 opções" (número pequeno, soa natural).
+
+**Frase de retomada:** *"v7.53.0 Cart Engine SHIPPED + E2E nota 10 (set_cart, transbordo itemizado em prod). Próximo premium #3 refino-por-contagem JÁ com o guardrail [[feedback_no_internal_count_or_jargon_to_lead]] embutido (contagem=sinal interno, sem jargão); depois #4 modo consultivo, #5 busca facetada. Achado cosmético: nome às vezes trunca 'João'→'Jo' no 1º uso do greeting."*
 
 ---
 
@@ -252,34 +280,9 @@ Na migração monolito→router, o stage engine (qualify-first) ficou no pré-LL
 
 ---
 
-## 2026-05-24 (madrugada II) — Fix PROD EletropisoV2 (v7.44.1)
+## 2026-05-24 (madrugada) — Sprint C 3/3 (v7.44.0) + fix PROD EletropisoV2 (v7.44.1) (arquivado)
 
-EletropisoV2 (`1062059a`, Lucas, monolith) trocada gpt-5-mini → gpt-4.1-mini (Bug A afetava prod: resposta vazia). Config no banco, efeito imediato. Validação passiva. Frase de retomada abaixo.
-
----
-
-## 2026-05-24 (madrugada) — Sprint C 3/3 (v7.44.0): C6 E2E 7/7 + C7 dashboard + 2 bugs raiz + canal WhatsApp
-
-**Trigger:** user pediu "siga p/ próxima fase + auditе + testes reais nas 2 instâncias até nota 10, me enviando cada teste pro 5581993856099". Depois pediu canal de controle WhatsApp bidirecional.
-
-**C6 — 7 cenários E2E reais (lead Testador `558185749970` → Eletropiso router `558181696546`), cada um nota 10, enviados ao operador:**
-- Reset FRIO por cenário (3 fontes de contaminação descobertas): `ai_agent_logs` (fonte de `hasInteracted` — sem limpar, IA pula saudação configurada), `conversations` (status_ia/tags/ai_summary), `lead_profiles` (conversation_summaries/notes). Marcador `greeting_sent` sintético p/ testar router sem o handler de saudação interceptar.
-- saudacao→handler determinístico; qualificacao/produto/handoff/objecao→product_specialist (gpt-4.1); pagamento/fora_escopo→monolith (gpt-4.1-mini).
-- Runner formal commitado: `scripts/e2e-router-runner.mjs` + `e2e-scenarios.json`. Relatório: `wiki/relatorio-e2e-router-2026-05-23.md`.
-
-**2 bugs de raiz (achados nos testes):**
-- **Bug A:** gpt-5-mini devolvia resposta vazia (max_completion_tokens=1024 consumido pelo reasoning) → fallback "Em que posso te ajudar?". Afeta EletropisoV2 PROD. Fix: piso 4096 p/ reasoning em `llmProvider.ts` + monolith de teste → gpt-4.1-mini.
-- **Bug B:** objeção atropelada por qualificação ("interno ou externo?"). Fix: `objecao`→`salesFunnelIntents` (specialist) + regra 10 (empatia+valor) no prompt. Validado: resposta consultiva nota 10.
-
-**C7 — Dashboard "Roteamento":** RPC `get_router_dashboard` (SECURITY DEFINER + is_super_admin) + `AdminRouting.tsx` (recharts) + rota + sidebar. Validado com dados reais.
-
-**Canal de controle WhatsApp:** `e2e-control-webhook` + tabela `e2e_control_inbox`. Operador comanda via WhatsApp. **Achado UAZAPI:** webhook envia remetente como `@lid` interno; número real em `sender_pn`. Polling do orquestrador lê o inbox a cada ~35-60s (não é push — sou turn-based).
-
-**Deploy:** token novo achado em `~/.claude.json` (conta `eletropiso.wsmart@gmail.com`). ai-agent + e2e-control-webhook deployados via CLI. Migrations (C7 RPC + e2e_control_inbox) via apply_migration.
-
-**Pipeline:** tsc 0 erros · vitest (productSpecialist 18, llmProvider 21, agent 312 pass; 9 fails UI pré-existentes). Andamento orquestrador: 68% → **~72%**.
-
-**Frase de retomada:** *"continuar Sprint D: qualification/handoff/objection/greeting specialists dedicados + migração routing_mode='router' default — base pós-C 7/7 v7.44.0"*.
+> Movido pra [[wiki/log-arquivo-2026-05-23-sprintc]] (hard limit 300). C6 E2E 7/7 + C7 dashboard Roteamento + 2 bugs raiz (gpt-5-mini resposta vazia, objeção atropelada por qualif) + canal de controle WhatsApp; v7.44.1 EletropisoV2 gpt-5-mini→gpt-4.1-mini.
 
 ---
 

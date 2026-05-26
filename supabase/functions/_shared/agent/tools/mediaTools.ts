@@ -10,7 +10,6 @@
  * original). Sem mudança de comportamento — equivalência semântica.
  */
 
-import { generateCarouselCopies } from '../../carousel.ts'
 import { fetchWithTimeout } from '../../fetchWithTimeout.ts'
 import type { Logger } from '../context.ts'
 
@@ -73,31 +72,34 @@ export async function sendCarousel(
   const scBtn1 = ctx.agent.carousel_button_1 || 'Eu quero!'
   const scBtn2 = ctx.agent.carousel_button_2 || ''
 
-  let carousel: any[]
-  if (withImages.length === 1 && withImages[0].images?.length > 1) {
-    // Single product with multiple photos → multi-photo carousel with AI sales copy
+  // Regra de negócio (feedback_single_product_send_media + v7.52.3): 1 PRODUTO =
+  // SEMPRE foto única com legenda (/send/media), NUNCA carrossel — mesmo que o
+  // produto tenha várias fotos. Antes, 1 produto multi-foto virava carrossel de N
+  // cards e o lead enxergava como "vários produtos". A correção da v7.52.3 cobriu o
+  // caminho do searchProducts (pré-busca), mas a tool send_carousel — que o LLM pode
+  // chamar diretamente — ainda fazia o multi-card. Aqui a tool fica IDEMPOTENTE à
+  // regra: 1 produto sempre cai em send_media, independente de como o LLM chamou.
+  if (withImages.length === 1) {
     const p = withImages[0]
-    const photos = (p.images as string[]).slice(0, 5)
-    const copies = await generateCarouselCopies(p, photos.length)
-    carousel = photos.map((img: string, idx: number) => ({
-      text: copies[idx] || `${p.title}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}`,
-      image: img,
-      buttons: [
-        { id: safeBtnId(`${p.title}_${idx}`), text: scBtn1, type: 'REPLY' },
-        ...(scBtn2 ? [{ id: safeBtnId(`info_${p.title}_${idx}`), text: scBtn2, type: 'REPLY' }] : []),
-      ],
-    }))
-    log.info('Multi-photo carousel', { title: p.title, photoCount: photos.length })
-  } else {
-    carousel = withImages.slice(0, 10).map((p) => ({
-      text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
-      image: p.images[0],
-      buttons: [
-        { id: safeBtnId(p.title), text: scBtn1, type: 'REPLY' },
-        ...(scBtn2 ? [{ id: safeBtnId(`info_${p.title}`), text: scBtn2, type: 'REPLY' }] : []),
-      ],
-    }))
+    const caption = `${p.title}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`
+    log.info('send_carousel com 1 produto → redirecionado p/ send_media (foto única)', {
+      title: p.title, photoCount: (p.images as string[]).length,
+    })
+    return sendMedia(
+      { media_url: p.images[0], media_type: 'image', caption },
+      ctx,
+      log,
+    )
   }
+
+  const carousel: any[] = withImages.slice(0, 10).map((p) => ({
+    text: `${p.title}\n${p.description?.substring(0, 80) || ''}\nR$ ${p.price?.toFixed(2) || 'Sob consulta'}${!p.in_stock ? ' (INDISPONÍVEL)' : ''}`,
+    image: p.images[0],
+    buttons: [
+      { id: safeBtnId(p.title), text: scBtn1, type: 'REPLY' },
+      ...(scBtn2 ? [{ id: safeBtnId(`info_${p.title}`), text: scBtn2, type: 'REPLY' }] : []),
+    ],
+  }))
 
   // Retry strategy — 4 variantes matching uazapi-proxy order.
   const msg = args.message || 'Confira nossas opções:'
@@ -151,11 +153,8 @@ export async function sendCarousel(
     media_url: scMediaUrl,
   })
 
-  const photoCount =
-    withImages.length === 1
-      ? `${(withImages[0].images as string[]).slice(0, 5).length} fotos`
-      : `${withImages.length} produto(s)`
-  return `Carrossel enviado com ${photoCount} ao lead! NÃO repita os nomes dos produtos no texto — apenas pergunte se é isso que procura.`
+  // 1 produto já saiu por send_media acima (early return); aqui é sempre 2+.
+  return `Carrossel enviado com ${withImages.length} produto(s) ao lead! NÃO repita os nomes dos produtos no texto — apenas pergunte se é isso que procura.`
 }
 
 // =============================================================================
@@ -196,6 +195,19 @@ export async function sendMedia(
     media_type: type,
     media_url,
     external_id: `ai_media_${Date.now()}`,
+  })
+
+  // INSERT de mídia no ai-agent DEVE broadcastar (feedback_media_insert_must_broadcast),
+  // senão o helpdesk não exibe a foto em tempo real. searchProducts.ts:645 já fazia isso
+  // no seu caminho de 1-produto; a tool send_media (e o redirect de send_carousel p/ 1
+  // produto) precisa do mesmo broadcast.
+  ctx.broadcastEvent({
+    conversation_id: ctx.conversation_id,
+    inbox_id: ctx.conversation.inbox_id,
+    direction: 'outgoing',
+    content: caption || '',
+    media_type: type,
+    media_url,
   })
 
   return 'Mídia enviada com legenda ao lead! NÃO repita a mesma informação no texto — apenas faça a próxima pergunta (ex: "É esse que você procura?").'
