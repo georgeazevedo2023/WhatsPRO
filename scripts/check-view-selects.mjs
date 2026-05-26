@@ -54,9 +54,12 @@ function walk(dir, files = []) {
 
 // ── 3. Extract .from('NAME' [as any]).select('cols') calls ───────────────
 // O `.select(...)` pode estar em outra linha encadeada — captura até o primeiro `)`.
+// IMPORTANTE: o gap entre `.from(X)` e `.select(...)` NÃO pode atravessar outro
+// `.from(` — senão um `.from('a').update(...)` seguido de `.from('b').select(...)`
+// faz o checker atribuir as colunas de B à tabela A (falso-positivo).
 function extractCalls(src) {
   const calls = [];
-  const re = /\.from\(\s*['"]([\w_]+)['"]\s*(?:as\s+(?:any|unknown))?\s*\)([\s\S]{0,500}?)\.select\(\s*([`'"])([^`'"]+)\3/g;
+  const re = /\.from\(\s*['"]([\w_]+)['"]\s*(?:as\s+(?:any|unknown))?\s*\)((?:(?!\.from\()[\s\S]){0,500}?)\.select\(\s*([`'"])([^`'"]+)\3/g;
   let m;
   while ((m = re.exec(src)) !== null) {
     const name = m[1];

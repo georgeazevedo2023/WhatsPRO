@@ -123,17 +123,21 @@ export function useVendorDetail(
       const convRows = (convsRes.data || []) as any[];
       const convIds = convRows.map((c: any) => c.id as string);
       const pendingCount = convRows.filter((c: any) => c.status === 'open' || c.status === 'pending').length;
-      const uniqueContacts = new Set(convRows.map((c: any) => c.contact_id as string).filter(Boolean)).size;
+      const uniqueContactsSet = new Set(convRows.map((c: any) => c.contact_id as string).filter(Boolean));
+      const uniqueContacts = uniqueContactsSet.size;
 
       // ── NPS do vendedor ──
+      // poll_responses NÃO tem conversation_id; o vínculo disponível com o
+      // vendedor é contact_id (os contatos das conversas atribuídas a ele).
       let npsAvg = 0;
+      const contactIds = [...uniqueContactsSet];
       const pollIds = ((pollsRes.data || []) as any[]).map((p: any) => p.id);
-      if (pollIds.length > 0 && convIds.length > 0) {
+      if (pollIds.length > 0 && contactIds.length > 0) {
         const { data: pollResponses } = await supabase
           .from('poll_responses' as any) // view not in generated types
-          .select('selected_options, conversation_id')
+          .select('selected_options, contact_id')
           .in('poll_message_id', pollIds)
-          .in('conversation_id', convIds);
+          .in('contact_id', contactIds);
 
         let npsTotal = 0;
         let npsCount = 0;
@@ -152,13 +156,13 @@ export function useVendorDetail(
       if (convIds.length > 0) {
         const { data: leadMetrics } = await supabase
           .from('v_lead_metrics' as any) // view not in generated types
-          .select('lead_id, avg_ticket')
+          .select('lead_id, average_ticket')
           .eq('instance_id', instanceId);
 
         const ticketRows = (leadMetrics || []) as any[];
         const validTickets = ticketRows
-          .filter((r: any) => r.avg_ticket && Number(r.avg_ticket) > 0)
-          .map((r: any) => Number(r.avg_ticket));
+          .filter((r: any) => r.average_ticket && Number(r.average_ticket) > 0)
+          .map((r: any) => Number(r.average_ticket));
         avgTicket = validTickets.length > 0
           ? Math.round(validTickets.reduce((a: number, b: number) => a + b, 0) / validTickets.length)
           : 0;
