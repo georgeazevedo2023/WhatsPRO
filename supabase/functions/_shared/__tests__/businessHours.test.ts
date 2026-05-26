@@ -307,6 +307,23 @@ describe('personalizeHandoffMessage', () => {
     expect(out.length).toBeLessThan(base.length + 185) // 160 do item + "Anotei seu pedido: …. "
   })
 
+  // (2026-05-26) anti-vazamento: reason em 3ª pessoa/instrução é PRO VENDEDOR, nunca
+  // pode virar "anotei seu pedido: …" pro lead (denuncia que é robô).
+  it('NÃO vaza reason em 3ª pessoa pro lead ("Lead quer…") — só nome + ponte', () => {
+    const reason = 'Lead quer cerâmica/revestimento para parede de quarto, preferência pelo menor preço, sem exigência de cor'
+    const out = personalizeHandoffMessage(base, { leadName: 'Pedro', itemSummary: reason })
+    expect(out).not.toContain('Lead quer')
+    expect(out).not.toMatch(/anotei seu pedido:/i) // não inventa pedido a partir de narração interna
+    expect(out).toBe(`Pedro, anotei tudo aqui. ${base}`)
+  })
+
+  it('NÃO vaza instrução pro vendedor ("Pedido para o vendedor indicar…")', () => {
+    const reason = 'Pedido para o vendedor indicar a opção mais barata de revestimento'
+    const out = personalizeHandoffMessage(base, { leadName: 'Ana', itemSummary: reason })
+    expect(out).not.toMatch(/indicar/i)
+    expect(out).toBe(`Ana, anotei tudo aqui. ${base}`)
+  })
+
   it('strip "Pedido completo:" + descarta meta-nota pro vendedor (caso E2E multi-item)', () => {
     const reason =
       'Pedido completo: 1 tinta acrílica Fosco Standard 16L Branco Coral e 1 manta líquida 18Kg Quartzolit. Lead já confirmou que é só isso.'

@@ -13,6 +13,17 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.55.2 (2026-05-26) — Transbordo humanizado (sem cara de IA) + resumo pro vendedor em nota interna + conversa persiste ao trocar de aba
+
+Dois pedidos do dono.
+
+**1. Transbordo não humanizado (lead percebia a IA):** a mensagem ao lead vazava o `reason` em 3ª pessoa escrito PRO VENDEDOR — *"Anotei seu pedido: Lead quer cerâmica/revestimento para parede de quarto, preferência pelo menor preço…"*. `cleanHandoffItem` (`businessHours.ts`) agora **rejeita reason em 3ª pessoa/instrução interna** ("Lead/Cliente…", "para o vendedor", "indicar opção", "confirmar preço", "estoque físico") → o lead recebe só a ponte humanizada (*"Pedro, anotei tudo aqui. …"*), nunca a narração interna.
+- **Resumo estruturado → nota interna (`private_note`):** em ambos os caminhos de handoff (explícito `setTagsAndHandoff` + deferido/forçado `dispatchResponse`), grava *"📋 Resumo do pedido (interno): {reason rico}"* — fixado no fio da conversa, visível só pro vendedor (NUNCA vai pro WhatsApp do lead), além do painel "Contexto IA › Transbordo" que já existia. E2E: lead recebeu *"Pedro, anotei tudo aqui…"* (sem vazamento) + nota interna com *"Lead interessado em tintas, preferência Suvinil…"*. +2 testes anti-vazamento (businessHours 41).
+
+**2. Conversa sumia ao trocar de aba/janela:** a seleção era só estado em memória; algum refetch no refoco a zerava → voltava pra "Selecione uma conversa". Agora o id da conversa é **persistido na URL (`?conv=`)** como fonte da verdade — `handleSelectConversation` grava, o efeito de auto-seleção restaura em qualquer re-render/refetch, e troca de inbox limpa. **Validado via Playwright: reload mantém a mesma conversa aberta** (reload é mais forte que troca de aba).
+
+- **Pipeline:** deno check 0 · vitest módulos afetados verdes (businessHours 41, dispatchResponse 15, setTagsAndHandoff 15) · deploy CLI ai-agent + frontend via push.
+
 ### v7.55.1 (2026-05-26) — Brand-filter na qualificação: respeita a marca pedida (não mostra outra) — E2E nota 10
 
 Fecha a pendência da v7.55.0: no fluxo qualify-first, lead pedia "tinta **Suvinil**" e recebia **Coral** (a marca se perdia — na hora da busca o `incomingText` é a resposta de qualificação, não o "Suvinil" original, e o filtro AND post-search não pegava o caso multi-palavra).

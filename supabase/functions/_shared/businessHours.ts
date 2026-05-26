@@ -197,6 +197,14 @@ function cleanHandoffItem(raw?: string | null): string {
   if (!s) return ''
   // reason interno tipo "telha_fora_hora" / "search_fail" (snake_case sem espaço) → não é item
   if (/^[a-z0-9]+(_[a-z0-9]+)+$/i.test(s)) return ''
+  // (2026-05-26) O reason muitas vezes é escrito em 3ª PESSOA pro vendedor
+  // ("Lead quer cerâmica…", "Cliente busca…", "Pedido para o vendedor indicar…").
+  // Isso JAMAIS pode virar texto pro lead — denuncia que é robô. Quando o reason
+  // tem cara de narração/instrução interna, NÃO geramos "anotei seu pedido: …";
+  // a mensagem fica só humanizada (nome + ponte). O resumo estruturado vai pro
+  // vendedor via nota interna + painel Transbordo, não pro cliente.
+  if (/^\s*(o |a )?(lead|cliente|contato|usu[áa]rio)\b/i.test(s)) return ''
+  if (/\b(para o vendedor|pro vendedor|para o consultor|indicar (a )?op[çc][ãa]o|indique|confirmar (o )?pre[çc]o|estoque f[íi]sico|or[çc]amento pro|aguardando atendimento)\b/i.test(s)) return ''
   // 2026-05-24: o handoff forçado (R120 fora-de-horário/sem-resultado) monta o reason
   // como "{texto}_fora_hora" — o sufixo de código fica COLADO na última palavra e
   // vazava pro lead ("...parede interna_fora_hora"). Remove sufixos de código conhecidos

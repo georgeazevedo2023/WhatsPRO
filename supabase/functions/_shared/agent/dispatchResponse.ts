@@ -442,6 +442,21 @@ export async function dispatchResponse(
       content: finalMessage,
       media_type: 'text',
     })
+    // Nota interna pro vendedor (2026-05-26): resumo estruturado fixado no fio da
+    // conversa (private_note NUNCA vai pro lead). Cobre o handoff deferido/forçado
+    // (ex.: catálogo-ausente). Texto rico fica aqui; ao lead, só a ponte humanizada.
+    const sellerNoteDef = [pendingHandoffTrigger, cartFullDef ? `🛒 ${cartFullDef}` : '']
+      .filter(Boolean).join('\n\n').trim()
+    if (sellerNoteDef) {
+      const noteContentDef = `📋 Resumo do pedido (interno):\n${sellerNoteDef}`
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'private_note', content: noteContentDef, media_type: 'text',
+      })
+      broadcastEvent({
+        conversation_id, inbox_id: conversation.inbox_id,
+        direction: 'private_note', content: noteContentDef, media_type: 'text',
+      })
+    }
   }
 
   // ── Final ────────────────────────────────────────────────────────────

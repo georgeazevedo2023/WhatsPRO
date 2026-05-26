@@ -797,6 +797,29 @@ export async function handoffToHuman(
     media_type: 'text',
   })
 
+  // Nota interna (2026-05-26): resumo estruturado pro VENDEDOR, fixado no fio da
+  // conversa (além do painel "Transbordo"). private_note NUNCA vai pro WhatsApp do
+  // lead (só insert + broadcast pro helpdesk). É AQUI que mora o texto rico em 3ª
+  // pessoa ("Lead quer…", pedido itemizado) — a mensagem ao lead fica só na ponte
+  // humanizada. Resolve o feedback do dono (não expor IA + resumo pro vendedor).
+  const sellerNote = (effectiveReason || '').trim()
+  if (sellerNote) {
+    const noteContent = `📋 Resumo do pedido (interno):\n${sellerNote}`
+    await supabase.from('conversation_messages').insert({
+      conversation_id,
+      direction: 'private_note',
+      content: noteContent,
+      media_type: 'text',
+    })
+    broadcastEvent({
+      conversation_id,
+      inbox_id: conversation.inbox_id,
+      direction: 'private_note',
+      content: noteContent,
+      media_type: 'text',
+    })
+  }
+
   // Set IA to SHADOW + tag + reset lead_msg_count (R86)
   await supabase
     .from('conversations')

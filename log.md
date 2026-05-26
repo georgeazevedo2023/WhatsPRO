@@ -25,7 +25,9 @@ type: log
 
 **v7.55.1 (mesma sessão) — brand-filter RESOLVIDO:** lead pedia "tinta Suvinil" e recebia Coral (marca se perdia no qualify-first). Fix 2 camadas: `deriveProductSearchParams` injeta marca durável na query + guard explícito em `searchProducts` antes do auto-send (lead pediu marca e nenhum produto a contém → zera+brandNotFound→coleta+handoff). E2E nota 10: Suvinil→0 (não mostra Coral)→coleta→handoff executa. 36 testes searchProducts (+1).
 
-**Frase de retomada:** *"v7.55.0+v7.55.1 catálogo-é-minoria + brand-filter shipped (nunca negar + handoff determinístico + respeita marca pedida + skeleton/sessão-zumbi). Monitorar EletropisoV2 (router PROD). Backlog premium: #4 modo consultivo, #5 busca facetada."*
+**v7.55.2 (mesma sessão):** (1) transbordo humanizado — `cleanHandoffItem` rejeita reason 3ª pessoa/interno → lead recebe só ponte ("Pedro, anotei tudo aqui…"), nunca "Lead quer…"; resumo rico vai em `private_note` ("📋 Resumo do pedido (interno)") nos 2 caminhos de handoff + painel Transbordo. (2) conversa persiste ao trocar de aba via `?conv=` na URL (HelpDesk.tsx) — validado por reload no Playwright. +2 testes anti-vazamento.
+
+**Frase de retomada:** *"v7.55.0→v7.55.2 shipped (catálogo-é-minoria + handoff determinístico + brand-filter + transbordo humanizado/nota interna + persistência da conversa na URL + skeleton/sessão-zumbi). Monitorar EletropisoV2 router PROD. Backlog premium: #4 modo consultivo, #5 busca facetada. Nota lateral: template handoff_message do agente ainda é configurável (owner pode deixar mais quente no admin)."*
 
 ---
 

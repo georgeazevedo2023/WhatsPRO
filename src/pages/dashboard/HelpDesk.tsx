@@ -100,21 +100,20 @@ const HelpDesk = () => {
 
   const { namesMap: agentNamesMap } = useUserProfiles();
 
-  // Auto-select conversation from ?conv= param (from global search)
+  // Persiste/restaura a conversa selecionada via ?conv= (vem da busca global E de
+  // cada clique na lista). Antes a seleção era só estado em memória → sumia ao trocar
+  // de aba/janela e voltar (o estado ficava, mas algum refetch zerava). Mantendo o id
+  // na URL como fonte da verdade, qualquer re-render/refetch re-seleciona a MESMA
+  // conversa, e ela também sobrevive a reload. (2026-05-26)
   useEffect(() => {
     if (!convParam || loading || conversations.length === 0) return;
+    if (selectedConversation?.id === convParam) return; // já selecionada
     const found = conversations.find(c => c.id === convParam);
     if (found) {
       setSelectedConversation(found);
       if (isMobile) setMobileView('chat');
-      // Clear the conv param from URL
-      setSearchParams(prev => {
-        const next = new URLSearchParams(prev);
-        next.delete('conv');
-        return next;
-      }, { replace: true });
     }
-  }, [convParam, loading, conversations]);
+  }, [convParam, loading, conversations, selectedConversation?.id, isMobile, setSelectedConversation]);
 
   // Filters
   const {
@@ -193,6 +192,12 @@ const HelpDesk = () => {
 
   const handleSelectConversation = useCallback(async (conversation: Conversation) => {
     setSelectedConversation(conversation);
+    // Persiste a seleção na URL — sobrevive a troca de aba/refetch/reload.
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('conv', conversation.id);
+      return next;
+    }, { replace: true });
     if (isMobile) setMobileView('chat');
 
     if (!conversation.is_read) {
@@ -206,7 +211,7 @@ const HelpDesk = () => {
         prev.map(c => c.id === conversation.id ? { ...c, is_read: true } : c)
       );
     }
-  }, [isMobile, setSelectedConversation, setConversations]);
+  }, [isMobile, setSelectedConversation, setConversations, setSearchParams]);
 
   const handleUpdateConversation = useCallback(async (id: string, updates: Partial<Omit<Conversation, 'ai_summary'>>) => {
     // Capture the previous version of THIS conversation for targeted rollback
@@ -270,6 +275,12 @@ const HelpDesk = () => {
 
   const handleInboxChange = useCallback((val: string) => {
     setSelectedConversation(null);
+    // Troca de inbox → some o ?conv= (a conversa é de outra caixa).
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('conv');
+      return next;
+    }, { replace: true });
     setLabelFilter(null);
     clearSelection();
     if (val.includes('|')) {
@@ -281,7 +292,7 @@ const HelpDesk = () => {
       setDepartmentFilter(null);
     }
     if (isMobile) setMobileView('list');
-  }, [isMobile, setSelectedConversation, setLabelFilter, setSelectedInboxId, setDepartmentFilter, clearSelection]);
+  }, [isMobile, setSelectedConversation, setLabelFilter, setSelectedInboxId, setDepartmentFilter, clearSelection, setSearchParams]);
 
   const inboxSelectValue = departmentFilter
     ? `${selectedInboxId}|${departmentFilter}`
