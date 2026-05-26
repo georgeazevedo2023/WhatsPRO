@@ -13,6 +13,18 @@ audited_at: 2026-05-21
 
 ---
 
+### v7.53.0 (2026-05-25) — Cart Engine (premium #2): pedido estruturado + resumo itemizado no transbordo
+
+Premium #2 do backlog consultivo. Antes o pedido multi-item vivia como texto livre raspado pro reason do handoff — frágil (sem subtotal, sem edição, sem cross-sell). Agora há um **motor de pedido estruturado** por conversa. SDR: monta o pedido e entrega itemizado ao vendedor; **sem checkout/pagamento** (isso é o M11 separado).
+
+- **Schema:** `conversations.cart_items JSONB` (migration `20260525120000`) — `[{product_id,name,qty,unit_price,added_at}]`. Estado runtime da conversa, padrão do `shown_product_ids` (não dispara SYNC RULE; acessado via cast, sem regen de types — como o shown_product_ids).
+- **Helpers puros** (`_shared/agent/cart.ts`, 18 testes): `mergeCartItems` (soma itens iguais por id/nome), `applyCartUpdate` (set_qty/remove/clear), `cartSubtotal`, `formatCartSummary` (itemizado + total) e `formatCartOneLine` (compacto pro lead).
+- **Tools novas (strict)** `add_to_cart` / `update_cart` em `specialistTools.ts`; dispatch `dispatchCartTool` (`tools/cartTools.ts`) lê/escreve `cart_items` e devolve o resumo pro LLM ecoar. Plugadas no product specialist (8 tools agora) + regras de prompt 8/9/9b (montar / fechar / cross-sell determinístico, sem inventar produto).
+- **Transbordo itemizado:** quando o carrinho não está vazio, `handoff_to_human` (e o exit_action inline) usam a linha compacta no texto ao lead e **anexam o resumo itemizado + total** ao reason que o vendedor recebe (e em `ai_agent_logs.metadata`).
+- **Validação:** 18 testes cart + 415 agent verdes, `deno check` 0. Deployado (sandbox + EletropisoV2, função compartilhada; aditivo — handoff idêntico ao anterior quando carrinho vazio). **E2E LLM multi-turno na sandbox: PENDENTE** (requer o celular do lead sandbox — feito junto com o dono).
+
+---
+
 ### v7.52.4 (2026-05-25) — Fix achado #2 (early-return silencioso) na fonte + observability + badge "fora de horário"
 
 Fecha o achado #2 deferido na v7.52.3: a 2ª msg do lead enviada ~2s após uma resposta caía no **`duplicate_response_guard`** e retornava **silenciosamente** (sem `ai_agent_runs`, sem resposta, sem rastro em tabela nenhuma — só `log.info`). Causa raiz confirmada por auditoria de código.
@@ -259,33 +271,9 @@ Início do Sprint C — router LLM + product_specialist POC. Esta entrega cobre 
 
 **Andamento plano orquestrador:** 60% → **63%** (Sprint C foundations + 1/4 do router work).
 
-### v7.41.16 (2026-05-22 noite IV) — Sprint B5 Onda 5: extrai `dispatchResponse` (FIM DO SPLIT B5)
+### v7.41.15 → v7.41.16 (2026-05-22) — Sprint B5 Ondas 4-5 (`llmCallLoop` + `dispatchResponse`, FIM DO SPLIT) (arquivada)
 
-Última extração do Sprint B5: steps 15.5-22 + final log/Response 200 do `ai-agent/index.ts` pra `_shared/agent/dispatchResponse.ts`.
-
-- **Arquivo novo:** `_shared/agent/dispatchResponse.ts` (348 lin) — handoff detection (HANDOFF_PATTERNS copiado pra escopo do módulo), TTS decision tree, save msg + update conv + broadcast, response_sent log, lead_profile upsert, deferred handoff trigger, Response 200 build.
-- **Testes novos:** `dispatchResponse.test.ts` (**15 testes, 100% PASS**): happy text/audio paths, TTS fallback, audio split, incomingHasAudio flag, hadExplicitHandoffInLoop skip, broadcast SHADOW, implicit handoff detection (+ negative lookbehind test "não vou te encaminhar"), deferred trigger paths (objection detection + skip quando já houve explícito), summary com products/sentiment/outcome/tools, slice -10 nas conversation_summaries.
-- **index.ts: 2494 → 2306 lin (-188 nesta onda).** Acumulado Sprint B5: **-2238 lin desde 4544 (-49.3%)**. Imports limpos: removidos `splitAudioAndText` (só usado no bloco extraído) + `HANDOFF_PATTERNS` const local.
-- **Sprint B5 FECHADO** com 11 ondas: 0+1, 2a, 2b, 2c-i, 2c-ii, 3a, 3b, 3c, 3d, 4, 5. `ai-agent/index.ts` virou orquestrador de ~2300 lin (de 4544).
-- **Pipeline:** tsc 0 erros · vitest **1215 pass / 9 fails pré-existentes idênticos** (+15 novos) · deploy CLI ai-agent v100→**v101 ACTIVE**
-
-**Andamento plano orquestrador:** 56% → **60%** (Sprint B5 100% completo). Próximo marco: **Sprint C — Router LLM + product_specialist POC** (~2-3 semanas).
-
-### v7.41.15 (2026-05-22 noite III) — Sprint B5 Onda 4: extrai `llmCallLoop`
-
-Extração do loop principal de function calling do monolito `ai-agent/index.ts` pra `_shared/agent/llmCallLoop.ts`. Inclui setup (geminiContents→llmMessages), while loop (LLM call → tool execution seq/parallel → handoff guard → MAX_TOOL_ROUNDS safety → retry backoff → 502 em 3 falhas → pending Qs injection + follow-up call), e post-LLM cleanup (dedup nome + greeting strip Bug 17 v2).
-
-- **Arquivo novo:** `_shared/agent/llmCallLoop.ts` (327 lin) com `runLlmCallLoop(ctx)` + interface `LlmCallLoopCtx`/`LlmCallLoopResult`
-- **Testes novos:** `llmCallLoop.test.ts` (16 testes, todos PASS): happy paths, tool calls seq/parallel, handoff break, handoff guard block (bug latente do monolito preservado linha-a-linha), MAX_TOOL_ROUNDS, retry/backoff, error 502, pending Qs (injection + follow-up), dedup nome, greeting strip, token ceiling
-- **index.ts:** 2678 → 2494 lin (**-184 lin nesta onda**). Acumulado Sprint B5: **-2050 lin desde 4544 (-45.1%)**. Imports limpos: removidos `appendToolResults`, `LLMMessage`, `evaluateHandoffGuard`, `HANDOFF_GUARD_BLOCKED_MSG` (todos só usados no bloco extraído). Adicionado import único `runLlmCallLoop`.
-- **`executeToolSafe` permanece em `ai-agent/index.ts`** (também usado por R121 inline + R137 wire + set_tags handler — keeping evita refator cross-cutting). Injetado via ctx.
-- **`toolCallsLog` ref mutável** compartilhada entre pre-LLM (R121/R137) e loop — padrão idêntico ao de setTagsAndHandoff/searchProducts.
-- **Validator + question mark guard** stayed em index.ts mas saíram do wrapper `while`: antes da Onda 4 ficavam dentro do loop com `break` final; agora rodam linearmente após o helper.
-- **Pipeline:** tsc 0 erros · vitest **1200 pass / 9 fails pré-existentes idênticos** (+16 novos) · deploy CLI ai-agent v99→**v100 ACTIVE**
-
-**Andamento plano orquestrador:** 53% → **56%** (Onda 4 fechada). Próximas:
-- Onda 5 — `dispatchResponse` (~240 lin) — última do split B5
-- Sprint C — Router LLM + product_specialist POC (~2-3 semanas, marco)
+Últimas 2 ondas do Sprint B5: extrai `llmCallLoop` (-184 lin) e `dispatchResponse` (-188 lin) do monolito. **Sprint B5 FECHADO** (11 ondas, `ai-agent/index.ts` 4544→~2306 lin, -49.3%). 56%→**60%**. Detalhe em git + [[wiki/changelog/2026-05-part10]].
 
 ### v7.41.7 → v7.41.14 (2026-05-22) — Sessão maratona R140-R145 (arquivada)
 

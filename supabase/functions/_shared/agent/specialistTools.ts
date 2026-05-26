@@ -63,6 +63,47 @@ export const handoffToHumanToolDef: LLMToolDef = {
   },
 }
 
+export const addToCartToolDef: LLMToolDef = {
+  name: 'add_to_cart',
+  strict: true,
+  description: 'Adiciona item(ns) ao pedido do lead QUANDO ELE CONFIRMA que quer levar. Use pra montar o pedido (inclusive multi-item, ao longo da conversa). NÃO use só pra mostrar/buscar produto (isso é search_products/send_carousel/send_media). Itens iguais somam quantidade.',
+  parameters: {
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description: 'Itens que o lead confirmou. Chamar add_to_cart de novo acumula no pedido.',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Nome do produto (do catálogo ou como o lead pediu)' },
+            qty: { type: 'integer', description: 'Quantidade. Use 1 se o lead não especificou.' },
+            product_id: { type: ['string', 'null'], description: 'ID do produto do catálogo se conhecido. null caso contrário.' },
+            unit_price: { type: ['number', 'null'], description: 'Preço unitário em reais se conhecido. null caso contrário.' },
+          },
+          required: ['name', 'qty', 'product_id', 'unit_price'],
+        },
+      },
+    },
+    required: ['items'],
+  },
+}
+
+export const updateCartToolDef: LLMToolDef = {
+  name: 'update_cart',
+  strict: true,
+  description: 'Edita o pedido já montado: muda a quantidade (set_qty), remove um item (remove) ou limpa tudo (clear). Use quando o lead corrige ("muda pra 2 latas", "tira a manta", "cancela tudo").',
+  parameters: {
+    type: 'object',
+    properties: {
+      action: { type: 'string', description: 'set_qty | remove | clear', enum: ['set_qty', 'remove', 'clear'] },
+      target: { type: ['string', 'null'], description: 'Nome do item alvo (para set_qty/remove). null para clear.' },
+      qty: { type: ['integer', 'null'], description: 'Nova quantidade (para set_qty). null caso contrário.' },
+    },
+    required: ['action', 'target', 'qty'],
+  },
+}
+
 export const sendPollToolDef: LLMToolDef = {
   name: 'send_poll',
   strict: true,

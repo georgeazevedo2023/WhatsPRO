@@ -1,8 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- App é 100% pt-BR. Sem isto, Chrome mobile auto-traduz e quebra o React
+         com "removeChild: node is not a child" (facebook/react#11538). -->
+    <meta name="google" content="notranslate" />
     <!-- TODO: Set the document title to the name of your application -->
     <title>WhatsPRO Digital CRM</title>
     <meta name="description" content="CRM Whatsapp + Disparador + Vendas">

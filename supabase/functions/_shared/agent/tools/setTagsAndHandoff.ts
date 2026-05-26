@@ -18,6 +18,7 @@
 import { STATUS_IA } from '../../constants.ts'
 import { mergeTags } from '../../agentHelpers.ts'
 import { isOutsideBusinessHours, personalizeHandoffMessage } from '../../businessHours.ts'
+import { normalizeCart, formatCartOneLine, formatCartSummary } from '../cart.ts'
 import { validateSetTagsInput, validateInteresseCategory } from '../../setTagsValidator.ts'
 import {
   getCategoriesOrDefault,
@@ -610,6 +611,9 @@ export async function setTags(
     const notifyOutsideE3 = agent.notify_outside_hours_on_handoff !== false
     const outsideHoursE3 =
       notifyOutsideE3 && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+    // Premium #2: pedido estruturado (se houver) é a fonte de verdade pro item citado ao lead.
+    const cartItemsE3 = normalizeCart((conversation as Record<string, unknown>).cart_items)
+    const cartOneLineE3 = formatCartOneLine(cartItemsE3)
     const handoffMsgE3 = personalizeHandoffMessage(
       pickHandoffMessage({
         agent,
@@ -619,7 +623,7 @@ export async function setTags(
       }),
       {
         leadName: (leadProfile as { full_name?: string | null } | null)?.full_name || null,
-        itemSummary: String(pendingState.exitActionHandoff?.reason || ''),
+        itemSummary: cartOneLineE3 || String(pendingState.exitActionHandoff?.reason || ''),
       },
     )
     const { result: queueResE3, finalMessage: finalMsgE3 } = await runQueueAssignment(handoffMsgE3)
@@ -743,9 +747,18 @@ export async function handoffToHuman(
   // #4 (2026-05-24): personaliza citando nome + item do pedido (args.reason é o
   // resumo rico que o specialist montou — ex.: "Pedido de 50 telhas Brasilit").
   // Vale dentro E fora do horário; no-op se não houver nome/item legível.
+  // Premium #2 (2026-05-25): se houver pedido estruturado (cart_items), ele é a
+  // fonte de verdade — usa a linha compacta pro texto ao lead e anexa o itemizado
+  // completo (com total) ao reason que o vendedor recebe.
+  const cartItems = normalizeCart((conversation as Record<string, unknown>).cart_items)
+  const cartOneLine = formatCartOneLine(cartItems)
+  const cartFull = formatCartSummary(cartItems)
+  const effectiveReason = cartFull
+    ? `${String(args.reason || '').trim()}${args.reason ? '\n\n' : ''}🛒 ${cartFull}`.trim()
+    : String(args.reason || '')
   const handoffMsg = personalizeHandoffMessage(
     pickHandoffMessage({ agent, profileData, funnelData, outsideHours }),
-    { leadName, itemSummary: String(args.reason || '') },
+    { leadName, itemSummary: cartOneLine || String(args.reason || '') },
   )
 
   // Empathy message if reason indicates negative sentiment
@@ -819,7 +832,8 @@ export async function handoffToHuman(
     conversation_id,
     event: 'handoff',
     metadata: {
-      reason: args.reason,
+      reason: effectiveReason,
+      cart_items: cartItems,
       qualification_chain: qualChain,
       cooldown_minutes: cooldown,
       new_status: newStatus,

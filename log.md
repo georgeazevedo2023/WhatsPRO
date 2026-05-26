@@ -9,6 +9,30 @@ type: log
 
 ---
 
+## 2026-05-25 (tarde) — Cart Engine premium #2: pedido estruturado + transbordo itemizado (v7.53.0)
+
+**Trigger:** dono pediu explicação do premium #2 (formato de discussão), escolheu Opção A (carrinho em JSONB na conversa, sempre-ligado), aprovou escopo "tudo Fases 1-4 + sandbox E2E". Mapeei os pontos de integração com Explore agent antes de codar (plano aprovado).
+
+**Implementação (Fases 1-3):** migration `conversations.cart_items JSONB` (padrão runtime do shown_product_ids; sem SYNC RULE, sem regen de types — acessado via cast). `_shared/agent/cart.ts` helpers puros (merge por id/nome, set_qty/remove/clear, subtotal, formatCartSummary itemizado + formatCartOneLine compacto). Tools `add_to_cart`/`update_cart` (strict) em specialistTools + `tools/cartTools.ts` (dispatchCartTool lê/escreve cart_items, devolve resumo pro LLM). Plugadas no product specialist (6→8 tools) + regras 8/9/9b (montar/fechar/cross-sell determinístico). **Transbordo itemizado:** handoff_to_human + exit_action inline usam linha compacta no texto ao lead e anexam resumo itemizado+total ao reason do vendedor (e ai_agent_logs.metadata).
+
+**Validação:** 18 testes cart + 415 agent verdes; `deno check` 0. Ajustes nos testes do productSpecialist (contrato mudado de propósito: 6→8 tools; prompt 4096→4400 por +3 regras). Migration aplicada em prod (`prfcbfumyrrycsrcrvms`). ai-agent deployado via CLI (sandbox + EletropisoV2, função compartilhada; **aditivo** — quando carrinho vazio o handoff é idêntico ao anterior).
+
+**Honestidade (zero dado falso):** **E2E LLM multi-turno PENDENTE.** A lógica determinística (persistência, merge, edição, resumo no handoff) está 100% coberta por testes. Mas verificar que o product specialist REALMENTE chama add_to_cart numa conversa real precisa do celular do lead sandbox — o ai-agent envia WhatsApp de verdade (UAZAPI), não dá pra simular sozinho sem spammar um número. E2E ao vivo combinado com o dono (sequência: "quero 2 latas tinta branca fosco" → "adiciona 1 rolo" → "tira o rolo" → "é só isso" → conferir cart_items + handoff itemizado).
+
+**Frase de retomada:** *"v7.53.0 Cart Engine shipped (código+deploy+testes). FALTA: E2E LLM ao vivo na sandbox (dono manda multi-item→edita→fecha; eu confiro cart_items + reason itemizado em ai_agent_logs) → nota 10. Backlog premium: #3 refino-por-contagem, #4 modo consultivo, #5 busca facetada."*
+
+---
+
+## 2026-05-25 (tarde) — Fix crash mobile "removeChild" no Atendimento (lang="en" → pt-BR)
+
+**Trigger:** dono mandou 3 screenshots — desktop OK, mas no Chrome Android o Helpdesk quebrava com Error Boundary "Erro em Atendimento: Falha ao executar 'removeChild' em 'Node'". Pediu auditoria profunda.
+
+**Causa raiz (NÃO era bug nosso):** `index.html` declarava `<html lang="en">` (resíduo do scaffold Lovable) num app 100% pt-BR. Chrome mobile vê o mismatch idioma-conteúdo → **auto-traduz**, envolvendo nós de texto em `<font>` e trocando-os. React ainda referencia os nós antigos; na transição mobile lista→chat (`HelpDesk.tsx` `setMobileView('chat')`, swap condicional de blocos irmãos 565-594) o React chama `removeChild` no nó que o Translate já moveu → `DOMException` → capturado pelo boundary `App.tsx:234`. Issue canônico facebook/react#11538. Desktop não quebra (não auto-traduz + não desmonta subárvore ao navegar).
+
+**Fix na fonte:** `<html lang="pt-BR">` (mata o gatilho da tradução) + `<meta name="google" content="notranslate">` (defensivo). Zero mudança no render do React — o padrão condicional é idiomático e correto. Bônus: a11y (leitor de tela) + SEO. **Pendente:** commit + push → CI rebuilda front (vai pra prod no próximo deploy).
+
+---
+
 ## 2026-05-25 — Fix achado #2 early-return silencioso na fonte + observability + badge "fora de horário" (v7.52.4)
 
 **Trigger:** dono pediu (1) abrir localhost + ler vault/doc + status; (2) atacar o achado #2 (early-return silencioso, frase de retomada), **auditando antes**; (3) no meio, via screenshot, perguntou por que o badge mostrava "Alberto (pausado)" se logado como Alberto ele não estava pausado; (4) "faça os dois". Deploy escolhido: **direto em prod**.
@@ -263,29 +287,9 @@ EletropisoV2 (`1062059a`, Lucas, monolith) trocada gpt-5-mini → gpt-4.1-mini (
 
 ---
 
-## 2026-05-24 (noite) — Sprint D: 4 specialists dedicados + specialistBase + shadow + E2E 6/6 (v7.45.0)
+## 2026-05-24 (noite+madrugada) — Sprint D + EletropisoV2 router PROD + E.1 memória longa (arquivado)
 
-Router agora despacha as **7 intents pra specialists dedicados**; monolito vira fallback de erro. Tudo atrás de `routing_mode` (default monolith — prod intocada). Canal de controle WhatsApp reativado (operador comandou parte da sessão).
-
-**Pesquisa primeiro** (papers/GitHub/forums/X, 3 agentes): router→1 specialist é o lado SEGURO do debate (15× tokens é fan-out, não se aplica); boundaries claros = maior anti-alucinação (MAST: 36.9% das falhas = inter-agent misalignment); migração NUNCA flipar de vez (shadow→canary→%); feel-felt-found + SPIN + escape-hatch nos prompts.
-
-**Código (atrás de flag):** `specialistBase.ts` (`runSpecialist` extraído do productSpecialist; este refatorado, 18/18 verdes); 4 specialists (greeting/qualification/objection/handoff) + `specialistTools.ts`; wire-in `DISPATCH[intent]→def`; greeting determinístico desligado sob router; shadow mode (migration 20260524100000) + UI Select + SYNC.
-
-**E2E real 6/6 nota 10** (sandbox router 558181696546, lead Testador): bom dia→greeting; "João Pedro"→greeting+persiste nome; "tinta branca"→product+carrossel; "achei caro"→objection feel-felt-found; "quero vendedor"→handoff+transbordo; "aceita pix"→objection business_info. Router conf 0.9-1.0.
-
-**2 bugs raiz achados no E2E (zero remendo):** greeting salvava nome via `set_tags(lead_name:)` rejeitado → troquei p/ `update_lead_profile(full_name)`; objection chamava tool sem texto → REGRA UNIVERSAL de texto nos 4 specialists.
-
-**Pipeline:** 350 testes agent verdes (329+21). Zero erro TS novo (36 pré-existentes, baseline confirmado via git stash — NÃO corrigidos, hardening separado). ai-agent v123+.
-
-**Andamento Plano Orquestrador:** 72% → **~85%**. Migração default→router STAGED (não flipei; prod intocada).
-
-**Frase de retomada:** *"Sprint D shipped (v7.45.0, 6/6 E2E). Próximo: shadow em agent real + migrar EletropisoV2 p/ router após validação + D6 aposentar monolito"*.
-
----
-
-## 2026-05-24 (madrugada) — EletropisoV2 router PROD + 36 erros TS + E.1 memória longa (arquivado)
-
-> Movido pra [[wiki/log-arquivo-2026-05-24-sprintd-e1]] (hard limit 300). v7.45.1 (EletropisoV2→router PROD + 36 erros TS zerados) + v7.46.0 (Sprint E.1 memória longa estruturada por lead).
+> Movido pra [[wiki/log-arquivo-2026-05-24-sprintd-e1]] (hard limit 300). v7.45.0 (router despacha 7 intents pra specialists dedicados + specialistBase + shadow + E2E 6/6, 72%→~85%); v7.45.1 (EletropisoV2→router PROD + 36 erros TS zerados); v7.46.0 (Sprint E.1 memória longa estruturada por lead).
 
 ---
 

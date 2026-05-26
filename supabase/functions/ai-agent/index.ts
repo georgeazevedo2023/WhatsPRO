@@ -52,6 +52,7 @@ import { dispatchMediaTool } from '../_shared/agent/tools/mediaTools.ts'
 import { dispatchCrmTool } from '../_shared/agent/tools/crmTools.ts'
 import { dispatchSearchTool } from '../_shared/agent/tools/searchProducts.ts'
 import { dispatchSetTagsHandoffTool } from '../_shared/agent/tools/setTagsAndHandoff.ts'
+import { dispatchCartTool } from '../_shared/agent/tools/cartTools.ts'
 import type { PendingExitActionHandoff, PendingExitActionSearch } from '../_shared/agent/preLLMAutoExtract.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage, personalizeHandoffMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
@@ -176,7 +177,7 @@ Deno.serve(async (req) => {
     // 1-2. Load agent + conversation + instance in parallel (~300ms saved)
     const [agentResult, conversationResult, instanceResult] = await Promise.all([
       supabase.from('ai_agents').select('*').eq('id', agent_id).maybeSingle(),
-      supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at, shown_product_ids').eq('id', conversation_id).maybeSingle(),
+      supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at, shown_product_ids, cart_items').eq('id', conversation_id).maybeSingle(),
       supabase.from('instances').select('token').eq('id', instance_id).maybeSingle(),
     ])
 
@@ -2084,6 +2085,18 @@ ${contextBlock}`
             availableLabelNames,
           }, log)
           if (crmResult !== null) return crmResult
+          return `Tool '${name}' não implementada.`
+        }
+
+        case 'add_to_cart':
+        case 'update_cart': {
+          // Premium #2 Cart Engine (2026-05-25): pedido estruturado em
+          // conversations.cart_items. dispatchCartTool lê/escreve e devolve o
+          // resumo pro LLM ecoar. Helpers puros em _shared/agent/cart.ts.
+          const cartResult = await dispatchCartTool(name, args, {
+            supabase, agent_id, conversation, conversation_id,
+          }, log)
+          if (cartResult !== null) return cartResult
           return `Tool '${name}' não implementada.`
         }
 
