@@ -65,7 +65,9 @@ export function buildFallbackMessage(
     alternatives = `${validCats.slice(0, -1).join(', ')} e ${validCats[validCats.length - 1]}`
   }
 
-  return `Infelizmente não trabalhamos com ${matchedKeyword}, mas temos ${alternatives}. Posso te ajudar em algo mais? 😊`
+  // (2026-05-28) Tom mais natural: evita "Infelizmente não trabalhamos com" que soa
+  // formal-robô. "Esse não é o nosso forte aqui" é o jeito que um vendedor real falaria.
+  return `Esse não é o nosso forte aqui, mas trabalhamos com ${alternatives}. Quer dar uma olhada em algo nessa linha?`
 }
 
 /**

@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-05-21
-audited_at: 2026-05-21
+updated: 2026-05-28
+audited_at: 2026-05-28
 ---
 
 # Changelog
@@ -12,6 +12,44 @@ audited_at: 2026-05-21
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
 
 ---
+
+### v7.57.1 (2026-05-28) — Helpdesk: mensagens visíveis + console limpo
+
+Auditoria focada no M2 Helpdesk após relato de mensagens não aparecerem e erros no console.
+
+- `ChatPanel.tsx`: adiciona `fetchIdRef` real para ignorar respostas atrasadas de conversas anteriores, alinhando o código ao contrato já documentado em T2.27. Também limpa estado quando não há conversa selecionada e remove o acesso `conversation!.is_read`, que podia quebrar renderização quando a seleção virava `null` mas mensagens antigas ainda estavam no estado.
+- `ContactAvatar.tsx`: remove chamada assíncrona durante render (`triggerRefresh`) e move a reidratação de avatar para `useEffect`, evitando efeitos colaterais no render e ruído de console.
+- Validação: `npx tsc --noEmit` 0 erros; `npm run build` OK; Vitest focado em helpdesk 17/17; Playwright Helpdesk 11/11; checagem Playwright dedicada com conversa aberta retornou `consoleErrors: []` e `pageErrors: []`. Suíte completa ainda tem falhas fora deste fix (`excludedProducts`, `useForms`, `FormBuilder` e loaders ESM `https:` em testes Deno).
+
+---
+
+### v7.57.0 (2026-05-28) — Humanização do atendimento (lead não percebe que é IA)
+
+**Objetivo:** lead NUNCA pode perceber que está falando com IA. Estilo cordial profissional ("você", sem gírias, 1 emoji raríssimo). Auditoria E2E em 13 cenários no Sandbox isolado (router, gpt-4.1-mini) iterando 3x até nota humanização média **5.2/10 → 9.2/10**. Cobertura: saudação pura, com nome, sem nome, intenção direta/indireta, 1 item, multi-item, orçamento, foto, carrossel, qualif progressiva, item offline, item inexistente, handoff explícito, lead enrolado, e **bug crítico de PROD (Moyses, PVC + serviços não oferecidos)**.
+
+**Fixes (7 arquivos, 2 deploys CLI):**
+- `ai-agent/index.ts` — greeting determinístico agora **espelha saudação** ("Bom dia"/"Boa tarde"/"Boa noite" do lead vira saudação do bot), **captura nome inline** ("sou João" / "Boa tarde, João" via `extractLeadName`), **pula greeting estático** quando lead pediu vendedor direto no 1º turno (evita 2 bolhas).
+- `_shared/agent/greetingSpecialist.ts` — diretriz explícita: emoji proibido no início, sem clichês IA, espelho de saudação obrigatório, exemplos few-shot novos.
+- `_shared/agent/qualificationSpecialist.ts` — proíbe **"(interno ou externo)"** estilo formulário, **agradecimentos repetitivos** ("obrigado", "show, perfeito, ótimo" em todo turno), **narração de ações** ("anotei", "vou registrar").
+- `_shared/agent/productSpecialist.ts` — proíbe **"Vou seguir coletando"**, **"Vou seguir com o próximo passo"**, **"Vou resumir para o vendedor"** dentro da msg do lead, **vazamento de sintaxe `handoff_to_human(reason: "...")`** no texto, **repetir nome+preço do produto após mídia**.
+- `_shared/agent/dispatchResponse.ts` — `stripLeakedToolCalls` estendido pra capturar `NOME(key: "val")` sem braces (vazamento R147 mais comum do product specialist).
+- `_shared/excludedProducts.ts` — "Infelizmente não trabalhamos com X" → "Esse não é o nosso forte aqui" (tom natural).
+- `_shared/agent/nameCapture.ts` — `extractLeadName` cobre "sou João" (sem o/a obrigatório) + "Boa tarde, João" (cumprimento+nome após vírgula).
+
+**Regra absoluta nova (todos os specialists):** A loja **SÓ VENDE PRODUTOS**. PROIBIDO oferecer, prometer, sugerir ou "incluir" qualquer serviço (montagem, instalação, "com mão de obra", indicação de pedreiro/encanador/marceneiro/instalador/pintor, visita técnica, projeto, execução). Fecha bug crítico de PROD onde IA dizia *"vou te passar o orçamento completo com todos os acessórios e mão de obra"* pra produto que a loja só vende como material.
+
+**Validação E2E real:** 13 cenários no Sandbox (agent_id `9c71f43e`, instance `rb84e079eeab167`, router PROD). 3 iterações. ~80 LLM calls (~R$ 1,50 OpenAI). 0 conversas de prod afetadas. Sandbox restaurada ao estado original (disabled, monolith, gpt-5-mini, contatos+conversas de teste apagados). Detalhe: [[wiki/relatorio-humanizacao-2026-05-28]].
+
+**Backlog menor (não-bloqueador):** (a) `personalizeHandoffMessage` no path "skip greeting" (S12) — nome inline não é persistido a tempo no fluxo "quero falar com vendedor"; (b) capitalização "Jo" vs "João" no extractLeadName ocasional; (c) parênteses-formulário esporádicos do LLM (1 a cada N turnos — diretriz cobre mas modelo ignora ocasionalmente).
+
+---
+
+### v7.56.1 (2026-05-26) — E.2: gate de horário comercial + janela 36h + LIGADA no EletropisoV2
+
+- **Gate de horário comercial (decisão do dono):** o cron de abandono agora só cutuca/transborda **dentro do expediente** (`isOutsideBusinessHours` no edge function) — nada de pingar lead de madrugada ou acionar vendedor offline. Lead que abandona fora de hora **espera o expediente reabrir às 8h** (os timers medem do último contato; ao reabrir, dispara).
+- **Janela do scan 12h→36h:** pra quem abandona à noite/sábado sobreviver na fila de candidatos até a reabertura (12h não cobria o overnight). Mais antigo que isso = lead frio (vira follow-up, não abandono).
+- **EletropisoV2 LIGADO** (config PROD): cutucada **5min**, transbordo **+10min** (15 total de silêncio), msg *"Ainda tá por aí? 😊 Se quiser, já te conecto com um vendedor…"*. Demais agentes seguem OFF.
+- Pipeline: deno check 0 · redeploy CLI · migration `20260526000002` (RPC 36h) aplicada.
 
 ### v7.56.0 (2026-05-26) — Sprint E.2: handoff por ABANDONO (cutucada + transbordo automático por inatividade)
 
@@ -244,39 +282,7 @@ Primeiro pilar do Sprint E (inteligência avançada). Lead que volta após dias 
 - **EletropisoV2 (`1062059a`) migrado pra `routing_mode='router'` em PROD** (a pedido do usuário, sem shadow). Config validada compatível (24 service_categories + business_info + greeting → os 5 specialists rodam). Código idêntico ao validado 6/6 no sandbox. Rollback instantâneo (`routing_mode='monolith'`). Monitoramento via dashboard Roteamento + `ai_agent_runs`. Evidência pró-migração: no histórico monolito, perguntas de produto ("telha brasilit") recebiam "Em que posso te ajudar?" genérico — router+product_specialist busca no catálogo.
 - **36 erros TS pré-existentes do `ai-agent/index.ts` zerados (`deno check`: 36 → 0).** Type-only, zero runtime, vitest sem regressão (1318 pass / 9 fails pré-existentes). Fixes: `SendTextMsgFn`→`Promise<void|boolean>`; `SendPresenceFn`→union literal; `Logger.meta`→`object` (logger.ts + context.ts); casts `any` em conversation/contact/instance/counterRow/greetResult (selects nullable+shape); `pfq` local pro CFA never; `loadActiveProfile(supabase as any)` (TS2589); `wordByWordBroadProducts!`; `insert(payload as any)`. (whatsapp-webhook tem 4 erros pré-existentes próprios, fora de escopo.)
 
-### v7.45.0 (2026-05-24) — Sprint D: 4 specialists dedicados + specialistBase + shadow mode + 6/6 E2E nota 10
 
-Fecha a parte de código do Sprint D do plano orquestrador: o router agora despacha as **7 intents pra specialists dedicados** (não mais só o product). Monolito vira fallback de erro. Tudo atrás de `routing_mode` (default `monolith`, prod intocada). Andamento do plano: 72% → **~85%**.
+### Releases arquivadas
 
-- **`_shared/agent/specialistBase.ts` — contrato único.** Extraído do `productSpecialist` (~140 lin de boilerplate: LLM loop → log `ai_agent_runs` → `dispatchResponse`). `runSpecialist(ctx, def)` recebe um `SpecialistDef { name, intent, model, buildPrompt, toolDefs, disableHandoffGuard }`. `productSpecialist` refatorado pra delegar (18/18 testes seguem verdes, zero regressão). Cada novo specialist é só prompt + tools + boundary → zero drift.
-- **4 specialists novos** (`greetingSpecialist`, `qualificationSpecialist`, `objectionSpecialist`, `handoffSpecialist`) + `specialistTools.ts` (tool defs canônicas compartilhadas). Prompt design fundamentado em pesquisa 2026 (OpenAI/Anthropic/MAST): role estreito, boundary explícito, regra-chave por último, instrução positiva + porquê, escape hatch anti-arg-inventado, **REGRA UNIVERSAL "sempre responda com texto; tool nunca substitui a resposta"**, feel-felt-found (objection), SPIN 1-pergunta (qualification).
-- **Tabela de dispatch intent→specialist** (`index.ts`): saudacao+fora_escopo→greeting, qualificacao→qualification, produto→product, objecao+pagamento→objection, handoff→handoff. Whitelist declarada (best practice handoff targets). Greeting determinístico hardcoded **desligado sob `routing_mode='router'`** (greeting_specialist assume — plano D4).
-- **Shadow mode** (`routing_mode='shadow'`, migration `20260524100000`): router classifica + loga em `ai_agent_runs`, mas o monolito responde o lead (zero efeito colateral — lite shadow, só o router roda; specialist não, pra não disparar tools reais). UI Select + SYNC. Best practice shadow→canary→% antes de migrar default.
-- **2 bugs de raiz achados no E2E e corrigidos:** (A) greeting capturava nome via `set_tags(lead_name:)` → **rejeitado** pelo whitelist `VALID_KEYS` → trocado p/ `update_lead_profile(full_name)` (persiste de verdade). (B) objection chamava tools e **não emitia texto** (lead no silêncio) → regra universal de texto aplicada aos 4 specialists.
-- **E2E real 6/6 nota 10** (sandbox router `558181696546`, lead Testador): bom dia→greeting, "meu nome é João Pedro"→greeting+persiste nome, "tinta branca pra sala"→product+carrossel, "achei caro/concorrente"→objection (feel-felt-found), "quero vendedor"→handoff (transbordo+fora-horário), "aceita pix/parcela?"→objection (business_info). Router conf 0.9-1.0 em todas.
-- **350 testes agent verdes** (329 + 21 novos). Zero erro TS novo (36 pré-existentes, confirmado via baseline). ai-agent deployado (v123+).
-- **Migração default→router: STAGED.** Default segue `monolith`; EletropisoV2 prod intocada. Migração real só após shadow limpo + go-ahead. Aposentar monolito (D6) fica p/ sprint futura após 30d estável.
-
-### v7.44.1 (2026-05-24) — Fix PROD: EletropisoV2 gpt-5-mini → gpt-4.1-mini
-
-EletropisoV2 (`1062059a`, instância nova do Lucas `558781592373`, monolith) estava em **gpt-5-mini** com `max_tokens=1024` — mesmo Bug A da v7.44.0 (reasoning consumia o teto → resposta vazia → fallback "Em que posso te ajudar?"). Trocada p/ **gpt-4.1-mini** (non-reasoning, rápido, confiável). Config no banco (efeito imediato; o piso 4096 de reasoning já estava deployado como defesa). Validação passiva na próxima msg real (não testei ao vivo p/ não interferir em cliente). Eletropiso antiga (agent desabilitado D35) segue em gpt-4.1-mini.
-
-### v7.44.0 (2026-05-23/24) — Sprint C 3/3: C6 E2E 7/7 + C7 dashboard Roteamento + 2 bugs raiz + canal de controle WhatsApp
-
-Fecha o Sprint C. Validação E2E real dos 7 intents do router (lead↔IA, instâncias reais), dashboard admin de roteamento, e 2 bugs de raiz achados nos testes. Andamento do plano orquestrador: 68% → **~72%**.
-
-- **C6 — E2E 7/7 nota 10.** Runner formal `scripts/e2e-router-runner.mjs` + `scripts/e2e-scenarios.json` (gated por env, fora do CI). Cada cenário com reset frio do lead. Relatório: [[wiki/relatorio-e2e-router-2026-05-23]]. saudacao (handler determinístico), qualificacao/produto/handoff/objecao (router→product_specialist gpt-4.1), pagamento/fora_escopo (router→monolith gpt-4.1-mini).
-- **C7 — Dashboard admin "Roteamento".** RPC `get_router_dashboard` (SECURITY DEFINER, guard `is_super_admin`) agrega `ai_agent_runs`: pizza de intents, latência P50/P95 por specialist, custo/modelo, hop loops, volume diário. Frontend `src/pages/dashboard/AdminRouting.tsx` (recharts) + rota `admin/routing` + item no Sidebar. Validado com dados reais.
-- **Bug A (raiz) — gpt-5-mini devolvia resposta VAZIA → fallback "Em que posso te ajudar?".** `llmProvider.ts` passava `max_completion_tokens = agent.max_tokens (1024)` pra reasoning models; o raciocínio consumia o teto e a resposta saía vazia. **Afetava EletropisoV2 em PROD.** Fix: piso `Math.max(maxTokens, 4096)` p/ reasoning. Monolith do agent de teste migrado p/ `gpt-4.1-mini` (gpt-5-mini@4096 funcionava mas 15-25s, lento demais).
-- **Bug B (raiz) — objeção atropelada por qualificação.** Monolith respondia "achei caro" com "interno ou externo?". Fix: `objecao` adicionada a `salesFunnelIntents` (roteia pro product_specialist) + **regra 10** de objeção no prompt do specialist (empatia + defesa de valor, sem desconto automático, pedido aberto). Validado E2E: "Entendo sua preocupação... rendimento/cobertura/durabilidade/garantia... PIX/12x... continuar ou ver outras opções?".
-- **Canal de controle WhatsApp.** Edge function `e2e-control-webhook` (verify_jwt=false) + tabela `e2e_control_inbox`: operador comanda a sessão via WhatsApp (instância Testador). Achado UAZAPI: webhook manda remetente como `@lid` interno; número real está em `sender_pn`/`chatid`.
-- **Pendência PROD:** EletropisoV2 (`1062059a`, gpt-5-mini monolith, max_tokens=1024) deve migrar p/ gpt-4.1-mini OU já recebeu o floor no deploy do ai-agent (mitiga vazio, mas fica lento). Recomendado migrar modelo.
-
-### v7.43.1→v7.43.13 (2026-05-23) — Sprint C hardening: 9 bugs raiz + 6/6 E2E nota 10 — arquivada
-
-> Sessão longa de validação E2E real (2 instâncias UAZAPI). 9 bugs de raiz (set_tags strict 502, gpt-5-mini vazio, R121/R129/R136 desligados sob router, handoff specialist, handoffGuard) + escolha `gpt-4.1` por benchmark + decisão "product_specialist dono do funil completo". Detalhe em git + [[wiki/changelog/2026-05-part10]].
-
-### v7.43.0→v7.42.0 e abaixo (2026-05-23 e antes) — arquivadas
-
-Sprint C parcial 1+2 (router LLM `router.ts` + `ai_agent_runs`/`routing_mode` + product_specialist POC + hopGuard + auditoria isReasoningModel) + Sprint B5 (`llmCallLoop`/`dispatchResponse`, -49.3%) + R140-R145 (R141 TDZ) + R138/R137. Detalhe em [[wiki/changelog/2026-05-part10]] + git.
-
+v7.45.x e anteriores → [[wiki/changelog/2026-05-part10]]. Lista completa em `wiki/changelog/`.

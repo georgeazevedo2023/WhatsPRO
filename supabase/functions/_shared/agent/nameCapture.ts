@@ -62,14 +62,29 @@ export function extractLeadName(raw: string | null | undefined): string | null {
   if (!raw) return null
   const text = raw.trim()
   // 1. Padrões explícitos (funcionam mesmo no meio da frase)
+  //    (2026-05-28) Estendido: "sou João" (sem o/a obrigatório), "tô X", "aqui [é] X".
+  //    Caso real de prod (E2E S2/S5): "Boa tarde, sou João" / "Bom dia, sou Carlos."
+  //    A regex antiga exigia "sou (?:o|a)" → não casava sem o artigo → o greeting
+  //    determinístico pedia o nome de novo (double-ask "com quem eu falo?").
   const m = text.match(
-    /\b(?:meu nome (?:é|e)|me chamo|pode (?:me )?chamar de|sou (?:o|a)|aqui (?:é|e) (?:o |a )?)\s+([A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){0,2})/i,
+    /\b(?:meu nome (?:é|e)|me chamo|pode (?:me )?chamar de|sou(?:\s+(?:o|a))?|aqui (?:é|e) (?:o |a )?|aqui)\s+([A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){0,2})/i,
   )
   if (m && m[1]) {
     const cand = m[1].trim()
-    // valida que não capturou palavra comum (ex.: "sou o cliente")
-    if (!NON_NAME_WORDS.has(cand.split(/\s+/)[0].toLowerCase())) return capitalizeName(cand)
+    const firstWord = cand.split(/\s+/)[0].toLowerCase()
+    // valida que não capturou palavra comum (ex.: "sou o cliente", "sou o gerente")
+    if (!NON_NAME_WORDS.has(firstWord) && firstWord.length >= 2) return capitalizeName(cand)
   }
-  // 2. Primeira linha como nome puro (caso "George\nQual preço...")
+  // 2. "Boa tarde, NOME" — saudação seguida de vírgula + nome puro (sem "sou/meu nome").
+  //    Caso real: "Boa tarde, João". Conservador: precisa começar com saudação clara
+  //    + vírgula + 1 palavra que pareça nome.
+  const greetingNameMatch = text.match(
+    /^\s*(?:bom\s+dia|boa\s+tarde|boa\s+noite|ol[áa]|oi|opa|e[íi]a[íi]?)\s*[,!\s]+([A-Za-zÀ-ÿ]{2,})(?:\s|[!?.,]|$)/i,
+  )
+  if (greetingNameMatch && greetingNameMatch[1]) {
+    const cand = greetingNameMatch[1].trim()
+    if (!NON_NAME_WORDS.has(cand.toLowerCase()) && cand.length >= 2) return capitalizeName(cand)
+  }
+  // 3. Primeira linha como nome puro (caso "George\nQual preço...")
   return plausibleBareName(text.split('\n')[0])
 }

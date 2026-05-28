@@ -1415,6 +1415,84 @@ ${contextBlock}`
       log.info('Returning lead — sending welcome-back greeting', { leadName })
     }
 
+    // ── HUMANIZAÇÃO DO GREETING (2026-05-28) ─────────────────────────────
+    // Antes: greeting_message era SEMPRE o template estático ("Olá! Bem-vindo a X,
+    // com quem eu falo?"), ignorando 3 coisas que denunciavam IA pro lead:
+    //   (a) saudação que o lead usou ("Bom dia"/"Boa tarde"/"Boa noite" não eram
+    //       espelhadas — bot abria com "Olá!" no meio de uma tarde),
+    //   (b) nome que o lead já deu na MESMA msg ("Boa tarde, sou João" → bot
+    //       perguntava o nome de novo, dobrando),
+    //   (c) pedido explícito de vendedor ("quero falar com vendedor" → bot
+    //       cumprimentava ao invés de já transferir).
+    // Aqui mexemos SÓ no `greetingText` (lead novo); o resto do bloco (dedup
+    // atômico, send, log) fica intacto.
+    if (shouldGreet && !isReturningLead) {
+      const incomingLower = (incomingText || '').toLowerCase()
+      // (a) espelhar saudação temporal: substitui "Olá!" / "Oi!" do início do
+      // template pelo cumprimento que o lead usou. Se o template não começa com
+      // saudação genérica, deixa como está (admin pode ter escrito custom).
+      let mirroredSalutation: string | null = null
+      if (/\bbom\s+dia\b/.test(incomingLower)) mirroredSalutation = 'Bom dia'
+      else if (/\bboa\s+tarde\b/.test(incomingLower)) mirroredSalutation = 'Boa tarde'
+      else if (/\bboa\s+noite\b/.test(incomingLower)) mirroredSalutation = 'Boa noite'
+      if (mirroredSalutation) {
+        // Substitui "Olá!" ou "Oi!" no INÍCIO do template pela saudação espelhada.
+        // Conservador: não toca se o template não começa com saudação genérica.
+        greetingText = greetingText.replace(/^\s*(?:Ol[áa]|Oi|Opa|Eai|Eaí)\s*[!,.]?\s*/i, `${mirroredSalutation}! `)
+      }
+      // (b) lead já disse o nome dele na MESMA msg ("sou João", "meu nome é Ana")
+      // → captura nome + reformula greeting pra cumprimentar pelo nome + perguntar
+      // o que ele procura, em vez de pedir o nome de novo. Persiste em
+      // lead_profiles ANTES de mandar (fica disponível pro specialist depois).
+      let capturedInlineName: string | null = null
+      try {
+        const cand = extractLeadName(incomingText || '')
+        if (cand && cand.length >= 2) capturedInlineName = cand
+      } catch { /* extractLeadName puro, sem side effect */ }
+      if (capturedInlineName) {
+        // Greeting reformulado: cumprimento espelhado + nome + 1 pergunta enxuta.
+        // NÃO repete "Bem-vindo a X" (já cita a loja no specialist) — frase enxuta
+        // soa mais humana ("Bom dia, João! O que você está procurando hoje?").
+        const sal = mirroredSalutation || 'Oi'
+        greetingText = `${sal}, ${capturedInlineName}! O que você está procurando hoje?`
+        // Persiste o nome ANTES do greeting voar — assim o specialist (que roda em
+        // seguida) já enxerga leadProfile.full_name e não pede o nome de novo.
+        if (contact?.id) {
+          try {
+            await supabase.from('lead_profiles').upsert(
+              { contact_id: contact.id, full_name: capturedInlineName, updated_at: new Date().toISOString() },
+              { onConflict: 'contact_id' },
+            )
+            if (leadProfile) (leadProfile as any).full_name = capturedInlineName
+          } catch (err) {
+            log.warn?.('inline name capture upsert failed (non-fatal)', { error: (err as Error).message })
+          }
+        }
+        log.info('Greeting humanização: nome inline capturado + greeting reformulado', {
+          name: capturedInlineName, mirroredSalutation,
+        })
+      }
+      // (c) pedido EXPLÍCITO de vendedor já no 1º turno ("quero falar com vendedor",
+      // "atendente humano", "fala com alguém") → NÃO mandar greeting estático; o
+      // bloco normal do specialist/router já vai detectar o handoff e responder
+      // diretamente com handoff_message personalizada. Mantém greeting só se NÃO
+      // há pedido de handoff — evita 2 bolhas (greeting + handoff_message).
+      const wantsHumanFirstTurn =
+        /\b(?:falar\s+com\s+(?:o\s+)?(?:vendedor|atendente|consultor|humano|alguém|alguem))|(?:quero\s+(?:um\s+)?vendedor)|(?:atendimento\s+humano)|(?:passa\s+pro?\s+vendedor)\b/i
+          .test(incomingText || '')
+      if (wantsHumanFirstTurn) {
+        log.info('Greeting humanização: lead pediu vendedor direto — pulando greeting estático')
+        // Marca skip via greetingText vazio — o bloco abaixo (linha ~1427) checa
+        // `if (((shouldGreet && !isReturningLead) || isReturningLead))` mas
+        // `try_insert_greeting` com content vazio seria bizarro. Solução: zera
+        // shouldGreet via mutação local pra pular o block todo.
+        // (NB: shouldGreet é const; usamos uma flag espelho — o `if` abaixo lê
+        // greetingText. Vamos espelhar via reset do flag interno.)
+        // ─ workaround: setamos greetingText='' e checamos antes do RPC.
+        greetingText = ''
+      }
+    }
+
     // Send greeting: new lead (static greeting) OR returning lead (personalized welcome-back).
     // 2026-05-24 (decisão A do dono): a saudação do PRIMEIRO CONTATO é determinística
     // nos DOIS modos (monolith E router). Antes, sob router, era delegada ao greeting
@@ -1424,7 +1502,9 @@ ${contextBlock}`
     // nome pedido. Religar este bloco determinístico (já blindado: dedup atômico + TTS +
     // template recorrente) garante a saudação SEMPRE; se a msg trouxe produto, ele segue
     // pro router/product specialist responder o produto (2 bolhas: saudação + produto).
-    if (((shouldGreet && !isReturningLead) || isReturningLead)) {
+    // (2026-05-28) Quando greetingText foi zerado pela humanização (lead pediu vendedor direto),
+    // pular o bloco de greeting inteiro — o specialist/handoff segue normal.
+    if (((shouldGreet && !isReturningLead) || isReturningLead) && greetingText && greetingText.trim() !== '') {
       // Atomic greeting deduplication via advisory lock RPC
       const { data: greetResult, error: greetError } = await supabase
         .rpc('try_insert_greeting', {

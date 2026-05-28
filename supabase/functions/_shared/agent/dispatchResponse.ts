@@ -147,9 +147,16 @@ const LEAKED_TOOL_NAMES = 'handoff_to_human|search_products|set_tags|send_carous
 // `functions.` é sinal forte de vazamento (não aparece em PT legítimo), então
 // removemos mesmo "bare" (ex.: gpt-4.1 emitiu só `functions.handoff_to_human` no
 // fim da msg). (2) `NOME({...})` sem prefixo — call com objeto de args.
+// (2026-05-28) Estendido pra cobrir 3 padrões:
+//   (1) `functions.NOME` ± `(...)` — prefixo `functions.` é sinal forte de vazamento
+//   (2) `NOME({...})` — call com objeto literal `{...}`
+//   (3) `NOME(key: "val", key2: "val2")` — call com argumentos nomeados, SEM braces.
+//       Esse último caso (Bug R147-prod-specialist, S8 baseline 2026-05-28) era o
+//       vazamento mais comum do gpt-4.1-mini do product specialist em handoff.
 const LEAKED_TOOL_RE = new RegExp(
   `(?:functions\\.)(?:${LEAKED_TOOL_NAMES})\\b\\s*(?:\\([\\s\\S]*?\\))?` +
-    `|(?:${LEAKED_TOOL_NAMES})\\s*\\(\\s*\\{[\\s\\S]*?\\}\\s*\\)`,
+    `|(?:${LEAKED_TOOL_NAMES})\\s*\\(\\s*\\{[\\s\\S]*?\\}\\s*\\)` +
+    `|(?:${LEAKED_TOOL_NAMES})\\s*\\(\\s*[a-z_]+\\s*[:=]\\s*['"][\\s\\S]*?['"]\\s*\\)`,
   'g',
 )
 export function stripLeakedToolCalls(text: string): string {
