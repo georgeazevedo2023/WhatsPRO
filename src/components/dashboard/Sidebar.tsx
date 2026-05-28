@@ -508,6 +508,29 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           </Tooltip>
         )}
 
+        {/* Fila — Dashboard mobile da fila de atendimento (gestor + super_admin) */}
+        {(isSuperAdmin || isGerente) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/dashboard/fila"
+                onClick={handleLinkClick}
+                aria-label="Fila de Atendimento"
+                className={cn(
+                  isCollapsed ? collapsedLinkClass : 'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all',
+                  isActive('/dashboard/fila')
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent'
+                )}
+              >
+                <Users className="w-5 h-5 shrink-0" />
+                {!isCollapsed && <span className="font-medium">Fila</span>}
+              </Link>
+            </TooltipTrigger>
+            {isCollapsed && <TooltipContent side="right">Fila de Atendimento</TooltipContent>}
+          </Tooltip>
+        )}
+
         {/* CRM Kanban - visível apenas para super_admin e gerente */}
         {(isSuperAdmin || isGerente) && (
           <Tooltip>

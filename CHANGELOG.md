@@ -13,6 +13,19 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.57.2 (2026-05-28) — Dashboard de Fila do Gestor (mobile-first)
+
+Página nova `/dashboard/fila` para o gestor acompanhar quem está atendendo, quem perdeu e por quê. Atende ao pedido literal do dono (Hoje/Ontem/7d/15d/30d, por atendente: recebidos / atendidos / deixou de atender + motivo).
+
+- **3 RPCs SECURITY DEFINER** (migration `20260528000000_queue_dashboard_rpcs`): `get_queue_attendant_stats` (stats por atendente no período), `get_queue_live_status` (snapshot atual: fila / disponíveis / pausados / tempo médio), `get_queue_lost_leads` (drill-down: leads perdidos com motivo + próximo atendente que assumiu + link p/ conv).
+- **UI mobile-first** (`src/pages/dashboard/QueueDashboard.tsx`): header com 3 KPIs grandes (Realtime via broadcast `queue-update` do D30 Sprint F + polling 10s); chips sticky de período (Hoje/Ontem/7d/15d/30d); card por atendente com avatar + status (Disponível/Pausado) + 3 KPIs (Recebidos/Atendidos/Perdidos) + breakdown clicável; drawer drill-down com lista de perdidos navegando pro Helpdesk.
+- **Acesso:** rota `CrmRoute` (gerente + super_admin); item "Fila" no Sidebar entre Atendimento e CRM.
+- **Hook único:** `src/hooks/useQueueDashboard.ts` (`useQueueLive` polling 10s + Realtime, `useQueueStats` polling 30s, `useQueueLostLeads` on-demand).
+- **Dados reais Eletropiso (referência):** últimos 30d = 8.135 timed_out vs 31 responded — a página é desenhada exatamente pra essa dor.
+- `npx tsc --noEmit` 0 erros; `npm run build` OK (chunk dedicado `QueueDashboard-*.js`).
+
+---
+
 ### v7.57.1 (2026-05-28) — Helpdesk: mensagens visíveis + console limpo
 
 Auditoria focada no M2 Helpdesk após relato de mensagens não aparecerem e erros no console.
@@ -94,195 +107,4 @@ Fecha a pendência da v7.55.0: no fluxo qualify-first, lead pedia "tinta **Suvin
 
 ### v7.55.0 (2026-05-26) — Catálogo é minoria: nunca negar produto + handoff determinístico + skeleton/sessão-zumbi
 
-Fecha 2 bugs auditados: (1) IA dizia "No momento não encontrei a caixa-d'água de 1000 litros" violando a regra de negócio (catálogo cadastrado é a MINORIA do estoque; maioria é físico); (2) skeleton infinito no Helpdesk (sessão zumbi). E2E real no sandbox router.
-
-- **Validador religado no router (causa-raiz #1):** sob `routing_mode='router'`, a resposta do specialist era retornada SEM passar por nenhum validador (o bloco do monolith fica APÓS o `return`). `specialistBase.runSpecialist` agora roda `validateLLMResponse` (determinístico) como **enforcement** das 3 regras de segurança de texto (negação / erro-interno / leak): se vazar, substitui por ponte segura (preserva handoff). Log `response_sanitized` em `ai_agent_logs`.
-- **PATH C / regras do product specialist reframadas:** constante `NO_DENIAL_RULE` em `searchProducts.ts` (catálogo=minoria; PROIBIDO "não encontrei/não temos/similar/outras capacidades/opção diferente"); 0-resultados → coletar 1 info útil → transbordar. Regra 4 (marca fora do catálogo) não manda mais dizer "não trabalhamos com X".
-- **Handoff determinístico p/ item ausente do catálogo (gap exposto no E2E):** sob router a conversa fragmentava entre product/qualification/greeting e o item nunca transbordava (lead pendurado em "já busco..."). `handleZeroResults` grava tag `seller_handoff_pending`; o pré-router (`index.ts`) força o handoff specialist + seta `pendingHandoffTrigger` → `dispatchResponse` (step 22) **EXECUTA** o handoff real (fila + status_ia=shadow + msg personalizada) independente do LLM. `HANDOFF_PATTERNS` ampliados (passar/encaminhar/conectar/estou encaminhando + "alguém entra em contato").
-- **Skeleton infinito (bug #2):** `ChatPanel.fetchMessages` agora usa timeout de wall-clock (`Promise.race`) — o `AbortController` sozinho não cobria o await da resolução de sessão travada → estado de erro com "Tentar novamente" em vez de skeleton eterno. `AuthContext.getSession` ganhou timeout de 8s + `signOut` → sessão zumbi (refresh token inválido) não congela mais o app.
-- **E2E real (sandbox router, prod compartilhada):** handoff forçado validado end-to-end (status_ia=shadow + assigned_to + "Carlos, anotei seu pedido: ...tinta Suvinil 18L. Vou conectar você com nosso vendedor"). Bug "não encontrei" eliminado em 8 turnos.
-- **Pipeline:** deno check 0 · vitest 423 pass (módulos do agente) · 1 fail pré-existente (productSpecialist.test.ts loader ESM `https:`) · deploy CLI ai-agent (PROD compartilhada sandbox+EletropisoV2).
-
-### v7.53.1 (2026-05-26) — 3 fixes de polish (nome truncado, 1-produto-carrossel, double-ask) — E2E 3/3
-
-Fecha os 3 achados da v7.53.0. Causas raiz provadas antes de codar; E2E real sandbox router 3/3.
-- **#1 "João"→"Jo":** teste provou que nenhum regex nosso corta "João" → é o LLM. Fix: restauração determinística no `llmCallLoop` (prefixo isolado do 1º nome confirmado → nome cheio; `\bJo\b` não pega "Jorge"). Bônus: dedup de `crmTools` comia apelidos lowercase ("dudu"→"du") → agora exige cada metade ≥3 chars + case-insensitive.
-- **#2 1-produto-multi-imagem→carrossel:** a tool `send_carousel` com 1 produto agora redireciona pra `send_media` (foto única, idempotente à regra). `sendMedia` passou a broadcastar o INSERT (helpdesk não exibia em tempo real).
-- **#3 double-ask 1º turno:** flag `greetingSentThisTurn` no `SpecialistCtx` → `specialistBase` injeta diretiva "já cumprimentei/pedi nome neste turno, não repita" (genérica, todos os specialists).
-- `deno check` 0, 428 agent verdes (+12). E2E: #3 redireciona sem repedir nome; #1 "Prazer, João!"; #2 cuba 10 fotos → `image`. Deploy CLI ai-agent (prod compartilhada). **Achado (✅ fechado em v7.53.2):** pré-busca R121 com stopword ("quero") quebrava o AND-fallback → handoff espúrio.
-
-### v7.54.0 (2026-05-26) — Premium #3: refino-por-contagem (narrowing progressivo) + paridade admin
-
-Vendedor consultivo: quando a busca devolve MUITOS resultados, faz UMA pergunta que estreita em vez de despejar a vitrine (contagem = sinal INTERNO). Reusa o molde de config existente.
-- **Backend (`searchProducts.ts`):** pós-busca, se `products.length > refine_results_threshold` (default 6) E há faceta DISCRIMINANTE não preenchida (logística como quantidade/área é ignorada), retorna diretiva [INTERNO] pedindo a PRÓXIMA faceta; senão carrossel. **Progressivo + loop-free** (ambiente→cor→acabamento→marca; termina ao esgotar facetas ou resultados ≤ limiar). Complementa o `qualificationGate` (narrows por SCORE pré-busca). GUARDRAIL ([[feedback_no_internal_count_or_jargon_to_lead]]): número/jargão são internos, lead recebe só a pergunta natural.
-- **SYNC RULE completa:** migração `ai_agents.refine_results_threshold int default 6` + types + `RulesConfig` (input, 0=desliga) + `ALLOWED_FIELDS` + `validationSchemas` + backend.
-- `deno check` 0 · 35 testes searchProducts (+5 refino) verdes. **E2E real sandbox (threshold=1):** gate qualificou ambiente→tipo→cor por score; ao buscar (3>1), refino perguntou **acabamento** depois **marca** (progressivo, **zero número/jargão vazado**), terminando ao esgotar facetas. Deploy CLI.
-
-### v7.53.2 (2026-05-26) — Fix R121 stopword (Opção A): linguagem natural não zera mais a busca
-
-Fecha o achado da v7.53.1. **Causa raiz:** `cleanProductQuery` só removia saudação + verbo **interrogativo** (`tem/vende`); faltava a família de **desejo** (`quero/queria/preciso/gostaria/procuro`); com a categoria prefixada, "quero" virava palavra do meio → AND-fallback (`words.every`) exigia "quero" no produto → 0 → handoff. **Fix em 2 camadas:** (1) `cleanProductQuery` ganhou a família de desejo + "ver" + artigo ("quero a cuba…"→"cuba…"); (2) `SEARCH_INTENT_STOP_WORDS`/`filterSearchIntentTerms` — AND-fallback dropa intenção/filler antes do `.every()` (distinto de `QUALIFICATION_STOP_WORDS`=cor/material, que são termos válidos); cobre LLM + R121. `deno check` 0 · 437 agent + 9 novos. **E2E real 2/2:** "quero a cuba de apoio quadrada"→foto (era 0+handoff); "queria ver tinta branca"→carrossel. Deploy CLI.
-
-### v7.53.0 (2026-05-25) — Cart Engine (premium #2): pedido estruturado + resumo itemizado no transbordo
-
-Premium #2 do backlog consultivo. Antes o pedido multi-item vivia como texto livre raspado pro reason do handoff — frágil (sem subtotal, sem edição, sem cross-sell). Agora há um **motor de pedido estruturado** por conversa. SDR: monta o pedido e entrega itemizado ao vendedor; **sem checkout/pagamento** (isso é o M11 separado).
-
-- **Schema:** `conversations.cart_items JSONB` (migration `20260525120000`) — `[{product_id,name,qty,unit_price,added_at}]`. Estado runtime da conversa, padrão do `shown_product_ids` (não dispara SYNC RULE; acessado via cast, sem regen de types — como o shown_product_ids).
-- **Helpers puros** (`_shared/agent/cart.ts`, 18 testes): `mergeCartItems` (soma itens iguais por id/nome), `applyCartUpdate` (set_qty/remove/clear), `cartSubtotal`, `formatCartSummary` (itemizado + total) e `formatCartOneLine` (compacto pro lead).
-- **Tool `set_cart` (strict)** em `specialistTools.ts`; dispatch `dispatchCartTool` (`tools/cartTools.ts`) **substitui** o pedido pela lista completa (idempotente) e devolve o resumo pro LLM ecoar. Plugada no product specialist (7 tools) + regras de prompt 8/9/9b (montar / fechar / cross-sell determinístico, sem inventar produto). **Design SET (não ADD) escolhido no E2E:** o modelo re-declara o pedido inteiro a cada turno, então substituir elimina o double-count que merge/ADD causava.
-- **Transbordo itemizado:** quando o carrinho não está vazio, `handoff_to_human`, o exit_action inline E a via deferida (`dispatchResponse`) usam a linha compacta no texto ao lead e **anexam o resumo itemizado + total** ao reason que o vendedor recebe (e em `ai_agent_logs.metadata`).
-- **2 bugs achados e corrigidos no E2E (fonte):** (1) `set_cart` tem objeto aninhado → OpenAI strict exige `additionalProperties:false` em objeto aninhado (llmProvider só injeta na raiz) → era 400→retry→**502**; (2) 2 cart calls num turno rodavam em paralelo → race perdia item → cart tools entraram em `sideEffectTools` (execução sequencial).
-- **Validação E2E real (sandbox router, lead 558185749970 → agente):** fluxo completo **nota 10** — saudação→qualif→produto→2 latas→add rolo (sem dobrar)→remove rolo→fechamento. Vendedor (Rafaella) recebeu *"🛒 Pedido (2 itens): • 2x Tinta Acrílica Eggshell 18L — R$ 1584,00"*; lead recebeu *"João, anotei seu pedido: 2x Tinta…"*. 18 cart + 415 agent verdes, `deno check` 0. Deployado prod (sandbox + EletropisoV2, função compartilhada; aditivo).
-
----
-
-### v7.52.4 (2026-05-25) — Fix achado #2 (early-return silencioso) na fonte + observability + badge "fora de horário"
-
-Fecha o achado #2 deferido na v7.52.3: a 2ª msg do lead enviada ~2s após uma resposta caía no **`duplicate_response_guard`** e retornava **silenciosamente** (sem `ai_agent_runs`, sem resposta, sem rastro em tabela nenhuma — só `log.info`). Causa raiz confirmada por auditoria de código.
-
-- **Fix na fonte (`ai-agent/index.ts`):** o guard existe pra barrar **retry do debounce** (mesmo input 2x), não follow-up legítimo. Antes bloqueava QUALQUER processamento dentro de 15s de uma resposta real → derrubava a 2ª msg. Agora só bloqueia se a última resposta real veio **depois** da mensagem de entrada mais recente do lead (= retry); se há msg do lead mais nova que a resposta → **processa** (follow-up genuíno). Achado secundário documentado: o prefixo `ai_oof_` no filtro era **código morto** (nunca atribuído) — origem do "fora-de-horário" no cenário.
-- **Observability (`recordEarlyReturn` + migration `20260525000000`):** persiste o motivo de saída dos early-returns pré-router em `ai_agent_logs` (`event='early_return'` + `latency_ms` + metadata). Cobre duplicate_guard / greeting_rpc_error / greeting_duplicate (empty_response já gravava). Novo event adicionado ao CHECK constraint (evita R88, INSERT silencioso falho).
-- **UX badge da fila (`ConversationItem.tsx`):** o badge "Em fila — {nome} (pausado)" colidia com o toggle pessoal "Pausar/Disponível" do atendente e confundia o gestor. O `paused_at` do `handoff_queue_events` é setado SÓ pelo cron `requeue-conversations` (Case B = **horário fechou**), não tem relação com a pausa do atendente. Agora mostra ícone de **relógio** + **"(fora de horário)"** + tooltip explicando que é o rodízio congelado fora-de-horário.
-
----
-
-### v7.52.3 (2026-05-24) — 1 produto = foto única com legenda (send_media), não carrossel
-
-Fecha o achado recorrente: 1 produto com ≥2 fotos virava **carrossel multi-foto** (parecia vários produtos). Regra do dono: **1 produto = `send/media` (1ª foto + legenda título/preço); 2+ produtos = carrossel**.
-
-- **`searchProducts.ts`**: removido o branch "1 produto multi-foto → carrossel" (~125 lin). Agora todo caso de 1 produto cai no `send/media` com a 1ª imagem + legenda `"{título}\nR$ {preço}"` (formato confirmado na doc UAZAPI `/send/media`: `{number, type:"image", file, text}`). Import órfão `generateCarouselCopies` removido.
-- **E2E real validado:** "quero cuba de apoio quadrada" → chega **foto única** (`media_type=image`) com legenda "Cuba de Apoio Quadrada Branco – Luzarte\nR$ 119.90" + texto consultivo. Antes vinha carrossel. 69 testes verdes, deno 0, deploy CLI.
-- **Achado #2 deferido (não-fix):** stall ao mandar 2ª msg ~2s após resposta de um turno que atingiu score, fora-de-horário → ai-agent early-returna sem output (recupera na retry). Investigado: não é msg perdida no debounce (a msg É processada, 577ms, mas early-return silencioso pré-router). Causa exata exige mais tracing; impacto real baixo. Resume pra próxima sessão.
-
----
-
-### v7.52.2 (2026-05-24) — Fix leak `_fora_hora` no transbordo + validação E2E (2 cenários + loop da fila)
-
-E2E real (sandbox router) descobriu 1 leak: o handoff forçado fora-de-horário (R120) monta o reason como `"{texto}_fora_hora"` e o sufixo de código ficava COLADO na última palavra, vazando pro lead ("...parede interna**_fora_hora**"). `cleanHandoffItem` agora remove sufixos de código conhecidos (`_fora_hora`/`_sem_resultado`/`_offline`…) e qualquer cauda snake_case colada. +1 teste (39 total).
-
-**Validação E2E (2 cenários):** (1) fora-de-horário → transbordo personalizado nome+item; (2) dentro do horário (extended) → saudação→nome→carrossel 3 tintas→1 produto→multi-item→resumo→handoff. **Loop da fila validado nota 10** (dept sandbox 3 membros, timeout 1min): avança a cada 00:00, **vira do último (pos3) pro primeiro (pos1)**, continua ciclando, alerta gestor "fila deu volta completa". Sem bug na mecânica do loop. Achados anotados (não-fix): 1-produto sai como carrossel (não send_media); stall ao trocar de categoria após score em turno fora-de-horário.
-
----
-
-### v7.52.1 (2026-05-24) — Visibilidade do atendente vira controlável pelos toggles do admin (revisa v7.52.0)
-
-Ajuste após o dono perguntar "pra atendente não ver não atribuídas/todas, é só desmarcar no painel?". A v7.52.0 tinha uma **regra dura** (role agente sempre só "Minhas", ignorando os toggles) — o que deixava os 3 toggles de "Visibilidade de conversas" do UsersTab **mortos** pra atendente. Modelo escolhido pelo dono: **os toggles mandam** (flexível).
-
-- **Removida a regra dura** em `useHelpdeskInboxes` — volta a honrar os flags `can_view_*`. Default na ausência de valor agora é **false** (era true) → least privilege.
-- **Defaults por papel no UsersTab** (`ROLE_DEFAULT_VISIBILITY`): ao adicionar/criar membro ou trocar papel, `agente`→tudo false (só Minhas), `gestor`→não-atribuídas+todas-no-depto, `admin`→global. Admin libera/restringe caso a caso pelos toggles depois.
-- **Default das colunas** `inbox_users.can_view_unassigned`/`can_view_all_in_dept` → **false** (migration `20260524190000`, safe-by-default mesmo em inserts fora da UI). `can_view_all` já era false.
-- Resultado: desmarcar (ou marcar) os toggles no painel admin controla de verdade o que o atendente vê; atendente novo já nasce restrito a "Minhas".
-
----
-
-### v7.52.0 (2026-05-24) — Atendente só vê "Minhas" + fila ON (timeout 10min) + paridade UI
-
-Pedido do dono (EletropisoV2 prod): atendentes não devem mais ver conversas não atribuídas/de outros; ativar a fila; subir o timeout de rodízio.
-
-- **Atendente (role `agente`) só vê a aba "Minhas"** — `useHelpdeskInboxes` agora lê `role` e força `canViewUnassigned/canViewAllInDept/canViewAll = false` para `agente`, independente dos flags no banco (durável até pra atendentes novos, cujo default de `can_view_unassigned` é true). `gestor`/`admin` seguem honrando os flags granulares. DB: flags zerados pros 14 agentes existentes (consistência de dados). As tabs "Não atribuídas"/"Todas" somem; só gestor/admin as veem.
-- **Fila ativada** no dept Vendas (EletropisoV2): `queue_mode_enabled=true`. Handoffs entram em round-robin entre os 7 atendentes (queue_position 10-70 atribuídas) e caem na aba "Minhas" de cada um.
-- **Timeout de rodízio 5 → 10 min** — `departments.queue_mode_timeout_minutes=10` no dept + default da coluna 5→10 (migration `20260524180000`) + `TIMEOUT_DEFAULT` 5→10 no `QueueConfig.tsx` (paridade: o painel admin abre mostrando 10 e novos depts começam em 10).
-
----
-
-### v7.51.0 (2026-05-24) — Transbordo personalizado (nome+item) + anti-repetição de nome + strip bare tool-call
-
-Fecha o backlog #4 (msg fora-horário personalizada) e o feedback do dono ("o nome repete em toda mensagem"). E2E real prod (sandbox router + EletropisoV2): fluxo completo saudação→qualif→score→carrossel→multi-item→resumo→transbordo, nota 10.
-
-- **#4 Transbordo personalizado** — `personalizeHandoffMessage` (novo, `businessHours.ts`, 11 testes): prefixa a msg de transbordo com `"{Nome}, anotei seu pedido: {item}."` citando o primeiro nome + o item/pedido. `cleanHandoffItem` extrai só a parte legível do `reason` (escrito pro vendedor): tira prefixo "Pedido completo:"/"Pedido de", pega só a 1ª frase (descarta meta-notas tipo "Lead já confirmou…"), descarta códigos snake_case ("telha_fora_hora"), cap 160 (cabe multi-item). Aplicado nos **8 paths de handoff** (handoff_to_human tool, set_tags inline E3, sale_closed, trigger, message-limit, validator, exit-action E2, exitActionDispatcher) — cada um threada `leadName` (+ `itemSummary` quando há reason rico). No-op gracioso sem nome/item.
-- **Config msg fora-horário** (sandbox + EletropisoV2 prod): texto + janela de horário, sem "Anotei seu pedido" (que duplicava com o prefixo dinâmico).
-- **P7-strong anti-repetição de nome** — `buildNameUsageDirective` (novo, `greetingPolicy.ts`, 6 testes): determinístico (olha msgs do bot no histórico); se o primeiro nome apareceu nas últimas 2 mensagens do bot, injeta diretiva de SUPRESSÃO no prompt do specialist. Resultado E2E: nome caiu de **7/9 → 1/5 mensagens** (concentrado em saudação/fechamento). Wire no `specialistBase` (vale pra todos os specialists).
-- **Strip bare tool-call leak** — `stripLeakedToolCalls` agora pega `functions.NOME` SEM parênteses (gpt-4.1 vazou `functions.handoff_to_human` solto no fim da msg). O prefixo `functions.` é sinal forte. +1 teste.
-- **E2E real:** sandbox router (lead 558185749970 → agente 558181696546) fluxo lâmpada completo + EletropisoV2 prod validado pelo dono ("George, anotei seu pedido: 1 lâmpada LED amarela 12W, bulbo tradicional, para quarto, 220V. No momento estamos fora…"). 930 testes (4 fails pré-existentes), deno 0, deploys CLI.
-
----
-
-### v7.50.1 (2026-05-24) — Captura determinística de nome (P5) + auditoria de atendimento real
-
-Auditoria de atendimento real V2 (George: "Olá"→"George"+"Qual preço de telha brasilit 244x110"→handoff seco). **Diagnóstico inicial errado** (culpei o gatilho "preço", mas o código já o pula em perguntas); a raiz real (achada nos `ai_agent_runs`): **"telha" não era categoria** → search 0 resultados + fora-de-horário → R120 handoff forçado; e o nome "George" se perdia (product specialist não chamava `update_lead_profile`).
-
-- **P5 captura determinística de nome** — `nameCapture.ts` (`extractLeadName`+`wasNameAsked`, 7 testes). Pré-router: se a última msg do bot foi o pedido de nome e `full_name` é null, extrai e persiste o nome (inclusive bundled "George\nQual preço...") sem depender do LLM (regra de prompt era ignorada + estourava o teto de 4KB).
-- **Categoria `telhas` (offline)** (sandbox+V2) — loja vende, faltava cadastro → qualifica+handoff rico (como piso cerâmico). R120 mantido (correto pra produto genuinamente inexistente). Fix do gatilho "preço" **descartado** (não estava quebrado — zero gambiarra).
-- **E2E sandbox (fora-de-horário, replica George) nota 10:** nome capturado + telha reconhecida + consultivo; "50 telhas, é só isso"→handoff rico + msg fora-horário + fila. 1391 testes verdes.
-
----
-
-### v7.50.0 (2026-05-24) — qualificationGate: fonte única buscar-vs-qualificar (qualify-first)
-
-Fecha o último 🔴 arquitetural: "buscar ou qualificar primeiro?" estava em **4 decisores rivais sem fonte de verdade**. Agora há **1 decisor determinístico** (`_shared/agent/qualificationGate.ts`, 12 testes) que lê o MESMO stage engine do score: modos `qualify` (score < limiar→qualifica), `search` (score ≥ limiar→busca), `qualify_then_handoff` (offline), `no_category`.
-
-- **Wire no dispatch do router** (`ai-agent/index.ts`): pra `produto`/`qualificacao` o gate é AUTORIDADE. `qualify`→qualification_specialist (acumula score, suprime pré-busca); `search`→product_specialist mesmo se router disse qualificacao (honra exit_action quando lead responde curto "branco"); `offline`→product (qualifica+handoff).
-- **Fix R146:** `so_se_pedir` caía no cap de **8 msgs** (igual `apos_n_msgs`, contra o contrato "lead controla, max alto") → cortava fluxo consultivo. Default → **40**.
-- **Fix R147:** handoff specialist gpt-4.1-mini vazava tool call como TEXTO (`functions.handoff_to_human({...})`) → handoff não executava + lead via sintaxe crua. → **gpt-4.1** + `stripLeakedToolCalls` (defesa, 5 testes).
-- **E2E prod (sandbox router) 10 cenários nota 10:** novo/recorrente, dá/não nome, catálogo/offline/inexistente, qualif contada, handoff rico, msg transbordo, fila round-robin. 1404 testes verdes.
-
----
-
-### v7.49.1 (2026-05-24) — Fix: score de qualificação não acumulava (flexão de gênero/plural)
-
-O `fieldAutoExtractor` casava os `examples` com word-boundary EXATO → "branca" não casava o field cor ("branco"), "fosca" não casava acabamento ("fosco"). Resultado: campos de qualificação ditos pelo lead **não eram capturados e o `lead_score` nunca acumulava** (achado no E2E qualify-first). Fix: `buildCandidateRegex` flexiona a vogal final o/a + plural (`branc[oa]s?`, `fosc[oa]s?`); conservador (só mexe em terminação o/a; "coral"/"inox" intactos). E2E: score 15→50, ambiente/cor/acabamento capturados. 386 testes verdes.
-
-**Nota:** tentativa de gating qualify-first por threshold no dispatch foi **revertida** (gambiarra — era um 5º decisor de "buscar vs qualificar"). Auditoria identificou a raiz: 4 decisores rivais sem fonte única. Fix de raiz = `qualificationGate.ts` (próxima sessão). Ver `log.md`.
-
----
-
-### v7.49.0 (2026-05-24) — Carousel batching: "mais opções" / "nenhuma dessas" (lote novo sem repetir)
-
-Premium gap #1 dos cenários consultivos (21.27-21.29): quando o lead rejeitava o carrossel ("nenhuma dessas") ou pedia mais, não havia 2º lote — repetia os mesmos ou travava. Agora o agente mostra um **lote NOVO excluindo os já vistos**, e quando esgota oferece refinar/categoria/consultor (sem inventar produto).
-
-- **Migration** `conversations.shown_product_ids text[]` — rastreia produtos exibidos em carrosséis NESTA conversa.
-- **`searchProducts.ts`**: exclui `shown_product_ids` dos resultados; **cap de 5 cards/lote** (`MAX_CARDS_PER_BATCH`, era até 10 — habilita o "lote 2" e evita despejar 10 de uma vez); persiste os IDs enviados (dedupe); quando a exclusão zera, retorna `[INTERNO]` instruindo o specialist a NÃO inventar e oferecer alternativas.
-- **`router.ts`**: intent `produto` agora cobre "nenhuma dessas / tem outras? / quero ver mais / não gostei".
-- **`productSpecialist.ts`**: regra 6b — em rejeição/pedido de mais, re-chama `search_products` (exclusão automática) ou, se esgotou, oferece refinar/categoria/consultor.
-- **2 bugs raiz achados e corrigidos NO E2E (sem gambiarra):** (1) a query do catálogo não selecionava `id` → exclusão/persistência eram no-op silencioso; (2) o `conversations` era carregado sem `shown_product_ids` → exclusão não via os já-mostrados entre turnos. Ambos resolvidos na fonte (select + select).
-- **E2E real sandbox router (3 estados, nota 10):** lote 1 "vcs têm tinta?" → carrossel de 5 (cap) + persiste 5; lote 2 "nenhuma dessas, tem outras?" → router→produto, exclui os 5, mostra **2 produtos DIFERENTES** + texto consultivo, persiste 5→7; esgotado "tem mais?" → SEM carrossel, "essas eram todas as opções, posso refinar por cor/tipo/marca, ver outra categoria ou chamar um consultor". (Catálogo de teste ampliado temporariamente p/ 7 tintas durante o E2E, depois removido.)
-- **366 testes agent verdes** (+4 batching). deno check 0. Deploy CLI no ai-agent (EletropisoV2 PROD + sandbox).
-
----
-
-### v7.48.0 (2026-05-24) — Latência do product specialist: pré-busca determinística (2 rounds → 1)
-
-Fecha a única regressão real da auditoria de paridade: o product specialist gastava **~8-16s** em turnos com `search_products` (vs ~2.5s sem busca). Causa raiz medida nos `ai_agent_runs` reais: **2 rounds de LLM** (round 1 só pra "decidir" chamar a tool → executa busca + envia carrossel → round 2 pra compor). O monolito era rápido (1-3s) porque buscava ANTES do LLM (R121/R137 inline); esse pré-search foi **desligado sob router** (`skipR121`) por causa de um bug de carrossel duplicado.
-
-- **Fix de raiz (não gambiarra):** re-liga o pré-search **para o product specialist**, injetando o resultado como `preSearchContext` no fim do prompt → o specialist compõe em **1 round**. Duplo carrossel é estruturalmente impossível: a flag `carouselSentInThisCall` (compartilhada via `executeToolSafe`) faz o `search_products` retornar "JÁ ENVIADO" se o LLM insistir.
-- **`specialistBase.ts`** — novo campo `preSearchContext` no `SpecialistCtx`, injetado no system prompt (após memória + prompt base).
-- **`productSpecialist.ts`** — `deriveProductSearchParams()` (cobertura > pendingExitActionSearch: deriva categoria por interesse-tag/texto, só DIGITAL, nunca quando lead já recebeu produtos) + `cleanProductQuery()`.
-- **`index.ts`** — captura a busca decidida pré-LLM (`routerProductPreSearch`) só pro product specialist (mantém `pendingExitActionSearch` nulo pros demais → set_tags handler não religa busca); roda `runInlineSearchProducts` antes do specialist e passa `preSearchContext`.
-- **Bug exposto + corrigido no E2E:** a pré-busca com query crua ("**vocês têm** tinta acrílica fosca?") achava 0 produtos (stopwords) → escalava pra handoff espúrio. `cleanProductQuery` stripa saudação + verbo interrogativo no início (família `stripLeadNameSuffix` R137/R138) → query limpa acha produto. Sem isso, seria regressão de qualidade vs o LLM (que limpa a query sozinho).
-- **E2E real (sandbox Eletropiso router, 3 cenários, nota 10):** "vcs têm tinta branca?" (cold) → greeting + carrossel + resposta; "tinta acrílica fosca" (isolado) → carrossel + "Temos sim! ...R$427,90... Qual dessas opções atende melhor?"; "tinta coral branca fosca" (cold+marca) → carrossel + resposta consultiva. **Product hop ~6s (era ~8-16s), 1 search, 1 round LLM, 1 carrossel.**
-- **362 testes agent verdes** (+15: 9 `deriveProductSearchParams` + 6 `cleanProductQuery`). deno check 0. Deploy CLI no ai-agent (afeta EletropisoV2 PROD + sandbox — ambos router).
-
----
-
-### v7.47.0 (2026-05-24) — Saudação/reconhecimento migrados pro router (decisão A)
-
-Fecha o defeito #2 da auditoria de paridade: sob `routing_mode='router'`, a saudação configurada era pulada (`index.ts:1373`) e o lead frio que abria com produto (ex.: "vcs têm tinta?") caía direto no product specialist — sem boas-vindas, sem citar a loja, sem pedir o nome. Validado ao vivo na prod (EletropisoV2 respondendo "Tudo bem? Me conta..." genérico).
-
-- **Novo `_shared/agent/greetingPolicy.ts`** — fonte ÚNICA `classifyLeadRecency()` (novo/recorrente/ativo, 3 sinais) + `buildOpeningDirective()`. Monolith e router leem daqui (acabou o drift). 13 testes.
-- **`index.ts`** — bloco de saudação determinístico RELIGADO no router pro 1º contato (antes só monolith). Garante a saudação configurada SEMPRE (cita "Eletropiso" + pede nome via `greeting_message`); se a msg trouxe produto, segue pro product specialist responder (saudação + produto). `shouldGreet`/`isReturningLead` agora derivam de `classifyLeadRecency` (fonte única).
-- **`productSpecialist.ts`** — `update_lead_profile` trocada pela tool COMPARTILHADA (`specialistTools`): ganha `full_name` + `city` (antes só `name`, sem cidade — não conseguia salvar nome/cidade ditos junto com produto).
-- **Decisão de arquitetura:** tentamos injetar "diretiva de abertura" no prompt do specialist, mas (a) o product specialist ignorava o cumprimento (fluxo de tool dominava) e (b) a regra "registre o nome além de responder" causava resposta DUPLICADA. Por isso a saudação é determinística (confiável) e o specialist fica com prompt limpo.
-- **Validação E2E sandbox:** cold-open "bom dia, vcs têm tinta branca?" → "Olá! Bem-vindo a Eletropiso, com quem eu falo?" + carrossel + descrição (1 resposta, sem duplicar). 347 testes agent verdes, deno check 0 erros. Deploy CLI no EletropisoV2 (prod).
-- **Follow-ups conhecidos:** persistência de nome mid-conversa (P5) ainda não confiável (LLM usa o nome no texto mas não chama a tool — precisa extração determinística); saudação não espelha "bom dia" (usa texto fixo configurado); retomada de memória do recorrente (P2-A) pendente. Demais defeitos da auditoria (#1 search stall, #4 handoff por keyword sem resumo, #6 validator nos specialists) seguem em backlog.
-
----
-
-### v7.46.0 (2026-05-24) — Sprint E.1: memória longa por lead (injeção + consolidação)
-
-Primeiro pilar do Sprint E (inteligência avançada). Lead que volta após dias é reconhecido com histórico. Decisão arquitetural fundamentada em pesquisa (Mem0 arXiv:2504.19413 + Zep arXiv:2501.13956 + LangMem): **memória ESTRUTURADA, não vector RAG** — domínio de vendas bounded + Postgres já presente = structured-facts vence em exatidão/custo/latência/RTBF. `lead_profiles` já era a tabela (full_name/interests/objections/conversation_summaries/...); faltava wiring.
-
-- **Migration `20260524120000`** (aditiva): `lead_profiles.products_seen jsonb`, `qualification_stage text`, `memory_updated_at timestamptz` (validity timestamp, ideia Zep).
-- **`leadMemory.ts` — `buildLeadMemoryBlock(leadProfile)`**: monta bloco compacto key:value (~150-250 tokens: Nome/Interesses/Estágio/Produtos vistos/Objeções/Orçamento/Resumo/Última visita) injetado no TOPO do system prompt de TODO specialist via `specialistBase`. Vazio pra lead novo. "Retrieval > ingestion": injeta poucos fatos relevantes, não o transcript. Anti-poisoning: só fatos semânticos, nunca regras procedurais.
-- **`consolidateLeadMemory`** (fire-and-forget pós-resposta, SEM LLM): deriva `qualification_stage` das tags, extrai `products_seen` do toolCallsLog real (search/carousel/media), captura `interests` do tag `interesse:`, grava com merge+dedupe + `memory_updated_at`. Só fatos verificados (anti-poisoning). Não bloqueia o turno (resposta já enviada no dispatchResponse).
-- **Resume de qualificação**: o bloco de memória diz "Qualificação parou em: X" + "não pergunte o que já sabe" → specialist não refaz campos. Greeting refinado pra returning lead (cumprimenta pelo nome + referencia interesse pra retomar).
-- **E2E real**: turno 1 (lead "sou o Carlos, queria tinta branca") → product+carrossel, consolidação gravou products_seen (3 tintas) + stage=tintas. Turno 2 (retorno, conversa limpa, lead_profiles mantido) → bloco de memória injetado (prompt 1767→2765 chars), greeting reconheceu o lead.
-- **334 testes agent verdes** (329 Sprint D + 5 leadMemory). deno check ai-agent: 0 erros. Tudo aditivo; isolamento tenant/lead via RLS existente do lead_profiles (risco #1 multi-agente: vazamento entre leads).
-
-### v7.45.1 (2026-05-24) — EletropisoV2 → router em PROD + zera 36 erros TS
-
-- **EletropisoV2 (`1062059a`) migrado pra `routing_mode='router'` em PROD** (a pedido do usuário, sem shadow). Config validada compatível (24 service_categories + business_info + greeting → os 5 specialists rodam). Código idêntico ao validado 6/6 no sandbox. Rollback instantâneo (`routing_mode='monolith'`). Monitoramento via dashboard Roteamento + `ai_agent_runs`. Evidência pró-migração: no histórico monolito, perguntas de produto ("telha brasilit") recebiam "Em que posso te ajudar?" genérico — router+product_specialist busca no catálogo.
-- **36 erros TS pré-existentes do `ai-agent/index.ts` zerados (`deno check`: 36 → 0).** Type-only, zero runtime, vitest sem regressão (1318 pass / 9 fails pré-existentes). Fixes: `SendTextMsgFn`→`Promise<void|boolean>`; `SendPresenceFn`→union literal; `Logger.meta`→`object` (logger.ts + context.ts); casts `any` em conversation/contact/instance/counterRow/greetResult (selects nullable+shape); `pfq` local pro CFA never; `loadActiveProfile(supabase as any)` (TS2589); `wordByWordBroadProducts!`; `insert(payload as any)`. (whatsapp-webhook tem 4 erros pré-existentes próprios, fora de escopo.)
-
-
-### Releases arquivadas
-
-v7.45.x e anteriores → [[wiki/changelog/2026-05-part10]]. Lista completa em `wiki/changelog/`.
+v7.55.0 e anteriores → ver [[wiki/changelog/2026-05-part10]].

@@ -9,6 +9,20 @@ type: log
 
 ---
 
+## 2026-05-28 — Dashboard de Fila do Gestor mobile-first (v7.57.2)
+
+**Trigger:** dono pediu dashboard mobile-first pro gestor acompanhar a fila — quem está disponível/pausado, quantos atendentes recebeu / atendeu / deixou de atender, com 5 períodos (Hoje/Ontem/7d/15d/30d) e motivos dos perdidos (tempo esgotado vs outro pegou).
+
+**Arquitetura (zero gambiarra, reusa D30):** dados já existiam em `handoff_queue_events` (status: active/responded/timed_out/manual_override/cancelled). 3 RPCs SECURITY DEFINER (migration `20260528000000_queue_dashboard_rpcs`): `get_queue_attendant_stats` agrega por user no período, `get_queue_live_status` snapshot atual da fila, `get_queue_lost_leads` drill-down dos perdidos. Sem nova tabela, sem novo cron, sem migration de schema.
+
+**UI mobile-first:** página `/dashboard/fila` + hook `useQueueDashboard.ts`. Header com 3 KPIs grandes (na fila / disponíveis / pausados) Realtime via broadcast `queue-update` + polling 10s. Chips sticky de período. Card por atendente com avatar + status (Disponível/Pausado) + 3 KPIs (Recebidos/Atendidos/Perdidos) + breakdown clicável dos perdidos. Drawer drill-down com lista de leads perdidos navegando direto pro Helpdesk via `?conv=ID`. Rota `CrmRoute` (gerente + super_admin), item Fila no Sidebar entre Atendimento e CRM.
+
+**Dados reais Eletropiso (motivação):** últimos 30d = 8.135 timed_out vs 31 responded — taxa de deixou de atender altíssima. A página é desenhada pra dar visibilidade exatamente disso.
+
+**Pipeline:** `npx tsc --noEmit` 0 erros · `npm run build` OK (chunk dedicado QueueDashboard) · migration aplicada via MCP.
+
+---
+
 ## 2026-05-28 — Helpdesk: mensagens visíveis + console limpo (v7.57.1)
 
 **Trigger:** dono pediu auditar projeto e documentação porque mensagens não apareciam no Helpdesk e queria zerar erros de console.

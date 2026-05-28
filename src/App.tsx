@@ -29,6 +29,7 @@ const BroadcastHistoryPage = lazy(() => import("./pages/dashboard/BroadcastHisto
 const LeadsBroadcaster = lazy(() => import("./pages/dashboard/LeadsBroadcaster"));
 const MessageTemplatesPage = lazy(() => import("./pages/dashboard/MessageTemplatesPage"));
 const HelpDesk = lazy(() => import("./pages/dashboard/HelpDesk"));
+const QueueDashboard = lazy(() => import("./pages/dashboard/QueueDashboard"));
 const InboxManagement = lazy(() => import("./pages/dashboard/InboxManagement"));
 const InboxUsersManagement = lazy(() => import("./pages/dashboard/InboxUsersManagement"));
 const AdminPanel = lazy(() => import("./pages/dashboard/AdminPanel"));
@@ -232,6 +233,7 @@ const AppRoutes = () => {
         <Route path="settings" element={<AdminRoute><ErrorBoundary section="Configurações"><Suspense fallback={<PageLoader />}><Settings /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="scheduled" element={<AdminRoute><ErrorBoundary section="Agendamentos"><Suspense fallback={<PageLoader />}><ScheduledMessages /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="helpdesk" element={<ErrorBoundary section="Atendimento"><Suspense fallback={<PageLoader />}><HelpDesk /></Suspense></ErrorBoundary>} />
+        <Route path="fila" element={<CrmRoute><ErrorBoundary section="Fila"><Suspense fallback={<PageLoader />}><QueueDashboard /></Suspense></ErrorBoundary></CrmRoute>} />
         <Route path="inboxes" element={<AdminRoute><ErrorBoundary section="Caixas"><Suspense fallback={<PageLoader />}><InboxManagement /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="inbox-users" element={<AdminRoute><ErrorBoundary section="Membros"><Suspense fallback={<PageLoader />}><InboxUsersManagement /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="admin" element={<AdminRoute><ErrorBoundary section="Administração"><Suspense fallback={<PageLoader />}><AdminPanel /></Suspense></ErrorBoundary></AdminRoute>} />
