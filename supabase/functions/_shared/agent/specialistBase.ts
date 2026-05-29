@@ -26,7 +26,7 @@ import { runLlmCallLoop, type ToolCallLogEntry, type ExecuteToolSafeFn, type Sen
 import { dispatchResponse, type SendTextMsgFn, type SendTtsFn, type BroadcastEventFn, type PickHandoffMessageFn, type RunQueueAssignmentFn } from './dispatchResponse.ts'
 import { buildLeadMemoryBlock, consolidateLeadMemory } from './leadMemory.ts'
 import { buildNameUsageDirective } from './greetingPolicy.ts'
-import { validateLLMResponse } from '../responseValidator.ts'
+import { validateLLMResponse, autoFixHumanizationViolations } from '../responseValidator.ts'
 import { countMsgsSinceNameUse } from '../validatorAgent.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
 import type { Logger } from './context.ts'
@@ -176,7 +176,16 @@ export interface SpecialistResult {
 // resposta; o monolith continua tratando-as quando é fallback. O enforcement é
 // cirúrgico: substitui o texto SÓ quando ele é nocivo de enviar, preservando o
 // handoff que o LLM já tenha disparado no loop.
-const ENFORCED_BLOCK_RULES = new Set(['anti_negative_phrases', 'anti_internal_error', 'anti_internal_leak'])
+// SAFE_TEXT_RULES: violações graves que justificam SUBSTITUIR o texto inteiro por
+// ponte propositiva segura (preservando handoff). Ex.: negação proibida, erro vazado.
+const SAFE_TEXT_RULES = new Set(['anti_negative_phrases', 'anti_internal_error', 'anti_internal_leak'])
+// AUTO_FIX_RULES: violações de humanização (cosméticas/comportamentais) que devem
+// ser CIRURGICAMENTE reescritas via autoFixHumanizationViolations (remove a frase
+// ofensora, mantém o resto). Ex.: eco do lead, parafraseio de jargão, "anotei".
+// Promovidas a block→auto_fix em v7.57.3 (palavra-veneno que delata IA).
+const AUTO_FIX_RULES = new Set(['anti_lead_echo', 'anti_jargon_paraphrase', 'anti_anotei'])
+// ENFORCED_BLOCK_RULES = união dos 2 (compat com chamadas antigas — toda regra block é tratada).
+const ENFORCED_BLOCK_RULES = new Set([...SAFE_TEXT_RULES, ...AUTO_FIX_RULES])
 
 interface SanitizeResult {
   text: string
@@ -208,15 +217,17 @@ function sanitizeSpecialistResponse(
   const catalogPrices = ctx.toolCallsLog
     .filter((t) => t.name === 'search_products' && t.result)
     .flatMap((t) => String(t.result).match(/R\$\s*[\d.,]+/g) || [])
+  const validatorCtx = {
+    messageCount: outgoing.length,
+    leadName,
+    msgsSinceLastNameUse: countMsgsSinceNameUse(leadName, outgoing.slice(-6).reverse()),
+    catalogPrices,
+    lastIncomingText: ctx.incomingText || null,
+  }
 
   let result
   try {
-    result = validateLLMResponse(text, {
-      messageCount: outgoing.length,
-      leadName,
-      msgsSinceLastNameUse: countMsgsSinceNameUse(leadName, outgoing.slice(-6).reverse()),
-      catalogPrices,
-    })
+    result = validateLLMResponse(text, validatorCtx)
   } catch (e) {
     ctx.log.error?.('sanitizeSpecialistResponse: validateLLMResponse failed (non-fatal)', { error: (e as Error).message })
     return { text: responseText, enforced: false, rules: [] }
@@ -224,23 +235,48 @@ function sanitizeSpecialistResponse(
 
   if (result.valid) return { text: responseText, enforced: false, rules: [] }
 
-  const harmful = result.violations.filter((v) => v.severity === 'block' && ENFORCED_BLOCK_RULES.has(v.rule))
   // Telemetria de TODAS as violações (mantém o sinal que existia no monolith).
   ctx.log.warn('responseValidator (router) caught violations', {
     violations: result.violations.map((v) => `${v.rule}:${v.severity}`),
-    enforced: harmful.length > 0,
   })
 
-  if (harmful.length === 0) return { text: responseText, enforced: false, rules: [] }
+  let currentText = text
+  const fixedRules: string[] = []
 
-  // Substituição segura: se o LLM já chamou handoff_to_human no loop, a ponte é de
-  // transbordo (preserva o fluxo); senão, ponte que coleta 1 info útil sem negar.
-  const handoffCalled = ctx.toolCallsLog.some((t) => t.name === 'handoff_to_human')
-  const safeText = handoffCalled
-    ? 'Vou te conectar com nosso vendedor pra confirmar a melhor opção e o valor pra você. Só um instante! 🙌'
-    : 'Deixa eu confirmar essa informação certinho pra você. Você tem preferência de marca ou alguma especificação do produto?'
+  // (1) Auto-fix cirúrgico das violações de humanização (anti_lead_echo, anti_jargon_paraphrase, anti_anotei).
+  //     Remove fragmento ofensor, mantém o resto. Re-valida pra ver se sobrou algo nocivo.
+  const hasAutoFix = result.violations.some((v) => AUTO_FIX_RULES.has(v.rule))
+  if (hasAutoFix) {
+    try {
+      const fix = autoFixHumanizationViolations(currentText, validatorCtx)
+      if (fix.fixed.length > 0) {
+        currentText = fix.text
+        fixedRules.push(...fix.fixed)
+        // Re-valida — pode ter sobrado SAFE_TEXT_RULE
+        result = validateLLMResponse(currentText, validatorCtx)
+      }
+    } catch (e) {
+      ctx.log.warn?.('autoFixHumanizationViolations failed (non-fatal)', { error: (e as Error).message })
+    }
+  }
 
-  return { text: safeText, enforced: true, rules: harmful.map((v) => v.rule) }
+  // (2) Se ainda há violação SAFE_TEXT (negação proibida/erro vazado), substitui texto inteiro.
+  const safeTextHarmful = result.violations.filter((v) => v.severity === 'block' && SAFE_TEXT_RULES.has(v.rule))
+  if (safeTextHarmful.length > 0) {
+    const handoffCalled = ctx.toolCallsLog.some((t) => t.name === 'handoff_to_human')
+    const safeText = handoffCalled
+      ? 'Vou te conectar com nosso vendedor pra confirmar a melhor opção e o valor pra você. Só um instante! 🙌'
+      : 'Deixa eu confirmar essa informação certinho pra você. Você tem preferência de marca ou alguma especificação do produto?'
+    return { text: safeText, enforced: true, rules: [...fixedRules, ...safeTextHarmful.map((v) => v.rule)] }
+  }
+
+  // (3) Só houve auto-fix (sem SAFE_TEXT) — retorna o texto reescrito.
+  if (fixedRules.length > 0) {
+    return { text: currentText, enforced: true, rules: fixedRules }
+  }
+
+  // (4) Tinha violações mas nenhuma enforced (ex.: só rewrite cosmético sem auto-fix) — passa.
+  return { text: responseText, enforced: false, rules: [] }
 }
 
 // =============================================================================

@@ -8,6 +8,26 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-05-28 — Humanização raiz pós-auditoria (v7.57.3, parcial — Fix C não deployado por OpenAI 502)
+
+**Trigger:** dono auditou interações da v7.57.0 e reprovou 4 problemas residuais — anotei no handoff, Entendi você quer X (eco do lead), interno -> dentro de casa (paráfrase de jargão), greeting personalizado perdendo branding Bem-vindo a Eletropiso. Exigiu fix de raiz, ZERO gambiarra. Aprovou os 3 fixes propostos.
+
+**Fix A (handoff text):** _shared/businessHours.ts personalizeHandoffMessage — anotei seu pedido: X -> seu pedido de X; anotei tudo aqui removido. Deployado.
+
+**Fix B raiz (validator + auto-fix):** _shared/responseValidator.ts ganhou 3 regras determinísticas (anti_lead_echo, anti_jargon_paraphrase, anti_anotei) + autoFixHumanizationViolations (reescrita cirúrgica, não substitui texto inteiro). specialistBase divide enforcement em SAFE_TEXT_RULES vs AUTO_FIX_RULES. ResponseValidatorContext ganhou lastIncomingText. Deployado.
+
+**Fix C v4 raiz (greeting):** 1a tentativa com placeholder {nome} QUEBROU caso sem nome (perdia pedido de nome -> CRM não extraía). Dono pegou erro, exigiu reverter. Estratégia revisada: admin escreve template natural com pedido de nome, sem placeholder. Quando captura nome inline, renderGreeting faz detect+substitute na cauda do template (substitui pedido de nome por no que posso te ajudar) e insere nome após saudação. Sem nome -> template vai inteiro. deno check 0, NÃO deployado (OpenAI 502 em massa bloqueou E2E final).
+
+**Bugs intermediários do Fix C corrigidos:** (a) {nome} literal vazando quando sem nome; (b) mirror engolindo vírgula após Olá; (c) regex  falha com acentos em JS (Olá não casa contra Olá,) — solução lookahead (?![A-Za-zÀ-ÿ]).
+
+**Validação mental dos 4 cenários (E2E real bloqueado por 502):** R1 sem nome -> Bom dia! Bem-vindo a Eletropiso, com quem eu falo? (pede nome) · R5 Carlos -> Bom dia, Carlos! Bem-vindo a Eletropiso, no que posso te ajudar? · R9 Bruno -> Boa tarde, Bruno! Bem-vindo... · R13 PVC sem nome -> Olá! Bem-vindo... com quem eu falo? (specialist responde PVC em msg separada).
+
+**Sandbox restaurado** (agent disabled, monolith, gpt-5-mini, instance disabled, conversas R1/R5/R9/R13 deletadas). EletropisoV2 PROD intocada no banco. ai-agent em PROD com Fix A+B deployados; Fix C v4 pendente.
+
+**Pendências:** deployar Fix C v4 (zero risco) · aguardar OpenAI · E2E real dos 4 cenários · commit + push se nota 10 · investigar 502 em massa do ai-agent em PROD.
+
+---
+
 
 ## 2026-05-28 — Dashboard de Fila do Gestor mobile-first (v7.57.2)
 

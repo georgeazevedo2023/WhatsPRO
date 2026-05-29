@@ -1435,38 +1435,69 @@ ${contextBlock}`
       if (/\bbom\s+dia\b/.test(incomingLower)) mirroredSalutation = 'Bom dia'
       else if (/\bboa\s+tarde\b/.test(incomingLower)) mirroredSalutation = 'Boa tarde'
       else if (/\bboa\s+noite\b/.test(incomingLower)) mirroredSalutation = 'Boa noite'
-      if (mirroredSalutation) {
-        // Substitui "Olá!" ou "Oi!" no INÍCIO do template pela saudação espelhada.
-        // Conservador: não toca se o template não começa com saudação genérica.
-        greetingText = greetingText.replace(/^\s*(?:Ol[áa]|Oi|Opa|Eai|Eaí)\s*[!,.]?\s*/i, `${mirroredSalutation}! `)
-      }
-      // (b) lead já disse o nome dele na MESMA msg ("sou João", "meu nome é Ana")
-      // → captura nome + reformula greeting pra cumprimentar pelo nome + perguntar
-      // o que ele procura, em vez de pedir o nome de novo. Persiste em
-      // lead_profiles ANTES de mandar (fica disponível pro specialist depois).
+
+      // (b) lead já disse o nome dele na MESMA msg ("sou João", "meu nome é Ana") —
+      // detectar PRIMEIRO pra usar abaixo na renderização do template.
       let capturedInlineName: string | null = null
       try {
         const cand = extractLeadName(incomingText || '')
         if (cand && cand.length >= 2) capturedInlineName = cand
       } catch { /* extractLeadName puro, sem side effect */ }
-      if (capturedInlineName) {
-        // Greeting reformulado: cumprimento espelhado + nome + 1 pergunta enxuta.
-        // NÃO repete "Bem-vindo a X" (já cita a loja no specialist) — frase enxuta
-        // soa mais humana ("Bom dia, João! O que você está procurando hoje?").
-        const sal = mirroredSalutation || 'Oi'
-        greetingText = `${sal}, ${capturedInlineName}! O que você está procurando hoje?`
-        // Persiste o nome ANTES do greeting voar — assim o specialist (que roda em
-        // seguida) já enxerga leadProfile.full_name e não pede o nome de novo.
-        if (contact?.id) {
-          try {
-            await supabase.from('lead_profiles').upsert(
-              { contact_id: contact.id, full_name: capturedInlineName, updated_at: new Date().toISOString() },
-              { onConflict: 'contact_id' },
-            )
-            if (leadProfile) (leadProfile as any).full_name = capturedInlineName
-          } catch (err) {
-            log.warn?.('inline name capture upsert failed (non-fatal)', { error: (err as Error).message })
-          }
+
+      // (c) RENDERIZA O TEMPLATE — estratégia em 3 passos, SEM usar placeholder
+      // `{nome}` no template (admin escreve o template natural pedindo nome, como
+      // sempre foi). Quando o lead já dá o nome inline (ex.: "Bom dia, sou Carlos"),
+      // detectamos a CAUDA de pedido de nome no template e substituímos por convite
+      // neutro ("no que posso te ajudar?"). Resultado:
+      //   Template:  "Olá! Bem-vindo a Eletropiso, com quem eu falo?"
+      //   Sem nome:  "Olá! Bem-vindo a Eletropiso, com quem eu falo?"     (pede nome)
+      //   Com Carlos:"Olá, Carlos! Bem-vindo a Eletropiso, no que posso te ajudar?"
+      // Quando o lead usa saudação temporal ("Bom dia"/"Boa tarde"/"Boa noite"),
+      // espelhamos no final substituindo "Olá"/"Oi" do início.
+      // CR-ZERO 2026-05-28: revertido o fix anterior que usava placeholder `{nome}`
+      // — havia quebrado o caso "sem nome" (perdia pedido do nome → CRM não capturava).
+      const ASK_NAME_TAIL_RE = /[,;\s]+(?:com\s+quem\s+(?:eu\s+)?falo|qual\s+(?:é\s+)?(?:o\s+)?(?:seu\s+)?nome|como\s+(?:voc[êe]\s+)?se\s+chama|me\s+diz\s+(?:o\s+)?(?:seu\s+)?nome|com\s+quem\s+falo)\s*[?.!]?\s*$/i
+      const SALUTATION_START_RE = /^(\s*)(Ol[áa]|Oi|Opa|Eai|Eaí)(\s*[!,.]?)/i
+      const SALUTATION_MIRROR_RE = /^\s*(?:Ol[áa]|Oi|Opa|Eai|Eaí)(?![A-Za-zÀ-ÿ])/i
+
+      const renderGreeting = (tpl: string, name: string | null): string => {
+        if (!tpl) return tpl
+        let out = tpl
+        if (name) {
+          // (1) Substitui a CAUDA de pedido de nome do template por convite neutro,
+          // já que o lead acabou de dar o nome — pedir de novo soaria robótico.
+          // Só atua se a cauda casar; templates customizados sem o pedido ficam intactos.
+          out = out.replace(ASK_NAME_TAIL_RE, ', no que posso te ajudar?')
+          // (2) Insere o nome após a saudação inicial ("Olá!" → "Olá, Carlos!"),
+          // preservando a pontuação que o admin escreveu.
+          out = out.replace(SALUTATION_START_RE, (_m, p1, sal, p2) => {
+            const punct = p2 && p2.trim() ? p2.trim() : '!'
+            return `${p1}${sal}, ${name}${punct}`
+          })
+        }
+        if (mirroredSalutation) {
+          // (3) Espelha saudação temporal substituindo SÓ a palavra ("Olá" → "Bom dia").
+          // NÃO usar `\b` — em JS \b é definido sobre [A-Za-z0-9_] e `á` não é \w,
+          // então `Olá\b` não casa contra "Olá," (não há transição word→non-word).
+          // Solução: lookahead negativo de letra acentuada/normal.
+          out = out.replace(SALUTATION_MIRROR_RE, mirroredSalutation)
+        }
+        return out.trim()
+      }
+
+      greetingText = renderGreeting(agent.greeting_message || '', capturedInlineName)
+
+      // Persiste o nome capturado ANTES do greeting voar — assim o specialist
+      // (que roda em seguida) já enxerga leadProfile.full_name e não repede o nome.
+      if (capturedInlineName && contact?.id) {
+        try {
+          await supabase.from('lead_profiles').upsert(
+            { contact_id: contact.id, full_name: capturedInlineName, updated_at: new Date().toISOString() },
+            { onConflict: 'contact_id' },
+          )
+          if (leadProfile) (leadProfile as any).full_name = capturedInlineName
+        } catch (err) {
+          log.warn?.('inline name capture upsert failed (non-fatal)', { error: (err as Error).message })
         }
         log.info('Greeting humanização: nome inline capturado + greeting reformulado', {
           name: capturedInlineName, mirroredSalutation,

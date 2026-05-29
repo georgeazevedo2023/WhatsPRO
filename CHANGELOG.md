@@ -13,6 +13,30 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.57.3 (2026-05-28) — Humanização raiz: handoff sem "anotei" + validator estendido + greeting que preserva pedido de nome
+
+Atende auditoria do dono nas v7.57.0 quanto a 4 problemas residuais: (1) IA escreve "anotei"/"anotei tudo aqui" no handoff, (2) IA ecoa "Entendi, você quer X" antes de perguntar, (3) IA traduz jargão do lead ("interno" → "dentro de casa"), (4) greeting personalizado perdia branding "Bem-vindo a Eletropiso". Tudo resolvido na FONTE, sem prompt-engineering reativo.
+
+- **Fix A — `_shared/businessHours.ts`:** `personalizeHandoffMessage` trocou "Nome, anotei seu pedido: X." → "Nome, seu pedido de X." (palavra-veneno "anotei" eliminada; pessoa real não fala assim). Sem item: só prefixa o nome, sem "anotei tudo aqui".
+- **Fix B raiz — `_shared/responseValidator.ts` + `_shared/agent/specialistBase.ts`:** 3 regras determinísticas novas + auto-fix cirúrgico (não substitui texto inteiro).
+  - `anti_lead_echo` — detecta "Entendi, você quer X", "Pelo que você falou", "Você quer/procura X" no início → remove a 1ª frase.
+  - `anti_jargon_paraphrase` — se lead usou "interno"/"externo" e bot trocou por "dentro de casa"/"fora de casa", substitui de volta pelo termo do lead.
+  - `anti_anotei` — detecta "anotei"/"já anotei"/"vou anotar"/"deixa eu anotar" em qualquer ponto → remove a frase (ou substitui por ponte neutra se sobrar texto curto).
+  - `specialistBase.sanitizeSpecialistResponse` divide enforcement em 2 sets: `SAFE_TEXT_RULES` (substitui texto inteiro por ponte segura — comportamento atual) e `AUTO_FIX_RULES` (auto-fix cirúrgico via `autoFixHumanizationViolations`).
+  - `lastIncomingText` agora vai pro `ResponseValidatorContext` (necessário pra anti_jargon_paraphrase).
+- **Fix C v4 (raiz) — `ai-agent/index.ts` greeting determinístico:** detect+substitute na CAUDA do template em vez de placeholder `{nome}` (admin escreve template natural pedindo nome, como sempre foi).
+  - Quando capturei nome inline: detecta cauda `", com quem (eu) falo?"` / `", qual seu nome?"` / `", como você se chama?"` no fim do template e substitui por `", no que posso te ajudar?"`. Depois insere o nome após a saudação (`"Olá!"` → `"Olá, Carlos!"`).
+  - Quando NÃO capturei nome: template vai inteiro (com pedido de nome) — CRM extrai no próximo turno.
+  - Mirror de saudação temporal substitui SÓ a palavra `Olá`/`Oi` preservando vírgula+nome+pontuação (usa lookahead `(?![A-Za-zÀ-ÿ])` em vez de `\b`, que falha com acentos em JS — `Olá\b` não casa porque `á` não é `\w`).
+  - **Tentativa anterior usando placeholder `{nome}` no template foi REVERTIDA:** quebrava o caso "sem nome" — perdia o pedido de nome no template e o CRM não extraía mais o nome do lead. Template do sandbox voltou pra `"Olá! Bem-vindo a Eletropiso, com quem eu falo?"` (original).
+- **Validação:**
+  - `deno check supabase/functions/ai-agent/index.ts` 0 erros.
+  - Fix A + Fix B JÁ deployados via CLI (3 deploys nessa sessão), validados nos 4 cenários antes do bug do greeting `{nome}` ser detectado.
+  - Fix C v4 código pronto + `deno check` 0, **NÃO deployado** ainda — OpenAI estava com 502 em massa no fim da sessão (afeta PROD), preferiu-se aguardar estabilizar pra E2E.
+- **Sandbox restaurado** ao estado original (agent disabled, monolith, gpt-5-mini, instance disabled, conversas teste R1/R5/R9/R13 deletadas).
+
+---
+
 ### v7.57.2 (2026-05-28) — Dashboard de Fila do Gestor (mobile-first)
 
 Página nova `/dashboard/fila` para o gestor acompanhar quem está atendendo, quem perdeu e por quê. Atende ao pedido literal do dono (Hoje/Ontem/7d/15d/30d, por atendente: recebidos / atendidos / deixou de atender + motivo).

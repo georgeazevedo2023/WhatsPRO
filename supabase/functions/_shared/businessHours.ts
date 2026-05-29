@@ -174,14 +174,15 @@ export function personalizeHandoffMessage(
   const item = cleanHandoffItem(opts.itemSummary)
   if (!name && !item) return message // nada a personalizar
 
+  // (2026-05-28) "anotei" é palavra-veneno (delata IA — pessoa real não fala assim).
+  // Substituído por ponte natural: com item, mencionamos o pedido sem narrar a própria
+  // ação ("seu pedido de X"); sem item, só prefixa nome — handoff_message já diz tudo.
   const alreadyHasName =
     name && new RegExp(`^${escapeRegExp(name)}[,!?.\\s]`, 'i').test(message.trimStart())
   const namePart = name && !alreadyHasName ? `${name}, ` : ''
   let ackPart = ''
   if (item) {
-    ackPart = namePart ? `anotei seu pedido: ${item}. ` : `Anotei seu pedido: ${item}. `
-  } else if (namePart) {
-    ackPart = 'anotei tudo aqui. '
+    ackPart = namePart ? `seu pedido de ${item}. ` : `Seu pedido de ${item}. `
   }
   const prefix = (namePart + ackPart).trim()
   return prefix ? `${prefix} ${message}` : message
