@@ -26,8 +26,11 @@ import { runLlmCallLoop, type ToolCallLogEntry, type ExecuteToolSafeFn, type Sen
 import { dispatchResponse, type SendTextMsgFn, type SendTtsFn, type BroadcastEventFn, type PickHandoffMessageFn, type RunQueueAssignmentFn } from './dispatchResponse.ts'
 import { buildLeadMemoryBlock, consolidateLeadMemory } from './leadMemory.ts'
 import { buildNameUsageDirective } from './greetingPolicy.ts'
+import { buildBusinessSection, type AgentForPrompt } from './promptSections.ts'
 import { validateLLMResponse, autoFixHumanizationViolations } from '../responseValidator.ts'
 import { countMsgsSinceNameUse } from '../validatorAgent.ts'
+import { evaluateProductQualificationFlow } from './productQualificationFlow.ts'
+import { readProductQualificationState } from './productQualificationState.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
 import type { Logger } from './context.ts'
 import type { Intent } from './router.ts'
@@ -178,7 +181,7 @@ export interface SpecialistResult {
 // handoff que o LLM já tenha disparado no loop.
 // SAFE_TEXT_RULES: violações graves que justificam SUBSTITUIR o texto inteiro por
 // ponte propositiva segura (preservando handoff). Ex.: negação proibida, erro vazado.
-const SAFE_TEXT_RULES = new Set(['anti_negative_phrases', 'anti_internal_error', 'anti_internal_leak'])
+const SAFE_TEXT_RULES = new Set(['anti_negative_phrases', 'anti_stock_confirmation', 'anti_internal_error', 'anti_internal_leak'])
 // AUTO_FIX_RULES: violações de humanização (cosméticas/comportamentais) que devem
 // ser CIRURGICAMENTE reescritas via autoFixHumanizationViolations (remove a frase
 // ofensora, mantém o resto). Ex.: eco do lead, parafraseio de jargão, "anotei".
@@ -201,6 +204,98 @@ function extractOutgoingTexts(geminiContents: any[]): string[] {
     .filter((t) => t.length > 0)
 }
 
+function buildSafeQualificationFallback(ctx: SpecialistCtx): string | null {
+  const verdict = getPremiumQualificationVerdict(ctx)
+  const field = verdict.nextRequiredField
+  if (!field) return null
+
+  const leadName = (ctx.leadProfile?.full_name || '').trim().split(/\s+/)[0] || ''
+  const prefix = leadName ? `Prazer, ${leadName}. ` : ''
+
+  if (field.key === 'ambiente_torneira') return `${prefix}A torneira é para cozinha ou área gourmet?`
+  if (field.key === 'tipo_torneira') return 'Você pretende instalar na bancada ou na parede?'
+  if (field.key === 'modelo_torneira') return 'Você procura o modelo com ducha flexível ou bica alta?'
+  if (field.key === 'acabamento_torneira') return 'Qual acabamento você prefere: cromado, preto fosco, dourado ou escovado?'
+  if (field.key === 'tipo_cuba') return 'Sua cuba é simples ou dupla?'
+  if (field.key === 'perfil') return 'Você procura algo mais sofisticado ou uma opção com melhor custo-benefício?'
+  if (field.key === 'aplicacao_revestimento') return `${prefix}Esse revestimento será para piso ou parede?`
+  if (field.key === 'ambiente_revestimento') return 'É para sua casa ou para algum ambiente comercial?'
+  if (field.key === 'formato') return 'Você já tem alguma medida em mente, como 60x60, 90x90 ou 120x120?'
+  if (field.key === 'acabamento') return 'Você prefere acabamento brilhante, acetinado ou fosco?'
+  if (field.key === 'cor') return 'Qual tonalidade você imagina para o ambiente?'
+  if (field.key === 'local_aplicacao') return 'Vai utilizar em qual ambiente?'
+  if (field.key === 'area') return 'Qual a metragem aproximada?'
+
+  return field.examples
+    ? `Qual ${field.label}? ${field.examples}.`
+    : `Qual ${field.label}?`
+}
+
+function getPremiumQualificationVerdict(ctx: SpecialistCtx) {
+  const state = readProductQualificationState((ctx.conversation.tags as string[]) || [])
+  return evaluateProductQualificationFlow({
+    tags: (ctx.conversation.tags as string[]) || [],
+    agent: ctx.agent,
+    incomingText: ctx.incomingText,
+    catalogResult: state.catalogResult,
+  })
+}
+
+function responseMentionsPremiumField(fieldKey: string, text: string): boolean {
+  const norm = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  switch (fieldKey) {
+    case 'ambiente_torneira':
+      return /\b(cozinha|area gourmet|gourmet|aplicacao)\b/.test(norm)
+    case 'tipo_torneira':
+      return /\b(bancada|parede|instalacao|instalar)\b/.test(norm)
+    case 'modelo_torneira':
+      return /\b(ducha|flexivel|bica alta|modelo)\b/.test(norm)
+    case 'acabamento_torneira':
+      return /\b(acabamento|cromado|preto fosco|dourado|escovado)\b/.test(norm)
+    case 'tipo_cuba':
+      return /\b(cuba|simples|dupla)\b/.test(norm)
+    case 'perfil':
+      return /\b(premium|sofisticad|custo-beneficio|custo beneficio|melhor)\b/.test(norm)
+    case 'aplicacao_revestimento':
+      return /\b(piso|parede|aplicacao|aplicar)\b/.test(norm)
+    case 'ambiente_revestimento':
+      return /\b(residencial|comercial|casa|empresa|loja|ambiente)\b/.test(norm)
+    case 'formato':
+      return /\b(formato|medida|tamanho|60x60|80x80|90x90|120x120)\b/.test(norm)
+    case 'acabamento':
+      return /\b(acabamento|brilhante|acetinado|fosco|polido)\b/.test(norm)
+    case 'cor':
+      return /\b(cor|tom|tonalidade|bege|cinza|branco|off)\b/.test(norm)
+    case 'local_aplicacao':
+      return /\b(ambiente|sala|cozinha|quarto|banheiro|area integrada)\b/.test(norm)
+    case 'area':
+      return /\b(metragem|metros|m2|area|quantos m)\b/.test(norm)
+    default:
+      return true
+  }
+}
+
+function keepLastQuestionWhenStacked(text: string): string {
+  const questionCount = (text.match(/\?/g) || []).length
+  if (questionCount > 1) {
+    const questionSentences = text.match(/[^.!?\n]*\?/g)
+      ?.map((part) => part.trim())
+      .filter(Boolean)
+    if (questionSentences && questionSentences.length > 1) {
+      return questionSentences[questionSentences.length - 1]
+    }
+  }
+
+  const lines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length < 2) return text
+  const questionLines = lines.filter((line) => line.includes('?'))
+  if (questionLines.length < 2) return text
+  return questionLines[questionLines.length - 1]
+}
+
 /**
  * Roda o validador determinístico e, se houver violação de segurança (block),
  * substitui o texto por uma ponte propositiva segura — preservando handoff.
@@ -209,7 +304,7 @@ function sanitizeSpecialistResponse(
   responseText: string,
   ctx: SpecialistCtx,
 ): SanitizeResult {
-  const text = (responseText || '').trim()
+  const text = keepLastQuestionWhenStacked((responseText || '').trim())
   if (text.length < 15) return { text: responseText, enforced: false, rules: [] }
 
   const leadName = (ctx.leadProfile?.full_name || '').trim() || null
@@ -233,7 +328,20 @@ function sanitizeSpecialistResponse(
     return { text: responseText, enforced: false, rules: [] }
   }
 
-  if (result.valid) return { text: responseText, enforced: false, rules: [] }
+  if (result.valid) {
+    const premiumVerdict = getPremiumQualificationVerdict(ctx)
+    const premiumSafeText = premiumVerdict.nextRequiredField ? buildSafeQualificationFallback(ctx) : null
+    const looksPrematureHandoff = /\b(consultor|vendedor|vou verificar|vou passar|encaminh)/i.test(text)
+    if (
+      premiumSafeText &&
+      premiumVerdict.nextRequiredField &&
+      (looksPrematureHandoff || (text.includes('?') && !responseMentionsPremiumField(premiumVerdict.nextRequiredField.key, text)))
+    ) {
+      return { text: premiumSafeText, enforced: true, rules: ['premium_next_question'] }
+    }
+    const compacted = text !== (responseText || '').trim()
+    return { text: compacted ? text : responseText, enforced: compacted, rules: compacted ? ['single_question'] : [] }
+  }
 
   // Telemetria de TODAS as violações (mantém o sinal que existia no monolith).
   ctx.log.warn('responseValidator (router) caught violations', {
@@ -267,16 +375,22 @@ function sanitizeSpecialistResponse(
     const safeText = handoffCalled
       ? 'Vou te conectar com nosso vendedor pra confirmar a melhor opção e o valor pra você. Só um instante! 🙌'
       : 'Deixa eu confirmar essa informação certinho pra você. Você tem preferência de marca ou alguma especificação do produto?'
-    return { text: safeText, enforced: true, rules: [...fixedRules, ...safeTextHarmful.map((v) => v.rule)] }
+    const premiumSafeText = handoffCalled ? null : buildSafeQualificationFallback(ctx)
+    return { text: premiumSafeText || safeText, enforced: true, rules: [...fixedRules, ...safeTextHarmful.map((v) => v.rule)] }
   }
 
   // (3) Só houve auto-fix (sem SAFE_TEXT) — retorna o texto reescrito.
   if (fixedRules.length > 0) {
+    const premiumSafeText = buildSafeQualificationFallback(ctx)
+    if (premiumSafeText && (fixedRules.includes('anti_anotei') || !currentText.includes('?'))) {
+      return { text: premiumSafeText, enforced: true, rules: [...fixedRules, 'premium_next_question'] }
+    }
     return { text: currentText, enforced: true, rules: fixedRules }
   }
 
   // (4) Tinha violações mas nenhuma enforced (ex.: só rewrite cosmético sem auto-fix) — passa.
-  return { text: responseText, enforced: false, rules: [] }
+  const compacted = text !== (responseText || '').trim()
+  return { text: compacted ? text : responseText, enforced: compacted, rules: compacted ? ['single_question'] : [] }
 }
 
 // =============================================================================
@@ -322,10 +436,18 @@ export async function runSpecialist(
   // P7-strong: anti-repetição determinística do nome (feedback do dono — o LLM
   // citava o nome em toda mensagem). Olha o histórico; suprime se usado há pouco.
   const nameDirective = buildNameUsageDirective(ctx.geminiContents, ctx.leadProfile?.full_name)
-  // Ordem: [memória do lead] → [já cumprimentado] → [prompt do specialist] → [uso do
-  // nome] → [pré-busca]. A pré-busca vai por último (mais perto da decisão) pra o
-  // product specialist tratá-la como verdade-base "search já feito" e compor em 1 round.
-  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, nameDirective, ctx.preSearchContext]
+  // Paridade router↔monolito (2026-05-29): injeta as Informações da Empresa
+  // (endereço/horário/pagamento/entrega) + a REGRA ABSOLUTA anti-alucinação no prompt
+  // de TODO specialist. Sem isto, sob o router o specialist não sabia onde fica a loja
+  // e o LLM confirmava a suposição errada do lead (ex.: "essa loja é em São João?" →
+  // "sim", quando a loja é em Garanhuns). O monolito (index.ts) já injetava via
+  // buildBusinessSection; os specialists não recebiam — gap fechado aqui.
+  const businessSection = buildBusinessSection(ctx.agent as AgentForPrompt)
+  // Ordem: [memória do lead] → [já cumprimentado] → [prompt do specialist] →
+  // [info da empresa] → [uso do nome] → [pré-busca]. A pré-busca vai por último (mais
+  // perto da decisão) pra o product specialist tratá-la como verdade-base "search já
+  // feito" e compor em 1 round.
+  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, businessSection, nameDirective, ctx.preSearchContext]
     .filter(Boolean)
     .join('\n\n')
   const promptChars = systemPrompt.length
