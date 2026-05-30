@@ -115,7 +115,12 @@ export function shouldTriggerAiAgentFromWebhook(input: WebhookAiTriggerInput): b
 
   if (direction !== 'incoming') return false
   if (fromMe) return false
+  // audio: transcribe-audio dispara o agente após transcrever.
+  // image: describe-image dispara o agente após descrever (visão Gemini 2.0 Flash, 2026-05-30).
+  // Pular aqui garante que o agente só roda DEPOIS de a transcription estar gravada,
+  // senão o agente leria a mídia "cega" (content="").
   if (mediaType === 'audio') return false
+  if (mediaType === 'image') return false
 
   return statusIa !== STATUS_IA.DESLIGADA
 }

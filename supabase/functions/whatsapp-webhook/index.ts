@@ -100,6 +100,85 @@ async function getMediaLink(messageId: string, instanceToken: string, isAudio: b
   }
 }
 
+const HELPDESK_MEDIA_BUCKET = 'helpdesk-media'
+const MAX_HELPDESK_MEDIA_BYTES = 50 * 1024 * 1024
+
+function extensionFromMime(mimetype: string, fallbackMediaType: string): string {
+  const mimeExtMap: Record<string, string> = {
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'text/plain': 'txt',
+    'text/csv': 'csv',
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/x-msvideo': 'avi',
+    'video/x-matroska': 'mkv',
+    'video/webm': 'webm',
+    'video/3gpp': '3gp',
+  }
+  if (mimeExtMap[mimetype]) return mimeExtMap[mimetype]
+  if (fallbackMediaType === 'image') return 'jpg'
+  if (fallbackMediaType === 'video') return 'mp4'
+  if (fallbackMediaType === 'sticker') return 'webp'
+  return 'bin'
+}
+
+async function mirrorMediaToStorage(opts: {
+  mediaUrl: string
+  mediaType: string
+  mimetype?: string
+  instanceToken?: string | null
+  conversationId: string
+  externalId?: string | null
+}): Promise<{ url: string; mimetype: string } | null> {
+  const { mediaUrl, mediaType, mimetype = '', instanceToken, conversationId, externalId } = opts
+  if (!mediaUrl || !/^https?:\/\//i.test(mediaUrl)) return null
+  // Audio keeps the original URL because transcribe-audio consumes it directly.
+  if (mediaType === 'audio') return null
+
+  try {
+    const response = await fetchWithTimeout(mediaUrl, {
+      headers: instanceToken ? { token: instanceToken } : undefined,
+    }, 30000)
+    if (!response.ok) return null
+
+    const contentLength = Number(response.headers.get('content-length') || '0')
+    if (contentLength > MAX_HELPDESK_MEDIA_BYTES) return null
+
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_HELPDESK_MEDIA_BYTES) return null
+
+    const contentType = mimetype || response.headers.get('content-type')?.split(';')[0] || 'application/octet-stream'
+    const ext = extensionFromMime(contentType, mediaType)
+    const safeId = (externalId || crypto.randomUUID()).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120) || crypto.randomUUID()
+    const path = `${conversationId}/${safeId}.${ext}`
+
+    const { error: uploadError } = await supabase.storage
+      .from(HELPDESK_MEDIA_BUCKET)
+      .upload(path, bytes, {
+        contentType,
+        upsert: true,
+        cacheControl: '2592000',
+      })
+    if (uploadError) return null
+
+    const { data } = supabase.storage.from(HELPDESK_MEDIA_BUCKET).getPublicUrl(path)
+    const publicUrl = data?.publicUrl
+    return publicUrl ? { url: publicUrl, mimetype: contentType } : null
+  } catch {
+    return null
+  }
+}
+
 function extractPhone(jid: string): string {
   return jid.split('@')[0].replace(/\D/g, '')
 }
@@ -442,14 +521,18 @@ Deno.serve(async (req) => {
                   .eq('role', 'gerente')
 
                 for (const mgr of (managers || [])) {
-                  await supabase.from('notifications' as any).insert({
-                    user_id: mgr.user_id,
-                    type: 'nps_bad_note',
-                    title: 'NPS negativo recebido',
-                    message: `Lead avaliou atendimento como "${selectedOptions.join(', ')}"`,
-                    metadata: { poll_id: pollMsg.id, conversation_id: pollMsg.conversation_id, options: selectedOptions },
-                    read: false,
-                  }).then(() => {}).catch(() => {})
+                  try {
+                    await supabase.from('notifications' as any).insert({
+                      user_id: mgr.user_id,
+                      type: 'nps_bad_note',
+                      title: 'NPS negativo recebido',
+                      message: `Lead avaliou atendimento como "${selectedOptions.join(', ')}"`,
+                      metadata: { poll_id: pollMsg.id, conversation_id: pollMsg.conversation_id, options: selectedOptions },
+                      read: false,
+                    })
+                  } catch {
+                    // Non-critical notification failure; continue notifying other managers.
+                  }
                 }
                 log.info('NPS bad note: managers notified', { pollId: pollMsg.id, options: selectedOptions, managersCount: (managers || []).length })
               }
@@ -501,7 +584,7 @@ Deno.serve(async (req) => {
     const instanceName = payload.instanceName || payload.instance || ''
 
     // If inbox_id was already resolved from status_ia block, skip instance/inbox lookup
-    let instance: { id: string; name: string; token: string } | null = null
+    let instance: { id: string; name: string; token: string; user_id?: string | null } | null = null
     let inbox: { id: string; default_department_id?: string | null } | null = null
 
     // Check for inbox_id from payload (propagated from isRawMessage) or from status_ia resolution
@@ -548,7 +631,7 @@ Deno.serve(async (req) => {
       const ownerFieldClean = ownerField ? sanitize(ownerField.replace('@s.whatsapp.net', '')) : ''
       const ownerFieldWithSuffix = ownerFieldClean ? `${ownerFieldClean}@s.whatsapp.net` : ''
 
-      let foundInstance: { id: string; name: string; token: string; user_id: string } | null = null
+      let foundInstance: { id: string; name: string; token: string; user_id?: string | null } | null = null
 
       // Tentativa 1: token (UNICO por instancia — prioridade maxima)
       if (payloadToken) {
@@ -967,6 +1050,22 @@ Deno.serve(async (req) => {
       })
     }
 
+    if (mediaUrl && mediaType !== 'text' && mediaType !== 'contact' && mediaType !== 'audio') {
+      const storedMedia = await mirrorMediaToStorage({
+        mediaUrl,
+        mediaType,
+        mimetype: mediaMimetype,
+        instanceToken: instance.token,
+        conversationId: conversation.id,
+        externalId,
+      })
+      if (storedMedia?.url) {
+        mediaUrl = storedMedia.url
+        mediaMimetype = storedMedia.mimetype || mediaMimetype
+        log.info('Media mirrored to Storage', { mediaType, conversationId: conversation.id })
+      }
+    }
+
     // Insert message
     const { data: insertedMsg, error: insertError } = await supabase.from('conversation_messages').insert({
       conversation_id: conversation.id,
@@ -1245,6 +1344,30 @@ Deno.serve(async (req) => {
           conversationId: conversation.id,
         }),
       }).catch((err: Error) => log.error('transcribe-audio direct call failed', { error: err.message })))
+    }
+
+    // Trigger image description (visão Gemini 2.0 Flash) — espelha o áudio.
+    // O lead manda foto de produto; describe-image descreve e grava em
+    // conversation_messages.transcription (que o ai-agent lê antes do content),
+    // depois dispara o agente. Sem isto o agente fica cego pra foto (caso Íris
+    // 2026-05-30: "me manda a foto" pra quem JÁ mandou). O trigger normal do
+    // agente pula 'image' (shouldTriggerAiAgentFromWebhook) pra rodar só depois.
+    if (mediaType === 'image' && mediaUrl && insertedMsg && direction === 'incoming') {
+      log.info('Triggering image description (direct call)', { messageId: insertedMsg.id })
+      const SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/describe-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SVC_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messageId: insertedMsg.id,
+          imageUrl: mediaUrl,
+          mimeType: mediaMimetype || null,
+          conversationId: conversation.id,
+        }),
+      }).catch((err: Error) => log.error('describe-image direct call failed', { error: err.message })))
     }
 
     // Mark pending follow-ups as "replied" when lead sends a message (fire-and-forget)

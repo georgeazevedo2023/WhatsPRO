@@ -173,6 +173,15 @@ describe('aiRuntime helpers', () => {
       statusIa: 'ligada',
     })).toBe(false)
   })
+
+  it('blocks webhook AI trigger for image (describe-image dispara depois de descrever)', () => {
+    expect(shouldTriggerAiAgentFromWebhook({
+      direction: 'incoming',
+      fromMe: false,
+      mediaType: 'image',
+      statusIa: 'ligada',
+    })).toBe(false)
+  })
 })
 
 describe('executeToolSafe pattern', () => {

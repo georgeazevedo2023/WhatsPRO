@@ -92,6 +92,10 @@ verify_jwt = true
 [functions.transcribe-audio]
 verify_jwt = false
 
+# Called internally by whatsapp-webhook with SERVICE_ROLE — manual auth inside
+[functions.describe-image]
+verify_jwt = false
+
 # Called internally by debounce with ANON_KEY — manual auth inside
 [functions.ai-agent]
 verify_jwt = false
