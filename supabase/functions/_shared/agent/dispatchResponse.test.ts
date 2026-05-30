@@ -242,6 +242,8 @@ describe('dispatchResponse — handoff branches', () => {
     expect(ctx.runQueueAssignment).toHaveBeenCalledWith('')
     // UPDATE conversations seta SHADOW
     expect(updates.some((u) => u.table === 'conversations' && u.payload.status_ia === 'shadow')).toBe(true)
+    const shadowUpdate = updates.find((u) => u.table === 'conversations' && u.payload.status_ia === 'shadow')
+    expect(shadowUpdate?.payload.tags).toContain('followups_paused:true')
     // ai_agent_logs com event=implicit_handoff
     expect(inserts.some((i) => i.table === 'ai_agent_logs' && i.payload.event === 'implicit_handoff')).toBe(true)
   })
@@ -267,6 +269,8 @@ describe('dispatchResponse — deferred handoff trigger (step 22)', () => {
     expect(ctx.sendTextMsg).toHaveBeenCalledTimes(2) // primeira pro responseText, segunda pro deferred handoff
     expect(inserts.some((i) => i.table === 'ai_agent_logs' && i.payload.event === 'handoff_trigger')).toBe(true)
     expect(updates.some((u) => u.table === 'conversations' && u.payload.status_ia === 'shadow')).toBe(true)
+    const shadowUpdate = updates.find((u) => u.table === 'conversations' && u.payload.status_ia === 'shadow')
+    expect(shadowUpdate?.payload.tags).toContain('followups_paused:true')
   })
 
   it('deferred handoff detecta objeção no msg do trigger → adiciona objecao tag', async () => {

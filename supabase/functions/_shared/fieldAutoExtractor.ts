@@ -195,6 +195,15 @@ export function autoExtractFields(
       continue
     }
 
+    if (field.key === 'local_aplicacao') {
+      const integrated = text.match(/\b(sala)\b.*\b(cozinha)\b|\b(cozinha)\b.*\b(sala)\b|\barea integrada\b/)
+      if (integrated && integrated.index !== undefined && !hasNegationBefore(text, integrated.index)) {
+        results.push({ key: field.key, value: 'sala e cozinha integradas', evidence: integrated[0] })
+        seenKeys.add(field.key)
+        continue
+      }
+    }
+
     const candidates = parseExamples(field.examples)
     for (const candidate of candidates) {
       const normCandidate = normalizeText(candidate)

@@ -189,6 +189,27 @@ export function personalizeHandoffMessage(
 }
 
 /**
+ * Monta a linha de entrega pro resumo INTERNO do vendedor a partir das tags
+ * `entrega_modo:` (retirada|entrega) e `bairro:` coletadas pelo product specialist
+ * antes do handoff (v7.58). Retorna '' se nada foi coletado. NUNCA vai pro lead.
+ */
+export function buildDeliveryLine(tags: string[]): string {
+  const safe = Array.isArray(tags) ? tags : []
+  const modoTag = safe.find((t) => typeof t === 'string' && t.startsWith('entrega_modo:'))
+  const bairroTag = safe.find((t) => typeof t === 'string' && t.startsWith('bairro:'))
+  if (!modoTag && !bairroTag) return ''
+  const modoRaw = modoTag ? (modoTag.split(':')[1] || '').toLowerCase() : ''
+  const bairro = bairroTag ? (bairroTag.split(':')[1] || '').replace(/_/g, ' ').trim() : ''
+  const isEntrega = /entrega|casa|receb|deliver/.test(modoRaw)
+  const isRetirada = /retir|loja|pickup|balc/.test(modoRaw)
+  if (isEntrega || (!isRetirada && bairro)) {
+    return `🚚 Entrega: receber em casa${bairro ? ` (bairro ${bairro})` : ''}`
+  }
+  if (isRetirada) return '🏬 Entrega: retirada na loja'
+  return modoRaw ? `🚚 Entrega: ${modoRaw}${bairro ? ` (bairro ${bairro})` : ''}` : ''
+}
+
+/**
  * Normaliza o reason de handoff em item legível pro LEAD. O reason é escrito pro
  * VENDEDOR (rico, com prefixos tipo "Pedido completo:" e meta-notas tipo "Lead já
  * confirmou que é só isso") — aqui extraímos só a parte que faz sentido pro lead.

@@ -48,6 +48,17 @@ const NEGATIVE_PHRASES = [
   'nao temos esse produto',
 ]
 
+const STOCK_CONFIRMATION_PATTERNS: RegExp[] = [
+  /^\s*sim\b.{0,80}\btrabalhamos\s+com\b/i,
+  /^\s*sim\b.{0,80}\b(?:modelo|modelos|op[cç][aã]o|op[cç][oõ]es|produto|produtos)\b/i,
+  /\btem\s+sim\b/i,
+  /\btemos\s+sim\b/i,
+  /\btrabalhamos\s+com\b.{0,80}\b(?:modelo|modelos|op[cç][aã]o|op[cç][oõ]es|esse|essa|produto)\b/i,
+  /\btemos\b.{0,60}\b(?:dispon[ií]vel|dispon[ií]veis|em\s+estoque)\b/i,
+  /\b(?:est[aá]|esta)\s+dispon[ií]vel\b/i,
+  /\bproduto\s+dispon[ií]vel\b/i,
+]
+
 const INTERNAL_ERROR_PHRASES = [
   'desculpe',
   'desculpa',
@@ -86,6 +97,19 @@ function checkNegativePhrases(norm: string): ResponseViolation | null {
   for (const p of NEGATIVE_PHRASES) {
     if (norm.includes(p)) {
       return { rule: 'anti_negative_phrases', severity: 'block', detail: `frase negativa detectada: "${p}"` }
+    }
+  }
+  return null
+}
+
+function checkStockConfirmation(text: string): ResponseViolation | null {
+  for (const re of STOCK_CONFIRMATION_PATTERNS) {
+    if (re.test(text)) {
+      return {
+        rule: 'anti_stock_confirmation',
+        severity: 'block',
+        detail: 'confirmacao positiva de estoque/disponibilidade detectada',
+      }
     }
   }
   return null
@@ -200,10 +224,12 @@ function checkJargonParaphrase(text: string, ctx: ResponseValidatorContext): Res
  * em atendimento. Cobre "anotei", "já anotei", "anotei aqui", "anotei seu pedido",
  * "vou anotar", "deixa eu anotar", "estou anotando".
  */
-const ANOTEI_RE = /\b(?:j[áa]\s+)?(?:anotei(?:\s+(?:aqui|tudo(?:\s+aqui)?|seu\s+pedido))?|vou\s+anotar|deixa\s+eu\s+anotar|estou\s+anotando)\b/i
+const ANOTEI_RE = /\b(?:j[áa]\s+)?(?:anotei(?:\s+(?:aqui|tudo(?:\s+aqui)?|seu\s+pedido))?|anotado|vou\s+anotar|deixa\s+eu\s+anotar|estou\s+anotando)\b/i
+
+const SELF_REGISTRATION_RE = /\b(?:vou\s+registrar|vou\s+salvar|vou\s+marcar|registrar\s+(?:seu|o)\s+nome|salvar\s+(?:seu|o)\s+nome)\b/i
 
 function checkAnotei(text: string): ResponseViolation | null {
-  if (ANOTEI_RE.test(text)) {
+  if (ANOTEI_RE.test(text) || SELF_REGISTRATION_RE.test(text)) {
     return { rule: 'anti_anotei', severity: 'block', detail: 'usou "anotei" (palavra-veneno — delata IA)' }
   }
   return null
@@ -238,6 +264,7 @@ function buildSuggestion(violations: ResponseViolation[]): string | null {
   const tips: string[] = []
   const rules = new Set(violations.map((v) => v.rule))
   if (rules.has('anti_negative_phrases')) tips.push('substituir negativa direta por alternativa propositiva')
+  if (rules.has('anti_stock_confirmation')) tips.push('nao confirmar estoque/disponibilidade; usar resposta neutra e consultiva')
   if (rules.has('anti_internal_error')) tips.push('remover desculpa/erro interno — silenciar ou redirecionar')
   if (rules.has('anti_internal_leak')) tips.push('remover tags [INTERNO]/[INTERNAL] vazadas')
   if (rules.has('anti_echo_opener')) tips.push('remover abertura eco e iniciar direto com a pergunta')
@@ -290,10 +317,10 @@ export function autoFixHumanizationViolations(
 
   // anti_anotei: remove a frase inteira que contém "anotei". Conservador: pega a
   // sentença mais próxima e descarta. Se sobrar string vazia, devolve fallback humano.
-  if (ANOTEI_RE.test(out)) {
+  if (ANOTEI_RE.test(out) || SELF_REGISTRATION_RE.test(out)) {
     // Split por sentença mantendo separadores
     const sentences = out.split(/(?<=[.!?\n])\s+/)
-    const kept = sentences.filter((s) => !ANOTEI_RE.test(s))
+    const kept = sentences.filter((s) => !ANOTEI_RE.test(s) && !SELF_REGISTRATION_RE.test(s))
     const rebuilt = kept.join(' ').replace(/\s+/g, ' ').trim()
     if (rebuilt.length >= 10) {
       out = rebuilt.charAt(0).toUpperCase() + rebuilt.slice(1)
@@ -317,6 +344,7 @@ export function validateLLMResponse(
 
   const checks = [
     checkNegativePhrases(norm),
+    checkStockConfirmation(text),
     checkInternalError(norm),
     checkInternalLeak(text),
     checkEchoOpener(norm),

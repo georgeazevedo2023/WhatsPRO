@@ -11,6 +11,7 @@ import {
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { shouldProcessFollowUpCandidate } from '../_shared/agent/followUpPause.ts'
 
 const UAZAPI_URL = Deno.env.get('UAZAPI_SERVER_URL') || 'https://wsmart.uazapi.com'
 
@@ -104,6 +105,11 @@ Deno.serve(async (req) => {
 
       for (const conv of conversations) {
         processed++
+
+        if (!shouldProcessFollowUpCandidate({ tags: conv.tags || [] })) {
+          log.info('Skipping conversation with followups paused', { conversation_id: conv.id })
+          continue
+        }
 
         const lastMsg = new Date(conv.last_message_at)
         const daysSince = Math.floor((Date.now() - lastMsg.getTime()) / (1000 * 60 * 60 * 24))

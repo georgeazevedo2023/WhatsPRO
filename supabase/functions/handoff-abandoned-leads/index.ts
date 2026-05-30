@@ -163,6 +163,15 @@ Deno.serve(async (req: Request) => {
   for (const c of (candidates || []) as Candidate[]) {
     stats.scanned++
     try {
+      // Gate de horário comercial: só cutuca/transborda DENTRO do expediente.
+      // Lead que abandona de madrugada/fim de semana espera o expediente reabrir
+      // (timers medem do último contato; ao reabrir, dispara). Evita pingar o lead
+      // fora de hora e acionar vendedor offline.
+      if (isOutsideBusinessHours(c.business_hours, c.extended_hours_until)) {
+        stats.skipped++
+        continue
+      }
+
       const botAt = await lastBotMessageAt(supabase, c.conversation_id)
       if (!botAt) { stats.skipped++; continue } // sem msg do bot → não é abandono pós-pergunta
 

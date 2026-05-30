@@ -145,7 +145,14 @@ export async function dispatchExitActionHandoff(
 
   const eaUpdates: Record<string, unknown> = {
     status_ia: STATUS_IA.SHADOW,
-    tags: mergeTags(ctx.conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+    tags: mergeTags(ctx.conversation.tags || [], {
+      ia: STATUS_IA.SHADOW,
+      handoff_created: 'true',
+      agent_status: 'inactive',
+      human_assigned: 'true',
+      seller_notified: 'true',
+      followups_paused: 'true',
+    }),
     lead_msg_count: 0,
   }
   if (ctx.profileData?.handoff_department_id) {

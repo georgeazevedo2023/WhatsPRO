@@ -57,3 +57,4 @@ __pycache__/
 # Screenshots ad-hoc na raiz (movam pra wiki/testes/ se forem documentar incidente)
 /*.png
 e2e/.auth/
+playwright-report/

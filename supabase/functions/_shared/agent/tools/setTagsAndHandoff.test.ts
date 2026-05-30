@@ -203,6 +203,35 @@ describe('setTags — guards e validações', () => {
     )
     expect(log).toBeTruthy()
   })
+  it('private note usa resumo premium com campos do produto', async () => {
+    const { supabase, calls } = makeSupabase()
+    const ctx = baseCtx(supabase, {
+      conversation: {
+        tags: [
+          'interesse:torneira_gourmet',
+          'aplicacao:cozinha',
+          'instalacao:bancada',
+          'modelo:ducha_flexivel',
+          'acabamento:preto_fosco',
+          'tipo_cuba:dupla',
+          'catalog_result:empty',
+        ],
+        status_ia: 'ATIVA',
+        inbox_id: 'inb-1',
+      },
+      leadName: 'Carlos',
+    })
+    await handoffToHuman({ reason: 'validar estoque fisico' }, ctx, makeLog())
+    const note = calls.find(
+      (c) => c.table === 'conversation_messages' && c.op === 'insert' && c.payload?.direction === 'private_note',
+    )
+    expect(note).toBeTruthy()
+    expect(note.payload.content).toContain('Cliente: Carlos')
+    expect(note.payload.content).toContain('Categoria: torneira gourmet')
+    expect(note.payload.content).toContain('Modelo: ducha flexivel')
+    expect(note.payload.content).toContain('Acabamento: preto fosco')
+    expect(note.payload.content).toContain('Necessita: Validacao humana de estoque fisico')
+  })
 })
 
 // =============================================================================
@@ -363,6 +392,9 @@ describe('handoffToHuman', () => {
     expect(ctx.runQueueAssignment).toHaveBeenCalled()
     const handoffLog = calls.find((c) => c.table === 'ai_agent_logs' && c.payload?.event === 'handoff')
     expect(handoffLog).toBeTruthy()
+    const convUpdate = calls.find((c) => c.table === 'conversations' && c.op === 'update' && c.payload?.status_ia === 'shadow')
+    expect(convUpdate?.payload.tags).toContain('followups_paused:true')
+    expect(convUpdate?.payload.tags).toContain('handoff_created:true')
     // label "Atendimento Humano" aplicada
     const labelInsert = calls.find((c) => c.table === 'conversation_labels' && c.op === 'insert')
     expect(labelInsert).toBeTruthy()

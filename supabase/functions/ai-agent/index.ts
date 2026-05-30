@@ -27,6 +27,8 @@ import { runSpecialist, type SpecialistCtx, type SpecialistDef } from '../_share
 import { buildGreetingSpecialistDef } from '../_shared/agent/greetingSpecialist.ts'
 import { buildQualificationSpecialistDef } from '../_shared/agent/qualificationSpecialist.ts'
 import { evaluateQualificationGate } from '../_shared/agent/qualificationGate.ts'
+import { evaluateProductQualificationFlow } from '../_shared/agent/productQualificationFlow.ts'
+import { inferProductQualificationAnswerTag, readProductQualificationState } from '../_shared/agent/productQualificationState.ts'
 import { extractLeadName, wasNameAsked } from '../_shared/agent/nameCapture.ts'
 import { buildObjectionSpecialistDef } from '../_shared/agent/objectionSpecialist.ts'
 import { buildHandoffSpecialistDef } from '../_shared/agent/handoffSpecialist.ts'
@@ -53,6 +55,7 @@ import { dispatchCrmTool } from '../_shared/agent/tools/crmTools.ts'
 import { dispatchSearchTool } from '../_shared/agent/tools/searchProducts.ts'
 import { dispatchSetTagsHandoffTool } from '../_shared/agent/tools/setTagsAndHandoff.ts'
 import { dispatchCartTool } from '../_shared/agent/tools/cartTools.ts'
+import { buildPremiumHandoffSummary } from '../_shared/agent/handoffSummary.ts'
 import type { PendingExitActionHandoff, PendingExitActionSearch } from '../_shared/agent/preLLMAutoExtract.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage, personalizeHandoffMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
@@ -555,10 +558,306 @@ Deno.serve(async (req) => {
 
         // isAwaitingUpsell mas sem clicks nem closing — lead pediu novo item livre.
         // Remove tag e deixa fluxo normal continuar (LLM busca).
+        const isTintasAwaitingUpsell = tagsArr.some((t) => t.toLowerCase().startsWith('interesse:tinta'))
+        if (!isTintasAwaitingUpsell) {
+          await supabase.from('conversations').update({
+            tags: tagsArr.filter((t) => t !== 'aguardando_upsell:true'),
+          }).eq('id', conversation_id)
+          conversation.tags = tagsArr.filter((t) => t !== 'aguardando_upsell:true')
+        }
+      }
+    }
+
+    // Premium 21.33: text selection after carousel must not handoff immediately.
+    // The lead can reply "gostei da primeira" instead of clicking the button; keep
+    // the order open, collect cross-sell and delivery, then allow rich handoff.
+    {
+      const tagsArr = (conversation.tags || []) as string[]
+      const lowerIncoming = incomingText.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+      const interesse = (tagsArr.find((t) => t.startsWith('interesse:')) || '').toLowerCase()
+      const isTintasFlow = interesse.includes('tinta')
+      const cleanWaiting = (tags: string[]) => tags.filter((t) =>
+        ![
+          'aguardando_upsell:true',
+          'aguardando_entrega:true',
+          'aguardando_bairro:true',
+          'aguardando_mais_itens:true',
+        ].includes(t)
+      )
+      const currentCart = Array.isArray((conversation as any).cart_items)
+        ? ((conversation as any).cart_items as any[])
+        : []
+      const hasStructuredOrder =
+        currentCart.length > 0 ||
+        tagsArr.some((t) => t.startsWith('selected_product:') || t.startsWith('produto_escolhido:'))
+      const hasShownCarousel = Array.isArray((conversation as any).shown_product_ids) && (conversation as any).shown_product_ids.length > 0
+      const textLooksLikeProductChoice =
+        /\b(gostei|vou levar|fico com|pode ser essa|primeira|primeiro|segunda|segundo|coral|suvinil|sherwin|coralite)\b/.test(lowerIncoming)
+
+      if (!shadow_only && isTintasFlow && !hasStructuredOrder && textLooksLikeProductChoice) {
+        const brandMatch = lowerIncoming.match(/\b(coral|suvinil|sherwin(?:\s+williams)?|coralite)\b/)
+        const selectedName = brandMatch
+          ? `${brandMatch[1].replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())} premium`
+          : 'Opcao escolhida do carrossel'
+        const nextCart = [...currentCart, { name: selectedName, qty: 1 }]
+        const nextTags = mergeTags(cleanWaiting(tagsArr), {
+          selected_product: selectedName,
+          produto_escolhido: selectedName,
+          aguardando_upsell: 'true',
+          venda: 'intencao_confirmada',
+        })
+        const upsellMsg = `Excelente escolha. Para a pintura, voce ja tem rolo, pincel, bandeja e fita crepe, ou vai precisar de algum desses itens tambem?`
+
+        await sendTextMsg(upsellMsg)
+        await supabase.from('conversation_messages').insert({
+          conversation_id,
+          direction: 'outgoing',
+          content: upsellMsg,
+          media_type: 'text',
+          external_id: `ai_text_choice_upsell_${Date.now()}`,
+        })
         await supabase.from('conversations').update({
-          tags: tagsArr.filter((t) => t !== 'aguardando_upsell:true'),
+          cart_items: nextCart,
+          tags: nextTags,
+          last_message_at: new Date().toISOString(),
+          last_message: upsellMsg.substring(0, 200),
         }).eq('id', conversation_id)
-        conversation.tags = tagsArr.filter((t) => t !== 'aguardando_upsell:true')
+        broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: upsellMsg, media_type: 'text' })
+        await supabase.from('ai_agent_logs').insert({
+          agent_id,
+          conversation_id,
+          event: 'premium_text_choice_upsell_prompt',
+          latency_ms: Date.now() - startTime,
+          metadata: { selected_product: selectedName },
+        })
+        return new Response(JSON.stringify({ ok: true, handled: 'premium_text_choice_upsell' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      if (!shadow_only && isTintasFlow && tagsArr.includes('aguardando_upsell:true')) {
+        const complementMap: Array<[RegExp, string]> = [
+          [/\brolo\b/, 'Rolo'],
+          [/\bbandeja\b/, 'Bandeja'],
+          [/\bpincel\b/, 'Pincel'],
+          [/\bfita(?:\s+crepe)?\b/, 'Fita crepe'],
+          [/\bextensor\b/, 'Extensor'],
+        ]
+        const wantsEverything = /\b(tudo|todos|kit completo)\b/.test(lowerIncoming)
+        const complements = wantsEverything
+          ? ['Rolo', 'Bandeja', 'Pincel', 'Fita crepe']
+          : complementMap.filter(([re]) => re.test(lowerIncoming)).map(([, name]) => name)
+        const uniqueComplements = Array.from(new Set(complements))
+        const nextCart = [
+          ...currentCart,
+          ...uniqueComplements.map((name) => ({ name, qty: 1 })),
+        ]
+        const tagsBase = cleanWaiting(tagsArr)
+        const tagPatch: Record<string, string> = { aguardando_entrega: 'true' }
+        if (uniqueComplements.length > 0) {
+          tagPatch.complementares = uniqueComplements.map((p) => p.toLowerCase().replace(/\s+/g, '_')).join('_')
+        }
+        const deliveryMsg = uniqueComplements.length > 0
+          ? `Perfeito. Inclui ${uniqueComplements.join(', ')} no pedido. Voce prefere retirar na loja ou receber em casa?`
+          : `Perfeito. Voce prefere retirar na loja ou receber em casa?`
+
+        await sendTextMsg(deliveryMsg)
+        await supabase.from('conversation_messages').insert({
+          conversation_id,
+          direction: 'outgoing',
+          content: deliveryMsg,
+          media_type: 'text',
+          external_id: `ai_upsell_delivery_${Date.now()}`,
+        })
+        const nextTags = mergeTags(tagsBase, tagPatch)
+        await supabase.from('conversations').update({
+          cart_items: nextCart,
+          tags: nextTags,
+          last_message_at: new Date().toISOString(),
+          last_message: deliveryMsg.substring(0, 200),
+        }).eq('id', conversation_id)
+        conversation.tags = nextTags
+        ;(conversation as any).cart_items = nextCart
+        broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: deliveryMsg, media_type: 'text' })
+        await supabase.from('ai_agent_logs').insert({
+          agent_id,
+          conversation_id,
+          event: 'premium_upsell_delivery_prompt',
+          latency_ms: Date.now() - startTime,
+          metadata: { complements: uniqueComplements },
+        })
+        return new Response(JSON.stringify({ ok: true, handled: 'premium_upsell_delivery' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      if (!shadow_only && isTintasFlow) {
+        const isDeliveryIntent = /\b(receber|entregar|entrega|casa|delivery)\b/.test(lowerIncoming)
+        const hasBairro = tagsArr.some((t) => t.toLowerCase().startsWith('bairro:'))
+        if (isDeliveryIntent && !hasBairro && !tagsArr.includes('aguardando_bairro:true')) {
+          const { data: lastOutgoing } = await supabase
+            .from('conversation_messages')
+            .select('content')
+            .eq('conversation_id', conversation_id)
+            .eq('direction', 'outgoing')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          const lastOutgoingText = String((lastOutgoing as any)?.content || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+          const lastAskedMoreOrFinalize = /mais algum item/.test(lastOutgoingText) &&
+            /(consultor|vendedor|finalizar|orcamento|orçamento)/.test(lastOutgoingText)
+
+          if (lastAskedMoreOrFinalize) {
+            const nextTags = mergeTags(cleanWaiting(tagsArr), {
+              entrega_modo: 'delivery',
+              aguardando_bairro: 'true',
+            })
+            const msg = 'Qual o bairro para entrega?'
+            await sendTextMsg(msg)
+            await supabase.from('conversation_messages').insert({
+              conversation_id,
+              direction: 'outgoing',
+              content: msg,
+              media_type: 'text',
+              external_id: `ai_delivery_intent_guard_${Date.now()}`,
+            })
+            await supabase.from('conversations').update({
+              tags: nextTags,
+              last_message_at: new Date().toISOString(),
+              last_message: msg.substring(0, 200),
+            }).eq('id', conversation_id)
+            conversation.tags = nextTags
+            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: msg, media_type: 'text' })
+            return new Response(JSON.stringify({ ok: true, handled: 'premium_delivery_intent_guard' }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          }
+        }
+      }
+
+      if (!shadow_only && isTintasFlow && tagsArr.includes('aguardando_entrega:true')) {
+        const isDelivery = /\b(receber|entregar|entrega|casa|delivery)\b/.test(lowerIncoming)
+        const isPickup = /\b(retirar|retirada|buscar|loja)\b/.test(lowerIncoming)
+        if (isDelivery || isPickup) {
+          const tagsBase = cleanWaiting(tagsArr)
+          const nextTags = isDelivery
+            ? mergeTags(tagsBase, { entrega_modo: 'delivery', aguardando_bairro: 'true' })
+            : mergeTags(tagsBase, { entrega_modo: 'retirada', aguardando_mais_itens: 'true' })
+          const msg = isDelivery
+            ? 'Qual bairro para a entrega?'
+            : 'Perfeito. Tem mais algum item da reforma que voce esta procurando ou por enquanto e so isso?'
+          await sendTextMsg(msg)
+          await supabase.from('conversation_messages').insert({
+            conversation_id,
+            direction: 'outgoing',
+            content: msg,
+            media_type: 'text',
+            external_id: `ai_delivery_step_${Date.now()}`,
+          })
+          await supabase.from('conversations').update({
+            tags: nextTags,
+            last_message_at: new Date().toISOString(),
+            last_message: msg.substring(0, 200),
+          }).eq('id', conversation_id)
+          conversation.tags = nextTags
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: msg, media_type: 'text' })
+          return new Response(JSON.stringify({ ok: true, handled: 'premium_delivery_step' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+      }
+
+      if (!shadow_only && isTintasFlow && tagsArr.includes('aguardando_bairro:true')) {
+        const bairro = (incomingText.trim().split(/\n+/).map((part) => part.trim()).filter(Boolean).pop() || incomingText.trim()).slice(0, 80)
+        const nextTags = mergeTags(cleanWaiting(tagsArr), {
+          bairro,
+          aguardando_mais_itens: 'true',
+        })
+        const msg = 'Perfeito. Tem mais algum item da reforma que voce esta procurando ou por enquanto e so isso?'
+        await sendTextMsg(msg)
+        await supabase.from('conversation_messages').insert({
+          conversation_id,
+          direction: 'outgoing',
+          content: msg,
+          media_type: 'text',
+          external_id: `ai_delivery_neighborhood_${Date.now()}`,
+        })
+        await supabase.from('conversations').update({
+          tags: nextTags,
+          last_message_at: new Date().toISOString(),
+          last_message: msg.substring(0, 200),
+        }).eq('id', conversation_id)
+        conversation.tags = nextTags
+        broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: msg, media_type: 'text' })
+        return new Response(JSON.stringify({ ok: true, handled: 'premium_delivery_neighborhood' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
+      if (!shadow_only && isTintasFlow) {
+        const hasDeliveryMode = tagsArr.some((t) => /^entrega_modo:(delivery|entrega|receber)/i.test(t))
+        const hasBairro = tagsArr.some((t) => t.toLowerCase().startsWith('bairro:'))
+        const isClosing = /\b(so isso|e so isso|por enquanto|nada mais|finalizar|fechar|pode finalizar)\b/.test(lowerIncoming)
+        const looksLikeBairro = incomingText.trim().length >= 3 && incomingText.trim().length <= 80 && !/[?]/.test(incomingText)
+        let lastAskedBairro = false
+
+        if (!hasDeliveryMode && !hasBairro && looksLikeBairro) {
+          const { data: lastOutgoing } = await supabase
+            .from('conversation_messages')
+            .select('content')
+            .eq('conversation_id', conversation_id)
+            .eq('direction', 'outgoing')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          const lastOutgoingText = String((lastOutgoing as any)?.content || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+          lastAskedBairro = /bairro/.test(lastOutgoingText) && /entrega/.test(lastOutgoingText)
+        }
+
+        if ((hasDeliveryMode || lastAskedBairro) && !hasBairro && !isClosing && looksLikeBairro) {
+          const bairro = (incomingText.trim().split(/\n+/).map((part) => part.trim()).filter(Boolean).pop() || incomingText.trim()).slice(0, 80)
+          const nextTags = mergeTags(cleanWaiting(tagsArr), {
+            entrega_modo: 'delivery',
+            bairro,
+            aguardando_mais_itens: 'true',
+          })
+          const msg = 'Perfeito. Tem mais algum item da reforma que voce esta procurando ou por enquanto e so isso?'
+          await sendTextMsg(msg)
+          await supabase.from('conversation_messages').insert({
+            conversation_id,
+            direction: 'outgoing',
+            content: msg,
+            media_type: 'text',
+            external_id: `ai_delivery_neighborhood_guard_${Date.now()}`,
+          })
+          await supabase.from('conversations').update({
+            tags: nextTags,
+            last_message_at: new Date().toISOString(),
+            last_message: msg.substring(0, 200),
+          }).eq('id', conversation_id)
+          conversation.tags = nextTags
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: msg, media_type: 'text' })
+          return new Response(JSON.stringify({ ok: true, handled: 'premium_delivery_neighborhood_guard' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+      }
+
+      if (!shadow_only && isTintasFlow && tagsArr.includes('aguardando_mais_itens:true')) {
+        const isClosing = /\b(so isso|e so isso|por enquanto|nada mais|finalizar|fechar|pode finalizar)\b/.test(lowerIncoming)
+        if (isClosing) {
+          const nextTags = mergeTags(cleanWaiting(tagsArr), {
+            intencao: 'compra',
+          })
+          await supabase.from('conversations').update({ tags: nextTags }).eq('id', conversation_id)
+          conversation.tags = nextTags
+        }
       }
     }
 
@@ -827,9 +1126,43 @@ Deno.serve(async (req) => {
       await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: finalMsgSC, media_type: 'text',
       })
+      const cartItemsSC = Array.isArray((conversation as any).cart_items)
+        ? ((conversation as any).cart_items as any[])
+        : []
+      const cartFallbackSC = cartItemsSC.length > 0
+        ? `Itens do pedido:\n${cartItemsSC.map((item) => `- ${item?.qty || 1}x ${item?.name || 'Item'}`).join('\n')}`
+        : ''
+      const sellerSummarySC = buildPremiumHandoffSummary({
+        tags: conversation.tags || [],
+        leadName: (lpForSC as { full_name?: string | null } | null)?.full_name || contact?.name || null,
+        fallbackReason: ['Pedido confirmado pelo lead.', cartFallbackSC].filter(Boolean).join('\n\n'),
+      })
+      if (sellerSummarySC) {
+        const noteContentSC = `📋 Resumo do pedido (interno):\n${sellerSummarySC}`
+        await supabase.from('conversation_messages').insert({
+          conversation_id,
+          direction: 'private_note',
+          content: noteContentSC,
+          media_type: 'text',
+        })
+        broadcastEvent({
+          conversation_id,
+          inbox_id: conversation.inbox_id,
+          direction: 'private_note',
+          content: noteContentSC,
+          media_type: 'text',
+        })
+      }
       const scUpdates: Record<string, unknown> = {
         status_ia: STATUS_IA.SHADOW,
-        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        tags: mergeTags(conversation.tags || [], {
+          ia: STATUS_IA.SHADOW,
+          handoff_created: 'true',
+          agent_status: 'inactive',
+          human_assigned: 'true',
+          seller_notified: 'true',
+          followups_paused: 'true',
+        }),
         lead_msg_count: 0,
       }
       if (profileData?.handoff_department_id) {
@@ -841,7 +1174,7 @@ Deno.serve(async (req) => {
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'implicit_handoff',
         latency_ms: Date.now() - startTime,
-        metadata: { reason: 'sale_closed', sale_type: pendingSaleClosedHandoff, outside_hours: outsideHoursSC, queue: queueResSC },
+        metadata: { reason: 'sale_closed', sale_type: pendingSaleClosedHandoff, outside_hours: outsideHoursSC, queue: queueResSC, cart_items: cartItemsSC },
       })
       broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMsgSC, media_type: 'text' })
       return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'sale_closed', sale_type: pendingSaleClosedHandoff, queue: queueResSC }), {
@@ -898,6 +1231,13 @@ Deno.serve(async (req) => {
       const matchedTrigger = triggers.find((t: string) => {
         const tLower = t.toLowerCase().trim()
         if (!lastMsg.includes(tLower)) return false
+        if (
+          /\bexplica|explicar|diferen[çc]a\b/i.test(tLower) &&
+          /\b(tinta|acrilica|acr[ií]lica|esmalte|epoxi|ep[oó]xi|diferen[çc]a|tipo)\b/i.test(lastMsg)
+        ) {
+          log.info('Handoff trigger skipped - consultive product explanation', { trigger: tLower })
+          return false
+        }
         if (INFO_TERMS.has(tLower) && isQuestion) {
           log.info('Handoff trigger skipped — info question in last msg', { trigger: tLower })
           return false
@@ -1407,6 +1747,7 @@ ${contextBlock}`
 
     let greetingText = agent.greeting_message || ''
     let isJustGreeting = false // will be set inside greeting block if applicable
+    let capturedInlineName: string | null = null
 
     // Returning lead gets personalized welcome-back message instead of generic greeting
     if (isReturningLead) {
@@ -1438,7 +1779,6 @@ ${contextBlock}`
 
       // (b) lead já disse o nome dele na MESMA msg ("sou João", "meu nome é Ana") —
       // detectar PRIMEIRO pra usar abaixo na renderização do template.
-      let capturedInlineName: string | null = null
       try {
         const cand = extractLeadName(incomingText || '')
         if (cand && cand.length >= 2) capturedInlineName = cand
@@ -1609,6 +1949,21 @@ ${contextBlock}`
 
       // Only stop when the lead sent JUST a greeting ("oi", "olá", "bom dia").
       // When the lead asked a real question (e.g., "Qual o horário?"), continue to LLM after greeting.
+      const shouldCaptureNameBeforeFlow =
+        shouldGreet &&
+        !isReturningLead &&
+        !capturedInlineName &&
+        !leadProfile?.full_name &&
+        /com quem|qual (?:e|é) o seu nome|seu nome/i.test(greetingText)
+      if (shouldCaptureNameBeforeFlow) {
+        log.info('First interaction - greeting sent, capture_name=true, stopping before product flow', {
+          textPreview: incomingText.substring(0, 80),
+        })
+        return new Response(JSON.stringify({ ok: true, greeting: true, capture_name: true, media_type: greetMediaType }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+
       if (isJustGreeting) {
         log.info('First interaction — greeting sent, pure greeting detected, stopping', { textPreview: incomingText.substring(0, 50) })
         return new Response(JSON.stringify({ ok: true, greeting: true, media_type: greetMediaType }), {
@@ -1856,10 +2211,20 @@ ${contextBlock}`
       // product specialist consumir (pré-busca → 1 round). Limpamos pendingExitActionSearch
       // pra o set_tags handler de QUALQUER specialist não religar busca; só o product
       // branch usa routerProductPreSearch.
-      routerProductPreSearch = pendingExitActionSearch
+      const pendingSearchCategory = String(pendingExitActionSearch.category || '').toLowerCase()
+      const answeredSearchKeys = new Set(
+        (conversation.tags || [])
+          .filter((t: string): t is string => typeof t === 'string' && t.includes(':'))
+          .map((t: string) => t.slice(0, t.indexOf(':'))),
+      )
+      const tintasMissingBeforeSearch = pendingSearchCategory === 'tintas' &&
+        ['objetivo', 'ambiente', 'aplicacao', 'tipo_tinta', 'cor', 'perfil']
+          .some((key) => !answeredSearchKeys.has(key))
+      routerProductPreSearch = tintasMissingBeforeSearch ? null : pendingExitActionSearch
       log.info('R121 inline deferred — routing_mode=router (product specialist will pre-search)', {
         category: pendingExitActionSearch.category,
         query: pendingExitActionSearch.query,
+        skipped_for_tintas_qualification: tintasMissingBeforeSearch,
       })
       pendingExitActionSearch = null
     }
@@ -2404,37 +2769,255 @@ ${contextBlock}`
           }
           let def = DISPATCH[routerResult.intent]
 
-          // ── Catálogo-ausente → handoff determinístico (2026-05-26) ──────────
-          // Quando uma busca anterior voltou 0 produtos (item provavelmente no
-          // estoque físico, não no catálogo), o handleZeroResults gravou a tag
-          // seller_handoff_pending e o agente fez UMA pergunta de coleta. Neste
-          // turno (a resposta do lead), FORÇAMOS o handoff specialist — independente
-          // do que o router classificou. Fecha o gap em que, sob router, a conversa
-          // se fragmentava entre product/qualification/greeting e o item ausente do
-          // catálogo NUNCA transbordava (o lead ficava coletando perguntas em loop).
-          // O handoff specialist chama handoff_to_human; se ele só verbalizar, os
-          // HANDOFF_PATTERNS em dispatchResponse executam o handoff real (dupla rede).
-          const forcedSellerHandoff = (conversation.tags || []).some(
+          // ── Catálogo-ausente → QUALIFICAÇÃO PROFUNDA antes do handoff (v7.58) ──
+          // Quando uma busca volta 0 (catálogo digital sem o item OU categoria offline),
+          // NÃO transbordamos na hora. O handleZeroResults marca `enriching` e o sistema
+          // coleta um PERFIL RICO (até max_enrichment_questions perguntas de stage) — o
+          // lead NUNCA percebe que faltou no catálogo. AQUI conduzimos o loop de forma
+          // DETERMINÍSTICA: o router sozinho fragmentava entre specialists e nunca voltava
+          // a buscar (o bloqueio `produto:` em deriveProductSearchParams matava a re-busca).
+          //   - enrich_count < max → força product_specialist + injeta routerProductPreSearch
+          //     (bypassa o bloqueio → handleZeroResults reentra, faz a PRÓXIMA pergunta e
+          //     incrementa enrich_count).
+          //   - enrich_count >= max (ou tag legada seller_handoff_pending) → força handoff
+          //     specialist com a cadeia coletada; dispatchResponse step 22 executa o handoff
+          //     real (fila + shadow + msg personalizada) mesmo que o LLM só verbalize.
+          const enrichingNow = (conversation.tags || []).some(
+            (t: string) => typeof t === 'string' && t.startsWith('enriching:'),
+          )
+          const legacySellerPending = (conversation.tags || []).some(
             (t: string) => typeof t === 'string' && t.startsWith('seller_handoff_pending:'),
           )
-          if (forcedSellerHandoff) {
-            def = buildHandoffSpecialistDef()
-            routerProductPreSearch = null
-            // Rede DETERMINÍSTICA: setar o deferred handoff trigger garante que o
-            // dispatchResponse (step 22) EXECUTE o handoff real (runQueueAssignment +
-            // status_ia=shadow + msg personalizada) mesmo que o LLM do handoff specialist
-            // não chame handoff_to_human nem verbalize um padrão reconhecido — foi o que
-            // estava deixando o lead pendurado ("já estou encaminhando..." sem fila criada).
-            const pendingTag = (conversation.tags || []).find(
+          let premiumLoopState = readProductQualificationState(conversation.tags || [])
+          let enrichCountNow = premiumLoopState.questionsAfterEmpty
+          const rawMaxEnrich = Number(agent.max_enrichment_questions ?? 2)
+          const configuredMaxEnrich = Number.isFinite(rawMaxEnrich) ? rawMaxEnrich : 2
+          const maxEnrichNow = Math.min(Math.max(configuredMaxEnrich, 1), 6)
+          const premiumSearchFailNow = (conversation.tags || []).some(
+            (t: string) => typeof t === 'string' && /^search_fail:[1-9]/.test(t),
+          ) && (conversation.tags || []).some(
+            (t: string) =>
+              typeof t === 'string' &&
+              /^interesse:(revestimentos|porcelanatos_revestimentos|torneiras|tintas)\b/.test(t),
+          )
+          const inNoResultLoop =
+            (enrichingNow || legacySellerPending || premiumSearchFailNow) && conversation.status_ia !== STATUS_IA.SHADOW
+          if (inNoResultLoop) {
+            const beforeAnswerVerdict = evaluateProductQualificationFlow({
+              tags: conversation.tags || [],
+              agent,
+              incomingText,
+              catalogResult: 'empty',
+              maxQuestionsAfterEmpty: maxEnrichNow,
+            })
+            const inferredAnswer = inferProductQualificationAnswerTag(
+              beforeAnswerVerdict.nextRequiredField?.key,
+              incomingText,
+            )
+            if (inferredAnswer && Object.keys(inferredAnswer).length > 0) {
+              const inferredWithScoreTags = mergeTags(conversation.tags || [], inferredAnswer)
+              const inferredVerdict = evaluateProductQualificationFlow({
+                tags: inferredWithScoreTags,
+                agent,
+                incomingText,
+                catalogResult: 'empty',
+                maxQuestionsAfterEmpty: maxEnrichNow,
+              })
+              const nextTags = mergeTags(inferredWithScoreTags, {
+                lead_score: String(inferredVerdict.qualificationScore),
+              })
+              conversation.tags = nextTags
+              await supabase.from('conversations').update({ tags: nextTags }).eq('id', conversation_id)
+              premiumLoopState = readProductQualificationState(nextTags)
+              enrichCountNow = premiumLoopState.questionsAfterEmpty
+              log.info('premium no-result loop: inferred current answer tag', {
+                field: Object.keys(inferredAnswer)[0],
+                value: Object.values(inferredAnswer)[0],
+                score: inferredVerdict.qualificationScore,
+              })
+            }
+          }
+          const premiumHandoffVerdict = inNoResultLoop
+            ? evaluateProductQualificationFlow({
+              tags: conversation.tags || [],
+              agent,
+              incomingText,
+              catalogResult: 'empty',
+              maxQuestionsAfterEmpty: maxEnrichNow,
+            })
+            : null
+          const premiumNeedsMoreFields = Boolean(
+            premiumHandoffVerdict?.categoryId &&
+            !premiumHandoffVerdict.readyToHandoff &&
+            premiumHandoffVerdict.nextRequiredField,
+          )
+          const noResultReadyForHandoff = Boolean(
+            premiumHandoffVerdict?.readyToHandoff ||
+            (legacySellerPending && !premiumNeedsMoreFields) ||
+            (enrichCountNow >= maxEnrichNow && !premiumNeedsMoreFields),
+          )
+
+          const buildNoResultReason = (): string => {
+            // Resumo RICO pro vendedor: cadeia completa de qualificação coletada no loop
+            // (nome > categoria > produto > ambiente > cor > acabamento > área...). O item
+            // provavelmente está só no estoque físico — o vendedor confere e fecha.
+            const chain = buildQualificationChain(conversation.tags || [], {}, leadName || null)
+            if (chain && chain.trim()) return chain.trim()
+            const legacyT = (conversation.tags || []).find(
               (t: string) => typeof t === 'string' && t.startsWith('seller_handoff_pending:'),
             )
-            pendingHandoffTrigger = pendingTag
-              ? (pendingTag.slice('seller_handoff_pending:'.length).replace(/_/g, ' ').trim() || 'consulta de produto')
-              : 'consulta de produto'
-            pendingHandoffTriggerMsg = incomingText
-            log.info('seller_handoff_pending → FORÇANDO handoff specialist + deferred trigger (catálogo-ausente)', {
-              router_intent: routerResult.intent, reason: pendingHandoffTrigger,
+            return (
+              (legacyT ? legacyT.slice('seller_handoff_pending:'.length).replace(/_/g, ' ').trim() : '') ||
+              'consulta de produto'
+            )
+          }
+
+          const buildLeadSafeNoResultReason = (): string => {
+            const tags = Array.isArray(conversation.tags) ? conversation.tags : []
+            const getTag = (key: string): string | null => {
+              let value: string | null = null
+              for (const tag of tags) {
+                if (typeof tag === 'string' && tag.startsWith(`${key}:`)) {
+                  value = tag.slice(key.length + 1).replace(/_/g, ' ').trim()
+                }
+              }
+              return value
+            }
+            const interesse = (getTag('interesse') || 'produto').replace(/^torneiras$/i, 'torneira gourmet')
+            const parts = [
+              interesse,
+              getTag('ambiente_torneira') ? `para ${getTag('ambiente_torneira')}` : null,
+              getTag('tipo_torneira') ? `de ${getTag('tipo_torneira')}` : null,
+              getTag('modelo_torneira') ? `com ${getTag('modelo_torneira')}` : null,
+              getTag('acabamento_torneira') ? `acabamento ${getTag('acabamento_torneira')}` : null,
+            ].filter(Boolean)
+            return parts.join(', ')
+          }
+
+          // Diretiva por-turno pro qualification_specialist no loop sem-resultado: injetada
+          // via preSearchContext (specialistBase concatena no system prompt). Sem ela o
+          // specialist REPETE a mesma pergunta e às vezes afirma "temos sim". Aqui damos
+          // (1) regra de neutralidade (nunca confirmar/negar estoque), (2) a cadeia já
+          // coletada, (3) a ordem de atributos a perguntar e (4) UMA pergunta por turno.
+          let noResultDirective: string | null = null
+          const buildEnrichDirective = (): string => {
+            const chain = buildQualificationChain(conversation.tags || [], {}, leadName || null)
+            const premiumVerdict = evaluateProductQualificationFlow({
+              tags: conversation.tags || [],
+              agent,
+              incomingText,
+              catalogResult: 'empty',
+              maxQuestionsAfterEmpty: maxEnrichNow,
             })
+            const nextRequired = premiumVerdict.nextRequiredField
+              ? `${premiumVerdict.nextRequiredField.key} (${premiumVerdict.nextRequiredField.label})`
+              : 'nenhum'
+            return [
+              `[INTERNO] Proximo campo obrigatorio: ${nextRequired}.`,
+              '[INTERNO — NÃO mostre nada disto ao lead] Você está QUALIFICANDO um produto que',
+              'provavelmente está no estoque FÍSICO da loja (não no catálogo digital).',
+              'REGRAS OBRIGATÓRIAS:',
+              '1) NUNCA diga "temos", "temos sim", "não temos", "está disponível", "anotado", "anotei"',
+              'nem confirme/negue estoque ou disponibilidade. Seja NEUTRO e consultivo ("Claro!",',
+              '"Perfeito,", "Entendi,"). Proibido clichês de IA ("Pra encontrar a melhor opção").',
+              '2) Produza NO MÁXIMO UMA mensagem de texto neste turno (1 frase, 1 pergunta). Ao chamar',
+              'set_tags pra salvar a resposta do lead, a pergunta vai JUNTO no mesmo texto — NÃO escreva',
+              'texto adicional depois da tool. NUNCA mande duas mensagens nem duas perguntas.',
+              '3) A pergunta deve ser sobre um atributo DIFERENTE que ainda falta. PROIBIDO repetir a',
+              'pergunta da sua mensagem anterior: se o lead trouxe OUTRA informação, ACEITE-a e pergunte',
+              'um atributo NOVO — não insista no mesmo.',
+              '4) Atributos úteis (pergunte os que faltam, em qualquer ordem natural): ambiente',
+              '(interno/externo), formato/medida, acabamento (brilhante/acetinado/fosco), cor,',
+              'metragem aproximada (m²).',
+              `Já coletado: ${chain && chain.trim() ? chain : '(só o pedido inicial)'}.`,
+              'Olhe sua ÚLTIMA mensagem no histórico e pergunte algo DIFERENTE dela.',
+            ].join(' ')
+          }
+
+          if (inNoResultLoop && noResultReadyForHandoff) {
+            const forcedReason = buildNoResultReason()
+            const leadSafeReason = buildLeadSafeNoResultReason()
+            log.info('no-result loop: perfil completo → handoff forçado', {
+              router_intent: routerResult.intent, enrichCount: enrichCountNow, max: maxEnrichNow,
+              reason: forcedReason,
+            })
+            const forcedHandoffResult = await executeToolSafe('handoff_to_human', {
+              reason: leadSafeReason || forcedReason,
+              source: 'premium_no_catalog_ready',
+            })
+            return new Response(JSON.stringify({
+              ok: true,
+              handoff: true,
+              reason: 'premium_no_catalog_ready',
+              result: String(forcedHandoffResult).slice(0, 200),
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
+          } else if (inNoResultLoop) {
+            // Ainda coletando perfil → qualification_specialist faz a PRÓXIMA pergunta de
+            // atributo (cor, acabamento, área...). NÃO força pré-busca: offline é bloqueado
+            // pelo searchGuard (e o product specialist errava ao processar esse contexto);
+            // digital já buscou e deu 0 — re-buscar é desperdício. O contador enrich_count é
+            // incrementado DETERMINISTICAMENTE aqui; ao atingir o cap (acima) transbordamos.
+            const nextCount = enrichCountNow + 1
+            const loopTags = mergeTags(conversation.tags || [], {
+              enrich_count: String(nextCount),
+              questions_after_empty: String(nextCount),
+              catalog_result: 'empty',
+              physical_stock_required: 'true',
+              flow_mode: 'qualify_then_handoff',
+            })
+            conversation.tags = loopTags
+            await supabase.from('conversations').update({ tags: loopTags }).eq('id', conversation_id)
+            const nextVerdict = evaluateProductQualificationFlow({
+              tags: conversation.tags || [],
+              agent,
+              incomingText,
+              catalogResult: 'empty',
+              maxQuestionsAfterEmpty: maxEnrichNow,
+            })
+            const questionByField: Record<string, string> = {
+              acabamento: 'Você prefere acabamento brilhante, acetinado ou fosco?',
+              cor: 'Qual tonalidade você imagina: bege claro, cinza, branco ou outro tom?',
+              local_aplicacao: 'Vai utilizar em qual ambiente: sala, cozinha, quarto ou área integrada?',
+              area: 'Aproximadamente quantos metros quadrados você pretende revestir?',
+              acabamento_torneira: 'Qual acabamento você prefere: cromado, preto fosco, dourado ou escovado?',
+              tipo_cuba: 'Sua cuba é simples ou dupla?',
+              perfil: 'Você procura algo mais sofisticado ou uma opção com melhor custo-benefício?',
+            }
+            const nextFieldKey = nextVerdict.nextRequiredField?.key || ''
+            const qualifMsg = questionByField[nextFieldKey] ||
+              (nextVerdict.nextRequiredField?.examples
+                ? `Qual ${nextVerdict.nextRequiredField.label}? ${nextVerdict.nextRequiredField.examples}.`
+                : 'Me passa mais uma especificação para eu direcionar melhor seu atendimento?')
+            await sendTextMsg(qualifMsg)
+            await supabase.from('conversation_messages').insert({
+              conversation_id,
+              direction: 'outgoing',
+              content: qualifMsg,
+              media_type: 'text',
+            })
+            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: qualifMsg, media_type: 'text' })
+            await supabase.from('ai_agent_logs').insert({
+              agent_id,
+              conversation_id,
+              event: 'response_sent',
+              model: 'deterministic-premium-flow',
+              latency_ms: Date.now() - startTime,
+              metadata: {
+                source: 'premium_no_result_next_question',
+                next_field: nextFieldKey,
+                response_text: qualifMsg,
+              },
+            })
+            log.info('no-result loop: qualificando fundo via qualification_specialist', {
+              router_intent: routerResult.intent, enrichCount: nextCount, max: maxEnrichNow, nextField: nextFieldKey,
+            })
+            return new Response(JSON.stringify({
+              ok: true,
+              response: qualifMsg,
+              reason: 'premium_no_result_next_question',
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
           }
 
           // ── qualificationGate (2026-05-24): FONTE ÚNICA buscar-vs-qualificar ──
@@ -2450,20 +3033,130 @@ ${contextBlock}`
           //   - mode='qualify_then_handoff' (offline): product_specialist qualifica
           //     brevemente + handoff (qualification_specialist não tem essa tool).
           //   - mode='no_category': respeita a escolha do router (sem categoria a gatear).
-          if (!forcedSellerHandoff && (routerResult.intent === 'produto' || routerResult.intent === 'qualificacao')) {
+          if (!inNoResultLoop && (routerResult.intent === 'produto' || routerResult.intent === 'qualificacao')) {
+            const currentPremiumVerdict = evaluateProductQualificationFlow({
+              tags: conversation.tags || [],
+              agent,
+              incomingText,
+            })
+            const currentAnsweredRuntimeKeys = new Set(
+              (conversation.tags || [])
+                .filter((t: string): t is string => typeof t === 'string' && t.includes(':'))
+                .map((t: string) => t.slice(0, t.indexOf(':'))),
+            )
+            const currentInteresseTag = (conversation.tags || []).find(
+              (t: string) => typeof t === 'string' && t.startsWith('interesse:'),
+            )
+            const currentTintasRuntimeField = currentInteresseTag === 'interesse:tintas'
+              ? ['objetivo', 'ambiente', 'aplicacao', 'tipo_tinta', 'cor', 'perfil']
+                .find((key) => !currentAnsweredRuntimeKeys.has(key))
+              : ''
+            const inferredCurrentAnswer = inferProductQualificationAnswerTag(
+              currentTintasRuntimeField || currentPremiumVerdict.nextRequiredField?.key,
+              incomingText,
+            )
+            if (inferredCurrentAnswer && Object.keys(inferredCurrentAnswer).length > 0) {
+              const inferredWithScoreTags = mergeTags(conversation.tags || [], inferredCurrentAnswer)
+              const inferredVerdict = evaluateProductQualificationFlow({
+                tags: inferredWithScoreTags,
+                agent,
+                incomingText,
+              })
+              const nextTags = mergeTags(inferredWithScoreTags, {
+                lead_score: String(inferredVerdict.qualificationScore),
+              })
+              conversation.tags = nextTags
+              await supabase.from('conversations').update({ tags: nextTags }).eq('id', conversation_id)
+              log.info('premium qualification: inferred current answer tag before gate', {
+                field: Object.keys(inferredCurrentAnswer)[0],
+                value: Object.values(inferredCurrentAnswer)[0],
+                score: inferredVerdict.qualificationScore,
+              })
+            }
+            const deterministicPremiumVerdict = evaluateProductQualificationFlow({
+              tags: conversation.tags || [],
+              agent,
+              incomingText,
+            })
             const gate = evaluateQualificationGate({
               tags: conversation.tags || [],
               agent,
               incomingText,
             })
             if (gate.categoryId) {
-              if (gate.readyToSearch && gate.mode === 'search') {
+              const answeredRuntimeKeys = new Set(
+                (conversation.tags || [])
+                  .filter((t: string): t is string => typeof t === 'string' && t.includes(':'))
+                  .map((t: string) => t.slice(0, t.indexOf(':'))),
+              )
+              const tintasRuntimeField = gate.categoryId === 'tintas'
+                ? ['objetivo', 'ambiente', 'aplicacao', 'tipo_tinta', 'cor', 'perfil']
+                  .find((key) => !answeredRuntimeKeys.has(key))
+                : ''
+              if ((gate.readyToSearch && gate.mode === 'search' && !tintasRuntimeField) || (gate.categoryId === 'tintas' && !tintasRuntimeField)) {
                 def = DISPATCH['produto']
+                if (gate.categoryId === 'tintas') {
+                  routerProductPreSearch = {
+                    category: 'tintas',
+                    query: 'tinta',
+                  }
+                }
                 log.info('qualificationGate: score atingiu limiar → product_specialist (busca)', {
                   router_intent: routerResult.intent, category: gate.categoryId,
                   score: gate.score, search_ready_score: gate.searchReadyScore,
                 })
-              } else if (gate.mode === 'qualify') {
+              } else if (gate.mode === 'qualify' || tintasRuntimeField) {
+                const premiumQualifyQuestions: Record<string, string> = {
+                  objetivo: 'Essa tinta é para obra nova ou reforma?',
+                  ambiente: 'O ambiente é interno ou externo?',
+                  aplicacao: 'Você vai pintar paredes, teto, portas ou móveis?',
+                  tipo_tinta: 'Você já sabe se prefere tinta acrílica, esmalte ou epóxi?',
+                  cor: 'Qual cor você está procurando?',
+                  perfil: 'Você prefere uma linha econômica, intermediária ou premium?',
+                  aplicacao_revestimento: 'Me confirma só se é para piso ou parede?',
+                  ambiente_revestimento: 'Vai ser para um ambiente residencial ou comercial?',
+                  formato: 'Qual formato você prefere: 60x60, 90x90 ou 120x120?',
+                  ambiente_torneira: 'Essa torneira gourmet vai ser para cozinha ou área gourmet?',
+                  tipo_torneira: 'A instalação vai ser na bancada ou na parede?',
+                  modelo_torneira: 'Você prefere o modelo com ducha flexível ou bica alta?',
+                }
+                const premiumQualifyField = tintasRuntimeField || deterministicPremiumVerdict.nextRequiredField?.key || ''
+                const wantsPaintExplanation = premiumQualifyField === 'tipo_tinta' &&
+                  /\bexplica|explicar|diferen[çc]a\b/i.test(incomingText)
+                const premiumQualifyMsg = wantsPaintExplanation
+                  ? 'Claro. Para paredes internas, a tinta acrílica costuma ser a mais indicada: cobre bem, seca rápido e tem baixo odor. Esmalte é mais usado em portas, grades e móveis, e epóxi é para áreas que precisam de muita resistência. Para o seu caso, eu seguiria com acrílica. Pode ser?'
+                  : premiumQualifyQuestions[premiumQualifyField]
+                if (
+                  premiumQualifyMsg &&
+                  gate.categoryId &&
+                  ['tintas', 'revestimentos', 'porcelanatos_revestimentos', 'torneiras'].includes(gate.categoryId)
+                ) {
+                  await sendTextMsg(premiumQualifyMsg)
+                  await supabase.from('conversation_messages').insert({
+                    conversation_id,
+                    direction: 'outgoing',
+                    content: premiumQualifyMsg,
+                    media_type: 'text',
+                  })
+                  broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: premiumQualifyMsg, media_type: 'text' })
+                  await supabase.from('ai_agent_logs').insert({
+                    agent_id,
+                    conversation_id,
+                    event: 'response_sent',
+                    model: 'deterministic-premium-flow',
+                    latency_ms: Date.now() - startTime,
+                    metadata: {
+                      source: 'premium_pre_search_next_question',
+                      next_field: premiumQualifyField,
+                      response_text: premiumQualifyMsg,
+                    },
+                  })
+                  return new Response(JSON.stringify({
+                    ok: true,
+                    response: premiumQualifyMsg,
+                    reason: 'premium_pre_search_next_question',
+                  }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+                }
                 def = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
                 routerProductPreSearch = null
                 log.info('qualificationGate: qualify-first → qualification_specialist', {
@@ -2471,22 +3164,31 @@ ${contextBlock}`
                   score: gate.score, search_ready_score: gate.searchReadyScore, reason: gate.reason,
                 })
               } else if (gate.mode === 'qualify_then_handoff') {
-                def = DISPATCH['produto']
+                // v7.58: offline ("vendemos, mas não está no catálogo digital") → QUALIFICAÇÃO
+                // PROFUNDA via qualification_specialist (NÃO product+pré-busca: o searchGuard
+                // bloqueia offline e o product specialist lançava erro nesse contexto → lead
+                // ficava mudo). Marca enriching + enrich_count:1; o pré-router conduz o loop de
+                // perguntas e transborda ao atingir max_enrichment_questions, com resumo rico.
+                // Substitui o atalho v7.55 (1 pergunta + handoff) que o dono reprovou — agora é
+                // idêntico ao 21.36: o lead NUNCA percebe a ausência e é qualificado a fundo.
+                def = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
                 routerProductPreSearch = null
-                // Offline = "vendemos, mas não está no catálogo digital" → MESMO destino do
-                // search-0 (v7.55): o specialist faz UMA pergunta (marca) ACOLHENDO o que o
-                // lead já deu, e marcamos seller_handoff_pending pra FORÇAR o handoff no
-                // PRÓXIMO turno (o pré-router assume e executa de verdade). Sem stages, sem
-                // re-perguntar, sem lead pendurado — fecha o caso Eduarda. (2026-05-26)
-                const alreadyPendingOffline = (conversation.tags || []).some(
-                  (t: string) => typeof t === 'string' && t.startsWith('seller_handoff_pending:'),
-                )
-                if (!alreadyPendingOffline) {
-                  const offlineTags = mergeTags(conversation.tags || [], { seller_handoff_pending: gate.categoryId })
+                noResultDirective = buildEnrichDirective()
+                if (!(conversation.tags || []).some(
+                  (t: string) => typeof t === 'string' && t.startsWith('enriching:'),
+                )) {
+                  const offlineTags = mergeTags(conversation.tags || [], {
+                    enriching: '1',
+                    enrich_count: '1',
+                    questions_after_empty: '1',
+                    catalog_result: 'empty',
+                    physical_stock_required: 'true',
+                    flow_mode: 'qualify_then_handoff',
+                  })
                   conversation.tags = offlineTags
                   await supabase.from('conversations').update({ tags: offlineTags }).eq('id', conversation_id)
                 }
-                log.info('qualificationGate: categoria offline → product_specialist (1 pergunta marca + handoff forçado próx. turno)', {
+                log.info('qualificationGate: offline → qualificação profunda (qualification_specialist)', {
                   router_intent: routerResult.intent, category: gate.categoryId, catalog_status: gate.catalogStatus,
                 })
               }
@@ -2504,7 +3206,8 @@ ${contextBlock}`
             })
             // Fallthrough pro monolith abaixo
           } else if (def) {
-            log.info(`Dispatching to ${def.name}_specialist (hop 1)`, { intent: routerResult.intent })
+            let dispatchDef = def
+            log.info(`Dispatching to ${dispatchDef.name}_specialist (hop 1)`, { intent: routerResult.intent })
 
             // ── Latência (2026-05-24): pré-busca determinística do product specialist ──
             // Turnos de produto com search gastavam 2 rounds de LLM (decidir buscar →
@@ -2515,7 +3218,7 @@ ${contextBlock}`
             // ENVIADO" (idempotente). Só roda pro product specialist, fora de SHADOW, e
             // quando o lead ainda não recebeu produtos (deriveProductSearchParams decide).
             let preSearchContext = ''
-            if (def.name === 'product' && conversation.status_ia !== STATUS_IA.SHADOW) {
+            if (dispatchDef.name === 'product' && conversation.status_ia !== STATUS_IA.SHADOW) {
               const searchParams = deriveProductSearchParams({
                 incomingText,
                 tags: conversation.tags || [],
@@ -2529,9 +3232,41 @@ ${contextBlock}`
                   }, searchParams, log)
                   preSearchContext = inlineSearch.inlineSearchContext
                   if (inlineSearch.toolCall) toolCallsLog.push(inlineSearch.toolCall)
+                  if (/sem resultados/i.test(preSearchContext)) {
+                    const currentEmptyState = readProductQualificationState(conversation.tags || [])
+                    const nextEmptyCount = (currentEmptyState.questionsAfterEmpty || 0) + 1
+                    conversation.tags = mergeTags(conversation.tags || [], {
+                      enrich_count: String(nextEmptyCount),
+                      questions_after_empty: String(nextEmptyCount),
+                      search_fail: '1',
+                      enriching: '1',
+                      catalog_result: 'empty',
+                      physical_stock_required: 'true',
+                      flow_mode: 'qualify_then_handoff',
+                    })
+                    const premiumAfterEmpty = evaluateProductQualificationFlow({
+                      tags: conversation.tags || [],
+                      agent,
+                      incomingText,
+                      catalogResult: 'empty',
+                      maxQuestionsAfterEmpty: maxEnrichNow,
+                    })
+                    const nextRequired = premiumAfterEmpty.nextRequiredField
+                      ? `${premiumAfterEmpty.nextRequiredField.key} (${premiumAfterEmpty.nextRequiredField.label}; exemplos: ${premiumAfterEmpty.nextRequiredField.examples || 'sem exemplos'})`
+                      : 'nenhum'
+                    preSearchContext = [
+                      preSearchContext,
+                      '[INTERNO] A busca do catalogo digital retornou 0 resultados. Isto e interno e nunca deve ser dito ao lead.',
+                      `[INTERNO] Proximo campo obrigatorio: ${nextRequired}.`,
+                      '[INTERNO] Neste turno, NAO mostre produtos, NAO diga que vai verificar com consultor e NAO faca handoff.',
+                      '[INTERNO] Faca somente uma pergunta curta sobre o proximo campo obrigatorio.',
+                    ].join('\n')
+                    dispatchDef = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
+                  }
                   log.info('Product pre-search done (1-round path)', {
                     query: searchParams.query, category: searchParams.category,
                     has_context: !!preSearchContext,
+                    redirected_to: dispatchDef.name,
                   })
                 } catch (err) {
                   // Não-fatal: sem pré-busca, o specialist cai no caminho de 2 rounds.
@@ -2566,19 +3301,19 @@ ${contextBlock}`
               greetingSentThisTurn: greetingBlockEntered,
               startTime,
               supabase, log, corsHeaders,
-              preSearchContext: preSearchContext || undefined,
+              preSearchContext: (preSearchContext || noResultDirective) || undefined,
             }
-            const specialistResult = await runSpecialist(specialistCtx, def)
+            const specialistResult = await runSpecialist(specialistCtx, dispatchDef)
 
             // Bug 4 fix (v7.43.2): falha catastrófica do LLM → fallback monolith
             // (não retorna 502 ao webhook, que mataria o turno).
             if (specialistResult.errorResponse) {
               log.error('Specialist failed catastrophically — falling back to monolith', {
-                specialist: def.name, error: specialistResult.errorMessage || 'unknown',
+                specialist: dispatchDef.name, error: specialistResult.errorMessage || 'unknown',
               })
               // Fallthrough pro monolith abaixo
             } else {
-              log.info(`Router pipeline END (${def.name}_specialist)`, {
+              log.info(`Router pipeline END (${dispatchDef.name}_specialist)`, {
                 intent: routerResult.intent,
                 input_tokens: specialistResult.inputTokens,
                 output_tokens: specialistResult.outputTokens,
@@ -2638,6 +3373,7 @@ ${contextBlock}`
           .slice(-6)
           .map((m: any) => m.content)
         const msgsSinceName = countMsgsSinceNameUse(leadName, recentOutgoing)
+        let deterministicBlock: { rule: string; detail: string }[] = []
 
         // Sprint B1 (2026-05-21): determ validator (telemetria-only nesta sprint).
         // Roda antes do validator LLM. Quando dados mostrarem confiança alta, vira enforcement.
@@ -2652,6 +3388,11 @@ ${contextBlock}`
               .flatMap(t => (String(t.result).match(/R\$[\d.,]+/g) || [])),
           })
           if (!detResult.valid) {
+            if (detResult.blockSend) {
+              deterministicBlock = detResult.violations
+                .filter((v) => v.severity === 'block')
+                .map((v) => ({ rule: v.rule, detail: v.detail }))
+            }
             log.warn('responseValidator (determ) caught violations', {
               violations: detResult.violations.map(v => `${v.rule}:${v.severity}`),
               blockSend: detResult.blockSend,
@@ -2691,7 +3432,22 @@ ${contextBlock}`
           catalogPrices,
         }
 
-        const validation = await validateResponse(responseText, validatorConfig, agent_id, conversation_id)
+        const validation = deterministicBlock.length > 0
+          ? {
+              score: 1,
+              verdict: 'BLOCK' as const,
+              violations: deterministicBlock.map((v) => ({
+                rule: v.rule,
+                severity: 'critico',
+                detail: v.detail,
+                deduction: -9,
+              })),
+              bonuses: [],
+              rewritten: null,
+              suggestion: 'Bloqueado por validador deterministico antes do envio.',
+              block_action: null,
+            }
+          : await validateResponse(responseText, validatorConfig, agent_id, conversation_id)
         log.info('Validator result', { score: validation.score, verdict: validation.verdict, violations: validation.violations.length })
 
         if (validation.verdict === 'BLOCK') {

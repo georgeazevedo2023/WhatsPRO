@@ -26,6 +26,16 @@ describe('validateLLMResponse', () => {
   it('anti_negative_phrases: MISS em frase positiva', () => {
     const r = validateLLMResponse('Temos várias opções de porcelanato disponíveis', baseCtx)
     expect(r.violations.some((v) => v.rule === 'anti_negative_phrases')).toBe(false)
+    expect(r.violations.some((v) => v.rule === 'anti_stock_confirmation')).toBe(true)
+  })
+  it('anti_stock_confirmation: HIT em "Temos sim"', () => {
+    const r = validateLLMResponse('Temos sim porcelanato marmorizado!', baseCtx)
+    expect(r.blockSend).toBe(true)
+    expect(r.violations.some((v) => v.rule === 'anti_stock_confirmation')).toBe(true)
+  })
+  it('anti_stock_confirmation: MISS em resposta neutra consultiva', () => {
+    const r = validateLLMResponse('Claro, me ajuda a entender melhor o que voce procura.', baseCtx)
+    expect(r.violations.some((v) => v.rule === 'anti_stock_confirmation')).toBe(false)
   })
 
   // 2. anti_internal_error
@@ -54,7 +64,8 @@ describe('validateLLMResponse', () => {
   it('anti_echo_opener: HIT em "Anotado,"', () => {
     const r = validateLLMResponse('Anotado, qual a metragem?', baseCtx)
     expect(r.violations.some((v) => v.rule === 'anti_echo_opener')).toBe(true)
-    expect(r.blockSend).toBe(false)
+    expect(r.violations.some((v) => v.rule === 'anti_anotei')).toBe(true)
+    expect(r.blockSend).toBe(true)
   })
   it('anti_echo_opener: HIT em "Só pra confirmar" (acento)', () => {
     const r = validateLLMResponse('Só pra confirmar, você quer porcelanato?', baseCtx)

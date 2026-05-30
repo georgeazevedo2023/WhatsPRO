@@ -17,8 +17,10 @@
 
 import { STATUS_IA } from '../../constants.ts'
 import { mergeTags } from '../../agentHelpers.ts'
-import { isOutsideBusinessHours, personalizeHandoffMessage } from '../../businessHours.ts'
+import { isOutsideBusinessHours, personalizeHandoffMessage, buildDeliveryLine } from '../../businessHours.ts'
 import { normalizeCart, formatCartOneLine, formatCartSummary } from '../cart.ts'
+import { buildPremiumHandoffSummary } from '../handoffSummary.ts'
+import { evaluateProductQualificationFlow } from '../productQualificationFlow.ts'
 import { validateSetTagsInput, validateInteresseCategory } from '../../setTagsValidator.ts'
 import {
   getCategoriesOrDefault,
@@ -700,6 +702,61 @@ export async function setTags(
 // handoff_to_human
 // =============================================================================
 
+function shouldBlockPrematurePremiumHandoff(input: {
+  agent: any
+  conversation: { tags?: string[] | null; cart_items?: unknown } & Record<string, any>
+  incomingText: string
+  args: Record<string, any>
+}): { field: string; message: string } | null {
+  if (input.args?.source === 'premium_no_catalog_ready') return null
+  const tags = Array.isArray(input.conversation.tags) ? input.conversation.tags : []
+  const hasSelectedProduct = tags.some((tag) =>
+    typeof tag === 'string' && (tag.startsWith('selected_product:') || tag.startsWith('produto_escolhido:'))
+  )
+  const cartItems = normalizeCart((input.conversation as Record<string, unknown>).cart_items)
+  if (hasSelectedProduct || cartItems.length > 0) return null
+
+  const interesse = extractInteresseFromTags(tags).toLowerCase()
+  const isRevestimentoFlow = /porcelanato|revestimento|piso/.test(interesse)
+  if (!isRevestimentoFlow) return null
+  if (/\b(vendedor|atendente|humano|consultor)\b/i.test(input.incomingText || '')) return null
+
+  const verdict = evaluateProductQualificationFlow({
+    tags,
+    agent: input.agent,
+    incomingText: input.incomingText,
+    catalogResult: 'empty',
+    maxQuestionsAfterEmpty: 6,
+  })
+  if (verdict.readyToHandoff || !verdict.nextRequiredField) return null
+
+  return {
+    field: verdict.nextRequiredField.key,
+    message: `[INTERNO] Handoff bloqueado: qualificação premium incompleta. Faça só esta pergunta ao lead agora: ${premiumQuestionForField(verdict.nextRequiredField.key)}`,
+  }
+}
+
+function premiumQuestionForField(fieldKey: string): string {
+  switch (fieldKey) {
+    case 'formato':
+      return 'Você já tem alguma medida em mente, como 60x60, 90x90 ou 120x120?'
+    case 'acabamento':
+      return 'Você prefere acabamento brilhante, acetinado ou fosco?'
+    case 'cor':
+      return 'Qual tonalidade você imagina: bege claro, cinza, branco ou outro tom?'
+    case 'local_aplicacao':
+      return 'Vai utilizar em qual ambiente: sala, quarto, cozinha ou área integrada?'
+    case 'area':
+      return 'Aproximadamente quantos metros quadrados você pretende revestir?'
+    case 'ambiente_revestimento':
+      return 'É para sua casa ou para algum ambiente comercial?'
+    case 'aplicacao_revestimento':
+      return 'Esse porcelanato será para piso ou parede?'
+    default:
+      return 'Me passa mais uma especificação do produto para eu direcionar melhor seu atendimento?'
+  }
+}
+
 export async function handoffToHuman(
   args: Record<string, any>,
   ctx: SetTagsAndHandoffCtx,
@@ -726,6 +783,19 @@ export async function handoffToHuman(
   } = ctx
 
   // Sprint B1 (2026-05-21): guard determinístico — bloqueia handoff quando lead pergunta sobre pagamento
+  const prematurePremiumBlock = shouldBlockPrematurePremiumHandoff({
+    agent,
+    conversation,
+    incomingText,
+    args,
+  })
+  if (prematurePremiumBlock) {
+    log.info('Handoff blocked: premium product qualification incomplete', {
+      field: prematurePremiumBlock.field,
+    })
+    return prematurePremiumBlock.message
+  }
+
   const paymentBlock = shouldBlockHandoffForPayment({
     handoffReason: String(args.reason || ''),
     leadText: incomingText,
@@ -750,12 +820,30 @@ export async function handoffToHuman(
   // Premium #2 (2026-05-25): se houver pedido estruturado (cart_items), ele é a
   // fonte de verdade — usa a linha compacta pro texto ao lead e anexa o itemizado
   // completo (com total) ao reason que o vendedor recebe.
-  const cartItems = normalizeCart((conversation as Record<string, unknown>).cart_items)
+  let freshConversationForHandoff: any = null
+  try {
+    const { data } = await supabase
+      .from('conversations')
+      .select('tags, cart_items')
+      .eq('id', conversation_id)
+      .maybeSingle()
+    freshConversationForHandoff = data
+  } catch {
+    freshConversationForHandoff = null
+  }
+  const handoffTags = ((freshConversationForHandoff as any)?.tags || conversation.tags || []) as string[]
+  const cartItems = normalizeCart((freshConversationForHandoff as any)?.cart_items || (conversation as Record<string, unknown>).cart_items)
   const cartOneLine = formatCartOneLine(cartItems)
   const cartFull = formatCartSummary(cartItems)
-  const effectiveReason = cartFull
+  // v7.58: linha de entrega (retirada na loja vs receber em casa + bairro) coletada
+  // pelo product specialist antes do handoff. Vai no resumo interno pro vendedor.
+  const deliveryLine = buildDeliveryLine(handoffTags)
+  const reasonWithCart = cartFull
     ? `${String(args.reason || '').trim()}${args.reason ? '\n\n' : ''}🛒 ${cartFull}`.trim()
     : String(args.reason || '')
+  const effectiveReason = deliveryLine
+    ? `${reasonWithCart}${reasonWithCart ? '\n' : ''}${deliveryLine}`.trim()
+    : reasonWithCart
   const handoffMsg = personalizeHandoffMessage(
     pickHandoffMessage({ agent, profileData, funnelData, outsideHours }),
     { leadName, itemSummary: cartOneLine || String(args.reason || '') },
@@ -802,7 +890,15 @@ export async function handoffToHuman(
   // lead (só insert + broadcast pro helpdesk). É AQUI que mora o texto rico em 3ª
   // pessoa ("Lead quer…", pedido itemizado) — a mensagem ao lead fica só na ponte
   // humanizada. Resolve o feedback do dono (não expor IA + resumo pro vendedor).
-  const sellerNote = (effectiveReason || '').trim()
+  let premiumSummary = buildPremiumHandoffSummary({
+    tags: handoffTags,
+    leadName: leadName || contact?.name || null,
+    fallbackReason: effectiveReason,
+  })
+  if (cartFull && !/Pedido \(/i.test(premiumSummary)) {
+    premiumSummary = `${premiumSummary}\n${cartFull}`.trim()
+  }
+  const sellerNote = (premiumSummary || effectiveReason || '').trim()
   if (sellerNote) {
     const noteContent = `📋 Resumo do pedido (interno):\n${sellerNote}`
     await supabase.from('conversation_messages').insert({
@@ -825,7 +921,14 @@ export async function handoffToHuman(
     .from('conversations')
     .update({
       status_ia: newStatus,
-      tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+      tags: mergeTags(handoffTags, {
+        ia: STATUS_IA.SHADOW,
+        handoff_created: 'true',
+        agent_status: 'inactive',
+        human_assigned: 'true',
+        seller_notified: 'true',
+        followups_paused: 'true',
+      }),
       lead_msg_count: 0,
     })
     .eq('id', conversation_id)

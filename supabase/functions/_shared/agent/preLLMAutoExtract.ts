@@ -49,6 +49,23 @@ function stripLeadNameSuffix(s: string): string {
     .trim()
 }
 
+function shouldQualifyPremiumBeforeSearch(categoryId: string | null | undefined, tags: string[]): boolean {
+  if (!categoryId || !['revestimentos', 'porcelanatos_revestimentos', 'torneiras'].includes(categoryId)) {
+    return false
+  }
+  const requiredByCategory: Record<string, string[]> = {
+    revestimentos: ['aplicacao_revestimento', 'ambiente_revestimento', 'formato'],
+    porcelanatos_revestimentos: ['aplicacao_revestimento', 'ambiente_revestimento', 'formato'],
+    torneiras: ['ambiente_torneira', 'tipo_torneira', 'modelo_torneira'],
+  }
+  const answered = new Set(
+    (tags || [])
+      .filter((tag): tag is string => typeof tag === 'string' && tag.includes(':'))
+      .map((tag) => tag.slice(0, tag.indexOf(':'))),
+  )
+  return (requiredByCategory[categoryId] || []).some((key) => !answered.has(key))
+}
+
 // =============================================================================
 // Tipos públicos
 // =============================================================================
@@ -182,7 +199,7 @@ export async function runPreLLMAutoExtract(
     !leadHasReceivedProducts &&
     ctx.conversation.status_ia !== STATUS_IA.SHADOW
   ) {
-    if (catalogStatusPreCat === 'digital') {
+    if (catalogStatusPreCat === 'digital' && !shouldQualifyPremiumBeforeSearch(categoryPre.id, tagsNow)) {
       const queryR121 = buildSearchQuery(interesseValue, tagsNow, [], ctx.incomingText)
       pendingExitActionSearch = {
         query: queryR121,
@@ -215,6 +232,7 @@ export async function runPreLLMAutoExtract(
     !pendingExitActionSearch &&
     !leadHasReceivedProducts &&
     catalogStatusPreCat === 'digital' &&
+    !shouldQualifyPremiumBeforeSearch(categoryPre.id, tagsNow) &&
     ctx.conversation.status_ia !== STATUS_IA.SHADOW
   ) {
     const signal = detectIncomingSearchSignal({

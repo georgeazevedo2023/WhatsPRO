@@ -673,9 +673,14 @@ export async function searchProducts(
     const tagsNow = (conversation.tags as string[]) || []
     const hasFacet = (key: string) =>
       tagsNow.some((t) => typeof t === 'string' && t.startsWith(`${key}:`))
-    const nextFacet = flattenCategoryFields((expectedCategory as any).stages)
-      .filter((f) => !NON_DISCRIMINATING.has(f.key))
-      .find((f) => !hasFacet(f.key))
+    const skipTintasRefine =
+      (expectedCategory as any).id === 'tintas' &&
+      ['ambiente', 'aplicacao', 'tipo_tinta', 'cor', 'perfil'].every((key) => hasFacet(key))
+    const nextFacet = skipTintasRefine
+      ? null
+      : flattenCategoryFields((expectedCategory as any).stages)
+        .filter((f) => !NON_DISCRIMINATING.has(f.key))
+        .find((f) => !hasFacet(f.key))
     if (nextFacet) {
       log.info('Premium #3: muitos resultados → pergunta a próxima faceta discriminante', {
         count: products.length,
@@ -971,7 +976,14 @@ async function handleZeroResults(opts: {
   const interesseFromTags = extractInteresseFromTags(conversation.tags || [])
   const v2ConfigForWellQual = getCategoriesOrDefault(agent)
   const detectedCategoryForWellQual = matchCategory(interesseFromTags, v2ConfigForWellQual)
+  // v7.58: uma vez que o loop de qualificação profunda começou (`enriching`), tratamos
+  // como bem-qualificado pra GARANTIR PATH A (próxima pergunta) e nunca cair no PATH C
+  // (retry) — isso mantém o loop determinístico (digital E offline) até enrichment completo.
+  const alreadyEnriching = (conversation.tags || []).some(
+    (t: string) => typeof t === 'string' && t.startsWith('enriching:'),
+  )
   const isWellQualified =
+    alreadyEnriching ||
     queryWords.length >= 3 ||
     (hasInteresseTag && queryWords.length >= 1) ||
     detectedCategoryForWellQual !== null
@@ -1021,11 +1033,15 @@ async function handleZeroResults(opts: {
     const newEnrichCount = enrichCount + 1
     failTags.enrich_count = String(newEnrichCount)
     failTags.search_fail = String(searchFailCount + 1)
-    // Catálogo-ausente → handoff determinístico (2026-05-26): marca que houve 0-resultados
-    // e o agente está coletando 1 info. No PRÓXIMO turno, o pré-router (index.ts) força o
-    // handoff specialist independente do intent — fecha o gap em que, sob router, a conversa
-    // fragmentava entre product/qualification/greeting e o item ausente nunca transbordava.
-    failTags.seller_handoff_pending = searchText ? cleanSearchQuery(searchText).slice(0, 60).replace(/\s+/g, '_') : '1'
+    // Catálogo-ausente → QUALIFICAÇÃO PROFUNDA antes do handoff (v7.58, 2026-05-28).
+    // ANTES (v7.55): gravava seller_handoff_pending já na 1ª pergunta → o pré-router forçava
+    // o handoff no turno seguinte (1 pergunta só → transbordo). Isso violava o cenário-padrão
+    // do dono ("a IA segue qualificando até ter um perfil rico, sem nunca vazar que faltou no
+    // catálogo"). AGORA: marca `enriching` e deixa o loop rodar — o pré-router força
+    // product_specialist + re-busca (bypass do bloqueio produto:), reentrando aqui a cada
+    // resposta do lead até enrich_count atingir max_enrichment_questions, quando ENTÃO
+    // transborda (PATH B) com a cadeia completa. O lead NUNCA sabe que a busca falhou.
+    failTags.enriching = '1'
 
     await supabase
       .from('conversations')

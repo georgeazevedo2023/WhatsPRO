@@ -24,6 +24,8 @@
 
 import { setTagsToolDef, updateLeadProfileToolDef } from './specialistTools.ts'
 import { buildQualificationContext, type RecentMessage } from './qualificationContext.ts'
+import { evaluateProductQualificationFlow } from './productQualificationFlow.ts'
+import { readProductQualificationState } from './productQualificationState.ts'
 import type { SpecialistCtx, SpecialistDef } from './specialistBase.ts'
 
 /** Converte geminiContents (role/parts) em RecentMessage[] pro buildQualificationContext. */
@@ -40,8 +42,12 @@ function recentFromGemini(geminiContents: any[]): RecentMessage[] {
 export function buildQualificationPrompt(args: {
   agentName: string
   qualificationContext: string
+  premiumQualificationContext?: string
 }): string {
-  const { agentName, qualificationContext } = args
+  const { agentName, qualificationContext, premiumQualificationContext } = args
+  const premiumBlock = premiumQualificationContext && premiumQualificationContext.trim()
+    ? `\n\nCONTRATO PREMIUM DE QUALIFICACAO (interno, maior prioridade que frases genericas):\n${premiumQualificationContext.trim()}`
+    : ''
 
   const ctxBlock = qualificationContext && qualificationContext.trim()
     ? qualificationContext.trim()
@@ -73,9 +79,47 @@ ESCOPO DA LOJA — SÓ VENDA DE MATERIAL (REGRA ABSOLUTA, NUNCA VIOLAR):
 A loja SÓ VENDE PRODUTOS. PROIBIDO oferecer/prometer/sugerir/"incluir" qualquer SERVIÇO: montagem, instalação, "com mão de obra", "instalado", indicação de instalador/pedreiro/encanador/marceneiro/pintor/eletricista, visita técnica, medição, projeto, execução. Se o lead perguntar "vocês montam/instalam?" ou pedir orçamento "com mão de obra/instalado": responda em 1 frase clara que aqui vocês trabalham só com o material e pergunte se ele quer seguir com o orçamento DO MATERIAL apenas.
 
 CONTEXTO DETERMINÍSTICO (próximo passo computado pelo sistema):
-${ctxBlock}
+${ctxBlock}${premiumBlock}
 
 REGRA QUE SOBRESCREVE TUDO: você SÓ qualifica. Não busque produto, não cote preço, não trate objeção e não acione vendedor — quando houver dados suficientes, o sistema leva o lead pro especialista de produto automaticamente.`
+}
+
+export function buildPremiumQualificationContext(args: {
+  tags: string[] | null | undefined
+  agent: Record<string, any> | null | undefined
+  incomingText?: string | null
+}): string {
+  const tags = Array.isArray(args.tags) ? args.tags : []
+  const state = readProductQualificationState(tags)
+  const verdict = evaluateProductQualificationFlow({
+    tags,
+    agent: args.agent,
+    incomingText: args.incomingText,
+    catalogResult: state.catalogResult,
+  })
+
+  if (!verdict.categoryId || (!verdict.nextRequiredField && !verdict.physicalStockRequired)) {
+    return ''
+  }
+
+  const nextField = verdict.nextRequiredField
+    ? `${verdict.nextRequiredField.key} (${verdict.nextRequiredField.label}; exemplos: ${verdict.nextRequiredField.examples || 'sem exemplos'})`
+    : 'nenhum'
+
+  return [
+    `category_id: ${verdict.categoryId}`,
+    `flow_mode: ${verdict.flowMode}`,
+    `qualification_score: ${verdict.qualificationScore}`,
+    `next_required_field: ${nextField}`,
+    `search_enabled: ${String(verdict.searchEnabled)}`,
+    `show_carousel: ${String(verdict.showCarousel)}`,
+    `physical_stock_required: ${String(verdict.physicalStockRequired)}`,
+    '- Faca somente a pergunta indicada em next_required_field, quando ela existir.',
+    '- Nunca repita uma pergunta que ja tenha sido respondida nas tags.',
+    '- Nunca confirme estoque com frases como "temos sim", "temos disponivel" ou equivalentes.',
+    '- Nunca diga "nao temos", "nao encontrei", "sem catalogo" ou mencione falha de busca ao lead.',
+    '- Se physical_stock_required=true, isso e interno: qualifique de forma consultiva e neutra.',
+  ].join('\n')
 }
 
 /** SpecialistDef do qualification. Modelo default gpt-4.1 (qualidade de conversa). */
@@ -93,6 +137,11 @@ export function buildQualificationSpecialistDef(model = 'gpt-4.1'): SpecialistDe
           ctx.agent,
           recentFromGemini(ctx.geminiContents),
         ),
+        premiumQualificationContext: buildPremiumQualificationContext({
+          tags: (ctx.conversation.tags as string[]) || [],
+          agent: ctx.agent,
+          incomingText: ctx.incomingText,
+        }),
       }),
     disableHandoffGuard: false,
   }

@@ -98,6 +98,8 @@ describe('dispatchExitActionHandoff', () => {
     expect(convUpdate!.payload.status_ia).toBe('shadow')
     expect(convUpdate!.payload.lead_msg_count).toBe(0)
     expect(convUpdate!.payload.tags).toContain('ia:shadow')
+    expect(convUpdate!.payload.tags).toContain('followups_paused:true')
+    expect(convUpdate!.payload.tags).toContain('handoff_created:true')
 
     const logInsert = spy.calls.find(
       (c) => c.table === 'ai_agent_logs' && c.op === 'insert',

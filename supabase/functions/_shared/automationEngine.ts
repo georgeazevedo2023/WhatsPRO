@@ -157,6 +157,7 @@ export async function executeAutomationRules(
           rule.action_type as ActionType,
           (rule.action_config as Record<string, unknown>) ?? {},
           conversationId,
+          funnelId,
           supabase,
         )
 
@@ -324,6 +325,7 @@ async function executeAction(
   actionType: ActionType,
   config: Record<string, unknown>,
   conversationId: string | null,
+  funnelId: string,
   supabase: SupabaseClient,
 ): Promise<string> {
   switch (actionType) {

@@ -19,8 +19,9 @@
 
 import { STATUS_IA } from '../constants.ts'
 import { mergeTags } from '../agentHelpers.ts'
-import { isOutsideBusinessHours, personalizeHandoffMessage } from '../businessHours.ts'
+import { isOutsideBusinessHours, personalizeHandoffMessage, buildDeliveryLine } from '../businessHours.ts'
 import { normalizeCart, formatCartOneLine, formatCartSummary } from './cart.ts'
+import { buildPremiumHandoffSummary } from './handoffSummary.ts'
 import { detectObjection } from '../objectionDetection.ts'
 import { splitAudioAndText } from '../ttsProviders.ts'
 import type { Logger } from './context.ts'
@@ -167,11 +168,19 @@ export function stripLeakedToolCalls(text: string): string {
   return stripped.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
+function stripCatalogMentions(text: string): string {
+  if (!text) return text
+  return text
+    .replace(/\bno cat[aá]logo,\s*(?:tem|encontrei)\s+(?:a\s+)?op[cç][aã]o/ig, 'Encontrei uma opção')
+    .replace(/\b(?:cat[aá]logo digital|cat[aá]logo)\b/ig, 'opções disponíveis')
+}
+
 export async function dispatchResponse(
   ctx: DispatchResponseCtx,
 ): Promise<DispatchResponseResult> {
   let { responseText } = ctx
   responseText = stripLeakedToolCalls(responseText)
+  responseText = stripCatalogMentions(responseText)
   const {
     agent, agent_id, conversation, conversation_id, contact,
     toolCallsLog, inputTokens, outputTokens, usedModel,
@@ -200,15 +209,66 @@ export async function dispatchResponse(
     // D30: atribui via fila. LLM gerou o texto livre — não há template para D-γ
     // (mas helper roda mesmo assim para criar handoff_queue_event + assigned_to).
     const { result: queueRes } = await runQueueAssignment('')
+    let freshConversationImplicit: any = null
+    try {
+      const { data } = await supabase
+        .from('conversations')
+        .select('tags, cart_items')
+        .eq('id', conversation_id)
+        .maybeSingle()
+      freshConversationImplicit = data
+    } catch {
+      freshConversationImplicit = null
+    }
+    const implicitTags = ((freshConversationImplicit as any)?.tags || conversation.tags || []) as string[]
+    const cartItemsImplicit = normalizeCart((freshConversationImplicit as any)?.cart_items || (conversation as any).cart_items)
+    const cartFullImplicit = formatCartSummary(cartItemsImplicit)
+    const deliveryLineImplicit = buildDeliveryLine(implicitTags)
+    const rawSellerNoteImplicit = [
+      responseText,
+      cartFullImplicit ? `Pedido:\n${cartFullImplicit}` : '',
+      deliveryLineImplicit,
+    ].filter(Boolean).join('\n\n').trim()
+    let sellerNoteImplicit = buildPremiumHandoffSummary({
+      tags: implicitTags,
+      leadName: (leadProfile as { full_name?: string | null } | null)?.full_name || (contact as any)?.name || null,
+      fallbackReason: rawSellerNoteImplicit,
+    }) || rawSellerNoteImplicit
+    if (cartFullImplicit && !/Pedido \(/i.test(sellerNoteImplicit)) {
+      sellerNoteImplicit = `${sellerNoteImplicit}\n${cartFullImplicit}`.trim()
+    }
     await supabase.from('conversations').update({
       status_ia: STATUS_IA.SHADOW,
-      tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+      tags: mergeTags(implicitTags, {
+        ia: STATUS_IA.SHADOW,
+        handoff_created: 'true',
+        agent_status: 'inactive',
+        human_assigned: 'true',
+        seller_notified: 'true',
+        followups_paused: 'true',
+      }),
       lead_msg_count: 0, // R86: reset counter so returning lead doesn't re-trigger auto-handoff
     }).eq('id', conversation_id)
     await supabase.from('ai_agent_logs').insert({
       agent_id, conversation_id, event: 'implicit_handoff',
       metadata: { response_text: responseText.substring(0, 300), queue: queueRes },
     })
+    if (sellerNoteImplicit) {
+      const noteContentImplicit = `📋 Resumo do pedido (interno):\n${sellerNoteImplicit}`
+      await supabase.from('conversation_messages').insert({
+        conversation_id,
+        direction: 'private_note',
+        content: noteContentImplicit,
+        media_type: 'text',
+      })
+      broadcastEvent({
+        conversation_id,
+        inbox_id: conversation.inbox_id,
+        direction: 'private_note',
+        content: noteContentImplicit,
+        media_type: 'text',
+      })
+    }
   }
 
   // ── 16 Send response via UAZAPI (TTS audio or text) ──────────────────
@@ -419,7 +479,14 @@ export async function dispatchResponse(
     })
     // R113.1 G1: detect objection synchronously (deferred path)
     const objectionTagDeferred = detectObjection(pendingHandoffTriggerMsg)
-    const tagsToMergeDeferred: Record<string, string> = { ia: STATUS_IA.SHADOW }
+    const tagsToMergeDeferred: Record<string, string> = {
+      ia: STATUS_IA.SHADOW,
+      handoff_created: 'true',
+      agent_status: 'inactive',
+      human_assigned: 'true',
+      seller_notified: 'true',
+      followups_paused: 'true',
+    }
     if (objectionTagDeferred) tagsToMergeDeferred.objecao = objectionTagDeferred
 
     await supabase.from('conversations').update({
@@ -452,8 +519,17 @@ export async function dispatchResponse(
     // Nota interna pro vendedor (2026-05-26): resumo estruturado fixado no fio da
     // conversa (private_note NUNCA vai pro lead). Cobre o handoff deferido/forçado
     // (ex.: catálogo-ausente). Texto rico fica aqui; ao lead, só a ponte humanizada.
-    const sellerNoteDef = [pendingHandoffTrigger, cartFullDef ? `🛒 ${cartFullDef}` : '']
-      .filter(Boolean).join('\n\n').trim()
+    const deliveryLineDef = buildDeliveryLine(conversation.tags || [])
+    const rawSellerNoteDef = [
+      pendingHandoffTrigger,
+      cartFullDef ? `🛒 ${cartFullDef}` : '',
+      deliveryLineDef,
+    ].filter(Boolean).join('\n\n').trim()
+    const sellerNoteDef = buildPremiumHandoffSummary({
+      tags: conversation.tags || [],
+      leadName: (leadProfile as { full_name?: string | null } | null)?.full_name || null,
+      fallbackReason: rawSellerNoteDef,
+    }) || rawSellerNoteDef
     if (sellerNoteDef) {
       const noteContentDef = `📋 Resumo do pedido (interno):\n${sellerNoteDef}`
       await supabase.from('conversation_messages').insert({
