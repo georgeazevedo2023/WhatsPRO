@@ -8,6 +8,17 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-05-30 — Visão de imagem: agente passa a ver fotos (v7.58.0)
+
+**Trigger:** caso Íris (print do dono) — lead mandou foto de tanquinho + "vcs tem um desse?"; IA respondeu "me manda a foto". Auditoria do pipeline: só áudio tinha transcrição (Groq→Gemini); IMAGEM não tinha nada (chegava content="", só espelhava no storage). Dono escolheu Gemini 2.0 Flash (melhor custo-benefício ~US$0,0001/img + key já existia + padrão já rodando no fallback de áudio).
+
+**Build:** nova fn describe-image espelha transcribe-audio. Gemini 2.0 Flash (inline_data) primário → OpenAI gpt-4.1 vision fallback. Grava na transcription (ai-agent já lê via R132). composeImageTranscription preserva legenda. Dispara agente depois de descrever (sempre). Webhook chama describe-image p/ image (shouldTriggerAiAgentFromWebhook pula image). config.toml verify_jwt=false. aiRuntime 31/31, deno 0. Commit 39bcd3c.
+
+**E2E real (foto do tanquinho da Íris no sandbox):** describe-image → "Tanque de lavar roupas branco, superfície lisa, ranhuras, furo p/ válvula" (provider=openai). Antes: "me manda a foto" (cego). Depois: agente enxerga o produto.
+
+**2 ACHADOS na auditoria:** (1) 🔴 GEMINI_API_KEY do projeto BLOQUEADA pelo Google (403 "reported as leaked") — afeta tb fallback áudio; rotacionar (segurança); por isso visão roda no fallback OpenAI. (2) excluded_products tem keyword ampla "roupa/roupas" → "tanque de lavar roupas" vira vestuário excluído (config do dono refinar). Ambos em EletropisoV2 + Sandbox.
+
+---
 ## 2026-05-30 — R149 fronteira de palavra no interesse_match + triagem 4 bugs (v7.57.5)
 
 **Trigger:** dono mandou prints de PROD. Bug #1 (Rodolfo): pediu biodigestor 1500L, IA ofereceu PORTAS + transbordou "pedido de portas". Auditei a conversa completa no banco.

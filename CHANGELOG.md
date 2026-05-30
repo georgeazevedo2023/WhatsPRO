@@ -13,6 +13,20 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.58.0 (2026-05-30) — Visão de imagem: o agente passa a "ver" fotos de produto (Gemini 2.0 Flash → OpenAI fallback)
+
+Fecha bug auditado (caso Íris, EletropisoV2 PROD): lead mandou **foto de um tanquinho** + *"vcs tem um desse? está quanto?"* e a IA respondeu *"me manda a foto"* — porque imagem chegava com `content=""` e **nada de visão alimentava o LLM** (só áudio tinha transcrição). O agente era cego pra fotos.
+
+- **Nova fn `describe-image`** (espelha `transcribe-audio`): descreve a foto e grava em `conversation_messages.transcription` — que o `ai-agent` já lê antes do `content` (R132) → o agente "enxerga" a foto sem mexer no fluxo dele.
+  - **Cadeia de provider:** Gemini 2.0 Flash via `inline_data` (primário, ~US$0,0001/img) → **OpenAI gpt-4.1 vision** (fallback, ~US$0,0007/img). Espelha a resiliência do áudio.
+  - Preserva a legenda do cliente (`composeImageTranscription`), dispara o agente DEPOIS de descrever (sempre — mesmo em falha, nunca ignora o lead).
+- **Wire:** webhook chama `describe-image` pra `media_type=image` (igual áudio); `shouldTriggerAiAgentFromWebhook` pula `image` (agente roda só após a descrição). `config.toml verify_jwt=false`.
+- **Validação:** aiRuntime 31/31 (skip image), deno 0. **E2E sandbox com a foto REAL do tanquinho** → *"Tanque de lavar roupas branco, superfície lisa, ranhuras, furo p/ válvula"* (provider=openai). Agente parou de pedir a foto. Deploy `describe-image` + `whatsapp-webhook` CLI. Commit `39bcd3c`.
+- **🔴 ACHADO DE SEGURANÇA:** a `GEMINI_API_KEY` do projeto está **BLOQUEADA pelo Google** (403 *"API key reported as leaked"*) — afeta também o fallback de áudio Gemini. **Rotacionar** (e a visão volta pro Gemini, mais barato). Até lá, roda no fallback OpenAI.
+- **Achado (config):** `excluded_products` tem keyword ampla `"roupa/roupas"` → *"tanque de lavar **roupas**"* vira "vestuário excluído". Refinar a keyword se a loja vende tanques.
+
+---
+
 ### v7.57.5 (2026-05-30) — R149: fronteira de palavra no `interesse_match` (fim do "biodigestor → portas")
 
 Fecha bug auditado em PROD (caso Rodolfo, EletropisoV2): cliente pediu **biodigestor 1500L**, IA ofereceu **portas** ("material? madeira/PVC/alumínio") e transbordou como *"seu pedido de portas"*.
