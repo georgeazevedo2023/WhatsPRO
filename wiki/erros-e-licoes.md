@@ -19,41 +19,15 @@ audited_at: 2026-05-20
 
 ---
 
+## 🚨 R148 — router não injetava Informações da Empresa → IA inventou cidade da loja (v7.57.4, detalhe no CHANGELOG/log 2026-05-29)
+Lead: "essa loja é em São João né?" → IA confirmou; loja é Garanhuns-PE. Endereço estava CERTO no `business_info` — IA inventou. **Causa:** `buildBusinessSection` (+`REGRA ABSOLUTA: NÃO invente`) só ia no monolito; o systemPrompt do specialist (`specialistBase.runSpecialist`) não tinha → sob `routing_mode='router'` (os 3 agentes) ninguém sabia o endereço. **Fix:** injeta `buildBusinessSection(ctx.agent)` no systemPrompt. **Lições:** (1) migração monolito→specialist exige checklist de paridade de **contexto** (todo bloco do prompt), não só tools/boundary; (2) dado certo no DB+UI ≠ chega no prompt — o que importa é o consumo no caminho ATIVO; (3) info de negócio sem regra anti-invenção = LLM concorda com suposição errada do lead.
+
 ## 🚨 R146/R147 — qualify-first expôs 2 bugs (E2E prod 2026-05-24, v7.50.0)
 **R146 — `so_se_pedir` cortava em 8 msgs:** código caía em `?? 8` (igual `apos_n_msgs`) contra o contrato-doc ("lead controla, max alto"). Qualify-first (+turnos) batia no handoff genérico antes do rico. Fix: default → 40. **Lição:** contrato-doc vs código divergentes = código errado.
 **R147 — handoff specialist (gpt-4.1-mini) vazava tool call como TEXTO** (`functions.handoff_to_human({...})`) em vez de invocá-la → handoff não executava + lead via sintaxe crua. Fix: → gpt-4.1 + `stripLeakedToolCalls`. **Lição:** specialist que DEPENDE de tool precisa de modelo confiável + saneamento.
 
-## 🚨 R141 — TDZ `carouselSentInThisCall` (Wsmart Eletropiso 2026-05-22 19:42-23:05, prod) — CAUSA REAL DO CRASH
-
-**Erro:** após 3 deploys (R137 v1 crash, R138 sanitização, R139 regex) o crash continuava. Stack trace só apareceu quando R140 (observability fix) capturou em `ai_agent_logs.error`:
-
-```
-ReferenceError: Cannot access 'carouselSentInThisCall' before initialization
-    at executeTool index.ts:2394:29
-    at executeToolSafe index.ts:2551:22
-    at runInlineSearchProducts exitActionDispatcher.ts:127:33
-```
-
-**Causa raiz:** `let carouselSentInThisCall = false` estava declarado em `index.ts:1928` (dentro do bloco LLM loop). `executeTool` (linha 1751) referenciava ela em `case 'search_products': mediaState = { carouselSent: carouselSentInThisCall }`. Quando `runInlineSearchProducts` (pré-LLM, via R137 wire ou R121 inline) invocava `executeToolSafe → executeTool`, tentava acessar `carouselSentInThisCall` ANTES da declaração → **TDZ throw silenciado pelo executeToolSafe** → result_preview `"Erro interno..."` virou loop de qualif idiota.
-
-**Bug latente desde Onda 2c-ii (v7.40.8)** — quando `runInlineSearchProducts` foi adicionado. R121 inline (pouco frequente) raramente disparava → mascarado. R137 brand_mentioned é comum → expôs.
-
-**Por que vitest passou e prod falhou:**
-- Vitest mocks chamavam `searchProducts` DIRETO, não via `executeTool` do index.ts
-- TDZ só manifestava no caminho real Deno: pre-LLM → executeToolSafe → executeTool → `carouselSentInThisCall`
-- Suite tinha 1184 testes passando, prod crashava
-
-**Fix v7.41.8:**
-- Movido `let carouselSentInThisCall = false` pra linha 497 (junto com `toolCallsLog` que já tinha sido elevado pelo R121)
-- Adicionado comment R141 explicando hoisting
-
-**Regras preventivas:**
-1. **`function` declarations são hoisted com body completo; `let`/`const` são hoisted SEM init (TDZ).** Function definida em escopo enclosing pode ser chamada antes do `let` ser inicializado.
-2. **Variáveis mutáveis (`let`) usadas dentro de funções definidas no MESMO escopo devem ser declaradas ANTES da function declaration.** Pattern preventivo: declarar TODO state mutável no topo do handler.
-3. **R140 (observability) precisa ser PRIMEIRO**, não tardio. Antes de chutar hipóteses de root cause, garantir que crash deixa stack trace persistido em DB.
-4. **Vitest mocks de unidades isoladas NÃO pegam TDZ no caminho do escopo enclosing.** Pra esses casos, integration tests precisam exercitar o caminho REAL (index.ts → executeTool → tool), não direto a tool.
-
-**Cruza com:** R140 (observability foi o divisor), R58 (const em if), R59 (hoistar IDs antes do try).
+## 🚨 R141 — TDZ `carouselSentInThisCall` (prod 2026-05-22, fix v7.41.8) — detalhe em [[wiki/erros/historico-2026-05-part2]]
+`let carouselSentInThisCall` declarado dentro do LLM loop, mas `executeTool` (escopo enclosing) acessava antes via `runInlineSearchProducts` pré-LLM → **TDZ throw silenciado pelo executeToolSafe** → loop idiota. Crash só virou diagnosticável quando R140 persistiu stack trace. Fix: mover o `let` pro topo do handler. **Lições:** (1) `let`/`const` são hoisted SEM init (TDZ); declarar TODO state mutável ANTES de functions do mesmo escopo. (2) Observability (R140) PRIMEIRO, antes de chutar root cause. (3) vitest mock de tool isolada NÃO pega TDZ do caminho real — integration test precisa exercitar index.ts→executeTool→tool. Cruza: R140, R58, R59.
 
 ---
 
