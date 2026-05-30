@@ -8,6 +8,21 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-05-30 — R149 fronteira de palavra no interesse_match + triagem 4 bugs (v7.57.5)
+
+**Trigger:** dono mandou prints de PROD. Bug #1 (Rodolfo): pediu biodigestor 1500L, IA ofereceu PORTAS + transbordou "pedido de portas". Auditei a conversa completa no banco.
+
+**Causa-raiz #1:** categoria portas tem interesse_match "porta|portas"; o regex era new RegExp(pattern,'i') SEM fronteira → casou substring "porta" dentro de "portanto" (áudio "Agora, portanto, que ele tenha 1500 litros") → gravou interesse:portas → qualificação rodou template portas (material madeira/PVC/alumínio, offline) → handoff "pedido de portas". lead_profiles.interests=["biodigestor"] estava certo; foi a tag da conversa que contaminou.
+
+**Fix R149:** buildInteresseRegex (fonte única nos 5 pontos de serviceCategories.ts): lookaround de letra accent-safe (\b do JS falha com acento) + sufixo (s|es|ns)? p/ tolerar plural quando a config só lista singular + valida pattern cru antes de embrulhar. Config: "caixa d" (prefixo substring proposital) reescrito p/ variantes explícitas nos 3 agentes (senão fronteira pararia de casar "caixa de água"). 135/135 testes (bateria anti-substring), deno 0, E2E sandbox (portanto NÃO grava interesse:portas), deploy CLI. Commit 5c477b9.
+
+**Triagem dos outros 3 bugs do dono (raízes DIFERENTES, NÃO cobertos por R149, no backlog):**
+- Mirlley (pisos): opening de lead recorrente recuperou interesse "pisos" de sessão anterior; IA se corrigiu p/ chuveiros quando ela falou. by-design; investigar se o "pisos" antigo foi artefato de substring "piso"⊂"Eletropiso" (R149 previne futuro).
+- Cleber (motor p/ portão → "correr ou basculante"): não há categoria motores/automatizadores; LLM improvisou qualificação de portão. Precisa categoria dedicada OU boundary.
+- Raquel ("porta amadeirada laminada" → "madeira/PVC/alumínio?"): qualificação não lê spec já dada pelo lead. Precisa o specialist inferir do que já foi dito.
+- Íris (foto de tanquinho → "me manda a foto"): IMAGEM não é processada/descrita (pipeline de visão ausente). Gap maior, separado.
+
+---
 ## 2026-05-29 — Paridade router: specialist recebe Informações da Empresa (v7.57.4)
 
 **Trigger:** dono mandou print do EletropisoV2 PROD — lead perguntou "essa loja é em São João, Pernambuco né?" e a IA confirmou ("temos loja física em São João sim"). Loja real é Garanhuns-PE. Pediu pra corrigir "pra não errar mais" + perguntou onde se configura a localização.

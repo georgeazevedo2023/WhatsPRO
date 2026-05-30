@@ -13,6 +13,17 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.57.5 (2026-05-30) — R149: fronteira de palavra no `interesse_match` (fim do "biodigestor → portas")
+
+Fecha bug auditado em PROD (caso Rodolfo, EletropisoV2): cliente pediu **biodigestor 1500L**, IA ofereceu **portas** ("material? madeira/PVC/alumínio") e transbordou como *"seu pedido de portas"*.
+
+- **Causa-raiz:** a categoria `portas` tem `interesse_match: "porta|portas"` e o regex era montado como `new RegExp(pattern, 'i')` **sem fronteira de palavra** → casou o substring `porta` dentro de **"portanto"** (transcrição do áudio *"Agora, portanto, que ele tenha 1.500 litros"*) → gravou `interesse:portas` → qualificação rodou o template de portas → handoff errado. Mesma classe pega `cabo`⊂"acabou", `cano`⊂"canoa", `mesa`⊂"mesada", `pia`⊂"apiada".
+- **Fix (fonte única `buildInteresseRegex`, usada nos 5 pontos de match — `serviceCategories.ts`):** lookaround de letra **accent-safe** (o `\b` nativo do JS falha com á/ã/ç, que não são `\w`) cobrindo Latin-1 + sufixo `(?:s|es|ns)?` que **preserva plural** mesmo quando a config só lista o singular (pattern `tinta` ainda casa "tintas"). Valida o pattern **cru** antes de embrulhar (mantém o contrato "lança se inválido" e evita que o wrapping conserte brackets desbalanceados).
+- **Config (3 agentes):** o pattern `"caixa d"` (prefixo proposital pra substring) foi reescrito pra variantes explícitas (`caixa d'agua|caixa d'água|caixa de agua|caixa de água|…`) em Eletropiso/EletropisoV2/Sandbox — senão a fronteira pararia de casar "caixa de água" (trocaria bug por bug). Bônus: `"caixa d"` também casava "caixa de som/ferramentas" → pattern explícito corrige.
+- **Validação:** `serviceCategories.test.ts` **135/135** (bateria anti-substring nova: portanto/acabou/canoa/mesada + plural + acento + multi-palavra). deno 0. **E2E sandbox:** msg *"…portanto, que ele tenha 1500 litros"* NÃO grava `interesse:portas`. Deploy `ai-agent` CLI (sandbox+PROD). Commit `5c477b9`.
+
+---
+
 ### v7.57.4 (2026-05-29) — Paridade router: specialist recebe Informações da Empresa (fim da loja "São João")
 
 Fecha bug reportado pelo dono: lead perguntou *"essa loja é em São João, Pernambuco né?"* e a IA **confirmou** ("temos loja física em São João sim"), quando a loja real é em **Garanhuns-PE** (R. Dantas Barreto, 118). Endereço estava **certo no `business_info`** dos 3 agentes — a IA inventou.
