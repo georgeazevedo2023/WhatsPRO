@@ -2,8 +2,8 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-05-20
-audited_at: 2026-05-20
+updated: 2026-05-30
+audited_at: 2026-05-30
 ---
 
 # Erros e Lições
@@ -18,6 +18,13 @@ audited_at: 2026-05-20
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
 
 ---
+
+## 🚨 Sessão 2026-05-30 (noite) — 4 incidentes: fila runaway · catálogo-vazio · greeting · phantom release (v7.58.1-4)
+Detalhe: CHANGELOG/log + memórias [[project_queue_rotation_runaway_v7581]] · [[project_empty_catalog_handoff_v7583]] · [[project_greeting_hallucinated_interest_v7584]].
+1. **Fila rotacionava INFINITAMENTE** (114 convs, rotation_number 293, ~4.7k eventos/24h, OOF "fora de horário" reenviada todo dia). Dedup era POR-EVENTO e a rotação reciclava eventos. **Regras:** (a) toda rotação/retry precisa de **CAP** (parar após N voltas pelos elegíveis); (b) dedup de ação lead-facing deve ser por **entidade DURÁVEL** (conversa + atividade do lead), NUNCA por linha efêmera (evento); (c) `external_id` carimba a ORIGEM (`queue_oof_`/`abandon_`/`follow_up_`/`ai_agent_`) — é o 1º diagnóstico de "quem mandou". **Mesma família** do "fila sem constraint explodiu banco" (abaixo): loop operacional sem teto.
+2. **Catálogo-vazio premium NUNCA transbordava (loop + repergunta):** decisão comparava `answered.has(field.key)` com keys SUFFIXADOS da categoria (`ambiente_torneira`), mas o LLM grava GENÉRICAS (`ambiente:`). **Regras:** (a) comparação de chave entre camada LLM e camada determinística DEVE normalizar (base genérica ↔ key específica); (b) convergência/handoff NUNCA pode depender de "todos os campos coletados" quando o LLM tagueia genérico — precisa de **CAP de perguntas**; (c) **fixture de teste com keys genéricos ESCONDE o bug** — o teste passava porque divergia do schema do DB real; fixture deve espelhar produção.
+3. **Greeting INVENTOU interesse pra lead NOVO** ("você estava vendo pisos"; ele nunca falou — viés de "Eletro·piso"). Gate de "returning" era TER-NOME → lead recém-apresentado virava recorrente; o exemplo no prompt (`"você estava vendo [interesse]"`) convidava o LLM a PREENCHER inventando; e o memory-block contava o resumo da PRÓPRIA conversa em andamento. **Regras:** (a) "lead recorrente" se gateia em FATO CONCRETO (interesse/produto de conversa ANTERIOR), nunca em ter-nome; (b) NUNCA dar exemplo com placeholder `[X]` que o LLM completa — é convite à hallucinação; (c) memória de retomada não pode incluir a conversa atual. **Cruza** Bug 19 (LLM alucina interesse, abaixo).
+4. **Phantom release:** deep-qualify + abandono estavam DEPLOYADOS mas nunca commitados → repo ≠ prod (meus fixes assumiam arquivos untracked). **Regra (reforço):** deploy SEM commit é incompleto; commitar antes/junto. Bônus: migration aplicada com version gerado ≠ version do arquivo (`000002` vs `234430`) → `db push` re-aplicaria (OK porque `CREATE OR REPLACE` é idempotente, mas alinhar pra não poluir histórico).
 
 ## 🚨 R149 — `interesse_match` sem fronteira casava substring (biodigestor→portas) — v7.57.5, detalhe no CHANGELOG/log 2026-05-30
 Cliente pediu biodigestor 1500L; IA ofereceu PORTAS + transbordou "pedido de portas". **Causa:** categoria portas tem `interesse_match: "porta|portas"` e o regex era `new RegExp(pattern,'i')` SEM fronteira → casou `porta` dentro de **"portanto"** (transcrição de áudio). Mesma classe: `cabo`⊂"acabou", `cano`⊂"canoa", `mesa`⊂"mesada", `piso`⊂"Eletro**piso**". **Fix:** `buildInteresseRegex` (fonte única nos 5 pontos) com lookaround de letra accent-safe (`\b` do JS falha com acento) + sufixo `(?:s|es|ns)?` p/ tolerar plural quando a config só lista singular + valida pattern cru antes de embrulhar. Config: `"caixa d"` (prefixo substring) → variantes explícitas nos 3 agentes (senão fronteira pararia de casar "caixa de água"). **Lições:** (1) regex de config exposto a texto livre SEMPRE com fronteira de palavra; (2) em pt-BR use lookaround `[A-Za-zÀ-ÿ]`, nunca `\b` (acento não é `\w`); (3) ao endurecer um matcher, varra os patterns que dependiam do comportamento frouxo (prefixos tipo "caixa d") pra não trocar bug por bug.
