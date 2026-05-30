@@ -1,0 +1,68 @@
+{
+  "scenarios": [
+    {
+      "id": "R1-greeting-sem-nome",
+      "note": "Fix C v4: sem nome → template inteiro com pedido de nome, saudação espelhada",
+      "turns": ["Bom dia"]
+    },
+    {
+      "id": "R5-greeting-com-nome",
+      "note": "Fix C v4: nome inline → 'Bom dia, Carlos! Bem-vindo a Eletropiso, no que posso te ajudar?'",
+      "turns": ["Bom dia, sou o Carlos"]
+    },
+    {
+      "id": "R9-greeting-boa-tarde-nome",
+      "note": "Fix C v4: 'Boa tarde, Bruno!' + branding preservado",
+      "turns": ["Boa tarde, meu nome é Bruno"]
+    },
+    {
+      "id": "21.36-porcelanato-ausente",
+      "note": "Offline/0-result: qualifica PROFUNDO (piso, residencial, formato, acabamento, cor, area) e SÓ ENTÃO handoff, NUNCA vaza indisponibilidade. Resumo rico pro vendedor.",
+      "turns": [
+        "Boa tarde, vocês têm porcelanato marmorizado?",
+        "Fernando",
+        "Pra piso",
+        "Minha casa",
+        "120x120",
+        "Brilhante",
+        "Bege claro",
+        "Sala e cozinha integradas",
+        "Uns 90 metros"
+      ]
+    },
+    {
+      "id": "21.37-torneira-gourmet-ausente",
+      "note": "Catalogo digital vazio: qualifica torneira gourmet sem negar/confirmar estoque, coleta acabamento/cuba/perfil e transborda com private note premium.",
+      "turns": [
+        "Boa tarde, voces tem torneira gourmet?",
+        "Carlos",
+        "Cozinha",
+        "Na bancada",
+        "Isso, com ducha flexivel",
+        "Preto fosco",
+        "Cuba dupla",
+        "Mais sofisticada"
+      ]
+    },
+    {
+      "id": "21.33-tinta-completa",
+      "note": "Digital: consultivo (explica tipos) → busca → carrossel → escolha → upsell (rolo/bandeja) → entrega (bairro) → handoff com resumo+carrinho+entrega.",
+      "turns": [
+        "Boa tarde, vocês têm tinta?",
+        "Fernando",
+        "É pra uma reforma",
+        "Ambiente interno",
+        "Só as paredes mesmo",
+        "Pode me explicar a diferença",
+        "Então quero acrílica",
+        "Branca",
+        "Prefiro a de melhor cobertura",
+        "Gostei da primeira, a Coral premium",
+        "Vou precisar de rolo e bandeja também",
+        "Receber em casa",
+        "Boa Viagem",
+        "Por enquanto é só isso"
+      ]
+    }
+  ]
+}
