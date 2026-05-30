@@ -1,4 +1,4 @@
-import { useState, memo, useCallback } from 'react';
+import { useEffect, useState, memo, useCallback } from 'react';
 import { User } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -62,6 +62,12 @@ export const ContactAvatar = memo(function ContactAvatar({
 
   const effectiveSrc = refreshedSrc ?? (isStaleSrc(src) ? null : src);
 
+  useEffect(() => {
+    if (!effectiveSrc && contactId && !refreshedIds.has(contactId)) {
+      triggerRefresh();
+    }
+  }, [contactId, effectiveSrc, triggerRefresh]);
+
   if (effectiveSrc && !imgError) {
     return (
       <img
@@ -80,10 +86,6 @@ export const ContactAvatar = memo(function ContactAvatar({
   }
 
   // Sem URL utilizável: tentar rehydrate uma vez se ainda não tentou
-  if (!effectiveSrc && contactId && !refreshedIds.has(contactId)) {
-    triggerRefresh();
-  }
-
   return (
     <div
       className={`rounded-full bg-muted flex items-center justify-center shrink-0 ${className}`}

@@ -69,6 +69,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   const [typingAgent, setTypingAgent] = useState<string | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const currentUserIdRef = useRef<string | null>(null);
+  const fetchIdRef = useRef(0);
 
   // Cache user id once on mount — avoids async-without-await in broadcast callback
   useEffect(() => {
@@ -127,7 +128,14 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   // REJEITA garante que `loading` sempre vira false e cai no estado de erro (com
   // "Tentar novamente"), independente de o promise interno resolver ou não.
   const fetchMessages = useCallback(async () => {
-    if (!conversationId) return;
+    const fetchId = ++fetchIdRef.current;
+    if (!conversationId) {
+      setMessages([]);
+      setHasOlderMessages(false);
+      setFetchError(false);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setFetchError(false);
     const controller = new AbortController();
@@ -148,15 +156,17 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       });
       const { data, error } = await Promise.race([query, timeout]) as { data: Message[] | null; error: unknown };
       if (error) throw error;
+      if (fetchId !== fetchIdRef.current) return;
       const msgs = ((data as Message[]) || []).slice().reverse();
       setMessages(msgs);
       setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
     } catch (err) {
+      if (fetchId !== fetchIdRef.current) return;
       console.warn('[ChatPanel] Falha ao carregar mensagens (timeout ou erro)', err);
       setFetchError(true);
     } finally {
       if (timer) clearTimeout(timer);
-      setLoading(false);
+      if (fetchId === fetchIdRef.current) setLoading(false);
     }
   }, [conversationId]);
 
@@ -299,6 +309,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   const messagesWithDividers = useMemo(() => {
     const result: Array<{ type: 'divider'; label: string } | { type: 'message'; message: Message; showUnread: boolean }> = [];
     let lastDate = '';
+    const isConversationRead = conversation?.is_read ?? true;
 
     chatMessages.forEach((msg, idx) => {
       const msgDate = getDateLabel(msg.created_at);
@@ -306,7 +317,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         result.push({ type: 'divider', label: msgDate });
         lastDate = msgDate;
       }
-      const showUnread = !conversation!.is_read && msg.direction === 'incoming' && idx > 0 && chatMessages[idx - 1]?.direction !== 'incoming';
+      const showUnread = !isConversationRead && msg.direction === 'incoming' && idx > 0 && chatMessages[idx - 1]?.direction !== 'incoming';
       result.push({ type: 'message', message: msg, showUnread });
     });
     return result;

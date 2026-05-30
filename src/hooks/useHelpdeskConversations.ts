@@ -225,7 +225,12 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
           if (exists) {
             const updated = prev.map(c =>
               c.id === data.conversation_id
-                ? { ...c, last_message: data.content || mediaPreview(data.media_type) || c.last_message, last_message_at: data.created_at, is_read: false }
+                ? {
+                    ...c,
+                    last_message: data.content || mediaPreview(data.media_type) || c.last_message,
+                    last_message_at: data.created_at,
+                    is_read: data.direction === 'incoming' ? false : c.is_read,
+                  }
                 : c
             );
             return updated.sort((a, b) =>

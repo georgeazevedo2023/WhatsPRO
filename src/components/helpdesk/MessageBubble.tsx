@@ -5,7 +5,7 @@ import { ImageIcon, ExternalLink, FileText, Download, Loader2, LayoutGrid, BarCh
 import { AudioPlayer } from './AudioPlayer';
 import { supabase } from '@/integrations/supabase/client';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { useSignedUrl } from '@/hooks/useSignedUrl';
+import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { toast } from 'sonner';
 import type { Message } from '@/pages/dashboard/HelpDesk';
 
@@ -24,8 +24,8 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
 
   // Resolve Supabase storage URLs to signed URLs for private buckets
   const needsSignedUrl = ['image', 'audio', 'video', 'document', 'sticker'].includes(message.media_type);
-  const resolvedMediaUrl = useSignedUrl(needsSignedUrl ? message.media_url : null);
-  const mediaUrl = needsSignedUrl ? (resolvedMediaUrl || message.media_url) : message.media_url;
+  const resolvedMedia = useMediaUrl(message.media_url, instanceId, needsSignedUrl);
+  const mediaUrl = needsSignedUrl ? resolvedMedia.url : message.media_url;
 
   // Parse carousel data from media_url when media_type is 'carousel'
   const carouselData = useMemo(() => {
@@ -221,11 +221,20 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
             )}
           </div>
         )}
+        {message.media_type === 'sticker' && !mediaUrl && resolvedMedia.loading && (
+          <div className="mb-1 rounded-lg bg-muted/50 border border-border flex items-center justify-center p-4">
+            <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+          </div>
+        )}
 
         {/* Image with error fallback */}
-        {message.media_type === 'image' && mediaUrl && (
+        {message.media_type === 'image' && (mediaUrl || resolvedMedia.loading || resolvedMedia.error) && (
           <div className="mb-1">
-            {!imgError ? (
+            {resolvedMedia.loading ? (
+              <div className="rounded-lg bg-muted/50 border border-border flex items-center justify-center py-8 px-4">
+                <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+              </div>
+            ) : mediaUrl && !imgError ? (
               <a href={mediaUrl} target="_blank" rel="noopener noreferrer">
                 <img
                   src={mediaUrl}
@@ -239,15 +248,19 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
             ) : (
               <div className="rounded-lg bg-muted/50 border border-border flex flex-col items-center justify-center py-6 px-4 gap-2">
                 <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                <a
-                  href={mediaUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Abrir imagem
-                </a>
+                {mediaUrl ? (
+                  <a
+                    href={mediaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Abrir imagem
+                  </a>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Imagem indisponível</span>
+                )}
               </div>
             )}
           </div>
@@ -273,6 +286,11 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
                 <span className={`text-[11px] italic ${message.direction === 'incoming' ? 'text-muted-foreground' : 'text-white/85'}`}>Transcrevendo...</span>
               </div>
             )}
+          </div>
+        )}
+        {message.media_type === 'video' && resolvedMedia.loading && (
+          <div className="rounded-lg bg-muted/50 border border-border flex items-center justify-center py-8 px-4 mb-1">
+            <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
           </div>
         )}
         {message.media_type === 'video' && mediaUrl && (
