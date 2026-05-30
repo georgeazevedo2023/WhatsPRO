@@ -13,7 +13,16 @@ audited_at: 2026-05-28
 
 ---
 
-### v7.58.2 (2026-05-30) — Categoria "motores" (motor de portão) — fecha bug Cleber
+### v7.58.3 (2026-05-30) — 🔴 Catálogo-vazio premium não transbordava (loop infinito) — cenário 21.37
+
+E2E do cenário 21.37 (torneira gourmet, catálogo digital vazio) expôs falha grave: a IA **qualificava pra sempre sem transbordar** e **repergunta o que o lead já respondeu**. Em 9 turnos: `status_ia` ainda `ligada`, zero handoff. (Acertava só o essencial: nunca vazou indisponibilidade.)
+
+- **Causa raiz (mismatch de chave + bloqueio de convergência):** `evaluateProductQualificationFlow` compara `answered.has(field.key)` com os field keys da categoria (`ambiente_torneira`, `tipo_torneira`…), mas o LLM specialist grava tags **genéricas** (`ambiente:`, `cor:`, `acabamento:`). Nenhuma casava → `missing` sempre cheio. E pra categorias "premium full" o `readyToHandoff` exigia TODOS os campos → `premiumNeedsMoreFields` era **perpetuamente true** → `noResultReadyForHandoff` nunca disparava, **mesmo batendo o cap de enriquecimento**.
+- **Fix de raiz (`productQualificationFlow.ts`, puro, +5 testes):**
+  - `fieldBaseName` + `isFieldAnswered` — campo `ambiente_torneira` conta como respondido se há tag `ambiente:` (base antes do último `_`). Resolve o mismatch literal e **para de reperguntar**.
+  - Convergência garantida — premium transborda quando coletou tudo **OU** bateu o cap pós-vazio (removido o veto `isPremiumFullQualificationCategory`). Sem isso, campos que o LLM nunca tagueia travavam o handoff pra sempre.
+- **E2E real (Sandbox, invocação direta) PASSA:** torneira gourmet → qualifica fundo (cozinha/mesa/ducha/preto fosco/cuba dupla/premium) → busca 0 → **transborda** com `status_ia=shadow`, fila, e **nota interna completa** pro vendedor (score 100, "validar estoque físico"). 15 testes do fluxo verdes, deno 0, deploy ai-agent CLI.
+- **Resíduo (polish, não bloqueador):** 1 repergunta de "cozinha" na fase qualify-first (LLM) antes do loop determinístico assumir; mesma raiz do bug Raquel.
 
 Lead (Cleber, EletropisoV2) pediu *"motor para portão"* e o agente **qualificou como porta** (perguntou tipo de porta) — porque não havia categoria de motores e o LLM improvisava a vizinha ("portão"→portas). Dono confirmou que **vende motor/automatizador**.
 
