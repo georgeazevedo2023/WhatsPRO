@@ -13,6 +13,7 @@ import {
   formatPhrasing,
   extractInteresseFromTags,
   filterProductsByExpectedCategory,
+  buildInteresseRegex,
   buildValidTagKeys,
   BASE_VALID_TAG_KEYS,
   type ServiceCategoriesConfig,
@@ -208,7 +209,7 @@ describe('matchAllCategoriesBySearchText (R133+R134)', () => {
       categories: [
         ...DEFAULT_SERVICE_CATEGORIES_V2.categories,
         {
-          id: 'caixas_dagua', label: 'Caixas d\'Água', interesse_match: 'caixa d|caixa dagua|reservatório|reservatorio',
+          id: 'caixas_dagua', label: 'Caixas d\'Água', interesse_match: "caixa d'agua|caixa d'água|caixa de agua|caixa de água|caixa dagua|reservatório|reservatorio",
           stages: [{ id: 's1', label: 'S1', min_score: 0, max_score: 100, exit_action: 'handoff', fields: [{ key: 'litragem', label: 'litragem', examples: '500, 1000', score_value: 50, priority: 1 }], phrasing: 'X' }],
         },
       ],
@@ -692,10 +693,12 @@ describe('DEFAULT_SERVICE_CATEGORIES_V2 sanity', () => {
       .toBe(DEFAULT_SERVICE_CATEGORIES_V2)
   })
 
-  it('contem categorias tintas e impermeabilizantes', () => {
+  it('contem categorias base e premium Eletropiso', () => {
     const ids = DEFAULT_SERVICE_CATEGORIES_V2.categories.map(c => c.id)
     expect(ids).toContain('tintas')
     expect(ids).toContain('impermeabilizantes')
+    expect(ids).toContain('porcelanatos_revestimentos')
+    expect(ids).toContain('torneiras_metais')
   })
 
   it('tintas tem 3 stages: identificacao, detalhamento, fechamento', () => {
@@ -754,6 +757,26 @@ describe('DEFAULT_SERVICE_CATEGORIES_V2 sanity', () => {
   it('field "ambiente" e perguntado pre-search (Stage Identificacao)', () => {
     const stage = tintas.stages.find(s => s.id === 'identificacao')!
     expect(stage.fields.some(f => f.key === 'ambiente')).toBe(true)
+  })
+
+  it('porcelanatos/revestimentos tem pre-busca e qualificacao para estoque fisico', () => {
+    const cat = DEFAULT_SERVICE_CATEGORIES_V2.categories.find(c => c.id === 'porcelanatos_revestimentos')!
+    expect(cat.catalog_status).toBe('digital')
+    expect(cat.stages.map(s => s.id)).toEqual(['pre_busca', 'sem_catalogo'])
+    expect(cat.stages[0].exit_action).toBe('search_products')
+    expect(cat.stages[0].fields.map(f => f.key)).toEqual(['aplicacao', 'ambiente', 'formato'])
+    expect(cat.stages[1].exit_action).toBe('handoff')
+    expect(cat.stages[1].fields.map(f => f.key)).toEqual(['acabamento', 'cor', 'local_aplicacao', 'area'])
+  })
+
+  it('torneiras/metais cobre o cenario torneira gourmet', () => {
+    const cat = DEFAULT_SERVICE_CATEGORIES_V2.categories.find(c => c.id === 'torneiras_metais')!
+    expect(cat.catalog_status).toBe('digital')
+    expect(cat.stages.map(s => s.id)).toEqual(['pre_busca', 'sem_catalogo'])
+    expect(cat.stages[0].fields.map(f => f.key)).toEqual(['aplicacao', 'instalacao', 'modelo'])
+    expect(cat.stages[1].fields.map(f => f.key)).toEqual(['acabamento', 'tipo_cuba', 'perfil'])
+    expect(matchCategoryBySearchText('voces tem torneira gourmet?', DEFAULT_SERVICE_CATEGORIES_V2)?.id)
+      .toBe('torneiras_metais')
   })
 })
 
@@ -1030,5 +1053,85 @@ describe('filterProductsByExpectedCategory (Bug 8)', () => {
     }
     expect(filterProductsByExpectedCategory([{ title: 'Tinta Coral', category: null, subcategory: null }], cat)).toHaveLength(1)
     expect(filterProductsByExpectedCategory([{ title: 'Esmalte', category: null, subcategory: null }], cat)).toEqual([])
+  })
+})
+
+// =============================================================================
+// R149 (2026-05-30) — fronteira de palavra no interesse_match (anti-substring)
+// Bug raiz: "porta|portas" casava substring em "portanto" (caso Rodolfo/biodigestor).
+// =============================================================================
+
+describe('buildInteresseRegex — fronteira de palavra anti-substring', () => {
+  const m = (pattern: string, text: string) => buildInteresseRegex(pattern).test(text)
+
+  it('NÃO casa "porta" dentro de "portanto" (o bug do Rodolfo)', () => {
+    expect(m('porta|portas', 'Agora, portanto, que ele tenha 1.500 litros.')).toBe(false)
+    expect(m('porta|portas', 'portanto')).toBe(false)
+    expect(m('porta|portas', 'suporta o peso')).toBe(false)
+    expect(m('porta|portas', 'é muito importante')).toBe(false)
+  })
+
+  it('casa "porta"/"portas" como palavra inteira', () => {
+    expect(m('porta|portas', 'vcs tem porta?')).toBe(true)
+    expect(m('porta|portas', 'preciso de portas')).toBe(true)
+    expect(m('porta|portas', 'PORTA lisa')).toBe(true) // case-insensitive
+  })
+
+  it('outros prefixos curtos não vazam (cabo/cano/mesa/pia)', () => {
+    expect(m('cabo|cabos', 'acabou de chegar')).toBe(false)
+    expect(m('cabo|cabos', 'preciso de cabo flexível')).toBe(true)
+    expect(m('cano|canos', 'comprei uma canoa')).toBe(false)
+    expect(m('cano|canos', 'tem cano de 50mm?')).toBe(true)
+    expect(m('mesa|mesas', 'minha mesada acabou')).toBe(false)
+    expect(m('mesa|mesas', 'quero uma mesa')).toBe(true)
+    expect(m('pia|pias', 'apiada na parede')).toBe(false)
+    expect(m('pia|pias', 'tem pia de cozinha?')).toBe(true)
+  })
+
+  it('tolera plural mesmo quando a config só lista o singular', () => {
+    expect(m('tinta', 'vcs tem tintas?')).toBe(true)   // singular no pattern, plural no texto
+    expect(m('manta', 'preciso de mantas')).toBe(true)
+    expect(m('tinta', 'pintando a casa')).toBe(false)  // "tinta" NÃO está em "pintando"
+  })
+
+  it('respeita acentos (\\b nativo falharia)', () => {
+    expect(m('lâmpada|lampada', 'quero uma lâmpada de LED')).toBe(true)
+    expect(m('lâmpada|lampada', 'lâmpadas')).toBe(true)
+    expect(m('cerâmica|ceramica', 'tem cerâmica?')).toBe(true)
+  })
+
+  it('preserva patterns multi-palavra e com hífen', () => {
+    const caixaPat = "caixa d'agua|caixa d'água|caixa de agua|caixa de água|caixa dagua"
+    expect(m(caixaPat, "tem caixa d'água de 1000L?")).toBe(true)
+    expect(m(caixaPat, "qual o valor da caixa de água fortlev?")).toBe(true)
+    expect(m('ac-i|ac-ii', 'preciso de argamassa AC-II')).toBe(true)
+    expect(m('fio elétrico|fio eletrico', 'quero fio elétrico')).toBe(true)
+  })
+})
+
+describe('matchCategory* — integração anti-substring (config com portas)', () => {
+  const cfgComPortas: ServiceCategoriesConfig = {
+    categories: [
+      {
+        id: 'portas', label: 'Portas', interesse_match: 'porta|portas',
+        stages: [{
+          id: 'qualificacao', label: 'Qualificacao', min_score: 0, max_score: 30,
+          exit_action: 'handoff',
+          fields: [{ key: 'material_porta', label: 'material', examples: 'madeira, PVC ou alumínio', score_value: 10, priority: 1 }],
+          phrasing: 'X',
+        }],
+      },
+    ],
+    default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+  }
+
+  it('"portanto" no áudio NÃO dispara categoria portas (caso real Rodolfo)', () => {
+    expect(matchCategoryBySearchText('Pode ser qualquer marca. Agora, portanto, que ele tenha 1.500 litros.', cfgComPortas)).toBeNull()
+    expect(matchAllCategoriesBySearchText('portanto que ele tenha 1500 litros', cfgComPortas)).toEqual([])
+  })
+
+  it('pedido real de porta ainda casa', () => {
+    expect(matchCategoryBySearchText('vcs tem porta 80 lisa?', cfgComPortas)?.id).toBe('portas')
+    expect(matchAllCategoriesBySearchText('quero portas de madeira', cfgComPortas).map(c => c.id)).toContain('portas')
   })
 })

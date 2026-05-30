@@ -136,6 +136,75 @@ export const DEFAULT_SERVICE_CATEGORIES_V2: ServiceCategoriesConfig = {
       ],
     },
     {
+      id: 'porcelanatos_revestimentos',
+      label: 'Porcelanatos e Revestimentos',
+      interesse_match: 'porcelanato|revestimento|piso',
+      catalog_status: 'digital',
+      stages: [
+        {
+          id: 'pre_busca',
+          label: 'Pre Busca',
+          min_score: 0,
+          max_score: 30,
+          exit_action: 'search_products',
+          fields: [
+            { key: 'aplicacao', label: 'aplicacao', examples: 'piso ou parede', score_value: 10, priority: 1 },
+            { key: 'ambiente', label: 'ambiente', examples: 'residencial ou comercial', score_value: 10, priority: 2 },
+            { key: 'formato', label: 'formato', examples: '60x60, 90x90, 120x120', score_value: 10, priority: 3 },
+          ],
+          phrasing: 'Qual {label}? ({examples})',
+        },
+        {
+          id: 'sem_catalogo',
+          label: 'Qualificacao para Estoque Fisico',
+          min_score: 30,
+          max_score: 100,
+          exit_action: 'handoff',
+          fields: [
+            { key: 'acabamento', label: 'acabamento', examples: 'brilhante, acetinado, fosco', score_value: 15, priority: 1 },
+            { key: 'cor', label: 'cor', examples: 'bege, cinza, branco, off-white', score_value: 15, priority: 2 },
+            { key: 'local_aplicacao', label: 'local de aplicacao', examples: 'sala, cozinha, quarto, area integrada', score_value: 20, priority: 3 },
+            { key: 'area', label: 'metragem aproximada', examples: 'em m2', score_value: 20, priority: 4 },
+          ],
+          phrasing: 'Qual {label}? ({examples})',
+        },
+      ],
+    },
+    {
+      id: 'torneiras_metais',
+      label: 'Torneiras e Metais',
+      interesse_match: 'torneira|misturador|metal',
+      catalog_status: 'digital',
+      stages: [
+        {
+          id: 'pre_busca',
+          label: 'Pre Busca',
+          min_score: 0,
+          max_score: 30,
+          exit_action: 'search_products',
+          fields: [
+            { key: 'aplicacao', label: 'aplicacao', examples: 'cozinha ou area gourmet', score_value: 10, priority: 1 },
+            { key: 'instalacao', label: 'instalacao', examples: 'bancada ou parede', score_value: 10, priority: 2 },
+            { key: 'modelo', label: 'modelo', examples: 'ducha flexivel, bica alta', score_value: 10, priority: 3 },
+          ],
+          phrasing: 'Qual {label}? ({examples})',
+        },
+        {
+          id: 'sem_catalogo',
+          label: 'Qualificacao para Estoque Fisico',
+          min_score: 30,
+          max_score: 100,
+          exit_action: 'handoff',
+          fields: [
+            { key: 'acabamento', label: 'acabamento', examples: 'cromado, preto fosco, dourado, escovado', score_value: 25, priority: 1 },
+            { key: 'tipo_cuba', label: 'tipo de cuba', examples: 'simples ou dupla', score_value: 20, priority: 2 },
+            { key: 'perfil', label: 'perfil', examples: 'custo-beneficio ou premium', score_value: 25, priority: 3 },
+          ],
+          phrasing: 'Qual {label}? ({examples})',
+        },
+      ],
+    },
+    {
       id: 'impermeabilizantes',
       label: 'Impermeabilizantes e Mantas',
       interesse_match: 'impermeabilizante|manta',
@@ -271,11 +340,158 @@ function isValidConfig(v: unknown): v is ServiceCategoriesConfig {
 export function getCategoriesOrDefault(
   agent: { service_categories?: unknown } | null | undefined,
 ): ServiceCategoriesConfig {
-  if (!agent) return DEFAULT_SERVICE_CATEGORIES_V2
+  if (!agent) return withPremiumCategoryOverrides(DEFAULT_SERVICE_CATEGORIES_V2)
   const raw = agent.service_categories
-  if (raw == null) return DEFAULT_SERVICE_CATEGORIES_V2
-  if (!isValidConfig(raw)) return DEFAULT_SERVICE_CATEGORIES_V2
-  return raw
+  if (raw == null) return withPremiumCategoryOverrides(DEFAULT_SERVICE_CATEGORIES_V2)
+  if (!isValidConfig(raw)) return withPremiumCategoryOverrides(DEFAULT_SERVICE_CATEGORIES_V2)
+  return withPremiumCategoryOverrides(raw)
+}
+
+function withPremiumCategoryOverrides(config: ServiceCategoriesConfig): ServiceCategoriesConfig {
+  let changed = false
+  const categories = config.categories.map((category) => {
+    if (isTorneirasCategory(category)) {
+      changed = true
+      return buildPremiumTorneirasCategory(category)
+    }
+    if (isRevestimentosCategory(category)) {
+      changed = true
+      return buildPremiumRevestimentosCategory(category)
+    }
+    return category
+  })
+
+  if (!changed) return config
+
+  return {
+    ...config,
+    categories,
+  }
+}
+
+function isTorneirasCategory(category: ServiceCategory): boolean {
+  return category.id === 'torneiras'
+}
+
+function isRevestimentosCategory(category: ServiceCategory): boolean {
+  return category.id === 'revestimentos'
+}
+
+function buildPremiumTorneirasCategory(category: ServiceCategory): ServiceCategory {
+  return {
+    ...category,
+    label: category.label || 'Torneiras e Metais',
+    catalog_status: 'digital',
+    interesse_match: mergeRegex(category.interesse_match, 'torneira|torneiras|torneira gourmet|misturador|metal'),
+    stages: [
+      {
+        id: 'pre_busca',
+        label: 'Pre Busca',
+        min_score: 0,
+        max_score: 30,
+        exit_action: 'search_products',
+        fields: [
+          { key: 'ambiente_torneira', label: 'aplicacao', examples: 'cozinha ou area gourmet', score_value: 10, priority: 1 },
+          { key: 'tipo_torneira', label: 'instalacao', examples: 'bancada ou parede', score_value: 10, priority: 2 },
+          { key: 'modelo_torneira', label: 'modelo', examples: 'ducha flexivel ou bica alta', score_value: 10, priority: 3 },
+        ],
+        phrasing: 'Qual {label}? ({examples})',
+      },
+      {
+        id: 'sem_catalogo',
+        label: 'Qualificacao para Estoque Fisico',
+        min_score: 30,
+        max_score: 100,
+        exit_action: 'handoff',
+        fields: [
+          { key: 'acabamento_torneira', label: 'acabamento', examples: 'cromado, preto fosco, dourado ou escovado', score_value: 25, priority: 1 },
+          { key: 'tipo_cuba', label: 'tipo de cuba', examples: 'simples ou dupla', score_value: 20, priority: 2 },
+          { key: 'perfil', label: 'perfil', examples: 'custo-beneficio ou premium', score_value: 25, priority: 3 },
+        ],
+        phrasing: 'Qual {label}? ({examples})',
+      },
+    ],
+  }
+}
+
+function buildPremiumRevestimentosCategory(category: ServiceCategory): ServiceCategory {
+  return {
+    ...category,
+    label: category.label || 'Porcelanatos e Revestimentos',
+    catalog_status: 'digital',
+    interesse_match: mergeRegex(category.interesse_match, 'porcelanato|porcelanatos|revestimento|revestimentos|ceramica|ceramicas|cerâmica|cerâmicas|azulejo|azulejos|piso|pisos'),
+    stages: [
+      {
+        id: 'pre_busca',
+        label: 'Pre Busca',
+        min_score: 0,
+        max_score: 30,
+        exit_action: 'search_products',
+        fields: [
+          { key: 'aplicacao_revestimento', label: 'aplicacao', examples: 'piso ou parede', score_value: 10, priority: 1 },
+          { key: 'ambiente_revestimento', label: 'ambiente', examples: 'residencial ou comercial', score_value: 10, priority: 2 },
+          { key: 'formato', label: 'formato', examples: '60x60, 90x90 ou 120x120', score_value: 10, priority: 3 },
+        ],
+        phrasing: 'Qual {label}? ({examples})',
+      },
+      {
+        id: 'sem_catalogo',
+        label: 'Qualificacao para Estoque Fisico',
+        min_score: 30,
+        max_score: 100,
+        exit_action: 'handoff',
+        fields: [
+          { key: 'acabamento', label: 'acabamento', examples: 'brilhante, acetinado ou fosco', score_value: 15, priority: 1 },
+          { key: 'cor', label: 'cor', examples: 'bege, cinza, branco ou off-white', score_value: 15, priority: 2 },
+          { key: 'local_aplicacao', label: 'local de aplicacao', examples: 'sala, cozinha, quarto ou area integrada', score_value: 20, priority: 3 },
+          { key: 'area', label: 'metragem aproximada', examples: 'em m2', score_value: 20, priority: 4 },
+        ],
+        phrasing: 'Qual {label}? ({examples})',
+      },
+    ],
+  }
+}
+
+function mergeRegex(current: string, required: string): string {
+  const trimmed = String(current || '').trim()
+  if (!trimmed) return required
+  return `(?:${trimmed})|(?:${required})`
+}
+
+/**
+ * R149 (2026-05-30) — monta o regex de `interesse_match` com FRONTEIRA DE PALAVRA
+ * accent-safe + tolerância a plural. Fonte única usada por TODAS as 4 funções de
+ * match (+ o filtro de produtos) pra não divergir.
+ *
+ * Bug que motivou (caso Rodolfo, EletropisoV2 PROD 2026-05-30): a categoria portas
+ * tem `interesse_match: "porta|portas"` e o regex era montado como
+ * `new RegExp(pattern, 'i')` SEM fronteira → casava o substring "porta" dentro de
+ * "portanto" (transcrição de áudio "Agora, portanto, que ele tenha 1.500 litros")
+ * → IA ofereceu PORTAS pra quem pediu biodigestor. Mesma classe pega `cabo` em
+ * "acabou", `cano` em "canoa", `mesa` em "mesada", etc.
+ *
+ * Por que lookaround manual e não `\b`: em JS `\b` usa `\w` (= [A-Za-z0-9_]), que
+ * NÃO inclui acentos — `porta\b` casaria "portã..." e `\bárea` falharia. Usamos
+ * lookbehind/lookahead de "letra" explícitos cobrindo Latin-1 (À-ÿ).
+ *
+ * Por que o sufixo `(?:s|es|ns)?`: preserva o match de plural mesmo quando a config
+ * só lista o singular (ex.: pattern "tinta" continua casando "tintas"). "portanto"
+ * NÃO casa: "porta" + (sufixo vazio) + lookahead vê "n" (letra) → falha.
+ *
+ * Pode LANÇAR se o pattern for regex inválido — caller mantém o try/catch que já tinha.
+ */
+const INTERESSE_WORD_CHARS = 'A-Za-zÀ-ÿ0-9'
+export function buildInteresseRegex(pattern: string): RegExp {
+  // Valida o pattern CRU primeiro. Isso (1) preserva o contrato "lança se inválido"
+  // que os callers já tratam com try/catch (pulando a categoria), e (2) impede que o
+  // wrapping abaixo "conserte" acidentalmente um pattern com brackets desbalanceados
+  // (ex.: '[unclosed' viraria válido porque o `]` do meu char-class final fecharia a
+  // classe aberta — mascarando config inválida e gerando match-garbage).
+  new RegExp(pattern) // throws on invalid → caller pula a categoria
+  return new RegExp(
+    `(?<![${INTERESSE_WORD_CHARS}])(?:${pattern})(?:s|es|ns)?(?![${INTERESSE_WORD_CHARS}])`,
+    'i',
+  )
 }
 
 /**
@@ -296,7 +512,7 @@ export function matchCategory(
   for (const cat of config.categories) {
     let re: RegExp
     try {
-      re = new RegExp(cat.interesse_match, 'i')
+      re = buildInteresseRegex(cat.interesse_match)
     } catch {
       // eslint-disable-next-line no-console
       console.warn(`[serviceCategories] Regex invalido em categoria "${cat.id}": ${cat.interesse_match}`)
@@ -328,7 +544,7 @@ export function matchCategoryBySearchText(
   for (const cat of config.categories) {
     let re: RegExp
     try {
-      re = new RegExp(cat.interesse_match, 'i')
+      re = buildInteresseRegex(cat.interesse_match)
     } catch {
       // eslint-disable-next-line no-console
       console.warn(`[serviceCategories] Regex invalido em categoria "${cat.id}": ${cat.interesse_match}`)
@@ -362,7 +578,7 @@ export function matchAllCategoriesBySearchText(
     if (seenIds.has(cat.id)) continue
     let re: RegExp
     try {
-      re = new RegExp(cat.interesse_match, 'i')
+      re = buildInteresseRegex(cat.interesse_match)
     } catch {
       // eslint-disable-next-line no-console
       console.warn(`[serviceCategories] Regex invalido em categoria "${cat.id}": ${cat.interesse_match}`)
@@ -615,7 +831,7 @@ export function filterProductsByExpectedCategory<T extends {
 
   let re: RegExp
   try {
-    re = new RegExp(expectedCategory.interesse_match, 'i')
+    re = buildInteresseRegex(expectedCategory.interesse_match)
   } catch {
     return products
   }
@@ -677,6 +893,8 @@ export const BASE_VALID_TAG_KEYS: ReadonlySet<string> = new Set([
   // vendas/negociacao
   'tipo_cliente', 'concorrente', 'motivo_perda', 'conversao',
   'venda_status', 'venda', 'pagamento', 'marca_citada',
+  // entrega (v7.58: coleta de retirada/entrega + bairro pré-handoff)
+  'entrega_modo', 'bairro',
   // shadow do vendedor
   'vendedor_tom', 'vendedor_desconto', 'vendedor_upsell',
   'vendedor_followup', 'vendedor_alternativa',
