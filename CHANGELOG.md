@@ -13,7 +13,13 @@ audited_at: 2026-05-28
 
 ---
 
-### v7.58.3 (2026-05-30) — 🔴 Catálogo-vazio premium não transbordava (loop infinito) — cenário 21.37
+### v7.58.4 (2026-05-30) — 🔴 Greeting inventava interesse pra lead novo ("você estava vendo pisos") — caso Erick/Mirlley
+
+Lead NOVO (Erick) abriu com "Boa tarde" → deu o nome → e a IA respondeu *"Erick! Você estava vendo alguns pisos, quer continuar por aí?"* — **inventando um interesse que o lead nunca mencionou** (ele queria porta de quarto). Quebra de confiança (delata bot/erro).
+
+- **Causa raiz (tripla), em `greetingSpecialist.ts`:** o prompt gateava a retomada de "lead recorrente" em **ter nome** (`leadName ? ...`), então um lead novo que acabou de se apresentar era tratado como returning; o exemplo literal *"você estava vendo [interesse]"* **convidava a hallucinação**; e o `buildLeadMemoryBlock` contava o **resumo da própria conversa em andamento** (turno 1) como "memória", reforçando o falso returning. O "pisos" provavelmente veio do viés de "Eletro**piso**". (Bônus: `buildOpeningDirective`, que tinha a guarda de memória, é **dead code** — nunca foi religado no runtime.)
+- **Fix de raiz:** a retomada agora é gateada em **interesse/produto CONCRETO** de conversa anterior (`hasResumableInterest`: `interests`/`products_seen` não-vazios), não em "tem nome" nem em "tem qualquer resumo". Lead novo que diz o nome → saudação limpa + "PROIBIDO presumir interesse anterior; NÃO cite produto que ele não mencionou". 7 testes do greeting verdes (1 reescrito pro novo contrato + 1 novo memória-vs-sem-memória).
+- **E2E real PASSA:** lead novo "Boa tarde" → "Erick" → *"O que você está procurando hoje?"* (zero interesse inventado). Antes: *"você estava vendo alguns pisos"*. Deploy ai-agent CLI.
 
 E2E do cenário 21.37 (torneira gourmet, catálogo digital vazio) expôs falha grave: a IA **qualificava pra sempre sem transbordar** e **repergunta o que o lead já respondeu**. Em 9 turnos: `status_ia` ainda `ligada`, zero handoff. (Acertava só o essencial: nunca vazou indisponibilidade.)
 

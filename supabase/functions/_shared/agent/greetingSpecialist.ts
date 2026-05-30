@@ -23,6 +23,21 @@
 import { setTagsToolDef, updateLeadProfileToolDef } from './specialistTools.ts'
 import type { SpecialistCtx, SpecialistDef } from './specialistBase.ts'
 
+/**
+ * Há um INTERESSE/PRODUTO concreto de uma conversa ANTERIOR pra retomar?
+ * (interests/products_seen do lead_profiles). Caso Erick (2026-05-30): gatear a
+ * retomada em "tem qualquer memória" era falso-positivo — o resumo do turno 1 da
+ * PRÓPRIA conversa já contava como memória, e o LLM inventava um interesse ("pisos",
+ * viés de "Eletropiso"). O sinal correto de "lead que volta" é ter interesse/produto
+ * concreto, não um resumo de saudação da conversa em andamento.
+ */
+function hasResumableInterest(ctx: SpecialistCtx): boolean {
+  const lp = ctx.leadProfile as { interests?: unknown; products_seen?: unknown } | null | undefined
+  const interests = Array.isArray(lp?.interests) ? lp!.interests.filter(Boolean) : []
+  const products = Array.isArray(lp?.products_seen) ? lp!.products_seen.filter(Boolean) : []
+  return interests.length > 0 || products.length > 0
+}
+
 /** Extrai nome conhecido do lead das tags (lead_name:) ou do leadProfile. */
 function knownLeadName(ctx: SpecialistCtx): string | null {
   const tags = (ctx.conversation.tags as string[]) || []
@@ -35,10 +50,16 @@ function knownLeadName(ctx: SpecialistCtx): string | null {
   return (typeof fromProfile === 'string' && fromProfile.trim()) ? fromProfile.trim() : null
 }
 
-export function buildGreetingPrompt(args: { agentName: string; businessName?: string; leadName?: string | null }): string {
-  const { agentName, businessName, leadName } = args
+export function buildGreetingPrompt(args: { agentName: string; businessName?: string; leadName?: string | null; hasMemory?: boolean }): string {
+  const { agentName, businessName, leadName, hasMemory } = args
+  // Gate da retomada: SÓ "você estava vendo X" se há MEMÓRIA REAL acima. Antes, o
+  // gatilho era só "tem nome" → lead NOVO que diz o nome ("Erick") era tratado como
+  // recorrente e o LLM PREENCHIA o exemplo hallucinando um interesse ("pisos", viés
+  // de "Eletropiso"). Caso Erick 2026-05-30. Agora: nome sem memória = saudação limpa.
   const nameLine = leadName
-    ? `O lead JÁ É CONHECIDO: ${leadName}. Cumprimente-o PELO NOME (não peça o nome de novo). Se houver "MEMÓRIA DO LEAD" acima, referencie naturalmente UM fato relevante (o produto/interesse que ele via) pra RETOMAR de onde parou — ex.: "Oi ${leadName}! Você estava vendo [interesse], quer continuar?". Não recite todos os fatos, escolha o mais útil.`
+    ? (hasMemory
+      ? `O lead É RECORRENTE: ${leadName}. Cumprimente-o PELO NOME (não peça o nome de novo). Há "MEMÓRIA DO LEAD" acima — referencie naturalmente UM fato relevante (o produto/interesse que ele via) pra RETOMAR de onde parou. Escolha o mais útil, não recite tudo. NUNCA invente um interesse que não esteja na memória.`
+      : `O lead ACABOU de dizer o nome: ${leadName}. Cumprimente DE VOLTA pelo nome ("Oi ${leadName}!" / "Boa tarde, ${leadName}!") e pergunte, em 1 frase, o que ele procura (não peça o nome de novo). PROIBIDO presumir interesse anterior ou dizer "você estava vendo X" — ele ainda NÃO falou o que quer; NÃO cite nenhum produto/categoria que ele não mencionou.`)
     : `O lead ainda não disse o nome. Cumprimente e, na MESMA mensagem, pergunte com quem você fala (peça o nome de forma leve).`
 
   return `Você é ${agentName || 'o atendente'}${businessName ? ` da ${businessName}` : ''}, atendendo no WhatsApp em português brasileiro. Você cuida da ABERTURA da conversa.
@@ -95,6 +116,9 @@ export function buildGreetingSpecialistDef(model = 'gpt-4.1-mini'): SpecialistDe
         agentName: (ctx.agent.name as string) || 'atendente',
         businessName: (ctx.agent.business_name as string) || undefined,
         leadName: knownLeadName(ctx),
+        // hasMemory = tem interesse/produto CONCRETO pra retomar (returning real),
+        // não só nome nem resumo da própria conversa em andamento.
+        hasMemory: hasResumableInterest(ctx),
       }),
     // greeting não chama handoff_to_human; guard é irrelevante.
     disableHandoffGuard: false,

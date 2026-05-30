@@ -19,10 +19,22 @@ describe('buildGreetingPrompt', () => {
     expect(p).toContain('full_name')
   })
 
-  it('usa o nome quando lead é conhecido (não pede de novo)', () => {
-    const p = buildGreetingPrompt({ agentName: 'X', leadName: 'Marcos' })
+  it('nome conhecido SEM memória: cumprimenta, NÃO presume interesse (fix Erick 2026-05-30)', () => {
+    const p = buildGreetingPrompt({ agentName: 'X', leadName: 'Marcos', hasMemory: false })
     expect(p).toContain('Marcos')
     expect(p).toContain('não peça o nome de novo')
+    // o coração do fix: lead novo que só disse o nome NÃO recebe a diretiva de retomada
+    expect(p).not.toContain('RECORRENTE')
+    expect(p).not.toContain('RETOMAR de onde parou')
+    expect(p).toContain('PROIBIDO presumir interesse')
+  })
+
+  it('nome conhecido COM memória: retoma de onde parou (returning de verdade)', () => {
+    const p = buildGreetingPrompt({ agentName: 'X', leadName: 'George', hasMemory: true })
+    expect(p).toContain('George')
+    expect(p).toContain('RECORRENTE')
+    expect(p).toContain('MEMÓRIA DO LEAD')
+    expect(p).toContain('NUNCA invente um interesse')
   })
 
   it('regra-chave (não qualificar/buscar/handoff) vem por último', () => {
