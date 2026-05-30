@@ -13,6 +13,16 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.58.2 (2026-05-30) — Categoria "motores" (motor de portão) — fecha bug Cleber
+
+Lead (Cleber, EletropisoV2) pediu *"motor para portão"* e o agente **qualificou como porta** (perguntou tipo de porta) — porque não havia categoria de motores e o LLM improvisava a vizinha ("portão"→portas). Dono confirmou que **vende motor/automatizador**.
+
+- **Fix:** nova categoria `motores` (`interesse_match: motor|motorizado|automatizador|automatizadores|automatizar`, 3 campos: tipo do portão / material / uso, `exit_action: handoff`) nas 3 instâncias (Eletropiso, EletropisoV2, Sandbox). É **config de DB** — live na hora, sem deploy.
+- **Chaveada em `motor`, NUNCA em "portão"** — `buildInteresseRegex` (R149) garante `porta ≠ portão`, então não colide com `portas`. Provado com o código real (`motorCategory.verify.test.ts`, 4/4): `motor para portão`→motores, `porta de alumínio`→portas, `motorista`→sem falso-positivo, `tinta para porta`→tintas (ordem preservada).
+- **Backlog (não feito):** guard determinístico genérico "produto sem categoria → handoff honesto, nunca finge categoria vizinha" — vale pra QUALQUER produto desconhecido, mas toca o core do agente (HIGH RISK) e pede E2E dedicado.
+
+---
+
 ### v7.58.1 (2026-05-30) — 🔴 Incidente: fila de transbordo em rotação infinita + OOF reenviada todo dia
 
 Lead (Alex/Alberto, EletropisoV2 PROD) recebia a mensagem `handoff_message_outside_hours` **repetida dia após dia** (27→28→29 às 18h, e sábado 12h09). Investigação na prod expôs um **incidente ativo**: **114 conversas presas em rotação infinita** na fila (`handoff_queue_events`), `rotation_number` real até **293**, **~4.772 eventos/24h**. A OOF era só o sintoma visível.
