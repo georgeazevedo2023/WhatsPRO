@@ -13,7 +13,16 @@ audited_at: 2026-05-28
 
 ---
 
-### v7.58.0 (2026-05-30) — Visão de imagem: o agente passa a "ver" fotos de produto (Gemini 2.0 Flash → OpenAI fallback)
+### v7.58.1 (2026-05-30) — 🔴 Incidente: fila de transbordo em rotação infinita + OOF reenviada todo dia
+
+Lead (Alex/Alberto, EletropisoV2 PROD) recebia a mensagem `handoff_message_outside_hours` **repetida dia após dia** (27→28→29 às 18h, e sábado 12h09). Investigação na prod expôs um **incidente ativo**: **114 conversas presas em rotação infinita** na fila (`handoff_queue_events`), `rotation_number` real até **293**, **~4.772 eventos/24h**. A OOF era só o sintoma visível.
+
+- **Causa raiz:** `requeue-conversations` Case E alertava o gestor mas **"SEGUIA atribuindo" pra sempre** — conversa que ninguém responde rotacionava a cada ~10min eternamente. Cada evento novo nascia com `out_of_hours_msg_sent=false` → no fechamento do expediente, Case B reenviava a OOF (1 por evento/dia). *(O "fora de horário às 12h09" NÃO era bug: 2026-05-30 é sábado, expediente Sáb 8h-12h → 12h09 é fora mesmo. `businessHours` estava correto.)*
+- **Fix de raiz (2 guardas puras em `_shared/agent/queueRotation.ts`, 8 testes):**
+  - `shouldStopRotation` — para de criar eventos após **2 voltas completas** por todos os elegíveis sem resposta (`rotação ≥ elegíveis×2`); conversa fica *parqueada* (segue atribuída/visível, próxima msg do lead reacende). Mata o runaway.
+  - `decideOutOfHoursSend` — só reenvia a OOF se o lead falou **depois** da última OOF. Defesa-em-profundidade lead-facing.
+- **Remediação de dados:** 105 eventos runaway (rotação ≥32) parqueados manualmente.
+- **Verificado ao vivo:** ativos **118→14**, runaway≥32 **→0**, churn (eventos/3min) **→0**, OOF (30min) **→0** (eram 113 nas 2h anteriores). deno check 0, deploy CLI.
 
 Fecha bug auditado (caso Íris, EletropisoV2 PROD): lead mandou **foto de um tanquinho** + *"vcs tem um desse? está quanto?"* e a IA respondeu *"me manda a foto"* — porque imagem chegava com `content=""` e **nada de visão alimentava o LLM** (só áudio tinha transcrição). O agente era cego pra fotos.
 

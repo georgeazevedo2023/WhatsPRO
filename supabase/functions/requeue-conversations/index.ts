@@ -30,6 +30,7 @@ import { createLogger } from '../_shared/logger.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import { assignHandoff } from '../_shared/handoffQueue.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage } from '../_shared/businessHours.ts'
+import { decideOutOfHoursSend, shouldStopRotation } from '../_shared/agent/queueRotation.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -167,6 +168,33 @@ async function detectResponded(
   return (count || 0) > 0
 }
 
+/**
+ * Timestamps (ms) da última OOF já enviada (`queue_oof_*`) e da última mensagem
+ * do LEAD nesta conversa. Alimenta `decideOutOfHoursSend` pra NÃO reenviar a OOF
+ * a quem não voltou a falar (incidente 2026-05-30: re-spam diário).
+ */
+async function loadOofTimings(
+  supabase: SupabaseClient,
+  conversationId: string,
+): Promise<{ lastOofAtMs: number | null; lastIncomingAtMs: number | null }> {
+  const [{ data: oof }, { data: incoming }] = await Promise.all([
+    supabase.from('conversation_messages')
+      .select('created_at')
+      .eq('conversation_id', conversationId)
+      .like('external_id', 'queue_oof_%')
+      .order('created_at', { ascending: false })
+      .limit(1).maybeSingle(),
+    supabase.from('conversation_messages')
+      .select('created_at')
+      .eq('conversation_id', conversationId)
+      .eq('direction', 'incoming')
+      .order('created_at', { ascending: false })
+      .limit(1).maybeSingle(),
+  ])
+  const toMs = (v: string | null | undefined) => (v ? new Date(v).getTime() : null)
+  return { lastOofAtMs: toMs(oof?.created_at), lastIncomingAtMs: toMs(incoming?.created_at) }
+}
+
 // @ts-ignore -- Deno serve config
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -188,6 +216,8 @@ Deno.serve(async (req: Request) => {
     case_c_responded: 0,
     case_d_reattributed: 0,
     case_e_loop_alert: 0,
+    rotation_exhausted: 0,
+    oof_skipped_dedup: 0,
     no_eligible_alert: 0,
     paused_resumed: 0,
     errors: 0,
@@ -230,7 +260,13 @@ Deno.serve(async (req: Request) => {
         const oofMessage = rawOofMessage
           ? enrichOutsideHoursMessage(rawOofMessage, agent.business_hours)
           : null
-        if (!ev.out_of_hours_msg_sent && oofMessage && instance?.token) {
+        // Dedup por conversa (incidente 2026-05-30): só reenvia a OOF se o lead
+        // voltou a falar DEPOIS da última OOF. Sem isto, a rotação criava um
+        // evento novo (flag zerada) e re-spammava o mesmo lead todo dia.
+        const oofTimings = await loadOofTimings(supabase, ev.conversation_id)
+        const oofAllowed = decideOutOfHoursSend(oofTimings)
+        if (!oofAllowed) stats.oof_skipped_dedup++
+        if (!ev.out_of_hours_msg_sent && oofAllowed && oofMessage && instance?.token) {
           // Busca contato + envia via UAZAPI
           const { data: contact } = await supabase
             .from('contacts').select('jid').eq('id', conv.contact_id ?? '').maybeSingle()
@@ -293,6 +329,26 @@ Deno.serve(async (req: Request) => {
       }).eq('id', ev.id)
       if (isOrphan) stats.case_a_orphan++
 
+      // ─── Guarda anti-runaway (incidente 2026-05-30) ────────────────────────
+      // Se a conversa já passou 2 voltas completas por TODOS os elegíveis sem
+      // ninguém responder, PARA de criar eventos (parqueia). Sem isto a fila
+      // rotacionava pra sempre (rotação real 293, ~4.7k eventos/24h) e re-enviava
+      // a OOF todo dia. Conversa segue atribuída/visível; a próxima msg do lead
+      // reacende o handoff via pré-router do ai-agent.
+      const eligibleForRotation = await countEligibleMembers(supabase, ev.department_id)
+      if (shouldStopRotation({ rotationNumber: ev.rotation_number || 0, eligibleCount: eligibleForRotation })) {
+        await notifyGestores(
+          supabase,
+          'handoff_queue_exhausted',
+          'Fila sem resposta — pausada',
+          `Conversa passou por todos os atendentes 2x sem resposta. Pausada (aguarda ação manual ou retorno do lead).`,
+          { conversation_id: ev.conversation_id, department_id: ev.department_id, rotation: ev.rotation_number },
+        )
+        broadcastQueueUpdate({ event_id: ev.id, conversation_id: ev.conversation_id, kind: 'rotation_exhausted' })
+        stats.rotation_exhausted++
+        continue  // NÃO cria novo evento → rotação para
+      }
+
       // Tenta reatribuir
       const skipIds = ev.assigned_user_id ? [ev.assigned_user_id] : []
       const newAssignment = await assignHandoff({
@@ -330,7 +386,7 @@ Deno.serve(async (req: Request) => {
       stats.case_d_reattributed++
 
       // ─── Case E: loop completo? ────────────────────────────────────────
-      const eligibleCount = await countEligibleMembers(supabase, ev.department_id)
+      const eligibleCount = eligibleForRotation
       if (eligibleCount > 0 && newRotation > eligibleCount) {
         await notifyGestores(
           supabase,

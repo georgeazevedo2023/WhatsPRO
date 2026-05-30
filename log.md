@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-05-30 (tarde) — 🔴 Incidente fila rotação infinita + OOF diária (v7.58.1)
+
+Print do dono: lead Alex/Alberto (EletropisoV2 PROD) recebendo `handoff_message_outside_hours` **repetida todo dia** (27→28→29 às 18h, sáb 12h09). Achei a fonte na prod via `external_id=queue_oof_*`: **incidente ativo** — **114 conversas em rotação INFINITA** na `handoff_queue_events` (rotation_number até **293**, ~4.772 eventos/24h). Causa: `requeue-conversations` Case E "SEGUIA atribuindo" pra sempre; cada evento novo zerava `out_of_hours_msg_sent` → reenvio diário da OOF. (O "12h09 fora de horário" NÃO é bug: 30/05 é sábado, Sáb fecha 12h; `businessHours` correto.) **Fix de raiz:** `_shared/agent/queueRotation.ts` (puro, 8 testes) — `shouldStopRotation` (parqueia após 2 voltas completas sem resposta, mata o runaway) + `decideOutOfHoursSend` (só reenvia OOF se lead falou depois). Wire no `requeue-conversations` (cap no Case D + dedup no Case B). Remediação: 105 eventos runaway parqueados. **Verificado ao vivo:** ativos 118→14, runaway≥32→0, churn→0, OOF/30min→0 (eram 113/2h). deno 0, deploy CLI. **Pendência:** testes do `_shared` têm 93 erros TS PRÉ-EXISTENTES (não meus; hardening à parte). Também na sessão: auditoria dos 4 bugs do dono (motor/porta/tinta/visão) com config real — ver mensagem.
+
+---
 ## 2026-05-30 — Visão de imagem: agente passa a ver fotos (v7.58.0)
 
 **Trigger:** caso Íris (print do dono) — lead mandou foto de tanquinho + "vcs tem um desse?"; IA respondeu "me manda a foto". Auditoria do pipeline: só áudio tinha transcrição (Groq→Gemini); IMAGEM não tinha nada (chegava content="", só espelhava no storage). Dono escolheu Gemini 2.0 Flash (melhor custo-benefício ~US$0,0001/img + key já existia + padrão já rodando no fallback de áudio).
