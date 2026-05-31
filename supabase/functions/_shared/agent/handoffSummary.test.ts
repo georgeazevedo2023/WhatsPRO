@@ -76,6 +76,39 @@ describe('buildPremiumHandoffSummary', () => {
     expect(tagsLine).not.toContain('pedido_original')
   })
 
+  it('tags esparsas (nao-premium) → anexa Resumo da conversa (digest pergunta→resposta)', () => {
+    const summary = buildPremiumHandoffSummary({
+      leadName: 'Marcos',
+      tags: ['interesse:fechaduras'], // só categoria, sem atributos estruturados
+      messages: [
+        { direction: 'outgoing', content: 'Boa tarde! Bem-vindo a Eletropiso, com quem eu falo?' },
+        { direction: 'incoming', content: 'Marcos' },
+        { direction: 'outgoing', content: 'É para porta interna ou externa?' },
+        { direction: 'incoming', content: 'Porta de entrada, externa' },
+        { direction: 'outgoing', content: 'Você prefere rolete, tetra-chave ou digital?' },
+        { direction: 'incoming', content: 'Digital' },
+      ],
+    })
+
+    expect(summary).toContain('Resumo da conversa:')
+    expect(summary).toContain('porta interna ou externa? → Porta de entrada, externa')
+    expect(summary).toContain('rolete, tetra-chave ou digital? → Digital')
+    // saudação/pedido de nome NÃO viram par
+    expect(summary).not.toContain('com quem eu falo')
+  })
+
+  it('tags ricas (premium, >=3 atributos) → NAO anexa digest', () => {
+    const summary = buildPremiumHandoffSummary({
+      leadName: 'Carlos',
+      tags: ['interesse:torneiras', 'ambiente_torneira:cozinha', 'tipo_torneira:bancada', 'acabamento_torneira:preto_fosco', 'tipo_cuba:dupla'],
+      messages: [
+        { direction: 'outgoing', content: 'Cozinha ou área gourmet?' },
+        { direction: 'incoming', content: 'Cozinha' },
+      ],
+    })
+    expect(summary).not.toContain('Resumo da conversa:')
+  })
+
   it('inclui fallbackReason como observacao quando nao duplicado', () => {
     const summary = buildPremiumHandoffSummary({
       tags: ['interesse:tintas', 'cor:branca'],

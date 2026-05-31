@@ -1318,6 +1318,30 @@ Deno.serve(async (req) => {
           })
           broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
 
+          // Resumo pro vendedor (2026-05-30): ESTE path (handoff por trigger "falar com
+          // vendedor") NÃO gerava nota nenhuma — o vendedor recebia a conversa sem resumo
+          // (gap exposto no batch de 10 fluxos). Agora monta a nota com tags + digest da
+          // conversa (fallback universal pras categorias não-premium sem set_tags).
+          try {
+            const triggerSummary = buildPremiumHandoffSummary({
+              tags: conversation.tags || [],
+              leadName: leadNameForEmpathy,
+              fallbackReason: objectionTag
+                ? `Objecao: ${objectionTag}. Lead pediu atendimento humano.`
+                : 'Lead pediu para falar com um vendedor.',
+              messages: [...(recentMsgsForSentiment || [])].reverse(),
+            })
+            if (triggerSummary && triggerSummary.trim()) {
+              const triggerNote = `📋 Resumo do pedido (interno):\n${triggerSummary}`
+              await supabase.from('conversation_messages').insert({
+                conversation_id, direction: 'private_note', content: triggerNote, media_type: 'text',
+              })
+              broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'private_note', content: triggerNote, media_type: 'text' })
+            }
+          } catch (noteErr) {
+            log.warn?.('handoff_trigger: seller note insert failed (non-fatal)', { error: (noteErr as Error).message })
+          }
+
           return new Response(JSON.stringify({ ok: true, handoff: true, trigger: matchedTrigger, queue: queueRes }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
@@ -3697,6 +3721,7 @@ ${contextBlock}`
     // Response 200 com tokens/latency.
     const { response: dispatchedResponse } = await dispatchResponse({
       responseText,
+      digestMessages: contextMessages,
       agent,
       agent_id,
       conversation,

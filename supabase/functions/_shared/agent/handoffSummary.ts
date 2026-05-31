@@ -9,6 +9,15 @@ export interface HandoffSummaryInput {
   tags?: string[] | null
   leadName?: string | null
   fallbackReason?: string | null
+  /**
+   * Histórico recente da conversa (ordem cronológica asc). Usado como FALLBACK
+   * universal (2026-05-30): quando a qualificação não virou tags estruturadas — o
+   * que acontece na MAIORIA das categorias não-premium, onde o specialist conversa
+   * mas não chama set_tags — montamos um "Resumo da conversa" com os pares
+   * pergunta(bot)→resposta(lead). Garante que o vendedor SEMPRE receba o que foi
+   * coletado, mesmo sem tags. Categorias premium (tags ricas) não recebem o digest.
+   */
+  messages?: Array<{ direction?: string | null; content?: string | null }> | null
 }
 
 const LABELS: Record<string, string> = {
@@ -93,6 +102,45 @@ const INTERNAL_SKIP_KEYS = new Set([
   'enrich_count',
 ])
 
+// Keys que NÃO contam como "atributo de produto" pro gate do digest (são meta/categoria).
+const NON_ATTRIBUTE_KEYS = new Set([
+  'interesse', 'pedido_original', 'produto', 'selected_product',
+  'catalog_result', 'lead_score', 'qualification_score',
+])
+
+// Mensagens do bot que NÃO são perguntas de qualificação (saudação, pedido de nome,
+// transbordo, ponte) — não viram par no digest.
+const NON_QUESTION_RE = /bem-vindo|com quem eu falo|qual.*\bnome\b|j[áa] passei tudo|nosso (vendedor|consultor|atendente)|vou te (passar|conectar|encaminhar)|um instante|um momento|s[óo] um instante/i
+
+/**
+ * Monta um resumo da conversa em pares pergunta(bot)→resposta(lead) a partir do
+ * histórico (ordem cronológica asc). Pareia cada resposta do lead com a última
+ * pergunta do bot; descarta saudação/pedido-de-nome/transbordo. Cap nos últimos
+ * pares pra não inflar a nota. Vazio quando não há nada útil.
+ */
+export function buildConversationDigest(
+  messages: HandoffSummaryInput['messages'],
+  maxPairs = 8,
+): string {
+  if (!Array.isArray(messages) || messages.length === 0) return ''
+  const pairs: string[] = []
+  let lastBotQ = ''
+  for (const m of messages) {
+    if (!m || typeof m.content !== 'string') continue
+    const text = m.content.replace(/\s+/g, ' ').trim()
+    if (!text) continue
+    if (m.direction === 'outgoing') {
+      lastBotQ = text
+    } else if (m.direction === 'incoming') {
+      const answer = text.slice(0, 80)
+      const hasUsefulQ = lastBotQ && !NON_QUESTION_RE.test(lastBotQ)
+      pairs.push(hasUsefulQ ? `• ${lastBotQ.slice(0, 100)} → ${answer}` : `• ${answer}`)
+      lastBotQ = ''
+    }
+  }
+  return pairs.slice(-maxPairs).join('\n')
+}
+
 export function buildPremiumHandoffSummary(input: HandoffSummaryInput): string {
   const tagMap = readTags(input.tags)
   const lines: string[] = []
@@ -101,10 +149,20 @@ export function buildPremiumHandoffSummary(input: HandoffSummaryInput): string {
     lines.push(`Cliente: ${formatValue(input.leadName)}`)
   }
 
+  let attributeCount = 0
   for (const key of ORDER) {
     const value = tagMap.get(key)
     if (!value) continue
+    if (!NON_ATTRIBUTE_KEYS.has(key)) attributeCount++
     lines.push(`${LABELS[key] || key}: ${formatValueForKey(key, value)}`)
+  }
+
+  // Fallback universal (2026-05-30): poucas tags estruturadas (típico das categorias
+  // não-premium, onde o LLM conversa mas não chama set_tags) → anexa um resumo da
+  // conversa (pares pergunta→resposta) pra o vendedor nunca receber uma nota vazia.
+  if (attributeCount < 3) {
+    const digest = buildConversationDigest(input.messages)
+    if (digest) lines.push(`Resumo da conversa:\n${digest}`)
   }
 
   const tags = buildUsefulTags(tagMap)

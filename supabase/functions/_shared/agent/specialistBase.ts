@@ -570,9 +570,17 @@ export async function runSpecialist(
     }
   }
 
+  // Digest da conversa pro resumo do vendedor (fallback quando tags esparsas):
+  // mapeia geminiContents (role/parts) → {direction, content} cronológico.
+  const digestMessages = (ctx.geminiContents || []).map((c: any) => ({
+    direction: c?.role === 'model' ? 'outgoing' : 'incoming',
+    content: (c?.parts || []).map((p: any) => p?.text || '').join(' ').trim(),
+  }))
+
   // Step 4b: dispatchResponse (reusa Sprint B5 Onda 5)
   const { response } = await dispatchResponse({
     responseText,
+    digestMessages,
     agent: ctx.agent,
     agent_id: ctx.agent_id,
     conversation: ctx.conversation,
