@@ -142,36 +142,80 @@ export interface DispatchResponseResult {
 // =============================================================================
 
 /**
- * Defesa (2026-05-24): às vezes o LLM "verbaliza" a chamada de tool no TEXTO em
- * vez de usar o canal de function-calling (ex.: gpt-4.1-mini emitiu
- * `functions.handoff_to_human({reason: "..."})` no meio da mensagem). Sem isto, o
- * lead vê sintaxe de função crua. Remove esses vazamentos de forma conservadora:
- * só casa `functions.NOME({...})` e `NOME({...})` de tools conhecidas. Texto
- * legítimo (parênteses normais) não é tocado.
+ * Defesa: o LLM às vezes "verbaliza" a chamada de tool no TEXTO em vez de usar o
+ * canal de function-calling — e o lead vê a sintaxe crua. A evidência de PROD
+ * (EletropisoV2, 30d, 2026-05-25→05-31) mostrou 5 formas distintas, NENHUMA coberta
+ * pela regex antiga (que só pegava `functions.NOME`, `NOME({...})` e `NOME(key:"aspas")`):
+ *   - bare-name numa linha:        `...vendedor.\nhandoff_to_human`              (4×)
+ *   - parens com valor SEM aspas:  `handoff_to_human(reason: Lead busca cuba ...)` (3×)
+ *   - wikilink (completo/truncado): `[[handoff_to_human|reason=Lead: Fernando ...]]` (1×, cenário 21.33)
+ *   - JSON em linha separada:       `handoff_to_human\n{ "reason": "..." }`        (1×)
+ *   - space-kv:                     `... fosco? set_tags nome:Fernando ambiente:interno` (1×)
+ * Como os nomes de tool são identificadores snake_case em inglês — que NUNCA
+ * aparecem em pt-BR legítimo voltado ao lead — é seguro ANCORAR no nome e remover o
+ * "payload" em qualquer sintaxe que o LLM invente (parênteses com/sem aspas, JSON em
+ * linha à parte, pipe de wikilink incl. truncado, chave:valor por espaço), com
+ * wrappers opcionais (functions., [[, [, <, backtick, **). Texto legítimo (sem nome
+ * de tool) é devolvido byte-a-byte intacto (guarda `stripped === text`).
  */
-const LEAKED_TOOL_NAMES = 'handoff_to_human|search_products|set_tags|send_carousel|send_media|send_poll|update_lead_profile|assign_label|move_kanban'
-// Dois casos (2026-05-24): (1) `functions.NOME` com OU sem `(...)` — o prefixo
-// `functions.` é sinal forte de vazamento (não aparece em PT legítimo), então
-// removemos mesmo "bare" (ex.: gpt-4.1 emitiu só `functions.handoff_to_human` no
-// fim da msg). (2) `NOME({...})` sem prefixo — call com objeto de args.
-// (2026-05-28) Estendido pra cobrir 3 padrões:
-//   (1) `functions.NOME` ± `(...)` — prefixo `functions.` é sinal forte de vazamento
-//   (2) `NOME({...})` — call com objeto literal `{...}`
-//   (3) `NOME(key: "val", key2: "val2")` — call com argumentos nomeados, SEM braces.
-//       Esse último caso (Bug R147-prod-specialist, S8 baseline 2026-05-28) era o
-//       vazamento mais comum do gpt-4.1-mini do product specialist em handoff.
+const LEAKED_TOOL_NAMES = [
+  'handoff_to_human',
+  'search_products',
+  'set_tags',
+  'send_carousel',
+  'send_media',
+  'send_poll',
+  'update_lead_profile',
+  'assign_label',
+  'move_kanban',
+  'set_cart',
+].join('|')
+
+// Um vazamento = nome de tool (snake_case) em "posição de call". Duas formas:
+//   (1) WRAPPED   — nome com wrapper (functions. | [[ | [ | < | ` | **) e/ou payload.
+//                   Wrapper/payload são sinal forte de call verbalizada; sempre remove.
+//   (2) UNWRAPPED — nome "pelado", removido só se NÃO encostar em char de URL/e-mail/
+//                   identificador (LEAD/TRAIL) e for seguido de payload OU de um limite
+//                   seguro. Evita destruir links e e-mails legítimos que o agente manda
+//                   (ex.: .../search_products?q=... e send_media@loja.com) — achados na
+//                   verificação adversarial (over-strip hunter).
+const _LEAK_NAME = '\\b(?:' + LEAKED_TOOL_NAMES + ')\\b'
+// LEAD/TRAIL: o nome pelado não pode tocar char de URL/e-mail/identificador/SKU.
+const _LEAK_LEAD = '(?<![\\w/@.\\-?=&:#~])'
+const _LEAK_TRAIL = '(?![\\w/@.\\-?=&:#~])'
+// payload opcional que o LLM inventa após o nome — a 1ª alternativa que casar vence.
+// Parens/braces são BALANCEADOS 1 nível (não-lazy): cobre reason com (parênteses)
+// internos e JSON/array aninhado ({"a":{"b":1}}, items=[{...}]) sem o over-strip do
+// match guloso nem o under-strip do lazy que parava no 1º fecha. (verificação adversarial)
+const _LEAK_PAYLOAD =
+  '(?:' +
+    '\\s*\\((?:[^()]|\\([^()]*\\))*\\)' + //             ( ... ) balanceado 1 nível
+    '|\\s*\\([\\s\\S]*$' + //                            ( ... truncado (corte de stream sem fechar) → fim
+    '|\\s*\\{(?:[^{}]|\\{[^{}]*\\})*\\}' + //            { json } balanceado 1 nível
+    '|\\s*\\|[\\s\\S]*?(?:\\]\\]|$)' + //                | pipe de wikilink ... até ]] OU fim (incl. truncado)
+    '|(?:\\s+[A-Za-zÀ-ÿ_][\\wÀ-ÿ]*\\s*[:=]\\s*\\S+)+' + // space-kv: nome:Fernando ambiente:interno
+  ')'
+const _LEAK_WRAPPED =
+  '(?:functions\\.|\\[\\[|\\[|<|`|\\*\\*)' + _LEAK_NAME + _LEAK_PAYLOAD + '?' +
+  '(?:\\s*(?:\\]\\]|\\]|>|`|\\*\\*))?' // wrapper de fechamento opcional
+const _LEAK_UNWRAPPED = _LEAK_LEAD + _LEAK_NAME + '(?:' + _LEAK_PAYLOAD + '|' + _LEAK_TRAIL + ')'
 const LEAKED_TOOL_RE = new RegExp(
-  `(?:functions\\.)(?:${LEAKED_TOOL_NAMES})\\b\\s*(?:\\([\\s\\S]*?\\))?` +
-    `|(?:${LEAKED_TOOL_NAMES})\\s*\\(\\s*\\{[\\s\\S]*?\\}\\s*\\)` +
-    `|(?:${LEAKED_TOOL_NAMES})\\s*\\(\\s*[a-z_]+\\s*[:=]\\s*['"][\\s\\S]*?['"]\\s*\\)`,
-  'g',
+  _LEAK_WRAPPED + '|' + _LEAK_UNWRAPPED,
+  // flag i: o LLM pode emitir o nome em maiúsculas/misto (HANDOFF_TO_HUMAN,
+  // Functions.Handoff_To_Human). Como os nomes nunca existem em pt-BR nem
+  // case-insensitive, isto fecha a classe sem risco de over-strip.
+  'gi',
 )
 export function stripLeakedToolCalls(text: string): string {
   if (!text) return text
-  const stripped = text.replace(LEAKED_TOOL_RE, '').replace(/\bfunctions\.\s*$/g, '')
+  const stripped = text.replace(LEAKED_TOOL_RE, '').replace(/\bfunctions\.\s*$/gi, '')
   if (stripped === text) return text // no-op quando não há vazamento (não toca texto legítimo)
   // só normaliza/trima quando de fato removeu algo
-  return stripped.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  return stripped
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/ {2,}/g, ' ')
+    .trim()
 }
 
 function stripCatalogMentions(text: string): string {
@@ -184,9 +228,18 @@ function stripCatalogMentions(text: string): string {
 export async function dispatchResponse(
   ctx: DispatchResponseCtx,
 ): Promise<DispatchResponseResult> {
-  let { responseText } = ctx
-  responseText = stripLeakedToolCalls(responseText)
+  // Captura o texto cru ANTES de limpar: um handoff_to_human VERBALIZADO (vazado no
+  // texto) é sinal de handoff mesmo que o strip o remova e a prosa restante não case
+  // HANDOFF_PATTERNS — ver leakedHandoff usado na detecção de handoff implícito abaixo.
+  const rawResponseText = ctx.responseText || ''
+  let responseText = stripLeakedToolCalls(rawResponseText)
   responseText = stripCatalogMentions(responseText)
+  const leakedHandoff = /\bhandoff_to_human\b/.test(rawResponseText)
+  // Se o strip esvaziou o texto (a msg era SÓ o vazamento) mas havia handoff
+  // verbalizado, manda uma confirmação segura — nunca enviar bolha vazia ao lead.
+  if (!responseText.trim() && leakedHandoff) {
+    responseText = 'Perfeito! Já vou te passar pra um de nossos vendedores pra finalizar seu atendimento. 😊'
+  }
   const {
     agent, agent_id, conversation, conversation_id, contact,
     toolCallsLog, inputTokens, outputTokens, usedModel,
@@ -206,7 +259,7 @@ export async function dispatchResponse(
   const textLooksLikeHandoff =
     !hadExplicitHandoff &&
     responseText.trim() !== '' &&
-    HANDOFF_PATTERNS.some((p) => p.test(responseText))
+    (HANDOFF_PATTERNS.some((p) => p.test(responseText)) || leakedHandoff)
   const shouldDisableIa = hadExplicitHandoff || textLooksLikeHandoff
 
   // If implicit handoff detected, switch to shadow BEFORE sending (so helpdesk sees correct status)
