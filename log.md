@@ -8,7 +8,12 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
-## 2026-05-31 (tarde) — 🔴 "Falha ao carregar mensagens" (fetch_messages_timeout) ao voltar pra aba (v7.62.0) — SHIPPED
+## 2026-05-31 (tarde II) — 🔴 fetch_messages_timeout PERSISTIA → recuperação por reinicialização (v7.62.1)
+
+Dono reportou que o erro CONTINUAVA com o v7.62.0 em prod (bundle novo confirmado). **O v7.62.0 só cobria o RESUME**; o `fetchMessages` no load inicial (selecionar conversa) e no reconnect seguiam travando. **Diagnóstico empírico (Playwright + `window.__sb` no app real):** `getSession()` no token expirado **trava 14-20s**; e é **IRRECUPERÁVEL em memória** — hang no estado interno do GoTrue (0 requests durante o hang); teto no fetch de auth aborta+retenta com sucesso (`token_refreshed:true`) mas o `getSession` original fica órfão; `setSession()` com token cru (refresh 200) **também trava**. Lock não é opção (navigator.locks foi desligado no `264a1b6` por travar 10s em aba stale). **Fix de raiz = reinicializar o client:** (1) `client.ts` `global.fetch` com teto 8s SÓ em `/auth/v1/` (REST/uploads intactos) → refresh não pendura ∞; (2) `recoverStuckSession()` (`sessionRecovery.ts`) — refresh CRU bypassa o client envenenado → grava no localStorage → reload CONDICIONAL (só quando travado), preservando a conversa (URL `?conv=`) + guarda anti-loop 30s (`force` no retry); (3) `ChatPanel` auto-recupera no timeout em vez de erro morto. **Playwright PROD:** hang medido (14-20s/0 req), irrecuperabilidade provada (setSession trava), recuperação E2E PASSA (refresh cru 200 → reload → conversa restaurada, `conversation_messages` 200, sem erro/logout). 14 testes, build OK, tsc 0. Detalhe: [[project_tab_resume_session_zombie_v762]] (atualizado).
+
+---
+## 2026-05-31 (tarde) — 🔴 "Falha ao carregar mensagens" (fetch_messages_timeout) ao voltar pra aba (v7.62.0) — SHIPPED (parcial — ver v7.62.1)
 
 **SHIPPED:** commit `2f498b1` → merge `8b63e7f` → push master → CI (Build+Push Docker + Vault Healthcheck) success → webhook Portainer **204** (redeploy `crm.wsmart.com.br`).
 

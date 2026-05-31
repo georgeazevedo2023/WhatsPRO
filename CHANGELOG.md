@@ -13,6 +13,19 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.62.1 (2026-05-31) — 🔴 fetch_messages_timeout PERSISTIA — recuperação por reinicialização (o v7.62.0 não bastava)
+
+**Trigger:** dono reportou que o erro CONTINUAVA mesmo com o v7.62.0 deployado (bundle novo confirmado). O v7.62.0 só gateava o caminho do RESUME; o `fetchMessages` no **load inicial** (selecionar a conversa) e no reconnect de canal seguiam travando.
+
+**Diagnóstico empírico (Playwright + `window.__sb` no app real, PROD):** medi o `getSession()` sob token expirado → **trava 14-20s** (vs. o `Promise.race` de 12s do ChatPanel). Pior: provei que é **IRRECUPERÁVEL em memória** — (1) o hang é no estado interno do GoTrueClient (`refreshingDeferred`/`pendingInLock`), não na rede (ZERO request durante o hang); (2) um teto no `fetch` de auth ABORTA o refresh travado e o auth-js re-tenta com sucesso (`token_refreshed:true`), mas o `getSession()` ORIGINAL fica órfão (não resolve); (3) `setSession()` com token novo cru (refresh manual 200) **também trava**. Nem fetch-timeout, nem lock (navigator.locks foi desabilitado de propósito no `264a1b6` justamente por travar 10s em aba stale), nem setSession destravam o client.
+
+**Fix de raiz (a única recuperação confiável = reinicializar o client):**
+- `client.ts` — `global.fetch` com **teto de 8s SÓ em `/auth/v1/`** (REST/uploads intactos): o refresh de token não pendura mais ∞ → o `localStorage` recebe token fresco rápido, deixando o client pós-reload pronto.
+- `sessionRecovery.ts` — `recoverStuckSession()`: refresca o token via **fetch CRU** (bypassa o GoTrueClient envenenado) → grava no `localStorage` → **reload**. Diferente do reload removido no v7.61.0: é **CONDICIONAL** (só quando a sessão está comprovadamente travada), **preserva a conversa** (está na URL `?conv=`, restaurada no mount) e tem **guarda anti-loop** (1 reload/30s; `force` no clique explícito de "Tentar novamente").
+- `ChatPanel.tsx` — no timeout do `fetchMessages`, auto-recupera (guardado) em vez de só mostrar erro; "Tentar novamente" força a recuperação (o retry antigo re-loopava no mesmo client morto).
+
+**Verificação Playwright PROD:** medido o hang (14-20s, 0 requests); provada a irrecuperabilidade (setSession trava); recuperação end-to-end **PASSA** — token expirado → refresh cru **200** → reload → conversa restaurada da URL, `conversation_messages` **200**, sem erro, sem logout, sem "Selecione uma conversa". 14 testes (10 sessionRecovery incl. guarda/force + 4 useTabFocusRefresh), build OK, tsc 0 (arquivos novos; de quebra corrigi o tipo genérico do `lock`).
+
 ### v7.62.0 (2026-05-31) — 🔴 Helpdesk: "Falha ao carregar mensagens" (fetch_messages_timeout) ao voltar pra aba — sessão revalidada no resume
 
 **Trigger:** print do dono (console PROD) — `[ChatPanel] Falha ao carregar mensagens (timeout ou erro) Error: fetch_messages_timeout`; a conversa aberta (Leonardo Noronha) mostrava "Falha ao carregar mensagens" + "Tentar novamente". Efeito colateral exposto pelo v7.61.0 (a recuperação graciosa de aba).

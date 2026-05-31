@@ -12,7 +12,7 @@ vi.mock('@/integrations/supabase/client', () => ({
   },
 }));
 
-import { probeSession, clearDeadSession } from '../sessionRecovery';
+import { probeSession, clearDeadSession, recoverStuckSession } from '../sessionRecovery';
 
 describe('probeSession', () => {
   beforeEach(() => {
@@ -60,5 +60,33 @@ describe('clearDeadSession', () => {
   it('não pendura o chamador se signOut travar (race de timeout)', async () => {
     signOut.mockReturnValue(new Promise(() => {})); // nunca resolve
     await expect(clearDeadSession(30)).resolves.toBeUndefined();
+  });
+});
+
+describe('recoverStuckSession', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    try { sessionStorage.clear(); } catch { /* noop */ }
+    try { localStorage.clear(); } catch { /* noop */ } // sem token → refresh cru é no-op
+  });
+
+  it('reinicializa (chama reload) quando não há recuperação recente', async () => {
+    const reload = vi.fn();
+    await expect(recoverStuckSession({ reload })).resolves.toBe(true);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('NÃO reloada se já recuperou há < 30s (guarda anti-loop)', async () => {
+    await recoverStuckSession({ reload: vi.fn() });
+    const reload = vi.fn();
+    await expect(recoverStuckSession({ reload })).resolves.toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('force:true reloada mesmo dentro da janela de 30s (retry explícito do usuário)', async () => {
+    await recoverStuckSession({ reload: vi.fn() });
+    const reload = vi.fn();
+    await expect(recoverStuckSession({ force: true, reload })).resolves.toBe(true);
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
