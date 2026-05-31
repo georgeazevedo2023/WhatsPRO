@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { probeSession, clearDeadSession } from '@/lib/sessionRecovery';
 import { getSessionUserId } from '@/hooks/useAuthSession';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { handleError } from '@/lib/errorUtils';
@@ -199,6 +200,17 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       setLoadingOlder(false);
     }
   }, [conversationId, loadingOlder, messages]);
+
+  // "Tentar novamente": quando o erro veio de sessão zumbi (token expirado na
+  // aba suspensa), re-disparar fetchMessages no mesmo token morto re-loopa no
+  // timeout de 12s. Revalida a sessão primeiro: 'dead' → limpa e redireciona
+  // (sem reload); 'valid'/'unknown' → refetch (o token pode ter renovado; o
+  // Promise.race de 12s segue como rede de segurança). Nunca desloga por timeout.
+  const handleRetry = useCallback(async () => {
+    const probe = await probeSession();
+    if (probe === 'dead') { await clearDeadSession(); return; }
+    fetchMessages();
+  }, [fetchMessages]);
 
   useEffect(() => { fetchMessages(); setReplyTo(null); }, [fetchMessages]);
 
@@ -464,7 +476,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
           <div className="flex flex-col items-center justify-center py-12 gap-3 text-sm text-muted-foreground animate-scale-in">
             <WifiOff className="w-10 h-10 opacity-40" />
             <p>Falha ao carregar mensagens</p>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={fetchMessages}><RefreshCw className="w-3.5 h-3.5" />Tentar novamente</Button>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleRetry}><RefreshCw className="w-3.5 h-3.5" />Tentar novamente</Button>
           </div>
         ) : chatMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2 animate-scale-in">

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef } from "react";
+import { Suspense, lazy } from "react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { useTabFocusRefresh } from "@/hooks/useTabFocusRefresh";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { FeatureRoute } from "@/components/routes/FeatureRoute";
 import { AnyFeatureRoute } from "@/components/routes/AnyFeatureRoute";
@@ -90,49 +90,6 @@ const PageLoader = () => (
     <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
   </div>
 );
-
-/**
- * Recupera dados/conexão quando o atendente volta pra aba depois de um tempo fora.
- *
- * ANTES (bug 2026-05-31, print do dono): fazia `window.location.reload()` — um
- * reload do SPA inteiro a cada retorno >3s. Isso DESMONTAVA a aplicação e perdia
- * o estado em memória: o atendente que tinha uma conversa aberta voltava pra
- * "Selecione uma conversa", além de perder scroll/contexto. O comentário antigo
- * dizia "é o que Slack/Discord fazem" — não é: esses apps reconectam o socket e
- * refazem o fetch em silêncio, sem recarregar a página.
- *
- * AGORA: recuperação graciosa SEM reload, preservando 100% do estado em memória
- * (conversa selecionada, scroll, rascunho):
- *   1. Reconecta o Realtime do Supabase — o browser fecha o WebSocket em abas
- *      suspensas; `connect()` é idempotente e os canais já inscritos rejoinam.
- *   2. Dispara `app:tab-resumed` — hooks de fetch manual (helpdesk: conversas +
- *      mensagens) ouvem e refazem o fetch pra pegar o que chegou enquanto fora.
- * (Páginas em react-query já refazem via `refetchOnWindowFocus`.)
- */
-function useTabFocusRefresh() {
-  const hiddenAtRef = useRef<number>(0);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden) {
-        hiddenAtRef.current = Date.now();
-        return;
-      }
-      // Tab became visible — check how long it was hidden
-      const awayMs = Date.now() - hiddenAtRef.current;
-      if (awayMs < 3_000) return; // less than 3s, skip
-
-      // 1) Reconecta o WebSocket do Realtime (browser fecha em aba suspensa).
-      try { supabase.realtime.connect(); } catch { /* idempotente — já conectado */ }
-      // 2) Avisa componentes com fetch manual pra recarregar seus dados — sem
-      //    desmontar nada (conversa selecionada e scroll permanecem).
-      window.dispatchEvent(new CustomEvent('app:tab-resumed', { detail: { awayMs } }));
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, []);
-}
 
 // Protected route wrapper
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
