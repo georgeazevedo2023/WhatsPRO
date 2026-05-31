@@ -33,7 +33,13 @@ export function useInstances(options: UseInstancesOptions = {}) {
   useEffect(() => {
     const handler = () => { fetchInstances(); };
     window.addEventListener('instances-updated', handler);
-    return () => window.removeEventListener('instances-updated', handler);
+    // Recuperação ao retomar a aba (App.useTabFocusRefresh dispara `app:tab-resumed`).
+    // Antes, o reload da aba cobria este refresh; sem reload, refazemos o fetch aqui.
+    window.addEventListener('app:tab-resumed', handler);
+    return () => {
+      window.removeEventListener('instances-updated', handler);
+      window.removeEventListener('app:tab-resumed', handler);
+    };
   }, [fetchInstances]);
 
   return { instances, loading, error, refetch: fetchInstances };

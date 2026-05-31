@@ -13,6 +13,16 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.61.0 (2026-05-31) — 🔴 Helpdesk perdia a conversa aberta ao trocar de aba — reload removido
+
+**Trigger:** print do dono — atendendo um cliente, troca pra outra aba (vídeo no YouTube), volta e a conversa aberta sumiu (caía em "Selecione uma conversa").
+
+**Causa-raiz (frontend, NÃO ai-agent):** `src/App.tsx` `useTabFocusRefresh` fazia `window.location.reload()` ao retornar pra aba após >3s fora. O reload desmontava o SPA inteiro → `selectedConversation` (estado em memória) era destruída → tela vazia. Comentário antigo alegava "é o que Slack/Discord fazem" — falso: esses apps reconectam o socket e refazem fetch em silêncio, sem recarregar.
+
+**Fix de raiz (zero reload, preserva 100% do estado):** troca o reload por recuperação graciosa — (1) `supabase.realtime.connect()` (idempotente; browser fecha o WS em aba suspensa) + (2) dispara `app:tab-resumed`. Hooks de fetch manual ouvem e recarregam: `useHelpdeskConversations` (lista), `ChatPanel` (mensagens da conversa aberta), `useInstances` (instâncias). Páginas em react-query já cobrem via `refetchOnWindowFocus`.
+
+**Verificação (Playwright no app real, cenário do dono):** abriu conversa → aba oculta 4s → voltou: `reloadCalled=false`, `app:tab-resumed` disparou 1×, probe de documento sobreviveu (sem reload), conversa permaneceu aberta (header + mensagens), 0 erros de console. tsc 0 · build OK. 4 arquivos, +46/−7.
+
 ### v7.60.0 (2026-05-31) — 🔴 Vazamento de tool-call no texto ao lead (handoff_to_human) — stripLeakedToolCalls reescrito
 
 **Trigger:** cenário 21.33 (fechamento digital de tinta) mostrava `[[handoff_to_human|reason=…` cru pro lead. Forense em PROD (EletropisoV2, 30d, via `mcp supabase-novo`): **10 msgs `outgoing` vazadas em 5 formas — a regex antiga pegava 0/10**: bare-name (`\nhandoff_to_human`, 4×), parens sem aspas (`handoff_to_human(reason: …)`, 3×), wikilink truncado (`[[handoff_to_human|reason=…`, 1× = o 21.33), JSON em linha (`handoff_to_human\n{…}`, 1×), space-kv (`set_tags nome:… ambiente:…`, 1×). Defeito **cosmético** (o handoff implícito sempre disparou: fila+shadow+nota OK); só a sintaxe crua chegava ao cliente.

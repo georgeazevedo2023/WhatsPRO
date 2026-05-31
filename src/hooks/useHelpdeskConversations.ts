@@ -207,6 +207,15 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
     }
   }, [fetchConversations]);
 
+  // Recuperação ao retomar a aba (App.useTabFocusRefresh dispara `app:tab-resumed`).
+  // Refaz o fetch da lista pra pegar conversas que mudaram enquanto a aba estava
+  // suspensa — SEM reload, então a conversa selecionada permanece aberta.
+  useEffect(() => {
+    const onResume = () => { if (selectedInboxId) fetchConversations(); };
+    window.addEventListener('app:tab-resumed', onResume);
+    return () => window.removeEventListener('app:tab-resumed', onResume);
+  }, [selectedInboxId, fetchConversations]);
+
   // Realtime via broadcast
   useEffect(() => {
     if (!selectedInboxId) return;

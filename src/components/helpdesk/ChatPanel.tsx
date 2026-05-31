@@ -202,6 +202,15 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
   useEffect(() => { fetchMessages(); setReplyTo(null); }, [fetchMessages]);
 
+  // Recuperação ao retomar a aba (App.useTabFocusRefresh dispara `app:tab-resumed`).
+  // Recarrega as mensagens da conversa ABERTA pra pegar o que chegou enquanto a aba
+  // estava suspensa — sem reload, a conversa continua selecionada.
+  useEffect(() => {
+    const onResume = () => { if (conversationId) fetchMessages(); };
+    window.addEventListener('app:tab-resumed', onResume);
+    return () => window.removeEventListener('app:tab-resumed', onResume);
+  }, [conversationId, fetchMessages]);
+
   // Realtime — listen on the SAME channel the webhook broadcasts to
   useEffect(() => {
     setTypingAgent(null); // Reset typing indicator on conversation switch
