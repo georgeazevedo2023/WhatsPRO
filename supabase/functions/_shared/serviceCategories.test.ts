@@ -558,6 +558,43 @@ describe('getCategoriesOrDefault', () => {
     expect(getCategoriesOrDefault({ service_categories: DEFAULT_SERVICE_CATEGORIES_V2 }))
       .toBe(DEFAULT_SERVICE_CATEGORIES_V2)
   })
+
+  it('salvage — 1 categoria invalida (sem label, caso motores) NAO descarta as validas', () => {
+    const mixed = {
+      categories: [
+        {
+          id: 'fechaduras', label: 'Fechaduras', interesse_match: 'fechadura|fechaduras',
+          stages: [{
+            id: 'q', label: 'Q', min_score: 0, max_score: 30, exit_action: 'handoff',
+            fields: [{ key: 'tipo_fechadura', label: 'tipo', examples: '', score_value: 15, priority: 1 }],
+            phrasing: 'Qual {label}?',
+          }],
+        },
+        // motores SEM label — invalida só ela mesma (era o que derrubava a config inteira)
+        {
+          id: 'motores', interesse_match: 'motor|automatizador',
+          stages: [{
+            id: 'q', label: 'Q', min_score: 0, max_score: 30, exit_action: 'handoff',
+            fields: [{ key: 'tipo_portao', label: 'tipo', examples: '', score_value: 10, priority: 1 }],
+            phrasing: 'Qual {label}?',
+          }],
+        },
+      ],
+      default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+    }
+    const out = getCategoriesOrDefault({ service_categories: mixed })
+    expect(out).not.toBe(DEFAULT_SERVICE_CATEGORIES_V2)
+    expect(out.categories.map((c) => c.id)).toContain('fechaduras')
+    expect(out.categories.map((c) => c.id)).not.toContain('motores')
+  })
+
+  it('salvage — NENHUMA categoria valida -> DEFAULT', () => {
+    const allBad = {
+      categories: [{ id: 'x', interesse_match: 'x' /* sem label nem stages */ }],
+      default: DEFAULT_SERVICE_CATEGORIES_V2.default,
+    }
+    expect(getCategoriesOrDefault({ service_categories: allBad })).toBe(DEFAULT_SERVICE_CATEGORIES_V2)
+  })
 })
 
 // =============================================================================

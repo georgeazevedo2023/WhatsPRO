@@ -343,8 +343,33 @@ export function getCategoriesOrDefault(
   if (!agent) return withPremiumCategoryOverrides(DEFAULT_SERVICE_CATEGORIES_V2)
   const raw = agent.service_categories
   if (raw == null) return withPremiumCategoryOverrides(DEFAULT_SERVICE_CATEGORIES_V2)
-  if (!isValidConfig(raw)) return withPremiumCategoryOverrides(DEFAULT_SERVICE_CATEGORIES_V2)
-  return withPremiumCategoryOverrides(raw)
+  if (isValidConfig(raw)) return withPremiumCategoryOverrides(raw)
+  // Salvamento (2026-05-30): antes, UMA categoria malformada (ex.: `motores` sem
+  // `label`) fazia isValidConfig=false → a config INTEIRA do agente era descartada e
+  // caíamos no DEFAULT (4 categorias premium), ignorando as outras ~24 que o admin
+  // configurou. Em vez de tudo-ou-nada, filtramos as categorias VÁLIDAS e completamos
+  // o default. Uma categoria quebrada não derruba as demais. Só caímos no DEFAULT
+  // completo quando NENHUMA categoria é válida.
+  const salvaged = salvageConfig(raw)
+  if (salvaged) return withPremiumCategoryOverrides(salvaged)
+  return withPremiumCategoryOverrides(DEFAULT_SERVICE_CATEGORIES_V2)
+}
+
+/**
+ * Recupera o máximo de uma config parcialmente inválida: mantém só as categorias
+ * que passam em isValidCategory + usa o default do agente se válido, senão o do
+ * DEFAULT. Retorna null se não houver nenhuma categoria válida (caller usa DEFAULT).
+ */
+function salvageConfig(raw: unknown): ServiceCategoriesConfig | null {
+  if (!raw || typeof raw !== 'object') return null
+  const c = raw as Record<string, unknown>
+  if (!Array.isArray(c.categories)) return null
+  const validCategories = c.categories.filter(isValidCategory) as ServiceCategory[]
+  if (validCategories.length === 0) return null
+  const def = isValidDefault(c.default)
+    ? (c.default as ServiceCategoriesConfig['default'])
+    : DEFAULT_SERVICE_CATEGORIES_V2.default
+  return { categories: validCategories, default: def }
 }
 
 function withPremiumCategoryOverrides(config: ServiceCategoriesConfig): ServiceCategoriesConfig {
