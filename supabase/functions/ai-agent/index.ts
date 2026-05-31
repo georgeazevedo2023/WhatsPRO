@@ -39,7 +39,7 @@ import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
 import { buildHorizontalHandoffReason } from '../_shared/horizontalQualif.ts'
 import { detectQualifLoop } from '../_shared/qualificationAntiLoop.ts'
-import { getCategoriesOrDefault } from '../_shared/serviceCategories.ts'
+import { getCategoriesOrDefault, matchCategoryBySearchText } from '../_shared/serviceCategories.ts'
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
 import { resolveHandoffDepartment } from '../_shared/handoffDepartment.ts'
 import { assignHandoff, applyAssigneeNameTemplate, type AssignHandoffResult } from '../_shared/handoffQueue.ts'
@@ -1956,6 +1956,37 @@ ${contextBlock}`
         !leadProfile?.full_name &&
         /com quem|qual (?:e|é) o seu nome|seu nome/i.test(greetingText)
       if (shouldCaptureNameBeforeFlow) {
+        // Semeia interesse + pedido original do 1º contato (2026-05-30, fix 21.36
+        // defeitos turno-2 + marmorizado): quando o lead abre com PRODUTO + a gente
+        // pede o nome, este return interrompe ANTES de extrair o produto. Resultado: no
+        // turno seguinte (o nome) a IA pergunta "o que você procura?" como se não tivesse
+        // ouvido, e o descritor livre ("marmorizado") se perde do resumo do vendedor.
+        // Aqui persistimos deterministicamente o interesse (pra próxima pergunta já ser a
+        // do funil) e o pedido_original (texto cru do desejo, pro resumo). Só quando o
+        // texto casa uma categoria — saudação pura não semeia nada.
+        try {
+          const seedConfig = getCategoriesOrDefault(agent)
+          const seedCategory = matchCategoryBySearchText(incomingText, seedConfig)
+          if (seedCategory) {
+            const pedidoOriginal = incomingText
+              .replace(/[?!.;:]/g, ' ')
+              .replace(/\b(bom dia|boa tarde|boa noite|ol[áa]|oi|opa|e a[íi])\b/gi, ' ')
+              .replace(/\b(voc[eê]s?\s+t[eê]m|t[eê]m|teria|queria|quero|gostaria de|preciso de|procuro|tem a[íi]?)\b/gi, ' ')
+              .replace(/,/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+            const seedPatch: Record<string, string> = { interesse: seedCategory.id }
+            if (pedidoOriginal && pedidoOriginal.length >= 3) seedPatch.pedido_original = pedidoOriginal
+            const seededTags = mergeTags(conversation.tags || [], seedPatch)
+            conversation.tags = seededTags
+            await supabase.from('conversations').update({ tags: seededTags }).eq('id', conversation_id)
+            log.info('Greeting seed: interesse + pedido_original persistidos no 1º contato', {
+              interesse: seedCategory.id, pedido_original: seedPatch.pedido_original || null,
+            })
+          }
+        } catch (err) {
+          log.warn?.('Greeting seed (interesse/pedido_original) falhou (non-fatal)', { error: (err as Error).message })
+        }
         log.info('First interaction - greeting sent, capture_name=true, stopping before product flow', {
           textPreview: incomingText.substring(0, 80),
         })
@@ -2803,12 +2834,19 @@ ${contextBlock}`
           const inNoResultLoop =
             (enrichingNow || legacySellerPending || premiumSearchFailNow) && conversation.status_ia !== STATUS_IA.SHADOW
           if (inNoResultLoop) {
+            // Captura da resposta do lead DESACOPLADA do cap (2026-05-30, fix 21.36
+            // defeito área): com maxQuestionsAfterEmpty=maxEnrichNow, no turno em que o
+            // cap é atingido o verdict retorna readyToHandoff=true e nextRequiredField=null
+            // — então a ÚLTIMA resposta (ex.: "Uns 90 metros" → area) era descartada e
+            // sumia do resumo do vendedor. A DECISÃO de transbordar continua usando o
+            // verdict capado (premiumHandoffVerdict abaixo); aqui usamos um teto alto só
+            // pra SEMPRE inferir/salvar o atributo que o lead acabou de informar.
             const beforeAnswerVerdict = evaluateProductQualificationFlow({
               tags: conversation.tags || [],
               agent,
               incomingText,
               catalogResult: 'empty',
-              maxQuestionsAfterEmpty: maxEnrichNow,
+              maxQuestionsAfterEmpty: 99,
             })
             const inferredAnswer = inferProductQualificationAnswerTag(
               beforeAnswerVerdict.nextRequiredField?.key,
@@ -2969,12 +3007,19 @@ ${contextBlock}`
             })
             conversation.tags = loopTags
             await supabase.from('conversations').update({ tags: loopTags }).eq('id', conversation_id)
+            // A ESCOLHA da próxima pergunta usa teto ALTO (uncapped). O cap (maxEnrichNow)
+            // só governa QUANDO transbordar (premiumHandoffVerdict acima); aqui já decidimos
+            // que vamos perguntar, então a pergunta deve ser o PRÓXIMO campo realmente
+            // faltante. Com maxEnrichNow, o incremento de questions_after_empty logo acima
+            // empurrava o verdict ao cap → nextRequiredField=null → pergunta genérica ("me
+            // passa mais uma especificação") no exato turno em que faltava só a ÁREA — que
+            // então nunca era perguntada nem capturada (fix 21.36 área, 2026-05-30).
             const nextVerdict = evaluateProductQualificationFlow({
               tags: conversation.tags || [],
               agent,
               incomingText,
               catalogResult: 'empty',
-              maxQuestionsAfterEmpty: maxEnrichNow,
+              maxQuestionsAfterEmpty: 99,
             })
             const questionByField: Record<string, string> = {
               acabamento: 'Você prefere acabamento brilhante, acetinado ou fosco?',
@@ -3192,6 +3237,31 @@ ${contextBlock}`
                   router_intent: routerResult.intent, category: gate.categoryId, catalog_status: gate.catalogStatus,
                 })
               }
+            }
+          }
+
+          // ── Pós-nome com interesse premium semeado (fix 21.36 defeito turno-2) ──
+          // Quando o 1º contato já trouxe um PRODUTO ("porcelanato marmorizado") e a IA
+          // pediu o nome, o interesse foi semeado deterministicamente na saudação. No
+          // turno seguinte (o nome) o router classifica 'saudacao' → greeting specialist,
+          // que devolvia um "o que você procura?" GENÉRICO — como se não tivesse ouvido o
+          // produto. Aqui, quando há interesse premium semeado, funil pré-busca ainda
+          // intocado (nenhum campo respondido) e o nome já é conhecido, retomamos direto o
+          // qualification_specialist (que cumprimenta pelo nome e JÁ faz a 1ª pergunta do
+          // funil). Guard estreito: não dispara em saudação pura sem interesse premium.
+          if (!isShadow && routerResult.intent === 'saudacao' && (leadName || capturedLeadName)) {
+            const seedVerdict = evaluateProductQualificationFlow({
+              tags: conversation.tags || [], agent, incomingText,
+            })
+            // Qualquer categoria RESOLVIDA com o funil ainda intocado (nenhum campo
+            // respondido) — robusto pra qualquer id (revestimentos/porcelanatos_revestimentos/
+            // torneiras/torneiras_metais/tintas/...), não uma lista hardcoded que divergia
+            // entre a config do agent e o DEFAULT (caso torneiras vs torneiras_metais).
+            if (seedVerdict.categoryId && seedVerdict.nextRequiredField && seedVerdict.answeredFieldKeys.length === 0) {
+              def = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
+              log.info('saudacao + interesse premium semeado → qualification_specialist (retoma funil pós-nome)', {
+                category: seedVerdict.categoryId, nextField: seedVerdict.nextRequiredField.key,
+              })
             }
           }
 

@@ -394,3 +394,60 @@ describe('mismatch de chave: tag generica satisfaz field suffixado (fix 21.37)',
     expect(getNextRequiredField(stages, new Set(['ambiente', 'tipo']))).toBeNull()
   })
 })
+
+describe('pedido_original é meta (fix 21.36 marmorizado)', () => {
+  it('não conta pedido_original como campo de qualificação respondido', () => {
+    const answered = extractCollectedFields([
+      'interesse:porcelanatos_revestimentos',
+      'pedido_original:porcelanato marmorizado',
+      'aplicacao:piso',
+    ])
+    expect(answered.has('pedido_original')).toBe(false)
+    expect(answered.has('aplicacao')).toBe(true)
+  })
+
+  it('com pedido_original presente, o próximo campo ainda é formato (não pulado)', () => {
+    const verdict = evaluateProductQualificationFlow({
+      tags: [
+        'interesse:porcelanatos_revestimentos',
+        'pedido_original:porcelanato marmorizado',
+        'aplicacao:piso',
+        'ambiente:residencial',
+      ],
+      agent: PREMIUM_AGENT,
+      incomingText: 'residencial',
+    })
+    expect(verdict.nextRequiredField?.key).toBe('formato')
+  })
+})
+
+describe('captura da resposta desacoplada do cap (fix 21.36 área)', () => {
+  // No turno em que o cap de perguntas pós-vazio é atingido, o verdict CAPADO
+  // retorna readyToHandoff=true e nextRequiredField=null — então a última resposta
+  // do lead (ex.: "Uns 90 metros" → area) seria descartada antes do handoff. O
+  // index.ts passou a inferir a resposta com um teto ALTO (uncapped) pra SEMPRE
+  // capturar o atributo informado. Estes testes provam os dois lados.
+  const tagsAllButArea = [
+    'interesse:porcelanatos_revestimentos',
+    'aplicacao:piso', 'ambiente:residencial', 'formato:120x120',
+    'acabamento:brilhante', 'cor:bege', 'local_aplicacao:sala e cozinha integradas',
+    'catalog_result:empty', 'enriching:1', 'questions_after_empty:4',
+  ]
+
+  it('verdict CAPADO no cap: readyToHandoff e nextRequiredField=null (area se perderia)', () => {
+    const capped = evaluateProductQualificationFlow({
+      tags: tagsAllButArea, agent: PREMIUM_AGENT, incomingText: 'Uns 90 metros',
+      catalogResult: 'empty', maxQuestionsAfterEmpty: 4,
+    })
+    expect(capped.readyToHandoff).toBe(true)
+    expect(capped.nextRequiredField).toBeNull()
+  })
+
+  it('verdict UNCAPPED ainda aponta area como próximo campo (a resposta é capturável)', () => {
+    const uncapped = evaluateProductQualificationFlow({
+      tags: tagsAllButArea, agent: PREMIUM_AGENT, incomingText: 'Uns 90 metros',
+      catalogResult: 'empty', maxQuestionsAfterEmpty: 99,
+    })
+    expect(uncapped.nextRequiredField?.key).toBe('area')
+  })
+})

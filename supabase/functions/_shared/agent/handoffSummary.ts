@@ -13,6 +13,7 @@ export interface HandoffSummaryInput {
 
 const LABELS: Record<string, string> = {
   interesse: 'Categoria',
+  pedido_original: 'Pedido original',
   produto: 'Produto',
   selected_product: 'Produto escolhido',
   aplicacao: 'Aplicacao',
@@ -44,6 +45,7 @@ const LABELS: Record<string, string> = {
 
 const ORDER = [
   'interesse',
+  'pedido_original',
   'produto',
   'selected_product',
   'objetivo',
@@ -74,6 +76,7 @@ const ORDER = [
 ]
 
 const INTERNAL_SKIP_KEYS = new Set([
+  'pedido_original',
   'ia',
   'ia_cleared',
   'agent_status',

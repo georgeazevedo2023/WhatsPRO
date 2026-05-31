@@ -61,6 +61,7 @@ export interface ProductQualificationFlowVerdict {
 const META_KEYS = new Set([
   'motivo',
   'interesse',
+  'pedido_original',
   'lead_score',
   'ia',
   'ia_cleared',

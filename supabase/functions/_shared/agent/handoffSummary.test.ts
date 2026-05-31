@@ -57,6 +57,25 @@ describe('buildPremiumHandoffSummary', () => {
     expect(summary).toContain('Necessita: Validacao humana de estoque fisico')
   })
 
+  it('inclui Pedido original (descritor marmorizado) e nao duplica na linha Tags', () => {
+    const summary = buildPremiumHandoffSummary({
+      leadName: 'Fernando',
+      tags: [
+        'interesse:porcelanatos_revestimentos',
+        'pedido_original:porcelanato marmorizado',
+        'aplicacao:piso',
+        'formato:120x120',
+        'area:90',
+        'catalog_result:empty',
+      ],
+    })
+
+    expect(summary).toContain('Pedido original: porcelanato marmorizado')
+    // pedido_original NAO deve poluir a linha "Tags:" (é meta, não atributo de qualif)
+    const tagsLine = summary.split('\n').find((l) => l.startsWith('Tags:')) || ''
+    expect(tagsLine).not.toContain('pedido_original')
+  })
+
   it('inclui fallbackReason como observacao quando nao duplicado', () => {
     const summary = buildPremiumHandoffSummary({
       tags: ['interesse:tintas', 'cor:branca'],
