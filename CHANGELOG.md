@@ -13,6 +13,18 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.63.0 (2026-05-31) — 🟢 Dashboard mobile do Gestor: "Sem atendimento" + ver/reatribuir
+
+**Pedido do dono:** dashboard mobile pro gestor (1) acompanhar a fila dos atendentes, (2) clicar e ver a conversa, (3) reatribuir + ver **leads sem atendimento** (a IA transbordou mas o atendente atribuído ainda não respondeu).
+
+**Entregue (expande `/dashboard/fila`, 3 abas — não cria tela nova):**
+- **Aba "Sem atendimento"** (default, badge de contagem): leads `status_ia='shadow'` + `assigned_to` + sem resposta do atendente; seletor de recência (24h/3d/7d/tudo) + carência de 3min. **👁 Ver** (modal read-only `ConversationModal` — distingue IA de Atendente + "Abrir no Helpdesk" `?inbox=&conv=`) e **↪ Reatribuir** (drawer com atendentes da instância).
+- **Abas "Ao vivo" / "Atendentes"**: conteúdo existente (LiveHeader + stats + leads perdidos) reorganizado.
+- **Backend** (migration `20260531000000_manager_attendance_dashboard.sql`, aplicada no projeto PROD): RPC `get_unattended_handoff_leads(p_instance_id, p_min_minutes_waiting=3, p_max_age_hours=72)` — detecção robusta (resposta humana por `sender_id` web **OU** `+90s` para takeover por celular; exclui ponte do handoff e OOF/abandono de cron); RPC `manager_reassign_conversation` (gate super_admin||gerente, troca `assigned_to`+`assigned_at`, evento ativo→`manual_override`, mantém `status_ia=shadow`). Ambas SECURITY DEFINER + gate de papel.
+- **Front**: hooks `useUnattendedLeads`/`useReassignConversation` (realtime `queue-update`/`assigned-agent` + invalidação), `UnattendedLeadsTab`, helper `broadcastQueueUpdate`. Zero toque em `ai-agent`/HIGH RISK; sem SYNC RULE.
+- **Ajustes do dono:** dashboard de fila usa `useManagerInstances` (só `is_sandbox=false`) → mostra **apenas EletropisoV2** (esconde Sandbox/Eletropiso-teste, sem hardcode); novo `formatWaiting` mostra dias a partir de 24h ("esperando há 31h 58m · 1 dia", "70h 3m · 2 dias").
+- **E2E real** (Playwright no app + SQL): 108 leads reais (EletropisoV2 72h) na aba; só EletropisoV2 no seletor; tempo com dias renderizado; Ver/Abrir-no-Helpdesk OK; Reatribuir → toast + badge; gate confirmado (`forbidden` sem papel). tsc 0 nos arquivos da feature, `vite build` OK.
+
 ### v7.62.1 (2026-05-31) — 🔴 fetch_messages_timeout PERSISTIA — recuperação por reinicialização (o v7.62.0 não bastava)
 
 **Trigger:** dono reportou que o erro CONTINUAVA mesmo com o v7.62.0 deployado (bundle novo confirmado). O v7.62.0 só gateava o caminho do RESUME; o `fetchMessages` no **load inicial** (selecionar a conversa) e no reconnect de canal seguiam travando.
