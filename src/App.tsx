@@ -92,8 +92,22 @@ const PageLoader = () => (
 );
 
 /**
- * Refreshes stale data when user returns to the tab after being away.
- * Fixes: useInstances (legacy hook) + Supabase session going stale on inactive tabs.
+ * Recupera dados/conexão quando o atendente volta pra aba depois de um tempo fora.
+ *
+ * ANTES (bug 2026-05-31, print do dono): fazia `window.location.reload()` — um
+ * reload do SPA inteiro a cada retorno >3s. Isso DESMONTAVA a aplicação e perdia
+ * o estado em memória: o atendente que tinha uma conversa aberta voltava pra
+ * "Selecione uma conversa", além de perder scroll/contexto. O comentário antigo
+ * dizia "é o que Slack/Discord fazem" — não é: esses apps reconectam o socket e
+ * refazem o fetch em silêncio, sem recarregar a página.
+ *
+ * AGORA: recuperação graciosa SEM reload, preservando 100% do estado em memória
+ * (conversa selecionada, scroll, rascunho):
+ *   1. Reconecta o Realtime do Supabase — o browser fecha o WebSocket em abas
+ *      suspensas; `connect()` é idempotente e os canais já inscritos rejoinam.
+ *   2. Dispara `app:tab-resumed` — hooks de fetch manual (helpdesk: conversas +
+ *      mensagens) ouvem e refazem o fetch pra pegar o que chegou enquanto fora.
+ * (Páginas em react-query já refazem via `refetchOnWindowFocus`.)
  */
 function useTabFocusRefresh() {
   const hiddenAtRef = useRef<number>(0);
@@ -108,10 +122,11 @@ function useTabFocusRefresh() {
       const awayMs = Date.now() - hiddenAtRef.current;
       if (awayMs < 3_000) return; // less than 3s, skip
 
-      // Full page reload — Supabase client (WebSocket + PostgREST) gets into
-      // a broken state after tab suspension. Selective refetch doesn't work
-      // reliably. This is what Slack, Discord, and other real-time apps do.
-      window.location.reload();
+      // 1) Reconecta o WebSocket do Realtime (browser fecha em aba suspensa).
+      try { supabase.realtime.connect(); } catch { /* idempotente — já conectado */ }
+      // 2) Avisa componentes com fetch manual pra recarregar seus dados — sem
+      //    desmontar nada (conversa selecionada e scroll permanecem).
+      window.dispatchEvent(new CustomEvent('app:tab-resumed', { detail: { awayMs } }));
     };
 
     document.addEventListener('visibilitychange', handleVisibility);
