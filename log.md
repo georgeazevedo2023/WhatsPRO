@@ -8,6 +8,21 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-05-31 (noite) — 🟢 Dashboard mobile do Gestor: "Sem atendimento" + ver/reatribuir (v7.63.0) — SHIPPED
+
+**Pedido do dono:** dashboard mobile pro gestor (1) acompanhar a fila dos atendentes, (2) clicar e ver a conversa, (3) reatribuir + ver **leads sem atendimento** (IA transbordou mas o atendente atribuído não respondeu).
+
+**Abordagem (workflow de entendimento, 8 leitores):** expandir `/dashboard/fila` (`QueueDashboard`, já mobile-first, gate CrmRoute) com **3 abas** em vez de tela nova — reusa todo realtime/RPCs. Decisões aprovadas pelo dono: aba expandida · ver=modal read-only (`ConversationModal`)+"Abrir no Helpdesk" · reatribuir=RPC SECURITY DEFINER fila-coerente.
+
+**Entregue:** migration `20260531000000_manager_attendance_dashboard.sql` (aplicada no projeto PROD) com 2 RPCs: `get_unattended_handoff_leads(instance, min_wait=3, max_age_h=72)` (detecção robusta: resposta humana por `sender_id` web OU `+90s` celular-takeover, exclui ponte-handoff/OOF; gate super_admin||gerente) e `manager_reassign_conversation(conv, assignee)` (gate, troca assigned_to+assigned_at, evento ativo→manual_override, NÃO mexe status_ia). Front: `useUnattendedLeads`+`useReassignConversation` (realtime+invalidação), `UnattendedLeadsTab` (cards + seletor recência + Ver/Reatribuir drawer), 3 abas no `QueueDashboard`, `ConversationModal` estendido (rótulo IA vs Atendente + "Abrir no Helpdesk" `?inbox=&conv=`), helper `broadcastQueueUpdate`. Zero toque em ai-agent/HIGH RISK; sem SYNC RULE.
+
+**E2E real (Playwright app real + SQL):** login super_admin (programático via client do app — form tem bug de foco no Playwright); aba carrega 108 leads reais (EletropisoV2 72h), trocar instância→Sandbox IA mostra 50; **Ver** abre modal (rótulos Lead/IA), **Abrir no Helpdesk** navega `?inbox=&conv=`; **Reatribuir** → toast "Reatribuído a …" + badge 50→49 (conv sai pela carência de 3min). **Gate confirmado:** RPC levanta `forbidden` sem papel. tsc: 0 erros nos arquivos da feature (erros remanescentes são os 36 pré-existentes). Detalhe: [[project_manager_attendance_dashboard]].
+
+**Ajustes do dono (mesma sessão):** dashboard usa `useManagerInstances` (só is_sandbox=false) → **apenas EletropisoV2** no seletor (sem hardcode); `formatWaiting` mostra dias a partir de 24h ("31h 58m · 1 dia"). Re-validado via Playwright: badge 108, sem seletor (1 instância), dias renderizados.
+
+**SHIPPED:** commit → merge master → push → CI (build-and-push) → webhook Portainer (redeploy `crm.wsmart.com.br`). Migration já estava aplicada no projeto PROD. Pendência menor: regenerar types.ts (uso `as never`, padrão do AdminRouting).
+
+---
 ## 2026-05-31 (tarde II) — 🔴 fetch_messages_timeout PERSISTIA → recuperação por reinicialização (v7.62.1) — SHIPPED
 
 **SHIPPED:** commit `65d5df6` → merge `bc3f50e` → push master → CI (Build+Push Docker + Vault Healthcheck) success → webhook Portainer **204** (redeploy `crm.wsmart.com.br`).

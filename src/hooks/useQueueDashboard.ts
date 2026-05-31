@@ -10,9 +10,10 @@
  * o header em tempo real. Stats do período usam polling (refetchInterval 30s) — mudança
  * lenta o suficiente, e refresh agressivo confunde gestor com números mexendo direto.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { broadcastAssignedAgent, broadcastQueueUpdate } from '@/lib/helpdeskBroadcast';
 
 export type QueuePeriod = 'today' | 'yesterday' | 'last7' | 'last15' | 'last30';
 
@@ -93,6 +94,26 @@ export interface LostLead {
   created_at: string;
   resolved_at: string | null;
 }
+
+export interface UnattendedLead {
+  conversation_id: string;
+  contact_name: string;
+  contact_phone: string | null;
+  contact_avatar_url: string | null;
+  inbox_id: string;
+  department_id: string | null;
+  assigned_to: string | null;
+  assignee_name: string | null;
+  assignee_avatar_url: string | null;
+  assigned_at: string;
+  last_message: string | null;
+  last_message_at: string | null;
+  seconds_waiting: number;
+  queue_event_active: boolean;
+}
+
+/** Janela de recência do "sem atendimento" (limita a leads acionáveis). */
+export type UnattendedWindow = 24 | 72 | 168 | 0; // 24h, 3d, 7d, tudo
 
 /**
  * Header live (na fila / disponíveis / pausados / tempo de espera).
@@ -180,6 +201,90 @@ export function useQueueLostLeads(
   });
 }
 
+/**
+ * Leads que a IA transbordou (status_ia='shadow') e o atendente atribuído ainda
+ * NÃO respondeu. `maxAgeHours` limita a recência (0 = tudo). Realtime: refetch em
+ * queue-update (cron/reassign) + new-message/assigned-agent (helpdesk) + poll 15s.
+ */
+export function useUnattendedLeads(
+  instanceId: string | null,
+  maxAgeHours: UnattendedWindow = 72,
+  minMinutesWaiting = 3,
+) {
+  const query = useQuery({
+    queryKey: ['unattended-leads', instanceId, maxAgeHours, minMinutesWaiting],
+    enabled: !!instanceId,
+    refetchInterval: 15000,
+    queryFn: async (): Promise<UnattendedLead[]> => {
+      if (!instanceId) throw new Error('instanceId required');
+      const { data, error } = await supabase.rpc(
+        'get_unattended_handoff_leads' as never,
+        {
+          p_instance_id: instanceId,
+          p_min_minutes_waiting: minMinutesWaiting,
+          p_max_age_hours: maxAgeHours,
+        } as never,
+      );
+      if (error) throw error;
+      return (data || []) as UnattendedLead[];
+    },
+  });
+
+  useEffect(() => {
+    if (!instanceId) return;
+    const live = supabase
+      .channel(`queue-live-${instanceId}`)
+      .on('broadcast', { event: 'queue-update' }, () => query.refetch())
+      .subscribe();
+    const helpdesk = supabase
+      .channel('helpdesk-conversations')
+      .on('broadcast', { event: 'new-message' }, () => query.refetch())
+      .on('broadcast', { event: 'assigned-agent' }, () => query.refetch())
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(live);
+      void supabase.removeChannel(helpdesk);
+    };
+  }, [instanceId, query]);
+
+  return query;
+}
+
+/**
+ * Reatribui uma conversa a outro atendente via RPC role-gated (super_admin||gerente),
+ * mantendo a fila coerente (evento ativo → manual_override). Espelha o assignAgent do
+ * helpdesk, mas server-side. Após sucesso, sincroniza helpdesk (assigned-agent +
+ * queue-update) e invalida as queries do dashboard.
+ */
+export function useReassignConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      conversationId,
+      assigneeId,
+    }: {
+      conversationId: string;
+      assigneeId: string;
+    }): Promise<{ assigneeName: string }> => {
+      const { data, error } = await supabase.rpc(
+        'manager_reassign_conversation' as never,
+        { p_conversation_id: conversationId, p_assignee_id: assigneeId } as never,
+      );
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : data;
+      const assigneeName = (row as { assignee_name?: string } | null)?.assignee_name ?? 'atendente';
+      await broadcastAssignedAgent(conversationId, assigneeId);
+      await broadcastQueueUpdate(conversationId);
+      return { assigneeName };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['unattended-leads'] });
+      void qc.invalidateQueries({ queryKey: ['queue-stats'] });
+      void qc.invalidateQueries({ queryKey: ['queue-live'] });
+    },
+  });
+}
+
 export function formatDuration(seconds: number): string {
   if (!seconds || seconds <= 0) return '—';
   if (seconds < 60) return `${Math.round(seconds)}s`;
@@ -189,4 +294,19 @@ export function formatDuration(seconds: number): string {
   const h = Math.floor(m / 60);
   const remM = m % 60;
   return remM > 0 ? `${h}h ${remM}m` : `${h}h`;
+}
+
+/**
+ * Tempo de espera (card "esperando há"). A partir de 24h acrescenta o equivalente em
+ * dias pro gestor sacar de cara a gravidade — ex.: "31h 59m · 1 dia", "55h · 2 dias".
+ */
+export function formatWaiting(seconds: number): string {
+  if (!seconds || seconds <= 0) return '—';
+  const totalMin = Math.floor(seconds / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  const base = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+  if (h < 24) return base;
+  const days = Math.floor(h / 24);
+  return `${base} · ${days} dia${days > 1 ? 's' : ''}`;
 }

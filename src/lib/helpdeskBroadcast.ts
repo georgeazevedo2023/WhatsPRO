@@ -33,6 +33,11 @@ export async function broadcastAssignedAgent(conversationId: string, assignedTo:
   });
 }
 
+/** Broadcast a queue-update so helpdesk badges/dashboards revalidate (D30) */
+export async function broadcastQueueUpdate(conversationId: string, kind = 'manual_override') {
+  await broadcast('queue-update', { conversation_id: conversationId, kind });
+}
+
 /** Broadcast conversation status change */
 export async function broadcastStatusChanged(conversationId: string, status: string) {
   await broadcast('status-changed', {

@@ -14,22 +14,26 @@
  */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useInstances } from '@/hooks/useInstances';
+import { useManagerInstances } from '@/hooks/useManagerInstances';
 import {
   useQueueLive,
   useQueueStats,
   useQueueLostLeads,
+  useUnattendedLeads,
   resolveQueuePeriod,
   formatDuration,
   type QueuePeriod,
   type AttendantStat,
+  type UnattendedWindow,
 } from '@/hooks/useQueueDashboard';
+import UnattendedLeadsTab from '@/components/dashboard/queue/UnattendedLeadsTab';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Users, Pause, Timer, AlertCircle, CheckCircle2, UserX, ArrowRight, Clock, ChevronRight } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -253,12 +257,37 @@ function LostLeadsDrawer({
   );
 }
 
+function PeriodChips({ period, onChange }: { period: QueuePeriod; onChange: (p: QueuePeriod) => void }) {
+  return (
+    <div className="flex gap-1.5 overflow-x-auto pb-1 sm:gap-2 sm:pb-0">
+      {PERIODS.map((p) => (
+        <button
+          key={p.value}
+          type="button"
+          onClick={() => onChange(p.value)}
+          className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+            period === p.value
+              ? 'bg-primary text-primary-foreground shadow'
+              : 'bg-muted/60 text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function QueueDashboard() {
-  const { instances, loading: instancesLoading } = useInstances();
+  // Gestor só vê instâncias de produção (is_sandbox=false) — esconde Sandbox/Eletropiso de teste,
+  // igual ao ManagerDashboard. Hoje isso = só EletropisoV2.
+  const { data: instances = [], isLoading: instancesLoading } = useManagerInstances();
   const [instanceId, setInstanceId] = useState<string | null>(null);
   const [period, setPeriod] = useState<QueuePeriod>('today');
   const [drillUserId, setDrillUserId] = useState<string | null>(null);
   const [drillName, setDrillName] = useState<string>('');
+  const [tab, setTab] = useState<'unattended' | 'live' | 'attendants'>('unattended');
+  const [unattendedWin, setUnattendedWin] = useState<UnattendedWindow>(72);
 
   useEffect(() => {
     if (!instanceId && instances && instances.length > 0) {
@@ -267,6 +296,7 @@ export default function QueueDashboard() {
   }, [instances, instanceId]);
 
   const { data: stats = [], isLoading: statsLoading } = useQueueStats(instanceId, period);
+  const { data: unattended = [], isLoading: unattendedLoading } = useUnattendedLeads(instanceId, unattendedWin);
   const range = resolveQueuePeriod(period);
 
   const totalReceived = stats.reduce((s, a) => s + a.received, 0);
@@ -277,12 +307,7 @@ export default function QueueDashboard() {
     <div className="mx-auto w-full max-w-3xl space-y-4 p-3 sm:p-6">
       {/* Header título + instância */}
       <div className="space-y-2">
-        <div className="flex items-baseline justify-between gap-2">
-          <h1 className="text-xl font-bold sm:text-2xl">Fila de Atendimento</h1>
-          <span className="text-xs text-muted-foreground sm:text-sm">
-            {format(range.from, "dd/MM HH:mm", { locale: ptBR })} → {format(range.to, "HH:mm", { locale: ptBR })}
-          </span>
-        </div>
+        <h1 className="text-xl font-bold sm:text-2xl">Fila de Atendimento</h1>
         {!instancesLoading && instances && instances.length > 1 && (
           <Select value={instanceId ?? ''} onValueChange={setInstanceId}>
             <SelectTrigger className="h-9"><SelectValue placeholder="Selecione a instância" /></SelectTrigger>
@@ -293,80 +318,88 @@ export default function QueueDashboard() {
         )}
       </div>
 
-      {/* Period chips — sticky no mobile */}
-      <div className="sticky top-0 z-10 -mx-3 bg-background/90 px-3 py-2 backdrop-blur sm:relative sm:mx-0 sm:p-0">
-        <div className="flex gap-1.5 overflow-x-auto pb-1 sm:gap-2 sm:pb-0">
-          {PERIODS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => setPeriod(p.value)}
-              className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
-                period === p.value
-                  ? 'bg-primary text-primary-foreground shadow'
-                  : 'bg-muted/60 text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="unattended" className="gap-1.5 text-xs sm:text-sm">
+            Sem atend.
+            {unattended.length > 0 && (
+              <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                {unattended.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="live" className="text-xs sm:text-sm">Ao vivo</TabsTrigger>
+          <TabsTrigger value="attendants" className="text-xs sm:text-sm">Atendentes</TabsTrigger>
+        </TabsList>
 
-      {/* Header live (3 cards grandes) */}
-      <LiveHeader instanceId={instanceId} />
-
-      {/* Resumo do período */}
-      {!statsLoading && stats.length > 0 && (
-        <Card className="p-3 sm:p-4">
-          <div className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">No período</div>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <div className="text-lg font-bold tabular-nums sm:text-xl">{totalReceived}</div>
-              <div className="text-[10px] uppercase text-muted-foreground sm:text-xs">Recebidos</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold tabular-nums text-emerald-600 sm:text-xl">{totalResponded}</div>
-              <div className="text-[10px] uppercase text-muted-foreground sm:text-xs">Atendidos</div>
-            </div>
-            <div>
-              <div className="text-lg font-bold tabular-nums text-red-600 sm:text-xl">{totalLost}</div>
-              <div className="text-[10px] uppercase text-muted-foreground sm:text-xs">Perdidos</div>
-            </div>
-          </div>
-          {totalReceived > 0 && (
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="flex h-full"
-                style={{ width: '100%' }}
-              >
-                <div className="h-full bg-emerald-500" style={{ width: `${(totalResponded / totalReceived) * 100}%` }} />
-                <div className="h-full bg-red-500" style={{ width: `${(totalLost / totalReceived) * 100}%` }} />
-              </div>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* Lista de atendentes */}
-      <div className="space-y-3">
-        {statsLoading && [0, 1, 2].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
-        {!statsLoading && stats.length === 0 && (
-          <Card className="p-8 text-center">
-            <Users className="mx-auto mb-2 h-10 w-10 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">
-              Sem atendentes cadastrados no departamento de fila desta instância.
-            </p>
-          </Card>
-        )}
-        {!statsLoading && stats.length > 0 && stats.map((stat) => (
-          <AttendantCard
-            key={stat.user_id}
-            stat={stat}
-            onOpenLost={(uid, name) => { setDrillUserId(uid); setDrillName(name); }}
+        {/* Aba 1 — Sem atendimento (default) */}
+        <TabsContent value="unattended" className="mt-4">
+          <UnattendedLeadsTab
+            leads={unattended}
+            isLoading={unattendedLoading}
+            win={unattendedWin}
+            onWinChange={setUnattendedWin}
+            attendants={stats}
           />
-        ))}
-      </div>
+        </TabsContent>
+
+        {/* Aba 2 — Fila ao vivo */}
+        <TabsContent value="live" className="mt-4 space-y-4">
+          <LiveHeader instanceId={instanceId} />
+          <PeriodChips period={period} onChange={setPeriod} />
+          <div className="text-right text-xs text-muted-foreground">
+            {format(range.from, "dd/MM HH:mm", { locale: ptBR })} → {format(range.to, "HH:mm", { locale: ptBR })}
+          </div>
+          {!statsLoading && stats.length > 0 && (
+            <Card className="p-3 sm:p-4">
+              <div className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">No período</div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-lg font-bold tabular-nums sm:text-xl">{totalReceived}</div>
+                  <div className="text-[10px] uppercase text-muted-foreground sm:text-xs">Recebidos</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold tabular-nums text-emerald-600 sm:text-xl">{totalResponded}</div>
+                  <div className="text-[10px] uppercase text-muted-foreground sm:text-xs">Atendidos</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold tabular-nums text-red-600 sm:text-xl">{totalLost}</div>
+                  <div className="text-[10px] uppercase text-muted-foreground sm:text-xs">Perdidos</div>
+                </div>
+              </div>
+              {totalReceived > 0 && (
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                  <div className="flex h-full" style={{ width: '100%' }}>
+                    <div className="h-full bg-emerald-500" style={{ width: `${(totalResponded / totalReceived) * 100}%` }} />
+                    <div className="h-full bg-red-500" style={{ width: `${(totalLost / totalReceived) * 100}%` }} />
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Aba 3 — Atendentes */}
+        <TabsContent value="attendants" className="mt-4 space-y-3">
+          <PeriodChips period={period} onChange={setPeriod} />
+          {statsLoading && [0, 1, 2].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+          {!statsLoading && stats.length === 0 && (
+            <Card className="p-8 text-center">
+              <Users className="mx-auto mb-2 h-10 w-10 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">
+                Sem atendentes cadastrados no departamento de fila desta instância.
+              </p>
+            </Card>
+          )}
+          {!statsLoading && stats.length > 0 && stats.map((stat) => (
+            <AttendantCard
+              key={stat.user_id}
+              stat={stat}
+              onOpenLost={(uid, name) => { setDrillUserId(uid); setDrillName(name); }}
+            />
+          ))}
+        </TabsContent>
+      </Tabs>
 
       <LostLeadsDrawer
         instanceId={instanceId}
