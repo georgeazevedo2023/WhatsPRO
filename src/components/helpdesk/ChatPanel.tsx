@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { probeSession, clearDeadSession } from '@/lib/sessionRecovery';
+import { recoverStuckSession } from '@/lib/sessionRecovery';
 import { getSessionUserId } from '@/hooks/useAuthSession';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { handleError } from '@/lib/errorUtils';
@@ -164,7 +164,12 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     } catch (err) {
       if (fetchId !== fetchIdRef.current) return;
       console.warn('[ChatPanel] Falha ao carregar mensagens (timeout ou erro)', err);
-      setFetchError(true);
+      // O timeout quase sempre = sessão supabase-js ENVENENADA (getSession pendura →
+      // a query estoura; a query em si leva ~10ms). Recupera reinicializando o client
+      // (reload preserva a conversa via ?conv= e refresca o token antes). Guarda
+      // anti-loop: se já recuperou há < 30s, mostra o erro com "Tentar novamente".
+      const recovering = await recoverStuckSession();
+      if (!recovering) setFetchError(true);
     } finally {
       if (timer) clearTimeout(timer);
       if (fetchId === fetchIdRef.current) setLoading(false);
@@ -201,16 +206,11 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     }
   }, [conversationId, loadingOlder, messages]);
 
-  // "Tentar novamente": quando o erro veio de sessão zumbi (token expirado na
-  // aba suspensa), re-disparar fetchMessages no mesmo token morto re-loopa no
-  // timeout de 12s. Revalida a sessão primeiro: 'dead' → limpa e redireciona
-  // (sem reload); 'valid'/'unknown' → refetch (o token pode ter renovado; o
-  // Promise.race de 12s segue como rede de segurança). Nunca desloga por timeout.
-  const handleRetry = useCallback(async () => {
-    const probe = await probeSession();
-    if (probe === 'dead') { await clearDeadSession(); return; }
-    fetchMessages();
-  }, [fetchMessages]);
+  // "Tentar novamente": re-chamar fetchMessages no mesmo client envenenado re-loopa
+  // no timeout (getSession pendura). Como é ação EXPLÍCITA do usuário, força a
+  // recuperação (reinicializa o client via reload, preservando a conversa via URL e
+  // refrescando o token antes) — bypassa a guarda anti-loop.
+  const handleRetry = useCallback(() => { void recoverStuckSession({ force: true }); }, []);
 
   useEffect(() => { fetchMessages(); setReplyTo(null); }, [fetchMessages]);
 

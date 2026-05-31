@@ -1,5 +1,11 @@
 import { supabase } from '@/integrations/supabase/client';
 
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '') as string;
+const PUB_KEY = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || '') as string;
+const PROJECT_REF = SUPABASE_URL.match(/\/\/([^.]+)\./)?.[1] || '';
+const AUTH_TOKEN_KEY = PROJECT_REF ? `sb-${PROJECT_REF}-auth-token` : '';
+const RECOVERY_FLAG = '__wp_session_recovery_at';
+
 /**
  * Revalidação NÃO-destrutiva da sessão de auth, com guarda de wall-clock.
  *
@@ -61,4 +67,85 @@ export async function clearDeadSession(timeoutMs = 3000): Promise<void> {
   } catch {
     /* best-effort — o estado de auth já reflete a sessão morta */
   }
+}
+
+/**
+ * Refresca o access token via fetch CRU direto ao endpoint de auth, BYPASSANDO o
+ * supabase client (que pode estar com o GoTrueClient envenenado — getSession/
+ * setSession penduram). Preserva o objeto de sessão do localStorage e só atualiza
+ * os campos do token, pra o client FRESCO pós-reload já encontrar sessão válida e
+ * NÃO precisar refrescar no boot (evita o hang em cascata). Best-effort.
+ */
+async function refreshTokenIntoStorage(timeoutMs = 6000): Promise<boolean> {
+  if (!AUTH_TOKEN_KEY || !SUPABASE_URL || !PUB_KEY) return false;
+  let current: Record<string, unknown> | null = null;
+  try {
+    current = JSON.parse(localStorage.getItem(AUTH_TOKEN_KEY) || 'null');
+  } catch {
+    return false;
+  }
+  const refreshToken = current?.refresh_token as string | undefined;
+  if (!current || !refreshToken) return false;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: PUB_KEY, Authorization: `Bearer ${PUB_KEY}` },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (!data?.access_token || !data?.refresh_token) return false;
+    const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 3600;
+    localStorage.setItem(AUTH_TOKEN_KEY, JSON.stringify({
+      ...current,
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_in: expiresIn,
+      expires_at: Math.floor(Date.now() / 1000) + expiresIn,
+      token_type: data.token_type ?? current.token_type,
+      user: data.user ?? current.user,
+    }));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Recupera de uma sessão supabase-js ENVENENADA. Confirmado em PROD/Playwright: após
+ * um refresh de token abortado/travado, o GoTrueClient deixa `getSession()`,
+ * `setSession()` e TODA query REST penduradas indefinidamente — não há reset do
+ * estado em memória (nem fetch-timeout, nem lock, nem setSession destravam). A única
+ * recuperação confiável é REINICIALIZAR o client via reload.
+ *
+ * Diferente do reload removido no v7.61.0 (que reloadava a CADA foco de aba): aqui o
+ * reload é CONDICIONAL (só quando a sessão está comprovadamente travada) e:
+ *  - PRESERVA a conversa aberta — ela está na URL `?conv=` e é restaurada no mount;
+ *  - refresca o token ANTES (fetch cru, bypassa o envenenamento) → o client fresco
+ *    sobe com sessão válida e a lista+conversa carregam sem novo hang;
+ *  - tem GUARDA anti-loop (sessionStorage, 1 reload/30s) — exceto `force` (clique
+ *    explícito em "Tentar novamente", que sempre recupera).
+ *
+ * @returns true se vai reinicializar (reload disparado); false se a guarda bloqueou.
+ */
+export async function recoverStuckSession(
+  opts?: { force?: boolean; reload?: () => void },
+): Promise<boolean> {
+  const reload = opts?.reload ?? (() => window.location.reload());
+  if (!opts?.force) {
+    try {
+      const last = Number(sessionStorage.getItem(RECOVERY_FLAG) || '0');
+      if (Date.now() - last < 30_000) return false; // já recuperou há < 30s → não entra em loop
+    } catch { /* sessionStorage indisponível → segue */ }
+  }
+  try { sessionStorage.setItem(RECOVERY_FLAG, String(Date.now())); } catch { /* noop */ }
+  await refreshTokenIntoStorage();
+  reload();
+  return true;
 }
