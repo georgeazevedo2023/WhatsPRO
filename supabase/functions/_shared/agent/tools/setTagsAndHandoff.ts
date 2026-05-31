@@ -894,6 +894,7 @@ export async function handoffToHuman(
     tags: handoffTags,
     leadName: leadName || contact?.name || null,
     fallbackReason: effectiveReason,
+    messages: ctx.contextMessages,
   })
   if (cartFull && !/Pedido \(/i.test(premiumSummary)) {
     premiumSummary = `${premiumSummary}\n${cartFull}`.trim()

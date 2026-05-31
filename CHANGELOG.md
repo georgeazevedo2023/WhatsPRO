@@ -13,6 +13,16 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.59.0 (2026-05-31) — Cenário 21.36 nota 10 + resumo universal pro vendedor + config do agent reativada (branch, não mergeada)
+
+Três fixes de raiz após auditoria profunda do orquestrador (branch `fix/scenario-2136-area-marmorizado`, 3 commits, 5 deploys, **ainda não mergeada/pushada**):
+
+- **21.36 (porcelanato ausente) 7,5→~9,5** (`83153cf`): captura de **área** desacoplada do cap (2 verdicts uncapped no `inNoResultLoop` — o cap só governa o handoff); **greeting-seed** de `interesse`+`pedido_original` no 1º contato + override `saudacao→qualification_specialist` (turno-2 personaliza e já entra no funil); linha **"Pedido original"** no resumo (preserva descritor "marmorizado"). E2E 21.36/21.37 ao vivo no sandbox.
+- **Resumo universal pro vendedor** (`7e37849`): o handoff por trigger "falar com vendedor" **não gerava nota**, e o resumo só funcionava nas categorias premium. Novo `buildConversationDigest` (pares pergunta→resposta como fallback quando tags esparsas, gate <3 atributos) + nota religada no `handoff_trigger` + mensagens propagadas a todos os paths. Agora o vendedor recebe resumo em **toda** categoria.
+- **Config do agent ignorada** (`c68521c`): a categoria `motores` SEM `label` nos 3 agentes (incl. **EletropisoV2 PROD**) fazia `isValidConfig` rejeitar a config de **26 categorias** (tudo-ou-nada) → DEFAULT (4). **~22 categorias estavam dormentes em produção.** Fix: `salvageConfig()` mantém as categorias válidas (uma quebrada não derruba as demais) + reparo do dado (`label` em motores). **Deploy reativou as 22 categorias em EletropisoV2 PROD.**
+
+Testes: +8 unit (handoffSummary digest, productQualificationFlow, serviceCategories salvage). deno check 0. Regressão 21.33 tinta-digital OK. **Pendências:** monitorar PROD (22 categorias reativadas); vazamento `[[handoff_to_human]]` no fechamento digital; push/merge da branch.
+
 ### v7.58.4 (2026-05-30) — 🔴 Greeting inventava interesse pra lead novo ("você estava vendo pisos") — caso Erick/Mirlley
 
 Lead NOVO (Erick) abriu com "Boa tarde" → deu o nome → e a IA respondeu *"Erick! Você estava vendo alguns pisos, quer continuar por aí?"* — **inventando um interesse que o lead nunca mencionou** (ele queria porta de quarto). Quebra de confiança (delata bot/erro).

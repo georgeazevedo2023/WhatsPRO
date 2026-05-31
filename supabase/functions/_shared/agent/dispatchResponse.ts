@@ -109,6 +109,12 @@ export interface DispatchResponseCtx {
   pendingHandoffTrigger: string | null
   pendingHandoffTriggerMsg: string
 
+  /**
+   * Histórico recente {direction, content} (asc) p/ o digest de fallback do resumo
+   * do vendedor quando as tags são esparsas (categorias não-premium). Opcional.
+   */
+  digestMessages?: Array<{ direction?: string | null; content?: string | null }> | null
+
   // Misc
   startTime: number
 
@@ -233,6 +239,7 @@ export async function dispatchResponse(
       tags: implicitTags,
       leadName: (leadProfile as { full_name?: string | null } | null)?.full_name || (contact as any)?.name || null,
       fallbackReason: rawSellerNoteImplicit,
+      messages: ctx.digestMessages,
     }) || rawSellerNoteImplicit
     if (cartFullImplicit && !/Pedido \(/i.test(sellerNoteImplicit)) {
       sellerNoteImplicit = `${sellerNoteImplicit}\n${cartFullImplicit}`.trim()
@@ -529,6 +536,7 @@ export async function dispatchResponse(
       tags: conversation.tags || [],
       leadName: (leadProfile as { full_name?: string | null } | null)?.full_name || null,
       fallbackReason: rawSellerNoteDef,
+      messages: ctx.digestMessages,
     }) || rawSellerNoteDef
     if (sellerNoteDef) {
       const noteContentDef = `📋 Resumo do pedido (interno):\n${sellerNoteDef}`
