@@ -19,6 +19,11 @@ audited_at: 2026-05-30
 
 ---
 
+## 🚨 Sessão 2026-05-31 — `fetch_messages_timeout` no Helpdesk (sessão supabase-js zumbi) — v7.62.0→v7.62.1
+Detalhe: CHANGELOG + [[project_tab_resume_session_zombie_v762]]. Frontend, não ai-agent.
+1. **`getSession()` do supabase-js TRAVA ∞ num token expirado** (medido 14-20s no app real, ZERO request de rede → hang no estado interno do GoTrueClient), e o client fica **IRRECUPERÁVEL em memória** (`setSession()` com token cru tb trava; teto no fetch de auth retenta com sucesso mas o getSession original fica órfão). Toda query REST espera esse token → o `Promise.race` de 12s do ChatPanel estoura. **Regra:** recuperação de aba/sessão NUNCA refetcha sem garantir token; quando o client zumbi não destrava, a única saída confiável é **reinicializar** (reload PRESERVANDO estado via URL `?conv=`, condicional + guarda anti-loop). Lock funcional NÃO resolve (navigator.locks trava 10s em aba stale — foi desligado de propósito no `264a1b6`).
+2. **1ª tentativa (v7.62.0) foi INSUFICIENTE** porque cobri só o caminho do RESUME e validei com reprodução incompleta (editar localStorage ≠ todos os caminhos de prod). **Regra:** quando o dono diz "ainda erro", REPRODUZIR no app real com instrumentação (`window.__sb`, medir timings) ANTES de re-shipar — não chutar a 2ª vez. Cruza "fix-de-raiz exige reprodução fiel".
+
 ## 🚨 Sessão 2026-05-30 (noite) — 4 incidentes: fila runaway · catálogo-vazio · greeting · phantom release (v7.58.1-4)
 Detalhe: CHANGELOG/log + memórias [[project_queue_rotation_runaway_v7581]] · [[project_empty_catalog_handoff_v7583]] · [[project_greeting_hallucinated_interest_v7584]].
 1. **Fila rotacionava INFINITAMENTE** (114 convs, rotation_number 293, ~4.7k eventos/24h, OOF "fora de horário" reenviada todo dia). Dedup era POR-EVENTO e a rotação reciclava eventos. **Regras:** (a) toda rotação/retry precisa de **CAP** (parar após N voltas pelos elegíveis); (b) dedup de ação lead-facing deve ser por **entidade DURÁVEL** (conversa + atividade do lead), NUNCA por linha efêmera (evento); (c) `external_id` carimba a ORIGEM (`queue_oof_`/`abandon_`/`follow_up_`/`ai_agent_`) — é o 1º diagnóstico de "quem mandou". **Mesma família** do "fila sem constraint explodiu banco" (abaixo): loop operacional sem teto.
