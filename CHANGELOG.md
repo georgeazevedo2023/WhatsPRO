@@ -13,6 +13,16 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.60.0 (2026-05-31) — 🔴 Vazamento de tool-call no texto ao lead (handoff_to_human) — stripLeakedToolCalls reescrito
+
+**Trigger:** cenário 21.33 (fechamento digital de tinta) mostrava `[[handoff_to_human|reason=…` cru pro lead. Forense em PROD (EletropisoV2, 30d, via `mcp supabase-novo`): **10 msgs `outgoing` vazadas em 5 formas — a regex antiga pegava 0/10**: bare-name (`\nhandoff_to_human`, 4×), parens sem aspas (`handoff_to_human(reason: …)`, 3×), wikilink truncado (`[[handoff_to_human|reason=…`, 1× = o 21.33), JSON em linha (`handoff_to_human\n{…}`, 1×), space-kv (`set_tags nome:… ambiente:…`, 1×). Defeito **cosmético** (o handoff implícito sempre disparou: fila+shadow+nota OK); só a sintaxe crua chegava ao cliente.
+
+**Fix de raiz** (`_shared/agent/dispatchResponse.ts`): `stripLeakedToolCalls` reescrito. Nomes são snake_case inglês (nunca em pt-BR) → ancora no nome + remove payload em qualquer sintaxe (parens/JSON **balanceados 1 nível** + truncado, pipe de wikilink, space-kv) + wrappers (`functions.`/`[[`/`[`/`<`/`` ` ``/`**`), flag `i`, `set_cart` adicionado. **Anti over-strip** (achado na verificação adversarial): nome pelado só some fora de URL/e-mail (lookbehind/lookahead) — `…/search_products?q=` e `send_media@loja.com` ficam intactos. Defesa extra: `leakedHandoff` reforça o handoff implícito + guarda anti-bolha-vazia.
+
+**Carrossel-sem-mídia: NÃO é bug** (veredito por evidência: 15 carrosseis em prod, todos com cards + imagem `https`; 110/110 produtos com 1ª imagem; código filtra sem-imagem antes de enviar). Misdiagnóstico da sessão anterior — nada inventado (zero gambiarra).
+
+**Testes:** 123 verdes (108 strip — 5 formas reais verbatim + 52 msgs legítimas byte-exact + corpora adversariais + URL/e-mail + nested/truncado; 15 dispatch). deno check 0 (dispatchResponse/specialistBase/ai-agent index). Full `_shared/agent` 565 pass (2 fails pré-existentes: load `https:` ESM, confirmados via git stash). 2 workflows (investigação forense + verificação adversarial over/under-strip). Deploy ai-agent CLI.
+
 ### v7.59.0 (2026-05-31) — Cenário 21.36 nota 10 + resumo universal pro vendedor + config do agent reativada (branch, não mergeada)
 
 Três fixes de raiz após auditoria profunda do orquestrador (branch `fix/scenario-2136-area-marmorizado`, 3 commits, 5 deploys, **ainda não mergeada/pushada**):
