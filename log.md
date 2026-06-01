@@ -8,6 +8,21 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-01 (noite) — 🟢 AI Agent: 5 bugs determinísticos + cap interações + categoria bombas (v7.64.0) — SHIPPED PROD
+
+Dono mandou 3 prints de conversas reais (Dauana/Michelaine/Cris) + 4 pedidos. **Workflow de diagnóstico (8 agentes, trace forense no banco) provou que os 3 bugs das fotos eram 100% DETERMINÍSTICOS** (a foto do tijolo Incenor foi transcrita certo — NÃO foi GEMINI/visão).
+
+**6 correções (decisões do dono via AskUserQuestion: respeitar admin / bombas uso→tipo→marca / cap absoluto vence 'nunca' / PROD direto):**
+- **Bug 1 (loop "Qual formato?"):** `withPremiumCategoryOverrides` (serviceCategories.ts) forçava revestimentos/torneiras a digital ignorando o admin (offline) → loop eterno no campo `formato` quando o lead pedia "o da foto". Fix: respeitar config offline do admin + loop-breaker (`evaluateQualifyReaskGuard`) + detector "da foto" (`detectSpecificItemRequest`) → handoff. E2E: "quero o da foto" → transbordo imediato.
+- **Bug 2 (greeting):** `hasInteracted` contava telemetria passiva (brand_mentioned inserido antes da contagem) → lead que citava marca perdia a saudação. Fix: contar só INTERACTION_EVENTS. E2E: "tem impermeabilizante brasilit?" → saudação correta.
+- **Bug 3 (bomba→portão):** sem categoria bombas, LLM mapeava bomba→motores. Fix: categoria `bombas` (config) + motores→offline. E2E: bomba/poço → uso/tipo/marca → handoff "bombas".
+- **Feat 4 (cano 100):** categoria `canos` reordenada (esgoto/água→marca→handoff). E2E: cano esgoto Tigre → handoff, 0 negações.
+- **Feat 5b (cap 15):** coluna `max_lead_interactions` default 15 (SYNC RULE 8 locais) + gate pré-LLM que vence handoff_rule. E2E (cap=3): 3ª msg → handoff max_interactions, 4ª → shadow_trivial_skip.
+- **Bug 5a (OOF idle):** `decideOutOfHoursSend` + `queueEnteredAtMs` → idle na fila não recebe "fora de horário". 12 testes deno.
+
+**Arquivos:** ai-agent/index.ts (Bug1/2/5b), serviceCategories.ts (Bug1), productQualificationFlow.ts (+helpers+12 testes), queueRotation.ts + requeue-conversations (Bug5a+4 testes), migrations (max_lead_interactions), config service_categories (3 agentes), SYNC RULE frontend (types/validation/RulesConfig/AIAgentTab/playground). **Deploy:** ai-agent + requeue via CLI; config nas 3 instâncias (PROD inclusa). deno check 0, build OK, 43 testes verdes. Detalhe: [[project_ai_agent_5bugs_v764]].
+
+---
 ## 2026-06-01 — 🟢 Fila "Sem atendimento": ordenação + filtro por atendente (v7.63.1) — SHIPPED
 
 Dono pediu 3 ajustes na aba "Sem atendimento": (1) listar do transbordo **mais recente** pro mais antigo, (2) seletor de **ordenação**, (3) **filtro por atendente**. Fix de raiz: RPC `get_unattended_handoff_leads` agora ordena `assigned_at DESC` (era ASC; bônus: o cap de 200 guarda os mais recentes). Sort+filtro são client-side em `UnattendedLeadsTab` (`useMemo`): 4 modos de ordenação (recente/antigo/maior-espera/nome) + dropdown de atendente derivado dos leads com contagem. **E2E real (Playwright):** ordem padrão 35m→39m, filtro Dilma=12 cards só dela, "Maior espera"=54h no topo, sort+filtro compõem. Migration `20260601000000` aplicada em PROD. tsc 0 (feature), vite build OK. **SHIPPED:** commit→merge master→push→CI→Portainer. Detalhe: [[project_manager_attendance_dashboard]].

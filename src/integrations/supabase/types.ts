@@ -513,6 +513,7 @@ export type Database = {
           max_discount_percent: number | null
           max_enrichment_questions: number
           max_pre_search_questions: number
+          max_lead_interactions: number
           max_qualification_retries: number
           refine_results_threshold: number
           max_tokens: number
@@ -580,6 +581,7 @@ export type Database = {
           max_discount_percent?: number | null
           max_enrichment_questions?: number
           max_pre_search_questions?: number
+          max_lead_interactions?: number
           max_qualification_retries?: number
           refine_results_threshold?: number
           max_tokens?: number
@@ -647,6 +649,7 @@ export type Database = {
           max_discount_percent?: number | null
           max_enrichment_questions?: number
           max_pre_search_questions?: number
+          max_lead_interactions?: number
           max_qualification_retries?: number
           refine_results_threshold?: number
           max_tokens?: number

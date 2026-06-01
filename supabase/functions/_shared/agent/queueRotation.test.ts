@@ -46,3 +46,28 @@ Deno.test('decideOutOfHoursSend: já avisado e lead sumiu → NÃO repete (o bug
 Deno.test('decideOutOfHoursSend: lead voltou a falar após a OOF → pode reenviar', () => {
   assertEquals(decideOutOfHoursSend({ lastOofAtMs: 5000, lastIncomingAtMs: 6000 }), true)
 })
+
+// ─── decideOutOfHoursSend: Bug 5a (idle na fila não recebe OOF) ──────────────
+
+Deno.test('Bug5a: idle na fila (nunca falou após entrar) → NÃO envia OOF', () => {
+  // lead entrou na fila em t=1000, nunca mandou msg depois (lastIn null ou <= entered)
+  assertEquals(decideOutOfHoursSend({ lastOofAtMs: null, lastIncomingAtMs: null, queueEnteredAtMs: 1000 }), false)
+  assertEquals(decideOutOfHoursSend({ lastOofAtMs: null, lastIncomingAtMs: 900, queueEnteredAtMs: 1000 }), false)
+})
+
+Deno.test('Bug5a: lead falou DEPOIS de entrar na fila → ENVIA (1ª vez)', () => {
+  assertEquals(decideOutOfHoursSend({ lastOofAtMs: null, lastIncomingAtMs: 2000, queueEnteredAtMs: 1000 }), true)
+})
+
+Deno.test('Bug5a: lead insistiu após OOF → reenvia; sem msg nova → não repete', () => {
+  // entrou 1000, falou 2000 (>entrada), OOF 2500, falou de novo 3000 → reenvia
+  assertEquals(decideOutOfHoursSend({ lastOofAtMs: 2500, lastIncomingAtMs: 3000, queueEnteredAtMs: 1000 }), true)
+  // entrou 1000, falou 2000, OOF 2500, sem msg nova → não repete
+  assertEquals(decideOutOfHoursSend({ lastOofAtMs: 2500, lastIncomingAtMs: 2000, queueEnteredAtMs: 1000 }), false)
+})
+
+Deno.test('Bug5a: sem queueEnteredAtMs → comportamento antigo preservado (dedup)', () => {
+  assertEquals(decideOutOfHoursSend({ lastOofAtMs: null, lastIncomingAtMs: null }), true)
+  assertEquals(decideOutOfHoursSend({ lastOofAtMs: 100, lastIncomingAtMs: null }), false)
+  assertEquals(decideOutOfHoursSend({ lastOofAtMs: 100, lastIncomingAtMs: 200 }), true)
+})

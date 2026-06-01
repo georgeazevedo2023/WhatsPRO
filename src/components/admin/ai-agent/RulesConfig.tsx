@@ -113,6 +113,18 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
             {fieldErrors?.max_lead_messages && <p className="text-destructive text-xs mt-1">{fieldErrors.max_lead_messages}</p>}
             <p className="text-xs text-muted-foreground">Após esse número de mensagens, transfere automaticamente para humano (1-50)</p>
           </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Máximo de interações do lead por sessão (teto de segurança)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={50}
+              value={config.max_lead_interactions ?? 15}
+              onChange={(e) => onChange({ max_lead_interactions: parseInt(e.target.value) || 0 })}
+            />
+            {fieldErrors?.max_lead_interactions && <p className="text-destructive text-xs mt-1">{fieldErrors.max_lead_interactions}</p>}
+            <p className="text-xs text-muted-foreground">Teto absoluto: ao atingir este nº de mensagens do lead, a IA transborda e para de responder (vale mesmo com "nunca transbordar"). 0 = desligado. Recomendado: 15.</p>
+          </div>
         </CardContent>
       </Card>
 

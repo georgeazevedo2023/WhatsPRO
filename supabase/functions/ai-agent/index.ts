@@ -27,7 +27,7 @@ import { runSpecialist, type SpecialistCtx, type SpecialistDef } from '../_share
 import { buildGreetingSpecialistDef } from '../_shared/agent/greetingSpecialist.ts'
 import { buildQualificationSpecialistDef } from '../_shared/agent/qualificationSpecialist.ts'
 import { evaluateQualificationGate } from '../_shared/agent/qualificationGate.ts'
-import { evaluateProductQualificationFlow } from '../_shared/agent/productQualificationFlow.ts'
+import { evaluateProductQualificationFlow, evaluateQualifyReaskGuard, detectSpecificItemRequest, getReaskState } from '../_shared/agent/productQualificationFlow.ts'
 import { inferProductQualificationAnswerTag, readProductQualificationState } from '../_shared/agent/productQualificationState.ts'
 import { extractLeadName, wasNameAsked } from '../_shared/agent/nameCapture.ts'
 import { buildObjectionSpecialistDef } from '../_shared/agent/objectionSpecialist.ts'
@@ -1189,11 +1189,29 @@ Deno.serve(async (req) => {
     // 1. hasInteractedRecently (24h) — for handoff trigger skip on first msg
     // 2. hasEverInteracted (all time) — for returning lead greeting
     const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    // Bug 2 (greeting, 2026-06-01): "já interagiu" DEVE significar "o agente já ENVIOU
+    // uma mensagem antes" — não "existe qualquer linha de ai_agent_logs". Os detectores
+    // passivos de telemetria (brand_mentioned/payment_detected/client_type_detected/
+    // objection_detected/auto_field_extracted…) inserem log ANTES desta contagem (≈L930-1009),
+    // então um lead NOVO cuja 1ª msg cite uma marca ("tem impermeabilizante BRASILIT?")
+    // tinha recentLogCount>=1 → hasInteracted=true → leadRecency='ativo' → saudação PULADA.
+    // Filtramos por eventos que representam uma RESPOSTA real do agente (whitelist positiva,
+    // imune a qualquer evento de telemetria novo). Caso real: Michelaine 558... perdeu a
+    // saudação só por citar "brasilit"; "Bom dia" puro (sem marca) recebia.
+    const INTERACTION_EVENTS = [
+      'response_sent', 'greeting_sent',
+      'handoff', 'implicit_handoff', 'handoff_trigger',
+      'excluded_product_match',
+      'upsell_prompt_sent', 'upsell_closed_handoff',
+      'premium_text_choice_upsell_prompt', 'premium_upsell_delivery_prompt',
+    ]
     const [{ count: recentLogCount }, { count: totalLogCount }] = await Promise.all([
       supabase.from('ai_agent_logs').select('*', { count: 'exact', head: true })
-        .eq('conversation_id', conversation_id).eq('agent_id', agent_id).gte('created_at', recentCutoff),
+        .eq('conversation_id', conversation_id).eq('agent_id', agent_id)
+        .in('event', INTERACTION_EVENTS).gte('created_at', recentCutoff),
       supabase.from('ai_agent_logs').select('*', { count: 'exact', head: true })
-        .eq('conversation_id', conversation_id).eq('agent_id', agent_id),
+        .eq('conversation_id', conversation_id).eq('agent_id', agent_id)
+        .in('event', INTERACTION_EVENTS),
     ])
     const hasInteracted = (recentLogCount || 0) >= 1
     const hasEverInteracted = (totalLogCount || 0) >= 1
@@ -1432,6 +1450,56 @@ Deno.serve(async (req) => {
         .rpc('increment_lead_msg_count', { p_conversation_id: conversation_id })
         .single()
       leadMsgCount = counterErr ? 0 : ((counterRow as any)?.lead_msg_count ?? 0)
+    }
+
+    // Feature 5b (2026-06-01): teto ABSOLUTO de interações do lead por sessão.
+    // Independente de handoff_rule (vence 'nunca'/'so_se_pedir'). Ao atingir
+    // max_lead_interactions (default 15; 0 = desligado), transborda + shadow + para.
+    // Reusa o mesmo mecanismo do bloco 5.6 (pickHandoffMessage/runQueueAssignment/R86).
+    // Avaliado ANTES do gate por handoff_rule pois é um teto menor e de segurança.
+    const MAX_LEAD_INTERACTIONS = Number(agent.max_lead_interactions ?? 15) || 0
+    if (
+      MAX_LEAD_INTERACTIONS > 0
+      && leadMsgCount >= MAX_LEAD_INTERACTIONS
+      && conversation.status_ia !== STATUS_IA.SHADOW  // R85: skip if already in shadow
+    ) {
+      log.info('Max lead interactions reached — auto handoff (Feature 5b)', { count: leadMsgCount, max: MAX_LEAD_INTERACTIONS })
+      const notifyOutsideCap = agent.notify_outside_hours_on_handoff !== false
+      const outsideHoursCap = notifyOutsideCap && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+      const { data: lpForCap } = await supabase
+        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      const capHandoffMsg = personalizeHandoffMessage(
+        pickHandoffMessage({
+          agent, profileData, funnelData, outsideHours: outsideHoursCap,
+          fallbackRegular: 'Vou te encaminhar para nosso consultor para continuar seu atendimento!',
+        }),
+        { leadName: (lpForCap as { full_name?: string | null } | null)?.full_name || null },
+      )
+      const { result: queueResCap, finalMessage: finalMsgCap } = await runQueueAssignment(capHandoffMsg)
+      await sendTextMsg(finalMsgCap)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: finalMsgCap, media_type: 'text',
+      })
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        latency_ms: Date.now() - startTime,
+        metadata: { reason: 'max_interactions', count: leadMsgCount, max: MAX_LEAD_INTERACTIONS, outside_hours: outsideHoursCap, queue: queueResCap },
+      })
+      const capHandoffUpdate: Record<string, unknown> = {
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        lead_msg_count: 0,  // R86
+      }
+      if (profileData?.handoff_department_id) {
+        capHandoffUpdate.department_id = profileData.handoff_department_id
+      } else if (funnelData?.handoff_department_id) {
+        capHandoffUpdate.department_id = funnelData.handoff_department_id
+      }
+      await supabase.from('conversations').update(capHandoffUpdate).eq('id', conversation_id)
+      broadcastEvent({ conversation_id, status_ia: STATUS_IA.SHADOW })
+      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'max_interactions', queue: queueResCap }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     if (
@@ -2913,7 +2981,13 @@ ${contextBlock}`
             !premiumHandoffVerdict.readyToHandoff &&
             premiumHandoffVerdict.nextRequiredField,
           )
+          // Bug 1 (2026-06-01): se o lead pede "o da foto" / item específico durante a
+          // qualificação offline, a IA não consegue mapear isso a um atributo — em vez de
+          // continuar perguntando ambiente/cor (que o lead não vai responder pq ele já
+          // disse "quero ESSE"), transborda já: o vendedor vê a foto e fecha. Caso Dauana.
+          const specificItemAsked = inNoResultLoop && detectSpecificItemRequest(incomingText)
           const noResultReadyForHandoff = Boolean(
+            specificItemAsked ||
             premiumHandoffVerdict?.readyToHandoff ||
             (legacySellerPending && !premiumNeedsMoreFields) ||
             (enrichCountNow >= maxEnrichNow && !premiumNeedsMoreFields),
@@ -3200,6 +3274,48 @@ ${contextBlock}`
                   gate.categoryId &&
                   ['tintas', 'revestimentos', 'porcelanatos_revestimentos', 'torneiras'].includes(gate.categoryId)
                 ) {
+                  // Bug 1 (loop-breaker, 2026-06-01): antes de RE-enviar a mesma pergunta
+                  // determinística, checar se estamos presos. Se o lead pediu "o da foto" /
+                  // item específico, ou se já re-perguntamos o MESMO campo >= max_qualification_retries
+                  // sem resposta mapeável, transbordar em vez de repetir pra sempre.
+                  const reaskState = getReaskState(conversation.tags || [])
+                  const reaskGuard = evaluateQualifyReaskGuard({
+                    lastAskedField: reaskState.field,
+                    currentField: premiumQualifyField,
+                    answerWasInferred: !!(inferredCurrentAnswer && Object.keys(inferredCurrentAnswer).length > 0),
+                    specificItemRequested: detectSpecificItemRequest(incomingText),
+                    reaskCount: reaskState.count,
+                    maxRetries: agent.max_qualification_retries ?? 2,
+                  })
+                  if (reaskGuard.action === 'handoff') {
+                    log.info('qualify loop-breaker → handoff forçado', {
+                      category: gate.categoryId, field: premiumQualifyField,
+                      reaskCount: reaskGuard.nextReaskCount, reason: reaskGuard.reason,
+                    })
+                    // limpa a tag de re-pergunta antes de transbordar (sessão encerra aqui)
+                    const clearedReaskTags = (conversation.tags || []).filter(
+                      (t: string) => !(typeof t === 'string' && t.startsWith('qualify_reask:')),
+                    )
+                    conversation.tags = clearedReaskTags
+                    await supabase.from('conversations').update({ tags: clearedReaskTags }).eq('id', conversation_id)
+                    const loopHandoffResult = await executeToolSafe('handoff_to_human', {
+                      reason: reaskGuard.reason,
+                      source: 'qualify_loop_breaker',
+                    })
+                    return new Response(JSON.stringify({
+                      ok: true, handoff: true, reason: 'qualify_loop_breaker',
+                      result: String(loopHandoffResult).slice(0, 200),
+                    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+                  }
+                  // ask: persiste o contador de re-pergunta DESTE campo
+                  const reaskTags = mergeTags(
+                    (conversation.tags || []).filter(
+                      (t: string) => !(typeof t === 'string' && t.startsWith('qualify_reask:')),
+                    ),
+                    { [`qualify_reask:${premiumQualifyField}`]: String(reaskGuard.nextReaskCount) },
+                  )
+                  conversation.tags = reaskTags
+                  await supabase.from('conversations').update({ tags: reaskTags }).eq('id', conversation_id)
                   await sendTextMsg(premiumQualifyMsg)
                   await supabase.from('conversation_messages').insert({
                     conversation_id,
@@ -3217,6 +3333,7 @@ ${contextBlock}`
                     metadata: {
                       source: 'premium_pre_search_next_question',
                       next_field: premiumQualifyField,
+                      reask_count: reaskGuard.nextReaskCount,
                       response_text: premiumQualifyMsg,
                     },
                   })

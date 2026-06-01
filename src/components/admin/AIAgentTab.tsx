@@ -71,6 +71,7 @@ const ALLOWED_FIELDS = [
   'follow_up_enabled', 'follow_up_rules', 'business_info',
   'returning_greeting_message',
   'max_lead_messages',
+  'max_lead_interactions',
   'max_qualification_retries',
   'max_enrichment_questions',
   'refine_results_threshold',

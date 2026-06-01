@@ -360,3 +360,103 @@ function getQuestionsAfterEmpty(tags: string[]): number {
   }
   return last
 }
+
+// =============================================================================
+// Bug 1 (loop Dauana, 2026-06-01) — anti-loop do qualify DIGITAL pré-busca.
+//
+// O caminho determinístico que reenvia a pergunta de qualificação (index.ts, bloco
+// gate.mode==='qualify') NÃO tinha contador de re-perguntas: se o lead respondia algo
+// não-mapeável ao campo (ex.: "o da foto"/"que formato é essa?" no campo `formato`),
+// a MESMA pergunta repetia byte-a-byte a cada turno, sem progredir e sem transbordar.
+// (O cap só existia no branch offline/empty.) Estes helpers são PUROS e testáveis.
+// =============================================================================
+
+const SPECIFIC_ITEM_PATTERNS: RegExp[] = [
+  /\bo\s+da\s+foto\b/i,
+  /\bdesse?\s+da\s+foto\b/i,
+  /\bess[ae]\s+da\s+foto\b/i,
+  /\bo\s+mesmo\s+da\s+foto\b/i,
+  /\b(?:da|na)\s+(?:foto|imagem)\b/i,
+  /\bque\s+(?:formato|tamanho|modelo|cor|tipo)\s+(?:é|e|eh)\s+ess[ae]\b/i,
+  /\bo\s+que\s+(?:está|esta|ta|tá)\s+na\s+(?:foto|imagem)\b/i,
+  /\bpreciso\s+(?:desse|deste|do)\s+(?:que|da|aí|ai)\b/i,
+  /\besse\s+(?:aí|ai|aqui)\s+(?:mesmo|da\s+foto)\b/i,
+]
+
+/**
+ * Detecta o lead pedindo "o item específico da foto/imagem" — algo que a IA não consegue
+ * qualificar por um campo enumerado (ex.: formato 60x60/90x90/120x120). Quando aparece
+ * durante a qualificação de produto, o caminho consultivo trava: a melhor saída é
+ * transbordar pro vendedor (que vê a foto e fecha) em vez de repetir a pergunta.
+ */
+export function detectSpecificItemRequest(text: string | null | undefined): boolean {
+  const t = String(text || '').trim()
+  if (!t) return false
+  return SPECIFIC_ITEM_PATTERNS.some((re) => re.test(t))
+}
+
+export interface QualifyReaskGuardInput {
+  /** campo que foi perguntado no turno ANTERIOR (tag qualify_reask:<field>) */
+  lastAskedField?: string | null
+  /** campo que o gate quer perguntar AGORA */
+  currentField: string | null
+  /** a resposta do lead neste turno foi mapeada a uma tag de campo? */
+  answerWasInferred: boolean
+  /** o lead pediu o item específico/da foto neste turno? */
+  specificItemRequested: boolean
+  /** quantas vezes o MESMO campo já foi re-perguntado sem resposta válida (tag) */
+  reaskCount: number
+  /** teto de re-perguntas antes de transbordar (agent.max_qualification_retries, default 2) */
+  maxRetries: number
+}
+
+export interface QualifyReaskGuardVerdict {
+  /** 'ask' = perguntar normal (campo novo ou 1ª vez); 'handoff' = transbordar (loop/foto) */
+  action: 'ask' | 'handoff'
+  /** novo valor do contador a persistir na tag qualify_reask:<field> */
+  nextReaskCount: number
+  /** motivo legível pro log/handoff reason */
+  reason: string
+}
+
+/**
+ * Decide se o caminho determinístico de qualificação deve perguntar de novo ou
+ * transbordar. Regras:
+ *   - lead pediu "o da foto"/item específico → handoff IMEDIATO (a IA não resolve isso).
+ *   - mesmo campo, resposta não-mapeável, e já re-perguntamos >= maxRetries → handoff.
+ *   - se o lead respondeu (answerWasInferred) ou o campo MUDOU → zera o contador, ask.
+ *   - senão, incrementa o contador e ask (dá mais 1 chance até o teto).
+ */
+export function evaluateQualifyReaskGuard(input: QualifyReaskGuardInput): QualifyReaskGuardVerdict {
+  const max = Math.max(1, Number(input.maxRetries) || 2)
+  const sameField = !!input.currentField && input.lastAskedField === input.currentField
+
+  if (input.specificItemRequested) {
+    return { action: 'handoff', nextReaskCount: 0, reason: 'lead pediu o item específico da foto (não qualificável por campo)' }
+  }
+  // Lead respondeu de forma mapeável, ou trocamos de campo → progresso, reseta.
+  if (input.answerWasInferred || !sameField) {
+    return { action: 'ask', nextReaskCount: 0, reason: 'progresso na qualificação' }
+  }
+  // Mesmo campo, sem resposta mapeável → conta a re-pergunta.
+  const nextCount = input.reaskCount + 1
+  if (nextCount >= max) {
+    return { action: 'handoff', nextReaskCount: nextCount, reason: `lead não conseguiu especificar "${input.currentField}" após ${nextCount} tentativas` }
+  }
+  return { action: 'ask', nextReaskCount: nextCount, reason: 'reformular a mesma pergunta (ainda dentro do limite)' }
+}
+
+/** Lê o contador de re-perguntas do campo a partir das tags (qualify_reask:<field>:<n>). */
+export function getReaskState(tags: string[] | null | undefined): { field: string | null; count: number } {
+  for (const tag of (tags || [])) {
+    if (typeof tag !== 'string') continue
+    if (!tag.startsWith('qualify_reask:')) continue
+    const rest = tag.slice('qualify_reask:'.length)
+    const lastColon = rest.lastIndexOf(':')
+    if (lastColon < 0) continue
+    const field = rest.slice(0, lastColon)
+    const n = Number.parseInt(rest.slice(lastColon + 1), 10)
+    if (field) return { field, count: Number.isFinite(n) && n >= 0 ? n : 0 }
+  }
+  return { field: null, count: 0 }
+}

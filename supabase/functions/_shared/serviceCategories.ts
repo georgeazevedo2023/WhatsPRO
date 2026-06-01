@@ -394,12 +394,30 @@ function withPremiumCategoryOverrides(config: ServiceCategoriesConfig): ServiceC
   }
 }
 
+/**
+ * Bug 1 (loop Dauana, 2026-06-01): o override premium hardcoded SOBRESCREVIA a config
+ * do admin. O admin definiu `revestimentos`/`torneiras` como OFFLINE (qualifica e
+ * transborda, sem catálogo digital), mas `buildPremium*Category` FORÇAVA `digital` e
+ * injetava o funil pré-busca com o campo `formato` (60x60/90x90/120x120). Quando o lead
+ * mandou foto de um tijolo 32,5x57 e disse "o da foto", nenhum formato casava → a mesma
+ * pergunta repetia pra sempre, sem transbordar.
+ *
+ * Decisão do dono (2026-06-01): RESPEITAR a config do admin. O preset premium só se
+ * aplica quando o admin NÃO configurou a categoria de forma intencional — ou seja,
+ * quando ela está `digital` (ou sem status, default digital). Se o admin marcou
+ * `offline`, isso é uma escolha deliberada (vende mas não tem catálogo digital →
+ * qualifica + handoff) e o código não deve transformá-la em digital nem injetar campos.
+ */
+function adminConfiguredOffline(category: ServiceCategory): boolean {
+  return category.catalog_status === 'offline' || category.catalog_status === 'none'
+}
+
 function isTorneirasCategory(category: ServiceCategory): boolean {
-  return category.id === 'torneiras'
+  return category.id === 'torneiras' && !adminConfiguredOffline(category)
 }
 
 function isRevestimentosCategory(category: ServiceCategory): boolean {
-  return category.id === 'revestimentos'
+  return category.id === 'revestimentos' && !adminConfiguredOffline(category)
 }
 
 function buildPremiumTorneirasCategory(category: ServiceCategory): ServiceCategory {

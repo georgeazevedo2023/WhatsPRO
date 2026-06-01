@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   evaluateProductQualificationFlow,
+  evaluateQualifyReaskGuard,
+  detectSpecificItemRequest,
+  getReaskState,
   extractCollectedFields,
   fieldBaseName,
   getNextRequiredField,
@@ -449,5 +452,74 @@ describe('captura da resposta desacoplada do cap (fix 21.36 área)', () => {
       catalogResult: 'empty', maxQuestionsAfterEmpty: 99,
     })
     expect(uncapped.nextRequiredField?.key).toBe('area')
+  })
+})
+
+// =============================================================================
+// Bug 1 (loop Dauana, 2026-06-01) — anti-loop do qualify digital pré-busca.
+// =============================================================================
+
+describe('detectSpecificItemRequest (Bug 1)', () => {
+  it('pega "o da foto" / "esse da foto"', () => {
+    expect(detectSpecificItemRequest('Eu preciso desse que está na foto')).toBe(true)
+    expect(detectSpecificItemRequest('quero o da foto')).toBe(true)
+    expect(detectSpecificItemRequest('esse da foto mesmo')).toBe(true)
+  })
+  it('pega "que formato é essa?"', () => {
+    expect(detectSpecificItemRequest('Que formato é essa?')).toBe(true)
+    expect(detectSpecificItemRequest('que tamanho é esse')).toBe(true)
+  })
+  it('não dispara em resposta normal de qualificação', () => {
+    expect(detectSpecificItemRequest('60x60')).toBe(false)
+    expect(detectSpecificItemRequest('residencial')).toBe(false)
+    expect(detectSpecificItemRequest('é pra parede')).toBe(false)
+    expect(detectSpecificItemRequest('')).toBe(false)
+  })
+})
+
+describe('evaluateQualifyReaskGuard (Bug 1)', () => {
+  const base = { lastAskedField: 'formato', currentField: 'formato', answerWasInferred: false, specificItemRequested: false, reaskCount: 0, maxRetries: 2 }
+
+  it('item específico → handoff imediato (ignora contador)', () => {
+    const v = evaluateQualifyReaskGuard({ ...base, specificItemRequested: true })
+    expect(v.action).toBe('handoff')
+  })
+  it('lead respondeu (inferido) → ask + reseta contador', () => {
+    const v = evaluateQualifyReaskGuard({ ...base, answerWasInferred: true, reaskCount: 1 })
+    expect(v.action).toBe('ask')
+    expect(v.nextReaskCount).toBe(0)
+  })
+  it('campo mudou → ask + reseta', () => {
+    const v = evaluateQualifyReaskGuard({ ...base, lastAskedField: 'ambiente', currentField: 'formato', reaskCount: 1 })
+    expect(v.action).toBe('ask')
+    expect(v.nextReaskCount).toBe(0)
+  })
+  it('mesmo campo sem resposta, 1ª vez → ask (incrementa)', () => {
+    const v = evaluateQualifyReaskGuard({ ...base, reaskCount: 0, maxRetries: 2 })
+    expect(v.action).toBe('ask')
+    expect(v.nextReaskCount).toBe(1)
+  })
+  it('mesmo campo sem resposta, atinge maxRetries → handoff', () => {
+    const v = evaluateQualifyReaskGuard({ ...base, reaskCount: 1, maxRetries: 2 })
+    expect(v.action).toBe('handoff')
+    expect(v.nextReaskCount).toBe(2)
+  })
+  it('maxRetries=1 → handoff já na 1ª re-pergunta sem resposta', () => {
+    const v = evaluateQualifyReaskGuard({ ...base, reaskCount: 0, maxRetries: 1 })
+    expect(v.action).toBe('handoff')
+    expect(v.nextReaskCount).toBe(1)
+  })
+})
+
+describe('getReaskState (Bug 1)', () => {
+  it('lê o contador da tag qualify_reask:<field>:<n>', () => {
+    expect(getReaskState(['interesse:revestimentos', 'qualify_reask:formato:1'])).toEqual({ field: 'formato', count: 1 })
+  })
+  it('campo sem dígito → count 0', () => {
+    expect(getReaskState(['qualify_reask:formato:x'])).toEqual({ field: 'formato', count: 0 })
+  })
+  it('sem tag → field null count 0', () => {
+    expect(getReaskState(['interesse:tintas'])).toEqual({ field: null, count: 0 })
+    expect(getReaskState(null)).toEqual({ field: null, count: 0 })
   })
 })

@@ -80,6 +80,8 @@ Deno.serve(async (req) => {
     const campaignContext = ''
     const leadMsgCount = (chatMessages || []).filter((m: { direction: string }) => m.direction === 'incoming').length
     const MAX_LEAD_MESSAGES = agent.max_lead_messages || 8
+    // Feature 5b: espelha o teto absoluto de interações no preview do playground.
+    const MAX_LEAD_INTERACTIONS = Number(agent.max_lead_interactions ?? 15) || 0
 
     // ── BUILD SYSTEM PROMPT — IDENTICAL TO PRODUCTION ──
     const systemPrompt = `Você é ${agent.name}, um assistente virtual de WhatsApp.
