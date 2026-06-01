@@ -218,6 +218,7 @@ Deno.serve(async (req: Request) => {
     case_e_loop_alert: 0,
     rotation_exhausted: 0,
     oof_skipped_dedup: 0,
+    oof_skipped_idle: 0,
     no_eligible_alert: 0,
     paused_resumed: 0,
     errors: 0,
@@ -264,7 +265,10 @@ Deno.serve(async (req: Request) => {
         // voltou a falar DEPOIS da última OOF. Sem isto, a rotação criava um
         // evento novo (flag zerada) e re-spammava o mesmo lead todo dia.
         const oofTimings = await loadOofTimings(supabase, ev.conversation_id)
-        const oofAllowed = decideOutOfHoursSend(oofTimings)
+        // Bug 5a: idle na fila (lead não falou após entrar) NÃO recebe OOF — só pausa.
+        const queueEnteredAtMs = ev.created_at ? new Date(ev.created_at).getTime() : null
+        const oofAllowed = decideOutOfHoursSend({ ...oofTimings, queueEnteredAtMs })
+        if (!oofAllowed && !ev.out_of_hours_msg_sent) stats.oof_skipped_idle++
         if (!oofAllowed) stats.oof_skipped_dedup++
         if (!ev.out_of_hours_msg_sent && oofAllowed && oofMessage && instance?.token) {
           // Busca contato + envia via UAZAPI

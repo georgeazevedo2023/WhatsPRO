@@ -38,23 +38,37 @@ export function shouldStopRotation(opts: { rotationNumber: number; eligibleCount
 }
 
 /**
- * A OOF ("estamos fora de horário, já te encaminho…") só deve ir se o lead mandou
- * mensagem DEPOIS da última OOF — ou se nunca recebeu nenhuma. Impede o reenvio
- * diário pra quem não voltou a falar (o motor da rotação criava evento novo, com
- * a flag `out_of_hours_msg_sent` zerada, e re-spammava o mesmo lead todo dia).
+ * A OOF ("estamos fora de horário, já te encaminho…") só deve ir se o lead está
+ * ESPERANDO uma resposta fora do horário — não se está apenas IDLE na fila.
+ *
+ * Bug 5a (2026-06-01, decisão do dono): "atende normal, não avisa fora-horário". Um
+ * lead que entrou na fila DENTRO do horário e não mandou mais nada quando o expediente
+ * fechou NÃO deve receber "estamos fora do horário" não-solicitado — ele não está
+ * esperando resposta agora; só pausamos o cursor. A OOF vai apenas pra quem mandou
+ * mensagem nova DEPOIS de entrar na fila (aí sim está aguardando e o aviso é apropriado).
+ *
+ * Também mantém a dedup do incidente 2026-05-30: não re-spammar quem já foi avisado.
  *
  * Timestamps em ms desde epoch; null = ausente.
- *   - lastOofAtMs null            → nunca avisado → ENVIA.
- *   - lastOofAtMs set, sem incoming→ já avisado, lead nunca falou depois → NÃO repete.
- *   - incoming > última OOF       → lead voltou a falar após o aviso → pode reenviar.
+ *   - lead nunca falou após entrar na fila (lastIn <= queueEnteredAt) → IDLE → NÃO envia.
+ *   - lastOofAtMs null + lead falou após entrar → ENVIA (1ª vez, está esperando).
+ *   - lastOofAtMs set + incoming > última OOF → lead insistiu → pode reenviar.
+ *   - lastOofAtMs set + sem incoming novo → já avisado, NÃO repete.
  */
 export function decideOutOfHoursSend(opts: {
   lastOofAtMs: number | null
   lastIncomingAtMs: number | null
+  /** quando o lead entrou na fila de transbordo (handoff_queue_events.created_at) */
+  queueEnteredAtMs?: number | null
 }): boolean {
+  const lastIn = opts.lastIncomingAtMs
+  const enteredAt = opts.queueEnteredAtMs
+  // Idle na fila: nunca falou depois de entrar → não avisa (Bug 5a).
+  if (enteredAt != null) {
+    if (lastIn == null || lastIn <= enteredAt) return false
+  }
   const lastOof = opts.lastOofAtMs
   if (lastOof == null) return true
-  const lastIn = opts.lastIncomingAtMs
   if (lastIn == null) return false
   return lastIn > lastOof
 }

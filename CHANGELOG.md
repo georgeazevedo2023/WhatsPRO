@@ -13,6 +13,19 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.64.0 (2026-06-01) — 🟢 AI Agent: 5 bugs determinísticos + cap de interações + categoria bombas
+
+Pacote de 6 correções no AI Agent a partir de 3 conversas reais de PROD (diagnóstico forense provou que TODOS eram determinísticos — não foi falha de visão/GEMINI). E2E real nas 2 sandboxes nota 10 + config aplicada em PROD (EletropisoV2) + ai-agent/requeue deployados.
+
+- **Bug 1 — loop "Qual formato?" sem transbordo (Dauana):** o override premium hardcoded (`serviceCategories.ts withPremiumCategoryOverrides`) FORÇAVA `revestimentos`/`torneiras` a `digital` + injetava o campo `formato` (60×60/90×90/120×120), ignorando a config OFFLINE do admin → quando o lead mandava foto de um tijolo 32,5×57 e dizia "o da foto", a pergunta repetia pra sempre. Fix de raiz (decisão do dono): **respeitar a config offline do admin** (override só quando `digital`); + **loop-breaker** determinístico (`evaluateQualifyReaskGuard`, reusa `max_qualification_retries`) no caminho digital; + **detector "o da foto"** (`detectSpecificItemRequest`) → handoff imediato nos caminhos digital e offline. E2E: "quero o que está na foto" → transbordo na hora (zero repetição).
+- **Bug 2 — lead novo não recebia saudação (Michelaine):** `hasInteracted` (index.ts) contava QUALQUER linha de `ai_agent_logs`, mas os detectores passivos (`brand_mentioned`/`payment`/`client_type`) inserem log ANTES da contagem → lead cuja 1ª msg citava marca ("brasilit") era classificado 'ativo' e perdia a saudação. Fix cirúrgico: contar só `INTERACTION_EVENTS` (resposta real do agente). E2E: "tem impermeabilizante brasilit?" → "Boa tarde! Bem-vindo a Eletropiso, com quem eu falo?".
+- **Bug 3 — "bomba d'água" → "Qual tipo de portão?" (Cris):** não existia categoria `bombas`; o LLM mapeou bomba→`motores` (portões). Fix: **categoria `bombas`** (offline, uso→tipo→marca→handoff) nas 3 instâncias + `motores.catalog_status` null→offline. E2E: bomba pra poço → uso/tipo/marca → handoff "Categoria: bombas", ZERO menção a portão.
+- **Feat 4 — "temos cano de 100":** categoria `canos` reordenada (já existia) → tipo (esgoto/água) → marca → handoff. E2E: cano 100 esgoto Tigre → transbordo, 0 negações.
+- **Feat 5b — teto absoluto de 15 interações:** nova coluna `ai_agents.max_lead_interactions` (default 15, 0=off, SYNC RULE 8 locais). Gate determinístico pré-LLM que VENCE qualquer `handoff_rule` ('nunca'/'so_se_pedir'): ao atingir N msgs do lead → transbordo + shadow + para de responder. E2E (cap=3): 3ª msg → `max_interactions` handoff, 4ª em shadow → `shadow_trivial_skip`.
+- **Bug 5a — fora-horário pra lead idle:** auditoria confirmou que a ENTRADA já está correta (IA atende normal fora do horário). Único emissor restante: cron `requeue-conversations` Case B avisava lead PARADO na fila. Fix: `decideOutOfHoursSend` ganha `queueEnteredAtMs` → idle (não falou após entrar) não recebe OOF, só pausa. 12 testes deno verdes.
+
+Cobertura: `productQualificationFlow.test.ts` +12 (loop-breaker/detector/getReaskState), `queueRotation.test.ts` +4 (idle OOF). deno check 0, frontend build OK. HIGH RISK aprovado pelo dono.
+
 ### v7.63.1 (2026-06-01) — 🟢 Fila "Sem atendimento": ordenação + filtro por atendente
 
 Ajustes pedidos pelo dono na aba "Sem atendimento" (`UnattendedLeadsTab`):
