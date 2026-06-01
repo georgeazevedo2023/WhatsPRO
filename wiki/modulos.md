@@ -1,7 +1,7 @@
 ---
 title: Módulos e Funcionalidades
 type: modulos
-updated: 2026-05-11
+updated: 2026-05-31
 audited_at: 2026-05-11
 ---
 
