@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-01 — 🟢 Fila "Sem atendimento": ordenação + filtro por atendente (v7.63.1) — SHIPPED
+
+Dono pediu 3 ajustes na aba "Sem atendimento": (1) listar do transbordo **mais recente** pro mais antigo, (2) seletor de **ordenação**, (3) **filtro por atendente**. Fix de raiz: RPC `get_unattended_handoff_leads` agora ordena `assigned_at DESC` (era ASC; bônus: o cap de 200 guarda os mais recentes). Sort+filtro são client-side em `UnattendedLeadsTab` (`useMemo`): 4 modos de ordenação (recente/antigo/maior-espera/nome) + dropdown de atendente derivado dos leads com contagem. **E2E real (Playwright):** ordem padrão 35m→39m, filtro Dilma=12 cards só dela, "Maior espera"=54h no topo, sort+filtro compõem. Migration `20260601000000` aplicada em PROD. tsc 0 (feature), vite build OK. **SHIPPED:** commit→merge master→push→CI→Portainer. Detalhe: [[project_manager_attendance_dashboard]].
+
+---
 ## 2026-05-31 (noite) — 🟢 Dashboard mobile do Gestor: "Sem atendimento" + ver/reatribuir (v7.63.0) — SHIPPED
 
 **Pedido do dono:** dashboard mobile pro gestor (1) acompanhar a fila dos atendentes, (2) clicar e ver a conversa, (3) reatribuir + ver **leads sem atendimento** (IA transbordou mas o atendente atribuído não respondeu).

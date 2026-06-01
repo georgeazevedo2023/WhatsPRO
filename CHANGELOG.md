@@ -13,6 +13,14 @@ audited_at: 2026-05-28
 
 ---
 
+### v7.63.1 (2026-06-01) — 🟢 Fila "Sem atendimento": ordenação + filtro por atendente
+
+Ajustes pedidos pelo dono na aba "Sem atendimento" (`UnattendedLeadsTab`):
+- **Ordem padrão mais recente → mais antiga.** RPC `get_unattended_handoff_leads` passa a ordenar `assigned_at DESC` (era ASC) — bônus: o cap de 200 agora guarda os 200 leads **mais recentes** (mais acionáveis). Migration `20260601000000_unattended_leads_order_desc.sql` (aplicada em PROD).
+- **Seletor de ordenação** (client-side, 4 modos): Mais recentes / Mais antigos / Maior espera / Nome (A–Z).
+- **Filtro por atendente** (client-side): dropdown derivado dos próprios leads, com contagem por atendente ("Dilma (12)") + "Todos os atendentes (N)". Compõe com a ordenação.
+- **E2E real** (Playwright app): ordem padrão crescente (35m→39m), filtro Dilma → 12 cards só dela, "Maior espera" → 54h no topo, sort+filtro compõem. tsc 0 nos arquivos da feature, vite build OK.
+
 ### v7.63.0 (2026-05-31) — 🟢 Dashboard mobile do Gestor: "Sem atendimento" + ver/reatribuir
 
 **Pedido do dono:** dashboard mobile pro gestor (1) acompanhar a fila dos atendentes, (2) clicar e ver a conversa, (3) reatribuir + ver **leads sem atendimento** (a IA transbordou mas o atendente atribuído ainda não respondeu).
