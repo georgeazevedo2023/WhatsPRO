@@ -8,7 +8,7 @@
  * Os dados (leads/loading/janela) são gerenciados pelo pai (QueueDashboard) para
  * manter o badge de contagem da aba em sincronia.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   useReassignConversation,
   formatWaiting,
@@ -23,7 +23,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
-import { Eye, ArrowRightLeft, Clock, UserCheck, CheckCircle2, Loader2, Pause } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Eye, ArrowRightLeft, Clock, UserCheck, CheckCircle2, Loader2, Pause, ArrowDownWideNarrow } from 'lucide-react';
 import { toast } from 'sonner';
 
 const WINDOWS: { value: UnattendedWindow; label: string }[] = [
@@ -32,6 +33,31 @@ const WINDOWS: { value: UnattendedWindow; label: string }[] = [
   { value: 168, label: '7 dias' },
   { value: 0, label: 'Tudo' },
 ];
+
+type SortMode = 'recent' | 'oldest' | 'longest' | 'name';
+const SORTS: { value: SortMode; label: string }[] = [
+  { value: 'recent', label: 'Mais recentes' },
+  { value: 'oldest', label: 'Mais antigos' },
+  { value: 'longest', label: 'Maior espera' },
+  { value: 'name', label: 'Nome (A–Z)' },
+];
+
+const ALL_ATTENDANTS = '__all__';
+
+/** Ordena (client-side) a lista já carregada. assigned_at desc = mais recente. */
+function sortLeads(leads: UnattendedLead[], mode: SortMode): UnattendedLead[] {
+  const arr = [...leads];
+  switch (mode) {
+    case 'recent':
+      return arr.sort((a, b) => +new Date(b.assigned_at) - +new Date(a.assigned_at));
+    case 'oldest':
+      return arr.sort((a, b) => +new Date(a.assigned_at) - +new Date(b.assigned_at));
+    case 'longest':
+      return arr.sort((a, b) => b.seconds_waiting - a.seconds_waiting);
+    case 'name':
+      return arr.sort((a, b) => a.contact_name.localeCompare(b.contact_name, 'pt-BR'));
+  }
+}
 
 function initials(name: string | null): string {
   return (name || '').split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || '?';
@@ -134,6 +160,28 @@ export default function UnattendedLeadsTab({
 }) {
   const [preview, setPreview] = useState<{ id: string; name: string; inboxId: string } | null>(null);
   const [reassignLead, setReassignLead] = useState<UnattendedLead | null>(null);
+  const [sort, setSort] = useState<SortMode>('recent');
+  const [attendantFilter, setAttendantFilter] = useState<string>(ALL_ATTENDANTS);
+
+  // Atendentes presentes nos leads atuais (fonte do filtro), com contagem.
+  const attendantOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number }>();
+    for (const l of leads) {
+      if (!l.assigned_to) continue;
+      const e = map.get(l.assigned_to);
+      if (e) e.count++;
+      else map.set(l.assigned_to, { id: l.assigned_to, name: l.assignee_name || 'Sem nome', count: 1 });
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [leads]);
+
+  // Lista visível: filtra por atendente + ordena (client-side sobre a lista carregada).
+  const visible = useMemo(() => {
+    const filtered = attendantFilter === ALL_ATTENDANTS
+      ? leads
+      : leads.filter((l) => l.assigned_to === attendantFilter);
+    return sortLeads(filtered, sort);
+  }, [leads, attendantFilter, sort]);
 
   return (
     <div className="space-y-3">
@@ -156,6 +204,33 @@ export default function UnattendedLeadsTab({
         ))}
       </div>
 
+      {/* Ordenação + filtro por atendente */}
+      {!isLoading && leads.length > 0 && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Select value={sort} onValueChange={(v) => setSort(v as SortMode)}>
+            <SelectTrigger className="h-9 flex-1">
+              <ArrowDownWideNarrow className="mr-1.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORTS.map((s) => (<SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>))}
+            </SelectContent>
+          </Select>
+          <Select value={attendantFilter} onValueChange={setAttendantFilter}>
+            <SelectTrigger className="h-9 flex-1">
+              <UserCheck className="mr-1.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_ATTENDANTS}>Todos os atendentes ({leads.length})</SelectItem>
+              {attendantOptions.map((a) => (
+                <SelectItem key={a.id} value={a.id}>{a.name} ({a.count})</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {isLoading && [0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
 
       {!isLoading && leads.length === 0 && (
@@ -165,9 +240,15 @@ export default function UnattendedLeadsTab({
         </Card>
       )}
 
-      {!isLoading && leads.length > 0 && (
+      {!isLoading && leads.length > 0 && visible.length === 0 && (
+        <Card className="p-6 text-center">
+          <p className="text-sm text-muted-foreground">Nenhum lead deste atendente na janela atual.</p>
+        </Card>
+      )}
+
+      {!isLoading && visible.length > 0 && (
         <ul className="space-y-3">
-          {leads.map((lead) => (
+          {visible.map((lead) => (
             <li key={lead.conversation_id}>
               <Card className="overflow-hidden p-4">
                 <div className="flex items-start gap-3">
