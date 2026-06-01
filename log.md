@@ -8,6 +8,21 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-01 (madrugada) — 🟢 Transbordo por INATIVIDADE genérica (qualquer lead silencioso) — v7.65.0 SHIPPED PROD
+
+Dono perguntou se "lead 2min sem responder já transborda". Verifiquei no código+DB: o que existia (v7.56.0) só pegava lead com handoff **pendente** (`seller_handoff_pending`); o "2min" era o intervalo do cron, não o gatilho. Dono pediu pra **estender pra QUALQUER lead silencioso, 3min → transbordo direto pro vendedor**.
+
+**Decisões (AskUserQuestion):** transbordo DIRETO (sem cutucada) · só quem interagiu ≥1x e não encerrou · só no EletropisoV2.
+
+- **DB:** 2 colunas `ai_agents.inactivity_handoff_enabled`/`inactivity_handoff_after_min`(=3), default OFF. RPC `find_abandoned_handoff_candidates` generalizada (DROP+CREATE: retorna leads sem tag pendente + flag `has_pending_handoff` + pré-filtro 1min). Cron `*/2`→`* * * * *`.
+- **Decisão pura** (`abandonHandoff.ts`): caminho T2 (inatividade) precede T1 (pendente); guarda `leadEverReplied` + `looksLikeConversationClosed` (ignora despedida/ack curto; "?"≠encerramento). +15 testes (34/34).
+- **Edge** (`handoff-abandoned-leads`): busca conteúdo da última msg do lead, computa interagiu/encerrou, ramifica nota/razão (inatividade vs pendente), log `{inactivity, silent_min}`. NÃO toca `ai-agent/index.ts`.
+- **SYNC RULE:** migration + types.ts + ALLOWED_FIELDS + UI (`AbandonHandoffConfig` 2º card "Transbordo por Inatividade" com aviso de janela curta).
+- **E2E real sandbox nota 10** (cron via `net.http_post`): A(interagiu+4min)→handoff(shadow+log+nota); B(despedida)→não; C(nunca respondeu)→não; D(1,5min)→não. Fn: `scanned:4, handed_off:1, skipped:3`.
+- **Deploy:** migration aplicada PROD · edge via CLI (**binário scoop `supabase`**, não `npx` que falha `uv_spawn`) · vitest 34 · deno 0 · tsc 0. **EletropisoV2 LIGADO (3min)**; demais OFF.
+- **⚠️ Heads-up pro dono:** (1) com inatividade ON, lead PENDENTE também transborda aos 3min (T2 vence o nudge de 5min do fluxo antigo). (2) Ao ligar, 3 conversas do EletropisoV2 estavam em silêncio 7-12h — fora do horário agora (seg 20:39, expediente 8-18h), então transbordam só amanhã 8h. Detalhe: [[project_inactivity_handoff_v765]].
+
+---
 ## 2026-06-01 (noite) — 🟢 AI Agent: 5 bugs determinísticos + cap interações + categoria bombas (v7.64.0) — SHIPPED PROD
 
 Dono mandou 3 prints de conversas reais (Dauana/Michelaine/Cris) + 4 pedidos. **Workflow de diagnóstico (8 agentes, trace forense no banco) provou que os 3 bugs das fotos eram 100% DETERMINÍSTICOS** (a foto do tijolo Incenor foi transcrita certo — NÃO foi GEMINI/visão).

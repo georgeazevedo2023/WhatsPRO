@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-05-28
-audited_at: 2026-05-28
+updated: 2026-06-01
+audited_at: 2026-06-01
 ---
 
 # Changelog
@@ -12,6 +12,17 @@ audited_at: 2026-05-28
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
 
 ---
+
+### v7.65.0 (2026-06-01) — 🟢 Transbordo por INATIVIDADE genérica (qualquer lead silencioso → fila do vendedor)
+
+Estende o transbordo automático (v7.56.0 só pegava lead com handoff **pendente** — tag `seller_handoff_pending`). Agora **QUALQUER lead** que parar de responder à IA por N min (default **3**) vai **direto** pra fila do vendedor — fecha o buraco do lead que esfria no meio da conversa sem ninguém saber. Pedido do dono; **ligado só no EletropisoV2**.
+
+- **2 colunas novas em `ai_agents`** (default OFF): `inactivity_handoff_enabled` + `inactivity_handoff_after_min` (=3). Independente do fluxo pendente. SYNC RULE: migration + types.ts + ALLOWED_FIELDS + UI (`AbandonHandoffConfig` ganhou 2º card "Transbordo por Inatividade").
+- **Transbordo DIRETO (sem cutucada)** — decisão do dono. Guarda-corpos no `_shared/agent/abandonHandoff.ts` (`decideAbandonStage` caminho T2, precede o nudge pendente): só transborda quem **já interagiu ≥1x** (`leadEverReplied`) E a conversa **não terminou em despedida** (`looksLikeConversationClosed` — ignora "obrigado/tchau/vou pensar"/acks curtos; pergunta com "?" nunca é encerramento). Evita inundar o vendedor com lead frio ou conversa concluída.
+- **RPC `find_abandoned_handoff_candidates` generalizada** (DROP+CREATE): retorna também leads sem tag pendente quando inatividade ligada, com flag `has_pending_handoff` (decide a razão/nota) + pré-filtro de 1min. **Cron `*/2`→`* * * * *`** (1min) pra mirar os 3min com precisão. Gate de horário comercial preservado (não transborda fora do expediente).
+- **Nota interna distinta** pro vendedor (*"📋 Transbordo automático — lead ficou Nmin sem responder à IA"*) + log `handoff_trigger {inactivity:true, silent_min}`. Reusa as MESMAS primitivas do `dispatchResponse` step 22 — zero duplicação, NÃO toca `ai-agent/index.ts`.
+- **E2E real sandbox nota 10** (função deployada, cron via `net.http_post`): 4 cenários — A (interagiu+4min)→**transbordo** (`status_ia=shadow`, log inativity=true, nota interna); B (despedida)→**não**; C (nunca respondeu)→**não**; D (1,5min<3)→**não**. Resposta da fn: `scanned:4, handed_off:1, skipped:3, errors:0`.
+- **Pipeline:** vitest 34/34 (decisão pura + `looksLikeConversationClosed`) · deno check 0 · tsc 0 (front) · migration aplicada em PROD · deploy CLI (binário scoop). **EletropisoV2 LIGADO (3min)**; demais OFF.
 
 ### v7.64.0 (2026-06-01) — 🟢 AI Agent: 5 bugs determinísticos + cap de interações + categoria bombas
 
@@ -238,54 +249,6 @@ Auditoria focada no M2 Helpdesk após relato de mensagens não aparecerem e erro
 
 ---
 
-### v7.56.1 (2026-05-26) — E.2: gate de horário comercial + janela 36h + LIGADA no EletropisoV2
+### v7.56.1 (2026-05-26) e anteriores
 
-- **Gate de horário comercial (decisão do dono):** o cron de abandono agora só cutuca/transborda **dentro do expediente** (`isOutsideBusinessHours` no edge function) — nada de pingar lead de madrugada ou acionar vendedor offline. Lead que abandona fora de hora **espera o expediente reabrir às 8h** (os timers medem do último contato; ao reabrir, dispara).
-- **Janela do scan 12h→36h:** pra quem abandona à noite/sábado sobreviver na fila de candidatos até a reabertura (12h não cobria o overnight). Mais antigo que isso = lead frio (vira follow-up, não abandono).
-- **EletropisoV2 LIGADO** (config PROD): cutucada **5min**, transbordo **+10min** (15 total de silêncio), msg *"Ainda tá por aí? 😊 Se quiser, já te conecto com um vendedor…"*. Demais agentes seguem OFF.
-- Pipeline: deno check 0 · redeploy CLI · migration `20260526000002` (RPC 36h) aplicada.
-
-### v7.56.0 (2026-05-26) — Sprint E.2: handoff por ABANDONO (cutucada + transbordo automático por inatividade)
-
-Fecha o último buraco funcional do fluxo de transbordo. No fluxo offline/sem-resultado (v7.55.x) a IA grava `seller_handoff_pending`, faz **1 pergunta (marca)** e espera o **próximo turno** do lead pra forçar o handoff. Se o lead **some após a pergunta**, a conversa nunca transbordava — venda morria, vendedor nem sabia que existia.
-
-- **2 estágios (cron `handoff-abandoned-leads`, 2min):** Estágio 1 (cutucada) — após `abandon_nudge_after_min` sem resposta, a IA manda uma mensagem leve (*"{Nome}, ainda tá por aí? 😊 Se quiser, já te conecto com um vendedor…"*) e marca a tag `abandon_nudged:{ms}`. Estágio 2 (transbordo) — após `abandon_handoff_after_min` da cutucada ainda sem resposta, entrega o lead pro vendedor na fila + **nota interna com o resumo do pedido**. Se o lead responder a qualquer momento, o pré-router já existente força o handoff normal na resposta dele (timeline abortada).
-- **Zero gambiarra:** o cron reusa as MESMAS primitivas do `dispatchResponse` step 22 (`assignHandoff`, `personalizeHandoffMessage`, `formatCart*`, `isOutsideBusinessHours`). **Não toca** em `ai-agent/index.ts` nem `dispatchResponse` (HIGH RISK) — é self-contained sobre os helpers compartilhados.
-- **Feature toggle por agente (default OFF):** 4 colunas novas em `ai_agents` (`abandon_handoff_enabled`, `abandon_nudge_after_min`=5, `abandon_handoff_after_min`=10, `abandon_nudge_message`). UI nova `AbandonHandoffConfig` na tab Segurança (toggle + 2 tempos + texto da cutucada + total estimado). SYNC RULE: ALLOWED_FIELDS + types.ts.
-- **Fora do horário:** cutuca e transborda igual; a msg ao lead respeita `handoff_message_outside_hours` (como o step 22).
-- **Decisão pura testável:** `_shared/agent/abandonHandoff.ts` (`decideAbandonStage` + parsers) — **19 testes Vitest** (limiares, lead-respondeu aborta, config zerada desliga, timestamps inválidos).
-- **E2E real (sandbox, função deployada):** RPC `find_abandoned_handoff_candidates` validado — inclusão=1 + **5 guards zeram** (assigned, status≠ligada, sem tag pending, feature OFF, >12h). Estágio 2 disparado ao vivo via cron → `status_ia=shadow` + tags limpas (`seller_handoff_pending`/`abandon_nudged` removidas) + **nota interna** *"📋 Resumo… 🛒 Pedido (1 item): 1x porta sanfonada marrom 80cm"* + log `handoff_trigger {abandoned:true}` (caminho seguro `queue_off_no_default`, sem mensagear vendedor). Fixtures limpas, sandbox restaurado.
-- **Pipeline:** tsc 0 · deno check 0 · vitest 19/19 (helper novo); 4 fails pré-existentes intocados (excludedProducts + loaders ESM) · migration aplicada (4 cols + RPC + cron `*/2`) · deploy CLI. **PROD intocada** (feature OFF em todos os agentes).
-
-### v7.55.3 (2026-05-26) — Categoria offline (sob consulta) unificada ao fluxo "coleta 1 + handoff" (fecha caso porta sanfonada)
-
-Caso Eduarda: lead pediu *"porta sanfonada marrom ou preta de 80cm"* e a IA re-perguntou material/tamanho que ele já deu, disse *"verificar com consultor, aguarde"* e **não transbordou** (lead pendurado). Causa raiz: "portas" é `catalog_status: offline` → seguia caminho de qualificação multi-stage (material/ambiente/tipo, que nem casavam com "sanfonada/marrom/80cm") em vez do fluxo enxuto.
-
-- **Offline unificado ao destino do search-0 (v7.55):** quando `qualificationGate` retorna `qualify_then_handoff` (offline = "vendemos, mas não está no catálogo digital"), o `index.ts` grava `seller_handoff_pending` → o product specialist faz **UMA pergunta (marca) ACOLHENDO o que o lead já disse** (sem re-perguntar) e, no **próximo turno**, o pré-router **força o handoff de verdade** (fila + shadow + resumo). Sem stages, sem lead pendurado.
-- **Regra 3 (offline) do prompt reescrita:** acolhe atributos já dados, faz só a pergunta de marca, PROIBIDO "vou verificar/confirmar disponibilidade/aguarde", NÃO chama handoff_to_human no turno (o sistema transborda sozinho).
-- **E2E real (sandbox router, mesma msg da Eduarda) nota 10:** T1 *"Boa! Anotei: porta sanfonada marrom ou preta, de 80cm. Você tem alguma marca de preferência?"* → T2 "não" → handoff executado (status_ia=shadow + atribuído) + nota interna *"📋 Resumo: porta sanfonada marrom/preta 80cm, sem preferência de marca"*.
-- **Pipeline:** deno check 0 · vitest verde (qualificationGate 12, searchProducts 36) · deploy CLI.
-
-### v7.55.2 (2026-05-26) — Transbordo humanizado (sem cara de IA) + resumo pro vendedor em nota interna + conversa persiste ao trocar de aba
-
-Dois pedidos do dono.
-
-**1. Transbordo não humanizado (lead percebia a IA):** a mensagem ao lead vazava o `reason` em 3ª pessoa escrito PRO VENDEDOR — *"Anotei seu pedido: Lead quer cerâmica/revestimento para parede de quarto, preferência pelo menor preço…"*. `cleanHandoffItem` (`businessHours.ts`) agora **rejeita reason em 3ª pessoa/instrução interna** ("Lead/Cliente…", "para o vendedor", "indicar opção", "confirmar preço", "estoque físico") → o lead recebe só a ponte humanizada (*"Pedro, anotei tudo aqui. …"*), nunca a narração interna.
-- **Resumo estruturado → nota interna (`private_note`):** em ambos os caminhos de handoff (explícito `setTagsAndHandoff` + deferido/forçado `dispatchResponse`), grava *"📋 Resumo do pedido (interno): {reason rico}"* — fixado no fio da conversa, visível só pro vendedor (NUNCA vai pro WhatsApp do lead), além do painel "Contexto IA › Transbordo" que já existia. E2E: lead recebeu *"Pedro, anotei tudo aqui…"* (sem vazamento) + nota interna com *"Lead interessado em tintas, preferência Suvinil…"*. +2 testes anti-vazamento (businessHours 41).
-
-**2. Conversa sumia ao trocar de aba/janela:** a seleção era só estado em memória; algum refetch no refoco a zerava → voltava pra "Selecione uma conversa". Agora o id da conversa é **persistido na URL (`?conv=`)** como fonte da verdade — `handleSelectConversation` grava, o efeito de auto-seleção restaura em qualquer re-render/refetch, e troca de inbox limpa. **Validado via Playwright: reload mantém a mesma conversa aberta** (reload é mais forte que troca de aba).
-
-- **Pipeline:** deno check 0 · vitest módulos afetados verdes (businessHours 41, dispatchResponse 15, setTagsAndHandoff 15) · deploy CLI ai-agent + frontend via push.
-
-### v7.55.1 (2026-05-26) — Brand-filter na qualificação: respeita a marca pedida (não mostra outra) — E2E nota 10
-
-Fecha a pendência da v7.55.0: no fluxo qualify-first, lead pedia "tinta **Suvinil**" e recebia **Coral** (a marca se perdia — na hora da busca o `incomingText` é a resposta de qualificação, não o "Suvinil" original, e o filtro AND post-search não pegava o caso multi-palavra).
-
-- **`deriveProductSearchParams`** agora injeta a marca durável (`marca_preferida`/`marca_citada`) na query — antes a busca pós-qualificação ia sem a marca.
-- **Guard de marca explícito** em `searchProducts` (antes do auto-send): se o lead especificou marca e NENHUM produto resultante a contém → zera + `brandNotFound` → `handleZeroResults` (coleta+handoff). Robusto (usa a tag durável, não o frágil match palavra-a-palavra). [[feedback_search_must_filter_brand]]
-- **E2E real (sandbox router) nota 10:** "tinta Suvinil branca 18L" → qualifica (não nega) → busca com Suvinil → **0, NÃO mostra Coral** → coleta quantidade → handoff executa (status_ia=shadow + atribuído + "Anotei seu pedido: 2 galões de tinta Suvinil acrílica fosca branca, interno, 36L. Vou conectar com o consultor").
-- **Pipeline:** deno check 0 · searchProducts 36 testes (+1 brand enforcement; 2 mocks corrigidos pra realistas) · deploy CLI.
-
-### v7.55.0 (2026-05-26) — Catálogo é minoria: nunca negar produto + handoff determinístico + skeleton/sessão-zumbi
-
-v7.55.0 e anteriores → ver [[wiki/changelog/2026-05-part10]].
+v7.56.1 → v7.55.1 → ver [[wiki/changelog/2026-05-part11]]. v7.55.0 e anteriores → [[wiki/changelog/2026-05-part10]].
