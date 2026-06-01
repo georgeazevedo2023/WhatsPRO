@@ -1,14 +1,19 @@
 // =============================================================================
-// handoff-abandoned-leads — Sprint E.2 (cron 2min)
+// handoff-abandoned-leads — Sprint E.2 (cron 1min)
 //
-// Transbordo automático por ABANDONO em 2 estágios. Para cada conversa com a tag
-// `seller_handoff_pending:*` (a IA fez a pergunta da marca e está esperando),
-// ainda com IA ativa e sem atendente:
+// Transbordo automático por inatividade. DOIS caminhos (flags distintas):
 //
-//   Estágio 1 (nudge): após `abandon_nudge_after_min` sem resposta → cutuca o
-//     lead ("Ainda tá por aí? 😊") e marca tag `abandon_nudged:{ms}`.
-//   Estágio 2 (handoff): após `abandon_handoff_after_min` da cutucada ainda sem
-//     resposta → entrega o lead pro vendedor na fila + nota interna com o resumo.
+//   T1 — PENDENTE (`abandon_handoff_enabled`): conversa com a tag
+//     `seller_handoff_pending:*` (a IA fez a pergunta da marca e está esperando).
+//       Estágio 1 (nudge): após `abandon_nudge_after_min` sem resposta → cutuca
+//         o lead ("Ainda tá por aí? 😊") e marca tag `abandon_nudged:{ms}`.
+//       Estágio 2 (handoff): após `abandon_handoff_after_min` da cutucada ainda
+//         sem resposta → entrega o lead pro vendedor + nota interna.
+//
+//   T2 — INATIVIDADE genérica (`inactivity_handoff_enabled`, v7.65.0): QUALQUER
+//     lead silencioso. Após `inactivity_handoff_after_min` (default 3) sem
+//     resposta → transbordo DIRETO (sem cutucada). Guarda-corpos: só se o lead
+//     já interagiu ao menos 1x E a conversa não terminou em despedida.
 //
 // Se o lead respondeu em qualquer ponto, NÃO agimos — o pré-router do ai-agent
 // força o handoff normal na resposta dele.
@@ -33,6 +38,7 @@ import {
 import { normalizeCart, formatCartOneLine, formatCartSummary } from '../_shared/agent/cart.ts'
 import {
   decideAbandonStage,
+  looksLikeConversationClosed,
   parseNudgedAtMs,
   parsePendingTrigger,
   personalizeNudge,
@@ -64,9 +70,13 @@ interface Candidate {
   handoff_message: string | null
   handoff_message_outside_hours: string | null
   notify_outside_hours_on_handoff: boolean | null
+  abandon_handoff_enabled: boolean | null
   abandon_nudge_after_min: number | null
   abandon_handoff_after_min: number | null
   abandon_nudge_message: string | null
+  inactivity_handoff_enabled: boolean | null
+  inactivity_handoff_after_min: number | null
+  has_pending_handoff: boolean | null
 }
 
 /** Broadcast pro helpdesk atualizar status/badge. Falha silente. */
@@ -98,17 +108,21 @@ async function lastBotMessageAt(supabase: SupabaseClient, conversationId: string
   return data?.created_at ?? null
 }
 
-/** created_at da última mensagem do LEAD (incoming). */
-async function lastIncomingAt(supabase: SupabaseClient, conversationId: string): Promise<string | null> {
+/** Última mensagem do LEAD (incoming): created_at + conteúdo (p/ detectar encerramento). */
+async function lastIncomingMessage(
+  supabase: SupabaseClient,
+  conversationId: string,
+): Promise<{ createdAt: string; content: string | null } | null> {
   const { data } = await supabase
     .from('conversation_messages')
-    .select('created_at')
+    .select('created_at, content')
     .eq('conversation_id', conversationId)
     .eq('direction', 'incoming')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
-  return data?.created_at ?? null
+  if (!data?.created_at) return null
+  return { createdAt: data.created_at, content: data.content ?? null }
 }
 
 /** Primeiro nome confirmado do lead (lead_profiles.full_name). */
@@ -175,8 +189,11 @@ Deno.serve(async (req: Request) => {
       const botAt = await lastBotMessageAt(supabase, c.conversation_id)
       if (!botAt) { stats.skipped++; continue } // sem msg do bot → não é abandono pós-pergunta
 
-      const incomingAt = await lastIncomingAt(supabase, c.conversation_id)
+      const incoming = await lastIncomingMessage(supabase, c.conversation_id)
+      const incomingAt = incoming?.createdAt ?? null
       const leadRepliedSinceBot = !!(incomingAt && new Date(incomingAt).getTime() > new Date(botAt).getTime())
+      const leadEverReplied = !!incomingAt // T2: só transborda quem já interagiu
+      const conversationClosed = looksLikeConversationClosed(incoming?.content) // T2: pula despedidas
       const nudgedAtMs = parseNudgedAtMs(c.tags)
 
       const stage = decideAbandonStage({
@@ -185,6 +202,12 @@ Deno.serve(async (req: Request) => {
         lastBotMessageAt: botAt,
         nudgedAtMs,
         leadRepliedSinceBot,
+        pendingEnabled: !!c.abandon_handoff_enabled,
+        hasPendingTag: !!c.has_pending_handoff,
+        inactivityEnabled: !!c.inactivity_handoff_enabled,
+        inactivityAfterMin: Number(c.inactivity_handoff_after_min) || 0,
+        leadEverReplied,
+        conversationClosed,
       })
 
       if (stage === 'none') { stats.skipped++; continue }
@@ -216,11 +239,17 @@ Deno.serve(async (req: Request) => {
         continue
       }
 
-      // ─── ESTÁGIO 2: transbordo ────────────────────────────────────────────
-      const trigger = parsePendingTrigger(c.tags)
+      // ─── transbordo (T1 estágio 2 OU T2 inatividade direta) ────────────────
+      // viaInactivity: handoff genérico (sem tag pendente). Muda só a razão/nota
+      // pro vendedor — a entrega na fila é idêntica.
+      const viaInactivity = !c.has_pending_handoff
       const cartItems = normalizeCart(c.cart_items)
       const cartOneLine = formatCartOneLine(cartItems)
       const cartFull = formatCartSummary(cartItems)
+      const silentMin = Math.round((Date.now() - new Date(botAt).getTime()) / 60_000)
+      const trigger = viaInactivity
+        ? (cartOneLine ? `Pedido em andamento: ${cartOneLine}` : 'Lead conversando com a IA')
+        : parsePendingTrigger(c.tags)
 
       const notifyOutside = c.notify_outside_hours_on_handoff !== false
       const outsideHours = notifyOutside && isOutsideBusinessHours(c.business_hours, c.extended_hours_until)
@@ -230,7 +259,11 @@ Deno.serve(async (req: Request) => {
             : null)
         : (c.handoff_message || null)
       const baseMsg = rawBase || 'Só um instante, vou te encaminhar para nosso consultor de vendas.'
-      const handoffMsg = personalizeHandoffMessage(baseMsg, { leadName, itemSummary: cartOneLine || trigger })
+      // No caso de inatividade sem carrinho, não inventa "pedido" no texto pro lead.
+      const handoffMsg = personalizeHandoffMessage(baseMsg, {
+        leadName,
+        itemSummary: viaInactivity ? (cartOneLine || null) : (cartOneLine || trigger),
+      })
 
       // Atribui via fila (resolve dept: o da conversa OU o default da inbox).
       const deptId = c.department_id || c.inbox_default_department_id || null
@@ -265,12 +298,16 @@ Deno.serve(async (req: Request) => {
       }).eq('id', c.conversation_id)
 
       // Nota interna pro vendedor (NUNCA vai pro lead).
-      const sellerNote = [trigger, cartFull ? `🛒 ${cartFull}` : '']
-        .filter(Boolean).join('\n\n').trim()
-      if (sellerNote) {
+      const noteHeader = viaInactivity
+        ? `📋 Transbordo automático — lead ficou ${silentMin}min sem responder à IA (interno):`
+        : '📋 Resumo do pedido (interno):'
+      const noteBody = viaInactivity
+        ? (cartFull ? `🛒 ${cartFull}` : 'Lead estava em conversa com a IA e parou de responder. Sem itens no carrinho.')
+        : [trigger, cartFull ? `🛒 ${cartFull}` : ''].filter(Boolean).join('\n\n').trim()
+      if (noteBody) {
         await supabase.from('conversation_messages').insert({
           conversation_id: c.conversation_id, direction: 'private_note',
-          content: `📋 Resumo do pedido (interno):\n${sellerNote}`, media_type: 'text',
+          content: `${noteHeader}\n${noteBody}`, media_type: 'text',
         })
       }
 
@@ -279,13 +316,15 @@ Deno.serve(async (req: Request) => {
         event: 'handoff_trigger',
         metadata: {
           trigger, abandoned: true, deferred: true,
+          inactivity: viaInactivity, silent_min: silentMin,
           outside_hours: outsideHours,
           cart_items: cartItems, order_summary: cartFull || null,
           queue: queueRes,
         },
       })
       broadcastQueueUpdate({
-        conversation_id: c.conversation_id, kind: 'abandon_handoff',
+        conversation_id: c.conversation_id,
+        kind: viaInactivity ? 'inactivity_handoff' : 'abandon_handoff',
         assigned_user_id: queueRes.assigned_user_id,
       })
       stats.handed_off++

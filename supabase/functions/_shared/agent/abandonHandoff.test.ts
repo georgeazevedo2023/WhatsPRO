@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   decideAbandonStage,
+  looksLikeConversationClosed,
   parseNudgedAtMs,
   parsePendingTrigger,
   personalizeNudge,
@@ -58,6 +59,106 @@ describe('decideAbandonStage', () => {
     expect(decideAbandonStage({ ...base, lastBotMessageAt: 'lixo' })).toBe('none')
     expect(decideAbandonStage({ ...base, lastBotMessageAt: null })).toBe('none')
     expect(decideAbandonStage({ ...base, nudgedAtMs: NaN })).toBe('none')
+  })
+})
+
+describe('decideAbandonStage — T2 inatividade genérica (v7.65.0)', () => {
+  // base SEM tag pendente: T1 não deve disparar; só T2 manda.
+  const t2 = {
+    nudgeAfterMin: 5,
+    handoffAfterMin: 10,
+    lastBotMessageAt: minsAgo(4),
+    nudgedAtMs: null as number | null,
+    leadRepliedSinceBot: false,
+    now: NOW,
+    pendingEnabled: false,
+    hasPendingTag: false,
+    inactivityEnabled: true,
+    inactivityAfterMin: 3,
+    leadEverReplied: true,
+    conversationClosed: false,
+  }
+
+  it('lead interagiu, silêncio >= 3min, não encerrou → handoff direto', () => {
+    expect(decideAbandonStage(t2)).toBe('handoff')
+  })
+
+  it('exatamente no limiar (3min) → handoff', () => {
+    expect(decideAbandonStage({ ...t2, lastBotMessageAt: minsAgo(3) })).toBe('handoff')
+  })
+
+  it('silêncio < 3min → none', () => {
+    expect(decideAbandonStage({ ...t2, lastBotMessageAt: minsAgo(2) })).toBe('none')
+  })
+
+  it('lead nunca respondeu (não interagiu) → none', () => {
+    expect(decideAbandonStage({ ...t2, leadEverReplied: false })).toBe('none')
+  })
+
+  it('conversa encerrada (despedida) → none', () => {
+    expect(decideAbandonStage({ ...t2, conversationClosed: true })).toBe('none')
+  })
+
+  it('flag de inatividade desligada → none', () => {
+    expect(decideAbandonStage({ ...t2, inactivityEnabled: false })).toBe('none')
+  })
+
+  it('lead respondeu após o bot → none (timeline abortada)', () => {
+    expect(decideAbandonStage({ ...t2, leadRepliedSinceBot: true })).toBe('none')
+  })
+
+  it('inactivityAfterMin = 0 (defensivo) → none', () => {
+    expect(decideAbandonStage({ ...t2, inactivityAfterMin: 0 })).toBe('none')
+  })
+
+  it('precedência: lead PENDENTE com ambas flags transborda direto aos 3min (T2 vence o nudge de 5)', () => {
+    expect(decideAbandonStage({
+      ...t2,
+      pendingEnabled: true,
+      hasPendingTag: true,
+      lastBotMessageAt: minsAgo(3),
+    })).toBe('handoff')
+  })
+
+  it('só pendente (inatividade OFF) mantém o nudge de 5min', () => {
+    expect(decideAbandonStage({
+      ...t2,
+      inactivityEnabled: false,
+      pendingEnabled: true,
+      hasPendingTag: true,
+      lastBotMessageAt: minsAgo(6),
+    })).toBe('nudge')
+  })
+})
+
+describe('looksLikeConversationClosed', () => {
+  it('despedidas claras → true', () => {
+    expect(looksLikeConversationClosed('obrigado!')).toBe(true)
+    expect(looksLikeConversationClosed('valeu, tchau')).toBe(true)
+    expect(looksLikeConversationClosed('vou pensar e te falo depois')).toBe(true)
+    expect(looksLikeConversationClosed('blz 👍')).toBe(true)
+    expect(looksLikeConversationClosed('ok')).toBe(true)
+  })
+
+  it('pergunta/pedido → false (ainda engajado)', () => {
+    expect(looksLikeConversationClosed('obrigado, e vc tem na cor branca?')).toBe(false)
+    expect(looksLikeConversationClosed('valeu! qual o preço?')).toBe(false)
+  })
+
+  it('mensagem longa com conteúdo → false', () => {
+    expect(looksLikeConversationClosed(
+      'obrigado pela ajuda mas ainda preciso de um orçamento detalhado com prazo de entrega',
+    )).toBe(false)
+  })
+
+  it('vazio/nulo → false', () => {
+    expect(looksLikeConversationClosed('')).toBe(false)
+    expect(looksLikeConversationClosed(null)).toBe(false)
+    expect(looksLikeConversationClosed(undefined)).toBe(false)
+  })
+
+  it('pedido real não é encerramento', () => {
+    expect(looksLikeConversationClosed('quero a porta sanfonada de 80cm')).toBe(false)
   })
 })
 

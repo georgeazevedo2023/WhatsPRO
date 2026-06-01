@@ -4,18 +4,19 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { UserX } from 'lucide-react';
+import { UserX, Clock } from 'lucide-react';
 
 /**
- * Sprint E.2 — Handoff por ABANDONO (transbordo automático por inatividade).
+ * Handoff automático por inatividade — DUAS regras independentes:
  *
- * Quando a IA faz a pergunta da marca (fluxo offline/sem-resultado) e o lead
- * SOME, a conversa nunca transbordava. Com esta feature, em 2 estágios:
- *   1. cutucada: após N min sem resposta, a IA pergunta se o lead ainda está aí.
- *   2. transbordo: após M min da cutucada ainda sem resposta, entrega o lead pro
- *      vendedor na fila + nota interna com o resumo do pedido.
+ *  1. Transbordo por ABANDONO (Sprint E.2): quando a IA faz a pergunta da marca
+ *     (fluxo offline/sem-resultado) e o lead SOME, em 2 estágios — cutucada após
+ *     N min e transbordo após M min da cutucada.
+ *  2. Transbordo por INATIVIDADE (v7.65.0): QUALQUER lead que parar de responder
+ *     por X min (default 3) vai DIRETO pra fila do vendedor (sem cutucada). Só
+ *     vale pra quem já interagiu e não encerrou a conversa.
  *
- * Backend: cron `handoff-abandoned-leads` (2min) lê estes campos. Default OFF.
+ * Backend: cron `handoff-abandoned-leads` (1min) lê estes campos. Default OFF.
  */
 
 interface AbandonHandoffConfigProps {
@@ -27,8 +28,11 @@ export function AbandonHandoffConfig({ config, onChange }: AbandonHandoffConfigP
   const enabled = config.abandon_handoff_enabled ?? false;
   const nudgeAfter = config.abandon_nudge_after_min ?? 5;
   const handoffAfter = config.abandon_handoff_after_min ?? 10;
+  const inactivityEnabled = config.inactivity_handoff_enabled ?? false;
+  const inactivityAfter = config.inactivity_handoff_after_min ?? 3;
 
   return (
+    <div className="space-y-4">
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
@@ -108,5 +112,61 @@ export function AbandonHandoffConfig({ config, onChange }: AbandonHandoffConfigP
         )}
       </CardContent>
     </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Clock className="w-4 h-4 text-primary" />
+          Transbordo por Inatividade
+          {inactivityEnabled && (
+            <Badge variant="secondary" className="bg-emerald-100 text-emerald-900 border-emerald-300">
+              Ativo
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Qualquer lead que parar de responder à IA por alguns minutos é entregue
+          <strong> direto</strong> para um vendedor na fila (sem cutucada). Vale só para quem já
+          interagiu ao menos uma vez e não encerrou a conversa (despedidas como "obrigado/tchau" são ignoradas).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <Label className="text-sm">Ativar transbordo por inatividade</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Garante que nenhum lead engajado fique sem resposta quando some no meio da conversa.
+            </p>
+          </div>
+          <Switch
+            checked={inactivityEnabled}
+            onCheckedChange={(v) => onChange({ inactivity_handoff_enabled: v })}
+          />
+        </div>
+
+        {inactivityEnabled && (
+          <>
+            <div className="space-y-1.5 max-w-xs">
+              <Label className="text-xs">Transbordar após (minutos sem resposta)</Label>
+              <Input
+                type="number" min={1} max={120}
+                value={inactivityAfter}
+                onChange={(e) => onChange({ inactivity_handoff_after_min: parseInt(e.target.value) || 0 })}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Tempo de silêncio antes de entregar pro vendedor. Recomendado: 3.
+              </p>
+            </div>
+
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-[11px] text-amber-900">
+              ⚠️ Janelas curtas (ex.: 3 min) podem transbordar leads que só estavam lendo o catálogo
+              ou pensando. Quanto menor o tempo, mais conversas chegam ao vendedor — inclusive algumas
+              que o lead ainda responderia sozinho.
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+    </div>
   );
 }
