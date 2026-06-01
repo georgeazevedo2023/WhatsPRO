@@ -67,6 +67,7 @@ audited_at: 2026-05-11
 | T2.26 Broadcast de status change | ✅ | Mudança de status sincronizada em tempo real entre agentes |
 | T2.27 Stale fetch guard | ✅ | Troca rápida de conversa não mostra mensagens da conversa anterior |
 | T2.28 Confirmação delete notas | ✅ | AlertDialog antes de excluir nota privada |
+| T2.29 Dashboard de Fila — "Sem atendimento" + reatribuir (v7.63.0) | ✅ | `/dashboard/fila` 3 abas; aba "Sem atendimento" lista leads transbordados (`status_ia='shadow'`) sem resposta do atendente; 👁 Ver (modal read-only) + ↪ Reatribuir (RPC role-gated, fila-coerente). RPCs `get_unattended_handoff_leads`+`manager_reassign_conversation`; hooks `useUnattendedLeads`/`useReassignConversation`; `UnattendedLeadsTab`; só EletropisoV2 (`useManagerInstances`); `formatWaiting` com dias |
 
 **Edge Functions**: `whatsapp-webhook`, `sync-conversations`, `auto-summarize`, `summarize-conversation`, `transcribe-audio`, `activate-ia`, `fire-outgoing-webhook`
 **Tabelas**: `inboxes`, `inbox_users`, `conversations`, `conversation_messages`, `contacts`, `labels`, `conversation_labels`, `departments`, `department_members`
