@@ -107,6 +107,8 @@ const ALLOWED_FIELDS = [
   'inactivity_handoff_enabled',
   'inactivity_nudge_after_min',
   'inactivity_handoff_after_min',
+  // v7.66.0 (2026-06-02): continuar atendendo fora-horário e acumular o pedido até o fim
+  'continue_outside_hours_until_done',
 ];
 
 export default function AIAgentTab() {

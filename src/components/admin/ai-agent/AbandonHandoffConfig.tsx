@@ -4,7 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { UserX, Clock } from 'lucide-react';
+import { UserX, Clock, Moon } from 'lucide-react';
 
 /**
  * Handoff automático por inatividade — DUAS regras independentes:
@@ -31,6 +31,7 @@ export function AbandonHandoffConfig({ config, onChange }: AbandonHandoffConfigP
   const inactivityEnabled = config.inactivity_handoff_enabled ?? false;
   const inactivityNudge = config.inactivity_nudge_after_min ?? 3;
   const inactivityAfter = config.inactivity_handoff_after_min ?? 3;
+  const continueOutsideHours = config.continue_outside_hours_until_done ?? false;
 
   return (
     <div className="space-y-4">
@@ -183,6 +184,40 @@ export function AbandonHandoffConfig({ config, onChange }: AbandonHandoffConfigP
             </div>
           </>
         )}
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Moon className="w-4 h-4 text-primary" />
+          Continuar atendendo fora do horário
+          {continueOutsideHours && (
+            <Badge variant="secondary" className="bg-emerald-100 text-emerald-900 border-emerald-300">
+              Ativo
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Fora do horário comercial, a IA não transborda a cada produto: continua atendendo, acumula o
+          pedido inteiro e só passa para um vendedor no fim — quando o lead diz que é só isso, atinge o
+          limite de interações, ou para de responder. O transbordo final usa a mensagem de fora do horário
+          com o resumo do pedido.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <div>
+            <Label className="text-sm">Acumular o pedido fora do horário</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Dentro do horário (vendedor online) o comportamento não muda. Combina com o teto de interações.
+            </p>
+          </div>
+          <Switch
+            checked={continueOutsideHours}
+            onCheckedChange={(v) => onChange({ continue_outside_hours_until_done: v })}
+          />
+        </div>
       </CardContent>
     </Card>
     </div>
