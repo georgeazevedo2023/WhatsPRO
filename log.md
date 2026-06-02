@@ -20,7 +20,9 @@ Dono perguntou se "lead 2min sem responder já transborda". Verifiquei no códig
 - **SYNC RULE:** migration + types.ts + ALLOWED_FIELDS + UI (`AbandonHandoffConfig` 2º card "Transbordo por Inatividade" com aviso de janela curta).
 - **E2E real sandbox nota 10** (cron via `net.http_post`): A(interagiu+4min)→handoff(shadow+log+nota); B(despedida)→não; C(nunca respondeu)→não; D(1,5min)→não. Fn: `scanned:4, handed_off:1, skipped:3`.
 - **Deploy:** migration aplicada PROD · edge via CLI (**binário scoop `supabase`**, não `npx` que falha `uv_spawn`) · vitest 34 · deno 0 · tsc 0. **EletropisoV2 LIGADO (3min)**; demais OFF.
-- **⚠️ Heads-up pro dono:** (1) com inatividade ON, lead PENDENTE também transborda aos 3min (T2 vence o nudge de 5min do fluxo antigo). (2) Ao ligar, 3 conversas do EletropisoV2 estavam em silêncio 7-12h — fora do horário agora (seg 20:39, expediente 8-18h), então transbordam só amanhã 8h. Detalhe: [[project_inactivity_handoff_v765]].
+- **⚠️ Heads-up pro dono:** (2) Ao ligar, 3 conversas do EletropisoV2 estavam em silêncio 7-12h — fora do horário (seg, expediente 8-18h), transbordam na reabertura. Detalhe: [[project_inactivity_handoff_v765]].
+
+**ATUALIZAÇÃO v7.65.1 (mesma sessão):** dono pediu **cutucada antes do transbordo** — agora 2 estágios: cutucada @3min → transbordo @+3min (**total 6min**), igual ao fluxo pendente mas pra qualquer lead. Coluna nova `inactivity_nudge_after_min`(=3); `inactivity_handoff_after_min` vira "após a cutucada". `decideAbandonStage` unificado (T2 governa os limiares quando elegível). UI ganhou 2 inputs + total. Migration `20260601000002` + RPC (DROP+CREATE) aplicadas PROD; edge redeployado. **E2E sandbox nota 10** (2 invokes: nudge→handoff, `silent_min:6`). **EletropisoV2 agora 3+3=6min.** Resolve o heads-up (1) anterior (não é mais transbordo direto). vitest 36, deno 0, tsc 0.
 
 ---
 ## 2026-06-01 (noite) — 🟢 AI Agent: 5 bugs determinísticos + cap interações + categoria bombas (v7.64.0) — SHIPPED PROD

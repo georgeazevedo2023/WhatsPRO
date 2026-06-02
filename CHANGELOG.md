@@ -13,9 +13,18 @@ audited_at: 2026-06-01
 
 ---
 
+### v7.65.1 (2026-06-01) — Inatividade vira 2 estágios (cutucada 3min → transbordo +3min = 6min)
+
+Ajuste do dono sobre a v7.65.0 (mesma sessão): em vez de transbordo **direto** aos 3min, o fluxo de inatividade genérica passa a ter **cutucada antes** — igual ao fluxo pendente, mas pra qualquer lead silencioso. Cutucada após `inactivity_nudge_after_min` (default 3) → transbordo após `inactivity_handoff_after_min` da cutucada (default +3, **total 6min**). Se o lead responder à cutucada, a timeline é abortada.
+
+- **Coluna nova** `ai_agents.inactivity_nudge_after_min` (=3). `inactivity_handoff_after_min` muda de semântica (era "silêncio→handoff direto"; agora "min APÓS a cutucada") — default 3 segue válido, sem migração de dado. Migration `20260601000002` + RPC retorna a coluna nova (DROP+CREATE). SYNC RULE: types.ts + ALLOWED_FIELDS + UI (card de inatividade agora com 2 inputs + total, igual ao de abandono).
+- **`decideAbandonStage` unificado** (2 estágios pros dois fluxos): quando o lead é elegível ao T2 (inatividade ON + interagiu + não-encerrou), os **limiares do T2 governam** mesmo com tag pendente; T1 só vale quando T2 não se aplica. Reusa o nudge tag `abandon_nudged:{ms}` e o stage de cutucada já existente no edge. `silent_min` na nota passa a contar do **último incoming do lead** (tempo total de silêncio).
+- **E2E real sandbox nota 10** (2 invocações): invoke#1 → A classificado **nudge** (send tentado; `errors:1` no jid fake, como na v7.56.0); invoke#2 (cutucada simulada há 4min) → A **handoff** (`status_ia=shadow`, log `inactivity:true`, `silent_min:6`, nota "lead ficou 6min sem responder"). B (despedida)/C (nunca respondeu)/D (1,5min) seguem `skipped`.
+- **Pipeline:** vitest 36/36 · deno 0 · tsc 0 · migration PROD · deploy CLI (scoop). **EletropisoV2: cutucada 3 + transbordo +3 (total 6min).**
+
 ### v7.65.0 (2026-06-01) — 🟢 Transbordo por INATIVIDADE genérica (qualquer lead silencioso → fila do vendedor)
 
-Estende o transbordo automático (v7.56.0 só pegava lead com handoff **pendente** — tag `seller_handoff_pending`). Agora **QUALQUER lead** que parar de responder à IA por N min (default **3**) vai **direto** pra fila do vendedor — fecha o buraco do lead que esfria no meio da conversa sem ninguém saber. Pedido do dono; **ligado só no EletropisoV2**.
+Estende o transbordo automático (v7.56.0 só pegava lead com handoff **pendente** — tag `seller_handoff_pending`). Agora **QUALQUER lead** que parar de responder à IA por N min vai pra fila do vendedor — fecha o buraco do lead que esfria no meio da conversa sem ninguém saber. Pedido do dono; **ligado só no EletropisoV2**. *(v7.65.0 nasceu como transbordo direto aos 3min; a v7.65.1, mesma sessão, trocou pra cutucada+transbordo.)*
 
 - **2 colunas novas em `ai_agents`** (default OFF): `inactivity_handoff_enabled` + `inactivity_handoff_after_min` (=3). Independente do fluxo pendente. SYNC RULE: migration + types.ts + ALLOWED_FIELDS + UI (`AbandonHandoffConfig` ganhou 2º card "Transbordo por Inatividade").
 - **Transbordo DIRETO (sem cutucada)** — decisão do dono. Guarda-corpos no `_shared/agent/abandonHandoff.ts` (`decideAbandonStage` caminho T2, precede o nudge pendente): só transborda quem **já interagiu ≥1x** (`leadEverReplied`) E a conversa **não terminou em despedida** (`looksLikeConversationClosed` — ignora "obrigado/tchau/vou pensar"/acks curtos; pergunta com "?" nunca é encerramento). Evita inundar o vendedor com lead frio ou conversa concluída.

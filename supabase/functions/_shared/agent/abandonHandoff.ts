@@ -11,15 +11,17 @@
  *      • estágio 2 (handoff): após `handoffAfterMin` da cutucada → transbordar.
  *
  *  T2 — INATIVIDADE genérica (`inactivity_handoff_enabled`, v7.65.0):
- *    QUALQUER lead silencioso (independe de tag pendente). Após
- *    `inactivityAfterMin` sem resposta → transbordo DIRETO (sem cutucada).
- *    Guarda-corpos: só vale se o lead já interagiu ao menos 1x
+ *    QUALQUER lead silencioso (independe de tag pendente), em 2 estágios como
+ *    o pendente: cutucada após `inactivityNudgeAfterMin` (default 3) →
+ *    transbordo após `inactivityHandoffAfterMin` da cutucada (default +3, total
+ *    6min). Guarda-corpos: só vale se o lead já interagiu ao menos 1x
  *    (`leadEverReplied`) E a conversa não terminou em despedida
  *    (`conversationClosed`), pra não inundar o vendedor com lead frio ou
  *    conversa concluída.
  *
- * Precedência: T2 (limiar menor, ex. 3min) é avaliado ANTES de T1. Se as duas
- * flags estão ligadas, um lead pendente também transborda direto aos 3min.
+ * Precedência: quando o lead é elegível ao T2 (inatividade ON + interagiu +
+ * não-encerrou), os limiares do T2 governam — mesmo que ele tenha tag pendente.
+ * T1 só vale quando o T2 não se aplica (inatividade OFF, ou guarda bloqueou).
  *
  * Se o lead respondeu em qualquer ponto, NÃO agimos (o pré-router do ai-agent
  * cuida do handoff na resposta dele).
@@ -50,8 +52,10 @@ export interface AbandonDecisionInput {
   // ── T2 (inatividade genérica, v7.65.0)
   /** ai_agents.inactivity_handoff_enabled */
   inactivityEnabled?: boolean
-  /** ai_agents.inactivity_handoff_after_min */
-  inactivityAfterMin?: number
+  /** ai_agents.inactivity_nudge_after_min — min sem resposta antes da cutucada (default 3) */
+  inactivityNudgeAfterMin?: number
+  /** ai_agents.inactivity_handoff_after_min — min APÓS a cutucada antes do transbordo (default 3) */
+  inactivityHandoffAfterMin?: number
   /** lead mandou ao menos uma mensagem na conversa (interagiu) */
   leadEverReplied?: boolean
   /** última mensagem do lead parece encerramento/despedida */
@@ -61,7 +65,8 @@ export interface AbandonDecisionInput {
 const MIN_MS = 60_000
 
 /**
- * Decide o estágio. Ordem: lead ativo → T2 (inatividade) → T1 (pendente).
+ * Decide o estágio (cutucada → transbordo), 2 estágios pros dois fluxos.
+ * Escolhe os limiares: T2 (inatividade) governa se o lead é elegível; senão T1.
  */
 export function decideAbandonStage(input: AbandonDecisionInput): AbandonStage {
   if (input.leadRepliedSinceBot) return 'none'
@@ -71,40 +76,37 @@ export function decideAbandonStage(input: AbandonDecisionInput): AbandonStage {
   const haveBot = !Number.isNaN(lastBotMs)
   const minsSinceBot = haveBot ? (now - lastBotMs) / MIN_MS : -1
 
-  // ── T2: INATIVIDADE genérica → transbordo direto (precede T1) ───────────────
-  const inactivityEnabled = input.inactivityEnabled ?? false
-  const inactivityAfterMin = input.inactivityAfterMin ?? 0
-  const leadEverReplied = input.leadEverReplied ?? true
-  const conversationClosed = input.conversationClosed ?? false
-  if (
-    inactivityEnabled &&
-    leadEverReplied &&
-    !conversationClosed &&
-    inactivityAfterMin > 0 &&
-    haveBot &&
-    minsSinceBot >= inactivityAfterMin
-  ) {
-    return 'handoff'
+  // Qual fluxo governa este lead? Inatividade (T2) tem precedência de limiares.
+  const genericApplies =
+    (input.inactivityEnabled ?? false) &&
+    (input.leadEverReplied ?? true) &&
+    !(input.conversationClosed ?? false)
+  const pendingApplies = (input.pendingEnabled ?? true) && (input.hasPendingTag ?? true)
+
+  let nudgeAfter: number
+  let handoffAfter: number
+  if (genericApplies) {
+    nudgeAfter = input.inactivityNudgeAfterMin ?? 0
+    handoffAfter = input.inactivityHandoffAfterMin ?? 0
+  } else if (pendingApplies) {
+    nudgeAfter = input.nudgeAfterMin
+    handoffAfter = input.handoffAfterMin
+  } else {
+    return 'none'
   }
 
-  // ── T1: fluxo PENDENTE (seller_handoff_pending) → nudge → handoff ───────────
-  const pendingEnabled = input.pendingEnabled ?? true
-  const hasPendingTag = input.hasPendingTag ?? true
-  if (pendingEnabled && hasPendingTag) {
-    // Estágio 2: já cutucamos antes
-    if (input.nudgedAtMs != null) {
-      if (!Number.isFinite(input.nudgedAtMs)) return 'none'
-      if (!(input.handoffAfterMin > 0)) return 'none'
-      const minsSinceNudge = (now - input.nudgedAtMs) / MIN_MS
-      return minsSinceNudge >= input.handoffAfterMin ? 'handoff' : 'none'
-    }
-    // Estágio 1: ainda não cutucamos
-    if (!(input.nudgeAfterMin > 0)) return 'none'
-    if (!haveBot) return 'none'
-    return minsSinceBot >= input.nudgeAfterMin ? 'nudge' : 'none'
+  // Estágio 2: já cutucamos antes → mede da cutucada
+  if (input.nudgedAtMs != null) {
+    if (!Number.isFinite(input.nudgedAtMs)) return 'none'
+    if (!(handoffAfter > 0)) return 'none'
+    const minsSinceNudge = (now - input.nudgedAtMs) / MIN_MS
+    return minsSinceNudge >= handoffAfter ? 'handoff' : 'none'
   }
 
-  return 'none'
+  // Estágio 1: ainda não cutucamos → mede da última msg do bot
+  if (!(nudgeAfter > 0)) return 'none'
+  if (!haveBot) return 'none'
+  return minsSinceBot >= nudgeAfter ? 'nudge' : 'none'
 }
 
 /**

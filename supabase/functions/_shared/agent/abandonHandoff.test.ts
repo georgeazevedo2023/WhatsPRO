@@ -62,8 +62,8 @@ describe('decideAbandonStage', () => {
   })
 })
 
-describe('decideAbandonStage — T2 inatividade genérica (v7.65.0)', () => {
-  // base SEM tag pendente: T1 não deve disparar; só T2 manda.
+describe('decideAbandonStage — T2 inatividade genérica 2 estágios (v7.65.1)', () => {
+  // base SEM tag pendente: T1 não dispara; só T2 manda. Cutucada 3min, handoff +3.
   const t2 = {
     nudgeAfterMin: 5,
     handoffAfterMin: 10,
@@ -74,21 +74,30 @@ describe('decideAbandonStage — T2 inatividade genérica (v7.65.0)', () => {
     pendingEnabled: false,
     hasPendingTag: false,
     inactivityEnabled: true,
-    inactivityAfterMin: 3,
+    inactivityNudgeAfterMin: 3,
+    inactivityHandoffAfterMin: 3,
     leadEverReplied: true,
     conversationClosed: false,
   }
 
-  it('lead interagiu, silêncio >= 3min, não encerrou → handoff direto', () => {
-    expect(decideAbandonStage(t2)).toBe('handoff')
+  it('estágio 1: interagiu, silêncio >= 3min, não encerrou, não cutucado → nudge', () => {
+    expect(decideAbandonStage(t2)).toBe('nudge')
   })
 
-  it('exatamente no limiar (3min) → handoff', () => {
-    expect(decideAbandonStage({ ...t2, lastBotMessageAt: minsAgo(3) })).toBe('handoff')
+  it('estágio 1: exatamente no limiar (3min) → nudge', () => {
+    expect(decideAbandonStage({ ...t2, lastBotMessageAt: minsAgo(3) })).toBe('nudge')
   })
 
-  it('silêncio < 3min → none', () => {
+  it('estágio 1: silêncio < 3min → none', () => {
     expect(decideAbandonStage({ ...t2, lastBotMessageAt: minsAgo(2) })).toBe('none')
+  })
+
+  it('estágio 2: cutucado há >= 3min → handoff (total 6min)', () => {
+    expect(decideAbandonStage({ ...t2, nudgedAtMs: minsAgoMs(3) })).toBe('handoff')
+  })
+
+  it('estágio 2: cutucado há < 3min → none', () => {
+    expect(decideAbandonStage({ ...t2, nudgedAtMs: minsAgoMs(2) })).toBe('none')
   })
 
   it('lead nunca respondeu (não interagiu) → none', () => {
@@ -107,17 +116,17 @@ describe('decideAbandonStage — T2 inatividade genérica (v7.65.0)', () => {
     expect(decideAbandonStage({ ...t2, leadRepliedSinceBot: true })).toBe('none')
   })
 
-  it('inactivityAfterMin = 0 (defensivo) → none', () => {
-    expect(decideAbandonStage({ ...t2, inactivityAfterMin: 0 })).toBe('none')
+  it('inactivityNudgeAfterMin = 0 (defensivo) → none', () => {
+    expect(decideAbandonStage({ ...t2, inactivityNudgeAfterMin: 0 })).toBe('none')
   })
 
-  it('precedência: lead PENDENTE com ambas flags transborda direto aos 3min (T2 vence o nudge de 5)', () => {
+  it('precedência: lead PENDENTE com ambas flags usa os limiares do T2 (cutuca aos 3, não aos 5)', () => {
     expect(decideAbandonStage({
       ...t2,
       pendingEnabled: true,
       hasPendingTag: true,
       lastBotMessageAt: minsAgo(3),
-    })).toBe('handoff')
+    })).toBe('nudge')
   })
 
   it('só pendente (inatividade OFF) mantém o nudge de 5min', () => {
