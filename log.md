@@ -8,6 +8,30 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-02 (noite) — 🟢 Equipe: badge "WhatsApp de notificação" sempre visível (frontend)
+
+Dono pediu "deixe exibindo quais atendentes têm whatsapp de notificação cadastrado" na tela Equipe (`/dashboard/admin/users` → `UsersTab.tsx`). Os dados (`personal_whatsapp`, `notify_on_assignment`, `notifications_paused_until`) já vinham no `select * from user_profiles`, mas só apareciam no painel EXPANDIDO (`UserNotificationPanel`). Faltava na linha de badges sempre-visível (que só tinha instâncias/caixas/departamentos).
+
+**Fix:** 4º badge na linha colapsada, colorido por estado (reusa a lógica do `getSessionState`): **verde + número formatado** (ativo) · **âmbar** (cadastrado mas opt-out) · **laranja** (pausado) · **cinza "Sem WhatsApp"** (sem número). Tooltip mostra número + detalhe. `formatPhoneForDisplay` pro número (`+55 87 98115-1586`). +3 imports lucide (MessageCircle/BellOff/Pause). **Só UI, zero backend/schema.**
+
+**Verificado:** dev server local + dados PROD → Playwright na tela Equipe: 9/17 membros com badge verde+número (Alberto, Djavan, Fernando, Flaviana, Jussara, Nerivaldo, Rafaella, Slone, Thiago), 8 com "Sem WhatsApp". `tsc -p tsconfig.app.json`: único erro em UsersTab é a linha 401 (`log_admin_action`, **pré-existente**, mesmo de InboxesTab/QueueConfig). **Deploy: via commit→CI→Portainer (frontend).**
+
+---
+## 2026-06-02 (noite) — 🟢 Chuveiros/resistências = SÓ ELÉTRICO (nada a gás) — config-fix PROD (sem deploy)
+
+Print do dono (EletropisoV2 PROD, lead **Clodoaldo Filho** 558799885420, conv `dad91f2c`): lead pediu **resistência** de chuveiro (foto Lorenzetti 220V) e a IA perguntou **"Qual tipo? elétrico ou a gás."**. Regra de negócio (esclarecida pelo dono): **só trabalham com ELÉTRICOS** — chuveiros elétricos E resistências (elétricas). Nada a gás.
+
+**Auditoria:** puxei a conversa do DB + tracei a origem. **Causa-raiz = CONFIG, não código.** `ai_agents.service_categories.categories[chuveiros].stages[0].fields[0]` tinha `tipo_chuveiro.examples = "elétrico ou a gás"` literal — o phrasing renderizava a frase. Idêntico nos **3 agentes** (Eletropiso/V2/Sandbox). **Zero** ocorrência de "a gás" em template/seed/default do código (grep src+functions) → foi config manual. A resistência NÃO era produto excluído (o vendedor humano cotou R$56,90 no mesmo chat — estava certo).
+
+**Fix 1 (IA nunca OFERECE gás):** `tipo_chuveiro.examples` → **"resistência ou chuveiro completo"** nos 3 agentes (SQL `replace` cirúrgico — não tocou `registros."água ou gás"`). Pergunta vira "Qual tipo? resistência ou chuveiro completo." (os dois elétricos). Como a foto já trouxe 220V (auto-extract), qualifica e transborda.
+
+**Fix 2 (IA RECUSA se o LEAD pedir gás):** `excluded_products += chuveiro_aquecedor_gas` (keywords: chuveiro/ducha/aquecedor a gás, aquecedor de água a gás, a glp, a gás natural; msg "Trabalhamos só com chuveiros e resistências elétricos 😊…"). Pré-LLM, sem handoff, sem contar msg.
+
+**Config-only, SEM deploy** (ai-agent lê service_categories+excluded_products ao vivo). **Paridade UI provada via Playwright no painel PROD**: Qualificacao → Chuveiros → campo "tipo" = "resistência ou chuveiro completo" + preview sem gás; Produtos que NÃO vendemos → entrada `chuveiro_aquecedor_gas` (busca "gás"). Detalhe: [[project_chuveiros_gas_electric_fix]].
+
+**Fix 3 (registros = só água):** dono confirmou "registro só de água" → campo de registros `aplicacao_registro` (label "aplicação" / examples "água ou gás") → **"tipo" / "gaveta ou pressão"** nos 3 agentes. Verificado: `service_categories` sem NENHUM "gás" nos 3 agentes (keyword de gás fica só em `excluded_products`, proposital).
+
+---
 ## 2026-06-02 (tarde) — 🟢 Auditoria de paridade Agente IA ↔ Painel Admin (v7.67.0) — SHIPPED PROD
 
 Dono pediu "audite paridade agente ia com painel admin ui". Cruzei as 4 fontes de verdade da SYNC RULE: schema real de `ai_agents` (70 colunas via SQL no projeto novo), `ALLOWED_FIELDS` (66 campos, `AIAgentTab.tsx`), reads do backend (`ai-agent` + `_shared/agent/*`, via 2 exploradores) e os controles de UI (`RulesConfig`/`AbandonHandoffConfig`/…). Confirmei cada achado na fonte (query `IN`, greps, leitura dos componentes).

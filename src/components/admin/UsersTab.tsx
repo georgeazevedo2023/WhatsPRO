@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
-import { formatPhone } from '@/lib/phoneUtils';
+import { formatPhone, formatPhoneForDisplay } from '@/lib/phoneUtils';
 import { handleError } from '@/lib/errorUtils';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import {
   Search, Inbox, Users, Loader2, Trash2, Settings, MonitorSmartphone, Shield, Pencil,
   Headphones, Mail, Briefcase, Building2, AlertTriangle, ChevronDown, ChevronRight,
-  Plus, X, Eye,
+  Plus, X, Eye, MessageCircle, BellOff, Pause,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
@@ -498,6 +498,33 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
                           <Tooltip><TooltipTrigger asChild><div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/40 border border-border/30 text-xs text-muted-foreground cursor-default"><MonitorSmartphone className="w-3 h-3 shrink-0" /><span>{u.instance_count} {u.instance_count === 1 ? 'instância' : 'instâncias'}</span></div></TooltipTrigger><TooltipContent side="bottom" className="max-w-xs">{u.instances.length === 0 ? <p>Nenhuma instância atribuída</p> : <div className="space-y-1">{u.instances.map(i => <p key={i.id} className="text-xs">{i.name}{i.phone ? ` - ${formatPhone(i.phone)}` : ''}</p>)}</div>}</TooltipContent></Tooltip>
                           <Tooltip><TooltipTrigger asChild><div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/40 border border-border/30 text-xs text-muted-foreground cursor-default"><Inbox className="w-3 h-3 shrink-0" /><span>{u.inboxMemberships.length} {u.inboxMemberships.length === 1 ? 'caixa' : 'caixas'}</span></div></TooltipTrigger><TooltipContent side="bottom" className="max-w-xs">{u.inboxMemberships.length === 0 ? <p>Sem vínculo com caixas</p> : <div className="space-y-1">{u.inboxMemberships.map(m => <p key={m.inbox_id} className="text-xs flex items-center gap-1">{m.inbox_name} <span className="opacity-60">({ROLE_LABELS[m.role]})</span></p>)}</div>}</TooltipContent></Tooltip>
                           <Tooltip><TooltipTrigger asChild><div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/40 border border-border/30 text-xs text-muted-foreground cursor-default"><Building2 className="w-3 h-3 shrink-0" /><span>{u.departments.length} {u.departments.length === 1 ? 'departamento' : 'departamentos'}</span></div></TooltipTrigger><TooltipContent side="bottom" className="max-w-xs">{u.departments.length === 0 ? <p>Sem departamentos</p> : <div className="space-y-1">{u.departments.map(d => <p key={d.id} className="text-xs">{d.name} {d.is_default && <span className="opacity-60">(padrão)</span>}{d.inbox_name && <span className="opacity-60"> - {d.inbox_name}</span>}</p>)}</div>}</TooltipContent></Tooltip>
+                          {/* Badge: WhatsApp de notificação (sempre visível — mostra quem tem número cadastrado) */}
+                          {(() => {
+                            const wa = u.personal_whatsapp?.trim() || null;
+                            const paused = !!u.notifications_paused_until && new Date(u.notifications_paused_until) > new Date();
+                            const optedOut = !!wa && u.notify_on_assignment === false;
+                            let cls: string, Icon: typeof MessageCircle, label: string, tip: React.ReactNode;
+                            if (!wa) {
+                              cls = 'bg-muted/40 border-border/30 text-muted-foreground';
+                              Icon = BellOff; label = 'Sem WhatsApp';
+                              tip = <p>Nenhum WhatsApp de notificação cadastrado</p>;
+                            } else if (paused) {
+                              cls = 'bg-orange-500/10 border-orange-500/30 text-orange-600 dark:text-orange-400';
+                              Icon = Pause; label = 'WhatsApp pausado';
+                              tip = <div className="space-y-0.5"><p className="text-xs font-mono">{formatPhoneForDisplay(wa)}</p><p className="text-xs opacity-70">Notificações pausadas{u.notifications_paused_until ? ` até ${new Date(u.notifications_paused_until).toLocaleString('pt-BR')}` : ''}</p></div>;
+                            } else if (optedOut) {
+                              cls = 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400';
+                              Icon = BellOff; label = 'WhatsApp (off)';
+                              tip = <div className="space-y-0.5"><p className="text-xs font-mono">{formatPhoneForDisplay(wa)}</p><p className="text-xs opacity-70">Número cadastrado, mas notificações desativadas</p></div>;
+                            } else {
+                              cls = 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400';
+                              Icon = MessageCircle; label = formatPhoneForDisplay(wa);
+                              tip = <p>Recebe notificações de atendimento neste WhatsApp</p>;
+                            }
+                            return (
+                              <Tooltip><TooltipTrigger asChild><div className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs cursor-default', cls)}><Icon className="w-3 h-3 shrink-0" /><span>{label}</span></div></TooltipTrigger><TooltipContent side="bottom" className="max-w-xs">{tip}</TooltipContent></Tooltip>
+                            );
+                          })()}
                         </div>
                       </div>
 
