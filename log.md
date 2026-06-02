@@ -8,7 +8,7 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
-## 2026-06-02 (tarde) — 🟡 Auditoria de paridade Agente IA ↔ Painel Admin (v7.67.0) — verificado local, DEPLOY PENDENTE
+## 2026-06-02 (tarde) — 🟢 Auditoria de paridade Agente IA ↔ Painel Admin (v7.67.0) — SHIPPED PROD
 
 Dono pediu "audite paridade agente ia com painel admin ui". Cruzei as 4 fontes de verdade da SYNC RULE: schema real de `ai_agents` (70 colunas via SQL no projeto novo), `ALLOWED_FIELDS` (66 campos, `AIAgentTab.tsx`), reads do backend (`ai-agent` + `_shared/agent/*`, via 2 exploradores) e os controles de UI (`RulesConfig`/`AbandonHandoffConfig`/…). Confirmei cada achado na fonte (query `IN`, greps, leitura dos componentes).
 
@@ -23,9 +23,7 @@ Dono pediu "audite paridade agente ia com painel admin ui". Cruzei as 4 fontes d
 
 **Menores anotados (backlog):** `specialist_model`/`business_name` lidos mas sem coluna; `tts_fallback_providers` sem UI; `sub_agents`/`out_of_hours_message` órfãos.
 
-**Progresso (parte autônoma feita):** commit `a5dc710` na branch `feat/audit-parity-handoff-caps-v767` (hook do vault passou) · **migration aplicada em PROD e verificada** (coluna `max_lead_messages` integer/null + defaults 0/false + 0/3 agentes ligados — estado seguro) · `erros-e-licoes.md` particionado (295→62, novo [[wiki/erros/historico-2026-05-part4]]).
-
-**PENDENTE (bloqueado):** **deploy do `ai-agent` deu 403** (PAT do CLI logado em conta sem acesso ao projeto novo; `SUPABASE_ACCESS_TOKEN` não está no env desta shell nem no `.env.local`). O dono precisa rodar o deploy com o PAT eletropiso. **Interim é SEGURO:** código velho no ar não lê os flags + DB todo OFF → nada muda em PROD. Após deploy: ligar **só `handoff_negative_sentiment=true`** no EletropisoV2 (`id 1062059a-…d73`; minutos fica OFF, decisão do dono) + verificar versão via MCP + merge da branch → master. Detalhe: [[project_audit_parity_handoff_caps_v767]].
+**SHIPPED (sequência completa):** commit `a5dc710` + docs `ab94d1c` → **merge `16fe9bd` → master + push** (hook do vault passou) · **migration aplicada e verificada em PROD** (coluna `max_lead_messages` integer/null + defaults 0/false) · **`ai-agent` deployado v259** (verify_jwt false; o 403 inicial era o CLI logado na conta antiga — resolvido usando o PAT eletropiso de [[reference_supabase_token_novo]] no binário scoop) · **EletropisoV2 ligado** (`handoff_negative_sentiment=true`, minutos `0`/OFF — decisão do dono; outros 2 agentes OFF) · `erros-e-licoes.md` particionado (295→62, novo [[wiki/erros/historico-2026-05-part4]]). UI do `RulesConfig` (default OFF) sobe no próximo build do front. Detalhe: [[project_audit_parity_handoff_caps_v767]].
 
 ---
 ## 2026-06-02 — 🟢 Fora-horário: IA continua atendendo + acumula pedido até o fim (v7.66.0) — SHIPPED PROD
