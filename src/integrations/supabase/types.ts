@@ -484,6 +484,7 @@ export type Database = {
           abandon_nudge_message: string | null
           inactivity_handoff_after_min: number
           inactivity_handoff_enabled: boolean
+          inactivity_nudge_after_min: number
           blocked_numbers: string[] | null
           blocked_phrases: string[] | null
           blocked_topics: string[] | null
@@ -554,6 +555,7 @@ export type Database = {
           abandon_nudge_message?: string | null
           inactivity_handoff_after_min?: number
           inactivity_handoff_enabled?: boolean
+          inactivity_nudge_after_min?: number
           blocked_numbers?: string[] | null
           blocked_phrases?: string[] | null
           blocked_topics?: string[] | null
@@ -624,6 +626,7 @@ export type Database = {
           abandon_nudge_message?: string | null
           inactivity_handoff_after_min?: number
           inactivity_handoff_enabled?: boolean
+          inactivity_nudge_after_min?: number
           blocked_numbers?: string[] | null
           blocked_phrases?: string[] | null
           blocked_topics?: string[] | null

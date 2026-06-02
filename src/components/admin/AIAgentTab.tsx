@@ -105,6 +105,7 @@ const ALLOWED_FIELDS = [
   'abandon_nudge_message',
   // v7.65.0 (2026-06-01): transbordo por inatividade genérica (qualquer lead silencioso)
   'inactivity_handoff_enabled',
+  'inactivity_nudge_after_min',
   'inactivity_handoff_after_min',
 ];
 

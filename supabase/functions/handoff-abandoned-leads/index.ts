@@ -75,6 +75,7 @@ interface Candidate {
   abandon_handoff_after_min: number | null
   abandon_nudge_message: string | null
   inactivity_handoff_enabled: boolean | null
+  inactivity_nudge_after_min: number | null
   inactivity_handoff_after_min: number | null
   has_pending_handoff: boolean | null
 }
@@ -205,7 +206,8 @@ Deno.serve(async (req: Request) => {
         pendingEnabled: !!c.abandon_handoff_enabled,
         hasPendingTag: !!c.has_pending_handoff,
         inactivityEnabled: !!c.inactivity_handoff_enabled,
-        inactivityAfterMin: Number(c.inactivity_handoff_after_min) || 0,
+        inactivityNudgeAfterMin: Number(c.inactivity_nudge_after_min) || 0,
+        inactivityHandoffAfterMin: Number(c.inactivity_handoff_after_min) || 0,
         leadEverReplied,
         conversationClosed,
       })
@@ -246,7 +248,9 @@ Deno.serve(async (req: Request) => {
       const cartItems = normalizeCart(c.cart_items)
       const cartOneLine = formatCartOneLine(cartItems)
       const cartFull = formatCartSummary(cartItems)
-      const silentMin = Math.round((Date.now() - new Date(botAt).getTime()) / 60_000)
+      // tempo total de silêncio = desde a última msg do LEAD (não da cutucada)
+      const silenceRef = incomingAt ?? botAt
+      const silentMin = Math.round((Date.now() - new Date(silenceRef).getTime()) / 60_000)
       const trigger = viaInactivity
         ? (cartOneLine ? `Pedido em andamento: ${cartOneLine}` : 'Lead conversando com a IA')
         : parsePendingTrigger(c.tags)

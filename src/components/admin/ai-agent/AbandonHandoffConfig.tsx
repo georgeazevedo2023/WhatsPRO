@@ -29,6 +29,7 @@ export function AbandonHandoffConfig({ config, onChange }: AbandonHandoffConfigP
   const nudgeAfter = config.abandon_nudge_after_min ?? 5;
   const handoffAfter = config.abandon_handoff_after_min ?? 10;
   const inactivityEnabled = config.inactivity_handoff_enabled ?? false;
+  const inactivityNudge = config.inactivity_nudge_after_min ?? 3;
   const inactivityAfter = config.inactivity_handoff_after_min ?? 3;
 
   return (
@@ -125,9 +126,9 @@ export function AbandonHandoffConfig({ config, onChange }: AbandonHandoffConfigP
           )}
         </CardTitle>
         <CardDescription>
-          Qualquer lead que parar de responder à IA por alguns minutos é entregue
-          <strong> direto</strong> para um vendedor na fila (sem cutucada). Vale só para quem já
-          interagiu ao menos uma vez e não encerrou a conversa (despedidas como "obrigado/tchau" são ignoradas).
+          Qualquer lead que parar de responder à IA recebe uma cutucada e, persistindo o silêncio,
+          é entregue para um vendedor na fila. Vale só para quem já interagiu ao menos uma vez e não
+          encerrou a conversa (despedidas como "obrigado/tchau" são ignoradas).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -146,22 +147,39 @@ export function AbandonHandoffConfig({ config, onChange }: AbandonHandoffConfigP
 
         {inactivityEnabled && (
           <>
-            <div className="space-y-1.5 max-w-xs">
-              <Label className="text-xs">Transbordar após (minutos sem resposta)</Label>
-              <Input
-                type="number" min={1} max={120}
-                value={inactivityAfter}
-                onChange={(e) => onChange({ inactivity_handoff_after_min: parseInt(e.target.value) || 0 })}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Tempo de silêncio antes de entregar pro vendedor. Recomendado: 3.
-              </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Cutucar o lead após (minutos)</Label>
+                <Input
+                  type="number" min={1} max={120}
+                  value={inactivityNudge}
+                  onChange={(e) => onChange({ inactivity_nudge_after_min: parseInt(e.target.value) || 0 })}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Silêncio antes da 1ª mensagem leve ("Ainda tá por aí?"). Recomendado: 3.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Transbordar após a cutucada (minutos)</Label>
+                <Input
+                  type="number" min={1} max={120}
+                  value={inactivityAfter}
+                  onChange={(e) => onChange({ inactivity_handoff_after_min: parseInt(e.target.value) || 0 })}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Tempo extra após a cutucada antes de entregar pro vendedor. Recomendado: 3.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-md bg-muted/40 border border-muted p-3 text-[11px] text-muted-foreground">
+              Total até o transbordo: <strong>{(Number(inactivityNudge) || 0) + (Number(inactivityAfter) || 0)} min</strong> de
+              silêncio. Se o lead responder à cutucada, o atendimento segue normalmente e o transbordo é cancelado.
             </div>
 
             <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-[11px] text-amber-900">
-              ⚠️ Janelas curtas (ex.: 3 min) podem transbordar leads que só estavam lendo o catálogo
-              ou pensando. Quanto menor o tempo, mais conversas chegam ao vendedor — inclusive algumas
-              que o lead ainda responderia sozinho.
+              ⚠️ Janelas curtas podem cutucar/transbordar leads que só estavam lendo o catálogo ou pensando.
+              Quanto menor o tempo, mais conversas chegam ao vendedor.
             </div>
           </>
         )}
