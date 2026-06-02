@@ -38,6 +38,8 @@ import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
 import { buildHorizontalHandoffReason } from '../_shared/horizontalQualif.ts'
+// Auditoria paridade (2026-06-02): religa 2 caps que existiam na UI mas eram toggles mortos.
+import { shouldHandoffByConversationMinutes, shouldHandoffByNegativeSentiment } from '../_shared/agent/handoffCaps.ts'
 import { detectQualifLoop } from '../_shared/qualificationAntiLoop.ts'
 import { getCategoriesOrDefault, matchCategoryBySearchText } from '../_shared/serviceCategories.ts'
 import { matchExcludedProduct, type ExcludedProduct } from '../_shared/excludedProducts.ts'
@@ -1568,6 +1570,103 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'max_interactions', queue: queueResCap }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    // === Auditoria de paridade (2026-06-02): 2 caps que existiam na UI (RulesConfig)
+    // mas eram TOGGLES MORTOS (o backend nunca lia o flag). Religados aqui reusando
+    // as MESMAS primitivas do cap de interações acima (pickHandoffMessage/
+    // runQueueAssignment/resumo-do-pedido/shadow). Rollout seguro: ambos default OFF
+    // (migration zerou os defaults antigos 15/true) — ligados só no EletropisoV2.
+    // Helper local: executa o transbordo "cap" (fila + shadow + nota do pedido).
+    const runAbsoluteCapHandoff = async (reason: string, extraMeta: Record<string, unknown>) => {
+      const notifyOutsideC = agent.notify_outside_hours_on_handoff !== false
+      const outsideHoursC = notifyOutsideC && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+      const { data: lpForC } = await supabase
+        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      const leadNameC = (lpForC as { full_name?: string | null } | null)?.full_name || null
+      const capMsgC = personalizeHandoffMessage(
+        pickHandoffMessage({
+          agent, profileData, funnelData, outsideHours: outsideHoursC,
+          fallbackRegular: 'Vou te encaminhar para nosso consultor para continuar seu atendimento!',
+        }),
+        { leadName: leadNameC },
+      )
+      const { result: queueResC, finalMessage: finalMsgC } = await runQueueAssignment(capMsgC)
+      await sendTextMsg(finalMsgC)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: finalMsgC, media_type: 'text',
+      })
+      // Resumo itemizado pro vendedor se houver pedido acumulado (paridade c/ cap de interações).
+      const cartItemsC = normalizeCart((conversation as any).cart_items)
+      if (cartItemsC.length > 0) {
+        const cartFallbackC = `Itens do pedido:\n${cartItemsC.map((i) => `- ${i.qty || 1}x ${i.name || 'Item'}`).join('\n')}`
+        const sellerSummaryC = buildPremiumHandoffSummary({
+          tags: conversation.tags || [],
+          leadName: leadNameC || contact?.name || null,
+          fallbackReason: cartFallbackC,
+        })
+        if (sellerSummaryC) {
+          const noteC = `📋 Resumo do pedido (interno):\n${sellerSummaryC}`
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'private_note', content: noteC, media_type: 'text',
+          })
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'private_note', content: noteC, media_type: 'text' })
+        }
+      }
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        latency_ms: Date.now() - startTime,
+        metadata: { reason, outside_hours: outsideHoursC, queue: queueResC, ...extraMeta },
+      })
+      const capUpdateC: Record<string, unknown> = {
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+        lead_msg_count: 0,  // R86
+      }
+      if (profileData?.handoff_department_id) capUpdateC.department_id = profileData.handoff_department_id
+      else if (funnelData?.handoff_department_id) capUpdateC.department_id = funnelData.handoff_department_id
+      await supabase.from('conversations').update(capUpdateC).eq('id', conversation_id)
+      broadcastEvent({ conversation_id, status_ia: STATUS_IA.SHADOW })
+      return new Response(JSON.stringify({ ok: true, handoff: true, reason, queue: queueResC }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Gap #3: cap de DURAÇÃO da conversa com a IA (handoff_max_conversation_minutes).
+    if (shouldHandoffByConversationMinutes({
+      maxMinutes: agent.handoff_max_conversation_minutes,
+      sessionStartIso: sessionStartDt,
+      nowMs: Date.now(),
+      statusIa: conversation.status_ia,
+      shadowStatus: STATUS_IA.SHADOW,
+    })) {
+      log.info('Max conversation minutes reached — auto handoff (paridade Gap #3)', {
+        max: agent.handoff_max_conversation_minutes, sessionStart: sessionStartDt,
+      })
+      return await runAbsoluteCapHandoff('max_conversation_minutes', { max_minutes: agent.handoff_max_conversation_minutes })
+    }
+
+    // Gap #2: sentimento negativo PERSISTENTE (handoff_negative_sentiment, ≥2 sinais).
+    // Query gated pelo flag → custo zero pros agentes com a feature OFF (a maioria).
+    if (agent.handoff_negative_sentiment && conversation.status_ia !== STATUS_IA.SHADOW) {
+      const { data: sentMsgs } = await supabase
+        .from('conversation_messages').select('content')
+        .eq('conversation_id', conversation_id).eq('direction', 'incoming')
+        .gte('created_at', sessionStartDt)
+        .order('created_at', { ascending: false }).limit(12)
+      const sessionIncomingTexts = (sentMsgs || []).map((m: { content?: string | null }) => (m.content || '').toLowerCase())
+      if (shouldHandoffByNegativeSentiment({
+        enabled: true,
+        statusIa: conversation.status_ia,
+        shadowStatus: STATUS_IA.SHADOW,
+        sessionIncomingTexts,
+        currentText: incomingText,
+        conversationTags: conversation.tags || [],
+        threshold: 2,
+      })) {
+        log.info('Persistent negative sentiment — auto handoff (paridade Gap #2)')
+        return await runAbsoluteCapHandoff('negative_sentiment', { signals: '>=2' })
+      }
     }
 
     if (

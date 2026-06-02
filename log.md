@@ -8,6 +8,26 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-02 (tarde) — 🟡 Auditoria de paridade Agente IA ↔ Painel Admin (v7.67.0) — verificado local, DEPLOY PENDENTE
+
+Dono pediu "audite paridade agente ia com painel admin ui". Cruzei as 4 fontes de verdade da SYNC RULE: schema real de `ai_agents` (70 colunas via SQL no projeto novo), `ALLOWED_FIELDS` (66 campos, `AIAgentTab.tsx`), reads do backend (`ai-agent` + `_shared/agent/*`, via 2 exploradores) e os controles de UI (`RulesConfig`/`AbandonHandoffConfig`/…). Confirmei cada achado na fonte (query `IN`, greps, leitura dos componentes).
+
+**3 gaps reais (aprovados pelo dono via AskUserQuestion → implementados):**
+- **#1 `max_lead_messages` (bug latente):** no `ALLOWED_FIELDS` + input editável + lido pelo backend, **mas sem coluna** → editar quebrava o auto-save inteiro (`.update()` em coluna inexistente) e o backend sempre usava default. Fix: migration cria coluna **nullable sem default** (default 8 reintroduziria o bug qualify-first do `so_se_pedir`→40, comentado no index.ts).
+- **#2 `handoff_negative_sentiment` (toggle morto):** switch salvava mas backend nunca lia → religado como handoff por sentimento negativo PERSISTENTE (≥2 sinais).
+- **#3 `handoff_max_conversation_minutes` (toggle morto):** input salvava mas backend nunca lia → religado como cap de duração da conversa.
+
+**Risco de prod pego na investigação:** os 2 flags já tinham default ligado (15/true) em TODOS os agentes — religar a leitura sem reset transbordaria todo mundo de uma vez. Decisão do dono: **default OFF + reset dos rows + ligar só EletropisoV2** (igual v7.65/66).
+
+**Implementação (zero gambiarra):** helper puro testável `_shared/agent/handoffCaps.ts` (`shouldHandoffByConversationMinutes` + `shouldHandoffByNegativeSentiment` + `hasNegativeWord`, 19 testes) + wire de 2 caps pré-LLM no `index.ts` reusando as primitivas do cap de interações (closure `runAbsoluteCapHandoff`) + UI alinhada (`RulesConfig` `?? false`/`?? 0` + descrições) + migration `20260602120000` (coluna #1 + zera defaults + reset). **deno 0 · tsc 0 · vitest 19 novos + 617 totais (2 suítes https pré-existentes).**
+
+**Menores anotados (backlog):** `specialist_model`/`business_name` lidos mas sem coluna; `tts_fallback_providers` sem UI; `sub_agents`/`out_of_hours_message` órfãos.
+
+**Progresso (parte autônoma feita):** commit `a5dc710` na branch `feat/audit-parity-handoff-caps-v767` (hook do vault passou) · **migration aplicada em PROD e verificada** (coluna `max_lead_messages` integer/null + defaults 0/false + 0/3 agentes ligados — estado seguro) · `erros-e-licoes.md` particionado (295→62, novo [[wiki/erros/historico-2026-05-part4]]).
+
+**PENDENTE (bloqueado):** **deploy do `ai-agent` deu 403** (PAT do CLI logado em conta sem acesso ao projeto novo; `SUPABASE_ACCESS_TOKEN` não está no env desta shell nem no `.env.local`). O dono precisa rodar o deploy com o PAT eletropiso. **Interim é SEGURO:** código velho no ar não lê os flags + DB todo OFF → nada muda em PROD. Após deploy: ligar **só `handoff_negative_sentiment=true`** no EletropisoV2 (`id 1062059a-…d73`; minutos fica OFF, decisão do dono) + verificar versão via MCP + merge da branch → master. Detalhe: [[project_audit_parity_handoff_caps_v767]].
+
+---
 ## 2026-06-02 — 🟢 Fora-horário: IA continua atendendo + acumula pedido até o fim (v7.66.0) — SHIPPED PROD
 
 Print do dono (George/EletropisoV2 PROD, fora-horário): após qualificar canos (esgoto+Tigre) a IA **transbordou por-produto** e, no "Tem trena?", repetiu a mensagem canned de fora-horário em vez de atender. Trace confirmou: o no-result loop offline transborda ao bater `max_enrichment_questions` (cego ao horário) → shadow → cron requeue reenviou a OOF. Pedido: fora-horário, **continuar atendendo e acumular o pedido**, transbordar só no fim.

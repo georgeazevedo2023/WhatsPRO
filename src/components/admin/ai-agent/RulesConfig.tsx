@@ -85,10 +85,10 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
               <Label className="text-xs">Máx. minutos de conversa com IA</Label>
               <Input
                 type="number" min={0} max={120}
-                value={config.handoff_max_conversation_minutes || 15}
+                value={config.handoff_max_conversation_minutes ?? 0}
                 onChange={(e) => onChange({ handoff_max_conversation_minutes: parseInt(e.target.value) || 0 })}
               />
-              <p className="text-[11px] text-muted-foreground">Recomendado: 15-30 min. 0 = sem limite.</p>
+              <p className="text-[11px] text-muted-foreground">0 = sem limite (padrão). Recomendado: 15-30 min se quiser ativar.</p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Cooldown após handoff (minutos)</Label>
@@ -192,16 +192,16 @@ export function RulesConfig({ config, onChange, fieldErrors }: RulesConfigProps)
             <Frown className="w-4 h-4 text-warning" />
             Detecção de Sentimento Negativo
           </CardTitle>
-          <CardDescription>Transfere automaticamente quando detectar frustração, irritação ou insatisfação</CardDescription>
+          <CardDescription>Transfere automaticamente quando o lead demonstra frustração persistente (2+ mensagens negativas na conversa). Desligado por padrão.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">
             <div>
               <Label className="text-sm">Ativar detecção automática</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">Palavras como "absurdo", "demora", "péssimo" acionam transbordo</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Palavras como "absurdo", "demora", "péssimo" em 2+ mensagens acionam o transbordo</p>
             </div>
             <Switch
-              checked={config.handoff_negative_sentiment ?? true}
+              checked={config.handoff_negative_sentiment ?? false}
               onCheckedChange={(v) => onChange({ handoff_negative_sentiment: v })}
             />
           </div>

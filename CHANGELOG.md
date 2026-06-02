@@ -13,6 +13,20 @@ audited_at: 2026-06-01
 
 ---
 
+### v7.67.0 (2026-06-02) — 🟡 Auditoria de paridade Agente IA ↔ Painel Admin: 1 bug + 2 toggles mortos religados — *verificado local, deploy PENDENTE*
+
+Auditoria cruzando `ai_agents` (70 colunas via SQL) × `ALLOWED_FIELDS` (UI) × reads do backend × controles da UI. Achou 3 gaps reais (corrigidos) + 3 menores (anotados). Releases v7.65/66 confirmadas 100% wired (o "toggle não aparece" era só lag de build do front).
+
+- **Gap #1 (🔴 bug latente) — `max_lead_messages`:** estava no `ALLOWED_FIELDS`, tinha input no `RulesConfig` e era lido pelo backend (`index.ts:1483-84`), **mas a coluna nunca foi criada**. Editar o campo quebrava o auto-save inteiro (PostgREST "column does not exist") e o backend sempre usava o default. **Fix:** migration cria a coluna **nullable sem default** (default 8 reintroduziria o bug qualify-first do `so_se_pedir`→40).
+- **Gap #2 (🟠 toggle morto) — `handoff_negative_sentiment`:** switch salvava OK mas o backend nunca lia. **Religado:** handoff por sentimento negativo **PERSISTENTE** (≥2 sinais na sessão: 2 msgs negativas, OU tag `sentimento:negativo` prévia + atual negativa). Helper puro `_shared/agent/handoffCaps.ts`.
+- **Gap #3 (🟠 toggle morto) — `handoff_max_conversation_minutes`:** input salvava OK mas backend nunca lia. **Religado:** cap de duração da conversa (minutos desde `sessionStartDt`).
+- **Wire no `index.ts`:** 2 caps pré-LLM logo após o cap de interações, reusando as MESMAS primitivas (`pickHandoffMessage`/`runQueueAssignment`/resumo-do-pedido/shadow) via closure local `runAbsoluteCapHandoff`. **Zero gambiarra.**
+- **Rollout seguro (igual v7.65/66):** os 2 flags tinham default ligado (15/true) em TODOS os agentes — religar a leitura sem reset transbordaria todo mundo. Migration **zera os defaults (0/false) + reseta os rows existentes**; features ligadas explicitamente por agente (EletropisoV2, com OK). UI alinhada (`?? false`/`?? 0` + descrições). Query de sentimento gated pelo flag → custo zero pros agentes OFF.
+- **Pipeline:** `handoffCaps.test.ts` 19 testes verdes · vitest 617 totais verdes · deno 0 · tsc 0. Commit `a5dc710` (branch `feat/audit-parity-handoff-caps-v767`) + **migration aplicada e verificada em PROD** (coluna criada, defaults 0/false, 0/3 agentes ligados). **PENDENTE: deploy do edge (deu 403 — precisa do PAT eletropiso do dono) + ligar `handoff_negative_sentiment` no EletropisoV2 (minutos fica OFF). Ordem: deploy ANTES do enable.**
+- **Menores anotados (backlog):** `specialist_model`/`business_name` lidos mas sem coluna (sempre default/undefined); `tts_fallback_providers` sem UI; `sub_agents`/`out_of_hours_message` colunas legadas órfãs.
+
+---
+
 ### v7.66.0 (2026-06-02) — 🟢 Fora-horário: IA continua atendendo e acumula o pedido até o lead terminar / 15 interações
 
 Fecha bug auditado (caso George, EletropisoV2 PROD, fora-horário): ao qualificar um produto OFFLINE (catálogo vazio), o agente transbordava **por-produto** assim que batia o cap de enriquecimento → `status_ia=shadow` → parava de responder; a próxima pergunta do lead ("Tem trena?") caía no vazio (e o cron requeue reenviava a OOF). Pedido do dono: **fora do horário, a IA continua atendendo e ACUMULA o pedido**, transbordando só no FIM (closer / 15 interações / silêncio) com **uma** mensagem fora-horário + resumo itemizado + shadow.
