@@ -22,7 +22,7 @@ Auditoria cruzando `ai_agents` (70 colunas via SQL) × `ALLOWED_FIELDS` (UI) × 
 - **Gap #3 (🟠 toggle morto) — `handoff_max_conversation_minutes`:** input salvava OK mas backend nunca lia. **Religado:** cap de duração da conversa (minutos desde `sessionStartDt`).
 - **Wire no `index.ts`:** 2 caps pré-LLM logo após o cap de interações, reusando as MESMAS primitivas (`pickHandoffMessage`/`runQueueAssignment`/resumo-do-pedido/shadow) via closure local `runAbsoluteCapHandoff`. **Zero gambiarra.**
 - **Rollout seguro (igual v7.65/66):** os 2 flags tinham default ligado (15/true) em TODOS os agentes — religar a leitura sem reset transbordaria todo mundo. Migration **zera os defaults (0/false) + reseta os rows existentes**; features ligadas explicitamente por agente (EletropisoV2, com OK). UI alinhada (`?? false`/`?? 0` + descrições). Query de sentimento gated pelo flag → custo zero pros agentes OFF.
-- **Pipeline:** `handoffCaps.test.ts` 19 testes verdes · vitest 617 totais verdes · deno 0 · tsc 0. **Deploy + apply da migration PENDENTE de OK (ordem obrigatória: migration reset ANTES do deploy do edge).**
+- **Pipeline:** `handoffCaps.test.ts` 19 testes verdes · vitest 617 totais verdes · deno 0 · tsc 0. Commit `a5dc710` (branch `feat/audit-parity-handoff-caps-v767`) + **migration aplicada e verificada em PROD** (coluna criada, defaults 0/false, 0/3 agentes ligados). **PENDENTE: deploy do edge (deu 403 — precisa do PAT eletropiso do dono) + ligar `handoff_negative_sentiment` no EletropisoV2 (minutos fica OFF). Ordem: deploy ANTES do enable.**
 - **Menores anotados (backlog):** `specialist_model`/`business_name` lidos mas sem coluna (sempre default/undefined); `tts_fallback_providers` sem UI; `sub_agents`/`out_of_hours_message` colunas legadas órfãs.
 
 ---

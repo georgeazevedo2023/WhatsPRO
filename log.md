@@ -23,7 +23,9 @@ Dono pediu "audite paridade agente ia com painel admin ui". Cruzei as 4 fontes d
 
 **Menores anotados (backlog):** `specialist_model`/`business_name` lidos mas sem coluna; `tts_fallback_providers` sem UI; `sub_agents`/`out_of_hours_message` órfãos.
 
-**PENDENTE (gated prod):** commit (feature branch) + apply migration + deploy edge + ligar no EletropisoV2 — **ordem obrigatória: migration reset ANTES do deploy** (senão os agentes com 15/true transbordam em massa). Detalhe: [[project_audit_parity_handoff_caps_v767]].
+**Progresso (parte autônoma feita):** commit `a5dc710` na branch `feat/audit-parity-handoff-caps-v767` (hook do vault passou) · **migration aplicada em PROD e verificada** (coluna `max_lead_messages` integer/null + defaults 0/false + 0/3 agentes ligados — estado seguro) · `erros-e-licoes.md` particionado (295→62, novo [[wiki/erros/historico-2026-05-part4]]).
+
+**PENDENTE (bloqueado):** **deploy do `ai-agent` deu 403** (PAT do CLI logado em conta sem acesso ao projeto novo; `SUPABASE_ACCESS_TOKEN` não está no env desta shell nem no `.env.local`). O dono precisa rodar o deploy com o PAT eletropiso. **Interim é SEGURO:** código velho no ar não lê os flags + DB todo OFF → nada muda em PROD. Após deploy: ligar **só `handoff_negative_sentiment=true`** no EletropisoV2 (`id 1062059a-…d73`; minutos fica OFF, decisão do dono) + verificar versão via MCP + merge da branch → master. Detalhe: [[project_audit_parity_handoff_caps_v767]].
 
 ---
 ## 2026-06-02 — 🟢 Fora-horário: IA continua atendendo + acumula pedido até o fim (v7.66.0) — SHIPPED PROD
