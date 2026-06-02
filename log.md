@@ -8,6 +8,19 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-02 — 🟢 Fora-horário: IA continua atendendo + acumula pedido até o fim (v7.66.0) — SHIPPED PROD
+
+Print do dono (George/EletropisoV2 PROD, fora-horário): após qualificar canos (esgoto+Tigre) a IA **transbordou por-produto** e, no "Tem trena?", repetiu a mensagem canned de fora-horário em vez de atender. Trace confirmou: o no-result loop offline transborda ao bater `max_enrichment_questions` (cego ao horário) → shadow → cron requeue reenviou a OOF. Pedido: fora-horário, **continuar atendendo e acumular o pedido**, transbordar só no fim.
+
+**Processo (workflow keyword + ultracode):** (1) workflow de AUDITORIA (5 agentes) mapeou as causas-raiz + plano; (2) AskUserQuestion travou escopo (só fora-horário) + UX (perguntar a cada item); (3) implementação; (4) workflow de REVISÃO ADVERSARIAL (4 agentes) pegou 1 blocker + 2 majors → corrigidos; (5) E2E real.
+
+**Fix de raiz (flag `continue_outside_hours_until_done`, default OFF):** no `ai-agent/index.ts`, sob flag ON + fora-horário, o no-result loop offline **NÃO transborda** ao bater o cap — registra o item no `cart_items`, **reseta o estado por-item via PRESERVE-LIST** (limpa atributos de qualquer categoria + lead_score; só durables ficam), seta `offline_order:1`+`offline_await_more:1`, pergunta "Quer mais alguma coisa ou é só isso?". Closer (via `offline_order` durável) → `pendingSaleClosedHandoff='offline_order_done'` → executor cart-aware (OOF + shadow + nota itemizada). Novo produto → limpa só `offline_await_more`, segue atendendo. specificItem ("o da foto") transborda na hora. cap-15 ganhou nota itemizada (paridade). NÃO toca o fluxo de tintas.
+
+**Achados da revisão adversarial (todos corrigidos):** blocker = PER_ITEM_PREFIXES era denylist incompleto → vazava ambiente/formato/quantidade/lead_score pro 2º produto (→ preserve-list); major1 = encadeamento catalogado+não-categorizado+closer não finalizava (→ `offline_order` durável); major2 = cap-15 sem resumo do cart (→ nota itemizada). Nits: regex closer ancorado (sem "fechar"/"pode passar" nus, +"é isso", guard de "?") + dedup do cart.
+
+**E2E real sandbox nota 10:** "Tigre" → cart["canos esgoto Tigre"]+ligada+"quer mais?"; preserve-list limpou ambiente/formato/lead_score; "Tem trena?" → atendido (ferramentas)+offline_order mantido; "é só isso" → shadow+OOF+nota com 2 itens. deno 0, tsc 0, vitest 54. **EletropisoV2 LIGADO.** Detalhe: [[project_continue_outside_hours_v766]].
+
+---
 ## 2026-06-01 (madrugada) — 🟢 Transbordo por INATIVIDADE genérica (qualquer lead silencioso) — v7.65.0 SHIPPED PROD
 
 Dono perguntou se "lead 2min sem responder já transborda". Verifiquei no código+DB: o que existia (v7.56.0) só pegava lead com handoff **pendente** (`seller_handoff_pending`); o "2min" era o intervalo do cron, não o gatilho. Dono pediu pra **estender pra QUALQUER lead silencioso, 3min → transbordo direto pro vendedor**.

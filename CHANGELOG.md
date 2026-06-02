@@ -13,6 +13,17 @@ audited_at: 2026-06-01
 
 ---
 
+### v7.66.0 (2026-06-02) — 🟢 Fora-horário: IA continua atendendo e acumula o pedido até o lead terminar / 15 interações
+
+Fecha bug auditado (caso George, EletropisoV2 PROD, fora-horário): ao qualificar um produto OFFLINE (catálogo vazio), o agente transbordava **por-produto** assim que batia o cap de enriquecimento → `status_ia=shadow` → parava de responder; a próxima pergunta do lead ("Tem trena?") caía no vazio (e o cron requeue reenviava a OOF). Pedido do dono: **fora do horário, a IA continua atendendo e ACUMULA o pedido**, transbordando só no FIM (closer / 15 interações / silêncio) com **uma** mensagem fora-horário + resumo itemizado + shadow.
+
+- **Flag por-agente** `ai_agents.continue_outside_hours_until_done` (default OFF, migration `20260602000000`). SYNC RULE: types.ts + ALLOWED_FIELDS + UI (3º card em `AbandonHandoffConfig`). **Ligada só no EletropisoV2.**
+- **`ai-agent/index.ts` (2 blocos):** (1) no "no-result loop", sob flag ON + fora-horário + !specificItem, em vez de transbordar registra o item em `cart_items` (nome via tags), **reseta o estado por-item via PRESERVE-LIST** (limpa TODO atributo de qualquer categoria + `lead_score`; mantém só durables), seta `offline_order:1`+`offline_await_more:1` e pergunta "Quer mais alguma coisa ou é só isso?". (2) Antes do executor de handoff: `offline_order` (durável) + closer ("é só isso"/despedida, ancorado, ignora "?") → reusa `pendingSaleClosedHandoff='offline_order_done'` (executor cart-aware: OOF + shadow + nota itemizada); novo produto → limpa só o `offline_await_more` e segue atendendo. **specificItem ("o da foto") continua transbordando na hora.**
+- **Redes de segurança cart-aware:** cap-15 (`max_lead_interactions`) agora também anexa o resumo itemizado do cart (paridade); o cron de inatividade já lê `cart_items`.
+- **Não-regressão:** flag OFF ou dentro do horário → os 2 blocos são no-op (byte-a-byte o comportamento atual). Zero toque no fluxo de tintas (marcador `offline_order` distinto).
+- **Auditoria adversarial (workflow, 4 agentes)** pegou 1 blocker (denylist→preserve-list) + 2 majors (cap-15 sem resumo; encadeamento catalogado+não-categorizado não finalizava) — **todos corrigidos** antes do commit.
+- **E2E real sandbox nota 10** (invocação direta, flag ON + fora-horário): canos "Tigre" → cart + "quer mais?" + ligada (sem transbordo); preserve-list limpa `ambiente`/`formato`/`lead_score`; "Tem trena?" → atendido (qualifica) + `offline_order` mantido; "é só isso" → shadow + OOF + nota com **2 itens** (canos no cart + trena nas tags). deno 0, tsc 0, vitest 54.
+
 ### v7.65.1 (2026-06-01) — Inatividade vira 2 estágios (cutucada 3min → transbordo +3min = 6min)
 
 Ajuste do dono sobre a v7.65.0 (mesma sessão): em vez de transbordo **direto** aos 3min, o fluxo de inatividade genérica passa a ter **cutucada antes** — igual ao fluxo pendente, mas pra qualquer lead silencioso. Cutucada após `inactivity_nudge_after_min` (default 3) → transbordo após `inactivity_handoff_after_min` da cutucada (default +3, **total 6min**). Se o lead responder à cutucada, a timeline é abortada.

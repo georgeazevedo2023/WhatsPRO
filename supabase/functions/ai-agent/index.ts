@@ -59,6 +59,8 @@ import { buildPremiumHandoffSummary } from '../_shared/agent/handoffSummary.ts'
 import type { PendingExitActionHandoff, PendingExitActionSearch } from '../_shared/agent/preLLMAutoExtract.ts'
 import { isOutsideBusinessHours, enrichOutsideHoursMessage, personalizeHandoffMessage } from '../_shared/businessHours.ts'
 import { filterNonBrandTerms } from '../_shared/qualificationStopWords.ts'
+import { mergeCartItems, normalizeCart } from '../_shared/agent/cart.ts'
+import { looksLikeConversationClosed } from '../_shared/agent/abandonHandoff.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -1109,6 +1111,52 @@ Deno.serve(async (req) => {
     // outros caminhos. Venda fechada por definição requer vendedor humano (pagamento, dados,
     // endereço, frete). Antes deste fix, IA detectava `venda:fechada`, tageava, e enviava
     // resposta vazia — lead ficava no limbo.
+    // ── v7.66.0: resolve o "Quer mais alguma coisa?" do acúmulo offline (offline_await_more) ──
+    // Quando o agente acumulou um item offline fora-horário e perguntou se o lead quer mais,
+    // a resposta dele resolve a espera:
+    //   • closer ("é só isso"/"obrigado"/"pode chamar o vendedor") → finaliza UM handoff
+    //     reusando o executor cart-aware abaixo (pendingSaleClosedHandoff='offline_order_done').
+    //   • qualquer outra coisa (novo produto, "tem trena?") → limpa a flag e segue o fluxo
+    //     normal; o seed já re-semeou o interesse desta msg e o gate re-qualifica o novo item.
+    // Resolve um estado já criado (independe de flag/horário aqui). Pula em shadow.
+    {
+      const tagsOff = conversation.tags || []
+      // offline_order é o marcador DURÁVEL do pedido offline em aberto (não só o "quer mais?"),
+      // pra o closer funcionar mesmo após um item NÃO-categorizado (que limpa offline_await_more
+      // mas mantém offline_order) — fecha o gap do encadeamento catalogado+não-categorizado.
+      const hasOfflineOrder = tagsOff.some((t: string) => typeof t === 'string' && t.startsWith('offline_order:'))
+      const hasAwaitMore = tagsOff.some((t: string) => typeof t === 'string' && t.startsWith('offline_await_more:'))
+      if (hasOfflineOrder && conversation.status_ia !== STATUS_IA.SHADOW && !shadow_only) {
+        const lowerAwait = incomingText.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+        const hasQuestion = lowerAwait.includes('?')
+        // closer conservador: looksLikeConversationClosed (despedida/ack, ignora "?") OU regex
+        // de fechamento ANCORADO (sem tokens nus "fechar"/"pode passar" que falso-positivam em
+        // loja de portas) e só fora de pergunta.
+        const isOfflineCloser =
+          looksLikeConversationClosed(incomingText) ||
+          (!hasQuestion && /\b(so isso|e so isso|so isso mesmo|e isso|isso mesmo|era isso|por enquanto|nada mais|pode finalizar|finalizar o pedido|fechar o pedido|fechar a compra|pode chamar o vendedor|chamar o vendedor|falar com (o )?(vendedor|consultor)|passar pro vendedor)\b/.test(lowerAwait))
+        if (isOfflineCloser) {
+          const cleared = tagsOff.filter(
+            (t: string) => typeof t === 'string' && !t.startsWith('offline_order:') && !t.startsWith('offline_await_more:'),
+          )
+          conversation.tags = cleared
+          await supabase.from('conversations').update({ tags: cleared }).eq('id', conversation_id)
+          pendingSaleClosedHandoff = pendingSaleClosedHandoff || 'offline_order_done'
+          log.info('offline order: lead fechou o pedido → handoff único cart-aware', { conversation_id })
+        } else if (hasAwaitMore) {
+          // não fechou e tinha "quer mais?" pendente → novo item: limpa só o await,
+          // MANTÉM offline_order (pedido segue aberto até closer / cap-15 / silêncio).
+          const cleared = tagsOff.filter(
+            (t: string) => typeof t === 'string' && !t.startsWith('offline_await_more:'),
+          )
+          conversation.tags = cleared
+          await supabase.from('conversations').update({ tags: cleared }).eq('id', conversation_id)
+          log.info('offline order: lead quer mais → segue atendendo (novo item)', { conversation_id })
+        }
+        // else: pedido aberto, sem "quer mais?" pendente e não-closer → segue o fluxo (LLM atende)
+      }
+    }
+
     if (pendingSaleClosedHandoff && conversation.status_ia !== STATUS_IA.SHADOW) {
       log.info('Sale closed detected — triggering automatic handoff', { saleType: pendingSaleClosedHandoff })
       const notifyOutsideSC = agent.notify_outside_hours_on_handoff !== false
@@ -1480,6 +1528,26 @@ Deno.serve(async (req) => {
       await supabase.from('conversation_messages').insert({
         conversation_id, direction: 'outgoing', content: finalMsgCap, media_type: 'text',
       })
+      // v7.66.0: se há pedido acumulado (cart_items), anexa o resumo itemizado pro vendedor —
+      // paridade com o finalizador sale_closed. Um pedido offline (flag ON, fora-horário) que
+      // chegue às 15 interações sem o lead dizer "é só isso" cai AQUI; sem isto o vendedor
+      // receberia o transbordo sem ver os itens (ficavam só no JSONB).
+      const cartItemsCap = normalizeCart((conversation as any).cart_items)
+      if (cartItemsCap.length > 0) {
+        const cartFallbackCap = `Itens do pedido:\n${cartItemsCap.map((i) => `- ${i.qty || 1}x ${i.name || 'Item'}`).join('\n')}`
+        const sellerSummaryCap = buildPremiumHandoffSummary({
+          tags: conversation.tags || [],
+          leadName: (lpForCap as { full_name?: string | null } | null)?.full_name || contact?.name || null,
+          fallbackReason: cartFallbackCap,
+        })
+        if (sellerSummaryCap) {
+          const noteCap = `📋 Resumo do pedido (interno):\n${sellerSummaryCap}`
+          await supabase.from('conversation_messages').insert({
+            conversation_id, direction: 'private_note', content: noteCap, media_type: 'text',
+          })
+          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'private_note', content: noteCap, media_type: 'text' })
+        }
+      }
       await supabase.from('ai_agent_logs').insert({
         agent_id, conversation_id, event: 'implicit_handoff',
         latency_ms: Date.now() - startTime,
@@ -3068,6 +3136,90 @@ ${contextBlock}`
               `Já coletado: ${chain && chain.trim() ? chain : '(só o pedido inicial)'}.`,
               'Olhe sua ÚLTIMA mensagem no histórico e pergunte algo DIFERENTE dela.',
             ].join(' ')
+          }
+
+          // v7.66.0: FORA do horário + flag continue_outside_hours_until_done, em vez de
+          // transbordar por-produto ao bater o cap de enriquecimento, ACUMULA o item no
+          // pedido (cart_items) e pergunta se o lead quer mais — só transborda no FIM
+          // (closer "é só isso" / cap-15 / silêncio). Mantém status_ia=ligada (o lead
+          // segue atendido). specificItem ("o da foto") continua transbordando na hora
+          // (a IA não resolve → vendedor vê a foto). Dentro do horário ou flag OFF: nada
+          // muda (byte-a-byte o caminho atual).
+          const continueOutsideFlag = agent.continue_outside_hours_until_done === true
+          const deferOfflineNow = inNoResultLoop && continueOutsideFlag &&
+            isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
+
+          if (inNoResultLoop && noResultReadyForHandoff && deferOfflineNow && !specificItemAsked) {
+            const buildOfflineItemName = (): string => {
+              const tags = conversation.tags || []
+              const lastVal = (prefix: string): string => {
+                let v = ''
+                for (const t of tags) {
+                  if (typeof t === 'string' && t.startsWith(prefix)) v = t.slice(prefix.length).replace(/_/g, ' ').trim()
+                }
+                return v
+              }
+              const parts = [
+                lastVal('interesse:') || 'produto',
+                lastVal('tipo_cano:'), lastVal('tipo_torneira:'), lastVal('tipo_cuba:'),
+                lastVal('ambiente_torneira:'), lastVal('modelo_torneira:'),
+                lastVal('acabamento_torneira:') || lastVal('acabamento:'),
+                lastVal('cor:'),
+                lastVal('marca_preferida:') || lastVal('marca_citada:'),
+              ].filter(Boolean)
+              return (parts.join(' ').slice(0, 80) || 'produto')
+            }
+            const offlineItemName = buildOfflineItemName()
+            const existingCartOffline = normalizeCart((conversation as any).cart_items)
+            // Dedup determinístico: no fluxo offline o lead não informou quantidade, então o
+            // item entra UMA vez (qty=1). Evita double-count se o turno reprocessar (retry do
+            // debounce) — padrão do incidente v7.53.0. Já existe → mantém o cart.
+            const alreadyInCart = existingCartOffline.some(
+              (i) => (i.name || '').trim().toLowerCase() === offlineItemName.trim().toLowerCase(),
+            )
+            const nextCartOffline = alreadyInCart
+              ? existingCartOffline
+              : mergeCartItems(existingCartOffline, [{ name: offlineItemName, qty: 1, unit_price: null }])
+            // Reset POR-ITEM via PRESERVE-LIST (não denylist): limpa TODO atributo de
+            // qualificação de QUALQUER categoria (config-driven) + lead_score + contadores do
+            // loop, mantendo só os tags DURÁVEIS de conversa. (Denylist hardcoded vazava
+            // ambiente/aplicacao/formato/quantidade/... + score pro próximo item — review v7.66.0.)
+            const PRESERVE_TAG_KEYS = new Set([
+              'ia', 'ia_cleared', 'venda', 'intencao', 'handoff_created', 'agent_status',
+              'human_assigned', 'seller_notified', 'followups_paused', 'cidade', 'client_type',
+              'bairro', 'entrega_modo', 'offline_order', 'offline_await_more',
+              'aguardando_upsell', 'aguardando_entrega', 'aguardando_bairro', 'aguardando_mais_itens',
+              'selected_product', 'produto_escolhido', 'complementares',
+            ])
+            const clearedItemTags = (conversation.tags || []).filter(
+              (t: string) => typeof t === 'string' && PRESERVE_TAG_KEYS.has(t.split(':')[0]),
+            )
+            // offline_order = marcador DURÁVEL do pedido offline em aberto (sobrevive a itens
+            // não-categorizados); offline_await_more = "acabei de perguntar se quer mais".
+            const offlineNextTags = mergeTags(clearedItemTags, { offline_order: '1', offline_await_more: '1' })
+            conversation.tags = offlineNextTags
+            ;(conversation as any).cart_items = nextCartOffline
+            await supabase.from('conversations')
+              .update({ tags: offlineNextTags, cart_items: nextCartOffline })
+              .eq('id', conversation_id)
+            const askMoreMsg = 'Quer mais alguma coisa ou é só isso?'
+            await sendTextMsg(askMoreMsg)
+            await supabase.from('conversation_messages').insert({
+              conversation_id, direction: 'outgoing', content: askMoreMsg, media_type: 'text',
+            })
+            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: askMoreMsg, media_type: 'text' })
+            await supabase.from('ai_agent_logs').insert({
+              agent_id, conversation_id, event: 'response_sent',
+              model: 'deterministic-offline-accumulate',
+              latency_ms: Date.now() - startTime,
+              metadata: { source: 'offline_accumulate_ask_more', item: offlineItemName, cart_size: nextCartOffline.length },
+            })
+            log.info('no-result loop: FORA-horário → item acumulado, perguntando se quer mais', {
+              item: offlineItemName, cart_size: nextCartOffline.length, enrichCount: enrichCountNow, max: maxEnrichNow,
+            })
+            return new Response(JSON.stringify({ ok: true, response: askMoreMsg, reason: 'offline_accumulate_ask_more' }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            })
           }
 
           if (inNoResultLoop && noResultReadyForHandoff) {
