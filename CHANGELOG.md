@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-06-01
-audited_at: 2026-06-01
+updated: 2026-06-03
+audited_at: 2026-06-03
 ---
 
 # Changelog
@@ -10,6 +10,20 @@ audited_at: 2026-06-01
 > Releases ativas (últimos ~14 dias). Histórico completo em [[wiki/changelog/]].
 >
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
+
+---
+
+### v7.70.0 (2026-06-03) — 🟢 Auto-cadastro de leads na base do Disparador (por instância)
+
+Dono pediu: todo lead que mandar mensagem numa instância deve entrar automaticamente numa base do Disparador, pronta pra receber ofertas (ex.: quem fala no EletropisoV2 → base "EletropisoV2"). **Descoberta na auditoria:** a feature já existia no `whatsapp-webhook` (bloco "Auto-add contact to instance lead database") mas estava **deployada e 100% quebrada** (`total_databases=0` em PROD). **Causa-raiz provada no DB** (erro `42P10` reproduzido): o upsert de criação da base usava `ON CONFLICT (instance_id)`, mas o índice único de `instance_id` é **parcial** (`WHERE instance_id IS NOT NULL`) — Postgres não infere índice parcial sem predicado → exceção engolida pelo `catch` fire-and-forget. Bug 2º: a RPC `update_lead_count_from_entries` nunca existiu.
+
+**Fix de raiz (zero gambiarra):**
+- **RPC atômica** `enroll_lead_in_instance_database` (SECURITY DEFINER): checa o toggle, garante a base com o predicado correto (`ON CONFLICT (instance_id) WHERE instance_id IS NOT NULL`), faz upsert do contato (UNIQUE `(database_id, phone)`) e recalcula via `recalc_lead_database_count`. REVOKE de PUBLIC/anon/authenticated; só `service_role` (lição v7.69.0).
+- **Webhook** passa a fazer **1 chamada** à RPC (substitui os 2 upserts frágeis + a RPC inexistente).
+- **Toggle por instância** `instance_settings.auto_enroll_broadcast_db` (default OFF) + UI `InstanceBroadcastEnrollToggle` em `InboxesTab` (ao lado do toggle de notificações). Ligado só no **EletropisoV2**.
+- Nome da base = **nome da instância** (renomeável na tela de Bases). Sem backfill (só novas mensagens).
+
+**Validação:** RPC via SQL (cria / idempotente / OFF=no-op / valida phone); **E2E real** (POST no webhook deployado pra Sandbox temporariamente ligada → base criada + contato enrolado, depois revertido e limpo); `deno check`/`tsc --noEmit` 0. Migration `20260603030000` + edge fn `whatsapp-webhook` em PROD; frontend via push→CI. **Nota:** captação automática em base de marketing é opt-in por instância (LGPD); envio segue manual pelo wizard.
 
 ---
 

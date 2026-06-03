@@ -2,8 +2,8 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-06-02
-audited_at: 2026-06-02
+updated: 2026-06-03
+audited_at: 2026-06-03
 ---
 
 # Erros e Lições
@@ -19,6 +19,11 @@ audited_at: 2026-06-02
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
 
 ---
+
+## 🚨 Sessão 2026-06-03 (tarde) — `upsert` com `ON CONFLICT` num índice PARCIAL nunca casa (feature morta há meses) — v7.70.0
+Detalhe: CHANGELOG/log + [[project_auto_enroll_broadcast_v770]]. Auto-cadastro de leads na base do Disparador.
+1. **`.upsert({...}, { onConflict: 'instance_id' })` num índice único PARCIAL = erro `42P10` SEMPRE.** O índice era `... (instance_id) WHERE instance_id IS NOT NULL`. O PostgREST/supabase-js gera `ON CONFLICT (instance_id)` SEM predicado, e o Postgres **não infere índice parcial** sem repetir o `WHERE` na cláusula → "there is no unique or exclusion constraint matching the ON CONFLICT specification". A exceção caía num `catch` fire-and-forget → **nenhuma base era criada há meses** (`total_databases=0` em prod, feature deployada desde o commit base). **Regras:** (a) `ON CONFLICT` só infere índice parcial se você REPETE o predicado (em SQL: `ON CONFLICT (col) WHERE <mesmo predicado>`); supabase-js não suporta isso → quando o conflito é parcial, encapsular numa **RPC `SECURITY DEFINER`** com o INSERT/ON CONFLICT correto, não confiar no upsert do PostgREST; (b) `fire-and-forget` com `catch` silencioso **esconde bug fatal pra sempre** — logar o erro (foi assim que ficou invisível); (c) ao herdar um bloco "já existe", **verificar o estado real no DB** (`count`) antes de assumir que funciona — código presente ≠ código funcional.
+2. **Chamada a RPC inexistente também era engolida.** O bloco chamava `update_lead_count_from_entries` (nunca existiu; só `recalc_lead_database_count`) com fallback — outro erro mascarado. **Regra:** o nome de toda RPC chamada do backend tem que existir no schema; um grep cruzando `.rpc('...')` × `pg_proc` pega isso.
 
 ## 🚨 Sessão 2026-06-02 (tarde) — Auditoria de paridade: ghost-column + 2 toggles mortos (v7.67.0)
 Detalhe: CHANGELOG/log + [[project_audit_parity_handoff_caps_v767]]. Auditoria SYNC RULE (schema × ALLOWED_FIELDS × reads backend × UI).

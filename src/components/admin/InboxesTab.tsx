@@ -25,6 +25,7 @@ import {
 import { toast } from 'sonner';
 import ManageInboxUsersDialog from '@/components/dashboard/ManageInboxUsersDialog';
 import { InstanceNotificationToggle } from '@/components/admin/notification/InstanceNotificationToggle';
+import { InstanceBroadcastEnrollToggle } from '@/components/admin/instance/InstanceBroadcastEnrollToggle';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -373,6 +374,17 @@ const InboxesTab: React.FC<Props> = ({ onTeamChanged, openCreate, onOpenCreateCh
                       </div>
                       <p className="text-[11px] text-muted-foreground">
                         Quando ativado, vendedores recebem alerta no WhatsApp pessoal sempre que um lead for atribuído a eles. Cadastre o número de cada vendedor em <strong>Membros</strong>.
+                      </p>
+                    </div>
+
+                    {/* Auto-cadastro de leads na base do Disparador */}
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-wider text-muted-foreground/60 font-semibold">Disparador</p>
+                      <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-muted/20 border border-border/30">
+                        <InstanceBroadcastEnrollToggle instanceId={inbox.instance_id} />
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Quando ativado, quem mandar mensagem nesta instância entra automaticamente na base de leads do Disparador (nomeada como a instância), pronta pra receber campanhas em <strong>Disparador → Bases</strong>.
                       </p>
                     </div>
 

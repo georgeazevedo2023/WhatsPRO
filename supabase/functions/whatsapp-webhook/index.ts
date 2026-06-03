@@ -1101,69 +1101,24 @@ Deno.serve(async (req) => {
     // last_message_at + last_message + is_read (incoming) são atualizados pelo trigger
     // `update_conversation_on_message_insert` no INSERT acima.
 
-    // Auto-add contact to instance lead database (fire-and-forget, atomic upsert)
-    if (direction === 'incoming' && contactPhone && contactJid) {
-      (async () => {
-        try {
-          // Find lead database for this instance (indexed by instance_id UNIQUE)
-          let { data: leadDb } = await supabase
-            .from('lead_databases')
-            .select('id')
-            .eq('instance_id', instance.id)
-            .maybeSingle()
-
-          if (!leadDb) {
-            // Reuse instance data already loaded (includes user_id, name) — avoids redundant query
-            if (instance?.user_id && instance?.name) {
-              const { data: newDb } = await supabase
-                .from('lead_databases')
-                .upsert({
-                  name: `Helpdesk - ${instance.name}`,
-                  user_id: instance.user_id,
-                  instance_id: instance.id,
-                  leads_count: 0,
-                }, { onConflict: 'instance_id' })
-                .select('id')
-                .single()
-              leadDb = newDb
-            }
-          }
-
-          if (leadDb && contactPhone && contactPhone.length >= 10) {
-            // Atomic upsert: insert or update name — eliminates check-then-insert race
-            const { error: upsertErr } = await supabase
-              .from('lead_database_entries')
-              .upsert({
-                database_id: leadDb.id,
-                phone: contactPhone,
-                jid: contactJid,
-                name: contactName || null,
-                source: 'helpdesk',
-                is_verified: true,
-                verification_status: 'valid',
-              }, {
-                onConflict: 'database_id,phone',
-                ignoreDuplicates: false,
-              })
-
-            if (!upsertErr) {
-              // Atomic count via RPC — no lost updates
-              const { error: rpcErr } = await supabase.rpc('update_lead_count_from_entries', { p_database_id: leadDb.id })
-              if (rpcErr) {
-                // Fallback: count entries directly
-                const { count } = await supabase.from('lead_database_entries')
-                  .select('*', { count: 'exact', head: true })
-                  .eq('database_id', leadDb.id)
-                if (count !== null) {
-                  await supabase.from('lead_databases').update({ leads_count: count }).eq('id', leadDb.id)
-                }
-              }
-            }
-          }
-        } catch (err) {
-          log.error('Error auto-adding to lead database', { error: (err as Error).message })
-        }
-      })()
+    // Auto-cadastro do lead na base do Disparador da instância (toggle por instância).
+    // Tudo atômico via RPC enroll_lead_in_instance_database (SECURITY DEFINER): ela
+    // checa o toggle (instance_settings.auto_enroll_broadcast_db, default OFF), garante
+    // a base (nome = nome da instância) e faz upsert do contato com dedup por phone.
+    // No-op silencioso quando a instância está desligada. Fire-and-forget: nunca
+    // bloqueia nem derruba o webhook.
+    if (direction === 'incoming' && contactPhone && contactJid && contactPhone.length >= 10) {
+      const enrollName = contactName && contactName !== contactPhone ? contactName : null
+      supabase
+        .rpc('enroll_lead_in_instance_database', {
+          p_instance_id: instance.id,
+          p_phone: contactPhone,
+          p_jid: contactJid,
+          p_name: enrollName,
+        })
+        .then(({ error }) => {
+          if (error) log.error('enroll_lead_in_instance_database failed', { error: error.message })
+        })
     }
 
     // Extract status_ia from original message payload

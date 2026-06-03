@@ -3112,18 +3112,21 @@ export type Database = {
       }
       instance_settings: {
         Row: {
+          auto_enroll_broadcast_db: boolean
           created_at: string
           instance_id: string
           notifications_enabled: boolean
           updated_at: string
         }
         Insert: {
+          auto_enroll_broadcast_db?: boolean
           created_at?: string
           instance_id: string
           notifications_enabled?: boolean
           updated_at?: string
         }
         Update: {
+          auto_enroll_broadcast_db?: boolean
           created_at?: string
           instance_id?: string
           notifications_enabled?: boolean

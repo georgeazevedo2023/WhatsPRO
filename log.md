@@ -8,6 +8,17 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-03 (tarde) — 🟢 Auto-cadastro de leads na base do Disparador, por instância (v7.70.0)
+
+Dono pediu (com print da tela "Bases" vazia): leads que falam numa instância devem entrar automaticamente numa base do Disparador, prontos pra receber ofertas (ex.: quem fala no EletropisoV2 → base "EletropisoV2"). **Auditei antes de codar e descobri que a feature JÁ EXISTIA** no `whatsapp-webhook` (bloco "Auto-add contact to instance lead database", desde o commit base) **mas nascera 100% quebrada**: `total_databases=0`/`entries=0` em PROD. **Causa-raiz provada no DB** (erro `42P10` reproduzido): o upsert de criação da base usa `ON CONFLICT (instance_id)`, mas o índice único de `instance_id` é PARCIAL (`WHERE instance_id IS NOT NULL`) — Postgres não infere índice parcial sem o predicado → exceção engolida pelo `catch` fire-and-forget. Bug 2º: RPC `update_lead_count_from_entries` nunca existiu (só `recalc_lead_database_count`).
+
+**Decisões (AskUserQuestion):** toggle por instância (default OFF, ligo no EletropisoV2); sem backfill; nome da base = nome da instância.
+
+**Fix de raiz:** RPC atômica `enroll_lead_in_instance_database` (SECURITY DEFINER: checa `instance_settings.auto_enroll_broadcast_db`, garante base com predicado correto, upsert do contato via UNIQUE `(database_id,phone)`, recalc; REVOKE PUBLIC/anon/authenticated, GRANT service_role). Webhook reduzido a 1 chamada à RPC. Toggle UI `InstanceBroadcastEnrollToggle` (espelha `InstanceNotificationToggle`) em `InboxesTab`. Tipos `instance_settings` atualizados em `integrations/supabase/types.ts`.
+
+**Validação:** RPC via SQL (cria base "Eletropiso 558781592373"; idempotente; Sandbox OFF=no-op; phone curto ignorado); **E2E real ponta-a-ponta** (POST no webhook deployado pra Sandbox temporariamente ligada → base "Sandbox IA" + contato enrolado; depois revertido e dados de teste limpos); `deno check`/`tsc --noEmit` 0. Migration `20260603030000` + edge fn `whatsapp-webhook` em PROD (`prfcbfumyrrycsrcrvms`); frontend pendente push→CI→Portainer. Detalhe: [[project_auto_enroll_broadcast_v770]].
+
+---
 ## 2026-06-03 (manhã) — 🟢 Módulo de gestão de bases do Disparador + hardening do envio (v7.69.0)
 
 Dono pediu: módulo pra gerenciar bases do Disparador (editar contatos, organizar listas) + **auditoria completa do Disparador**. Auditoria em 3 frentes (Explore agents: frontend / dados / backend), achados verificados no código (descartei 2 falsos positivos: `groupjid: number` é parâmetro, não a função; e "não há DELETE de base" — existe). Escopo definido com o dono via AskUserQuestion.
