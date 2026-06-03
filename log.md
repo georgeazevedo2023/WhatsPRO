@@ -8,6 +8,16 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-03 (noite IV) — 🔔 Reatribuição do gestor notifica o novo atendente (v7.72.0)
+
+Dono pediu: ao reatribuir uma conversa no dashboard da Fila ("Sem atend." → Reatribuir), o **novo atendente** recebe a notificação no WhatsApp pessoal dele (e o anterior é avisado que saiu). Reusa a `notify-vendor-assignment` da fila automática (8 guards). Wire em `useReassignConversation` (fire-and-forget pós-RPC; falha não quebra a reatribuição) + `UnattendedLeadsTab` passa o `assigned_to` anterior. tsc 0; invocação frontend confirmada (200 skipped sem spam). Frontend-only. Commit `89cb7f8`/merge `8984e7d`. Cruza [[project_manager_attendance_dashboard]] e [[project_vendor_notif_activated_eletropisov2]].
+
+---
+## 2026-06-03 (noite III) — 🐛 Grupo + Lead: mídia também base64 → URL (v7.71.5)
+
+Estende o fix v7.71.4 aos 2 outros pontos que mandavam imagem como base64 (rejeitada pelo UAZAPI): **Enviar ao Grupo** (`SendMediaForm`) e **Enviar pra Lead** (`LeadMessageForm`). Helper novo `uploadOutboundMedia(file)` sobe pro bucket público `helpdesk-media` e devolve a URL pública (contentType/ext robustos). **E2E real:** upload ao Storage (como Michelly) → URL → proxy deployado → 200 + foto entregue → objeto limpo. tsc 0, frontend-only. Commit `3e2f6bf`/merge `3409747`. Detalhe: [[project_helpdesk_image_send_url_v7714]]. Backlog: Disparador em massa + carrossel ainda usam base64.
+
+---
 ## 2026-06-03 (noite II) — 🔴 Helpdesk: envio de FOTO ao cliente voltou a funcionar (v7.71.4)
 
 Dono: vendedores não conseguem enviar fotos aos clientes pelo Helpdesk. **Auditoria por workflow multi-agente** (`audit-helpdesk-image-send`: 5 investigadores paralelos + síntese) com **teste ao vivo**. Causa-raiz: `useSendFile.ts` subia a foto pro Storage (já tinha `filePublicUrl`) mas **descartava a URL** e mandava **base64-cru** pro `/send/media`, que o UAZAPI **rejeita** (HTTP 500 "unsupported image format"); a **URL pública é aceita+entregue** (mesmo `file: <URL>` do AI Agent em PROD). Falha invisível: o front ignorava a resposta do UAZAPI → "Imagem enviada!" fantasma. Último envio de foto por vendedor real: 2026-05-28. **Fix:** envia `filePublicUrl` + **valida a resposta** (sem fantasma) + contentType/ext robustos; `uazapi-proxy` `send-media` vira **502** em 200-com-erro + guard 16MB. **E2E real** (logado como Michelly via proxy deployado, nº controlado): URL→200+foto entregue, base64→500. Deploy: `uazapi-proxy` CLI + frontend push. tsc/deno 0. Commit `e499c37`/merge `78f5cc9`. Detalhe: [[project_helpdesk_image_send_url_v7714]]. **Backlog (mesmo root cause):** `SendMediaForm.tsx` (Enviar ao Grupo) usa base64; `MessageBubble` sem estado de falha; sem HEIC.
