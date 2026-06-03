@@ -143,8 +143,9 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
-  const fetchUsers = useCallback(async () => {
-    setUsersLoading(true);
+  const fetchUsers = useCallback(async (opts?: { silent?: boolean }) => {
+    // silent: refetch em background (ex: após criar membro) sem piscar a lista inteira.
+    if (!opts?.silent) setUsersLoading(true);
     try {
       const [profilesRes, rolesRes, accessRes, instRes, inboxUsersRes, inboxesRes, deptMembersRes, deptsRes] = await Promise.all([
         supabase.from('user_profiles').select('*').order('created_at', { ascending: false }),
@@ -206,7 +207,7 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
     } catch (err) {
       handleError(err, 'Erro ao carregar usuários');
     } finally {
-      setUsersLoading(false);
+      if (!opts?.silent) setUsersLoading(false);
     }
   }, []);
 
@@ -332,26 +333,27 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
       const newUserId = result.user?.id;
 
       if (newUserId) {
-        // Vincular instância
+        // Vínculos (instância / caixa / departamentos) em PARALELO — eram em série.
+        const linkOps: PromiseLike<unknown>[] = [];
         if (newUserInstanceId) {
-          await supabase.from('user_instance_access').insert({ user_id: newUserId, instance_id: newUserInstanceId });
+          linkOps.push(supabase.from('user_instance_access').insert({ user_id: newUserId, instance_id: newUserInstanceId }));
         }
-        // Vincular caixa de entrada
         if (newUserInboxId) {
-          await supabase.from('inbox_users').insert({ user_id: newUserId, inbox_id: newUserInboxId, role: 'agente' as InboxRole, ...ROLE_DEFAULT_VISIBILITY.agente });
+          linkOps.push(supabase.from('inbox_users').insert({ user_id: newUserId, inbox_id: newUserInboxId, role: 'agente' as InboxRole, ...ROLE_DEFAULT_VISIBILITY.agente }));
         }
-        // Vincular departamentos
         if (newUserDeptIds.size > 0) {
           const deptInserts = Array.from(newUserDeptIds).map(deptId => ({ user_id: newUserId, department_id: deptId }));
-          await supabase.from('department_members').insert(deptInserts);
+          linkOps.push(supabase.from('department_members').insert(deptInserts));
         }
+        if (linkOps.length > 0) await Promise.all(linkOps);
       }
 
       toast.success('Membro criado e vinculado!');
       setIsCreateUserOpen(false);
       setNewUserEmail(''); setNewUserPassword(''); setNewUserName(''); setNewUserRole('user');
       setNewUserInstanceId(''); setNewUserInboxId(''); setNewUserDeptIds(new Set());
-      fetchUsers();
+      // Refetch silencioso: a lista atualiza sem piscar o estado de "carregando".
+      fetchUsers({ silent: true });
     } catch (err) {
       handleError(err, 'Erro ao criar membro');
     } finally {

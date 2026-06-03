@@ -75,17 +75,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Audit log: record admin action (non-blocking)
+    // Audit log: record admin action. Fire-and-forget via waitUntil — NÃO bloqueia
+    // a resposta (o cliente fica em "Criando..." até a resposta voltar). O log
+    // completa em background sem ser perdido (padrão usado em ai-agent-debounce etc).
     if (newUser.user) {
-      try {
-        await adminClient.rpc('log_admin_action', {
-          p_user_id: callerId,
-          p_action: 'create_user',
-          p_target_table: 'auth.users',
-          p_target_id: newUser.user.id,
-          p_details: { email, role: userRole, full_name: full_name || null },
-        })
-      } catch { /* audit log is non-blocking */ }
+      const auditPromise = adminClient.rpc('log_admin_action', {
+        p_user_id: callerId,
+        p_action: 'create_user',
+        p_target_table: 'auth.users',
+        p_target_id: newUser.user.id,
+        p_details: { email, role: userRole, full_name: full_name || null },
+      }).then(() => {}, () => { /* audit log is non-blocking */ })
+      if (typeof (globalThis as any).EdgeRuntime?.waitUntil === 'function') {
+        ;(globalThis as any).EdgeRuntime.waitUntil(auditPromise)
+      }
     }
 
     log.info('User created', { email, role: userRole, created_by: callerId })
