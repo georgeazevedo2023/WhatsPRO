@@ -8,6 +8,13 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-03 (tarde III) — 🐛 Cadastro de membro travando em "Criando..." (getAccessToken/getSession) — v7.71.1
+
+Dono mandou print: "Novo Membro" preso em "Criando...". **Diagnóstico com dados:** logs de edge function NÃO mostravam `admin-create-user` (a req nunca saiu do navegador); `edgeFunctionFetch` faz `await getAccessToken()` antes do fetch; `getAccessToken` = `supabase.auth.getSession()` CRU sem timeout → trava em sessão zumbi (mesma família do v7.62.1 `fetch_messages_timeout`, que cobriu o Helpdesk mas deixou `getAccessToken` de fora). Afeta TODA edge fn via `edgeFunctionFetch`.
+
+**Fix:** `resolveSession()` em `useAuthSession.ts` — `getSession()` com teto de 3s (`withTimeout`) + fallback no token persistido no localStorage (`readPersistedSession`); token expirado → trata como sem sessão. `getAccessToken` e `getSessionUserId` usam o helper. **E2E real (Playwright dev local):** criei membro de teste → criou em ~1-2s sem travar (confirmado em `auth.users`), excluí (cleanup SQL). tsc 0. Frontend-only. Detalhe: [[project_member_create_hang_v7711]].
+
+---
 ## 2026-06-03 (tarde II) — 🟢 Importação em massa na base existente: lista/CSV/.vcf/grupos (v7.71.0)
 
 Dono pediu: no "Gerenciar Base de Leads" (só tinha add manual 1-a-1), importar em massa por digitação de lista, CSV, .vcf e grupos. Explorei e descobri que 3 modos JÁ existiam como abas reutilizáveis do wizard (`PasteTab`/`CsvTab`/`GroupsTab`, devolvem `Lead[]` sem tocar o DB); só vCard não existia.
