@@ -331,12 +331,21 @@ Deno.serve(async (req) => {
         }
 
         const mediaEndpoint = `${uazapiUrl}/send/media`
-        
+
         const isBase64 = body.mediaUrl.startsWith('data:')
-        const fileValue = isBase64 
+        const fileValue = isBase64
           ? body.mediaUrl.split(',')[1] || body.mediaUrl
           : body.mediaUrl
-        
+
+        // Guard de tamanho p/ base64 (paridade com 'send-audio'). O caminho via
+        // URL pública (recomendado) não infla payload. ~16MB base64 ≈ ~12MB reais.
+        if (isBase64 && fileValue.length > 16 * 1024 * 1024) {
+          return new Response(
+            JSON.stringify({ error: 'Mídia base64 acima do limite (16MB). Envie um arquivo menor ou use URL.' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+
         const mediaBody: Record<string, unknown> = {
           number: mediaDestination,
           type: body.mediaType,
@@ -360,19 +369,30 @@ Deno.serve(async (req) => {
         log.info('Media response status', { status: mediaResponse.status })
         
         const mediaRawText = await mediaResponse.text()
-        
+
         let mediaData: unknown
         try {
           mediaData = JSON.parse(mediaRawText)
         } catch {
           mediaData = { raw: mediaRawText }
         }
-        
+
+        // Fim do passthrough cego: o UAZAPI às vezes responde HTTP 200 com corpo
+        // de erro (sessão desconectada, número inválido, mídia recusada). Sem
+        // isto, o cliente trataria como sucesso e marcaria "enviado" sem o
+        // cliente final receber. Promovemos esse caso a 502 → o chamador lança.
+        const mediaErr = (mediaData && typeof mediaData === 'object')
+          ? (mediaData as Record<string, unknown>).error
+          : undefined
+        const mediaStatus = (mediaResponse.ok && !mediaErr)
+          ? 200
+          : (mediaResponse.ok ? 502 : mediaResponse.status)
+
         return new Response(
           JSON.stringify(mediaData),
-          { 
-            status: mediaResponse.status, 
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          {
+            status: mediaStatus,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           }
         )
       }

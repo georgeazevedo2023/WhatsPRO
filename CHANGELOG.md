@@ -13,6 +13,21 @@ audited_at: 2026-06-03
 
 ---
 
+### v7.71.4 (2026-06-03) — 🔴 Helpdesk: envio de FOTO ao cliente voltou a funcionar (base64 → URL)
+
+**Crítico.** Vendedores/atendentes não conseguiam enviar fotos aos clientes. Auditoria multi-agente com **teste ao vivo** provou a causa-raiz: o Helpdesk mandava a imagem como **base64-cru** no `/send/media` da UAZAPI, que **rejeita** (`HTTP 500 "unsupported image format"`); a **URL pública do Storage** — que o frontend já tinha em mãos e **descartava** — é **aceita e entregue** (mesmo `file: <URL>` que o AI Agent usa em PROD). A falha era invisível porque o frontend **ignorava a resposta** do UAZAPI. Dado de PROD: último envio de foto por vendedor foi **2026-05-28** (vendedores tentaram, falhou, desistiram).
+
+- **`useSendFile.ts`:** envia `filePublicUrl` (URL do Storage) em vez de base64; contentType/extensão robustos (fallback `image/jpeg` quando o mobile manda `file.type` vazio → evita `octet-stream`); **valida a resposta** (só marca "enviada" com `messageid`/`id`; senão lança erro real e **NÃO insere msg-fantasma no DB**).
+- **`uazapi-proxy` (case `send-media`):** fim do passthrough cego — UAZAPI 200-com-corpo-de-erro vira **502** (o chamador lança de fato); **guard de tamanho** 16MB no base64 (paridade com `send-audio`).
+
+**Verificação E2E real** (logado como Michelly, via proxy deployado, número controlado `5581993856099`): URL → **200 + foto entregue**; base64 → **500** (erro agora aparece). **Não é regressão** (cadeia congelada desde 2026-03-23) **nem storage** (bucket `helpdesk-media` público).
+
+**Deploy:** edge fn `uazapi-proxy` (CLI scoop) + frontend via push. `tsc` 0, `deno check` 0.
+
+**Achados correlatos (mesmo root cause — backlog, fora do escopo do Helpdesk):** `SendMediaForm.tsx` (Enviar ao Grupo) converte arquivo em base64 (`fileToBase64`) → mesmo bug ao subir foto a grupo; `MessageBubble` não reflete falha de entrega na UI; `accept` do anexo não inclui HEIC (iPhone).
+
+---
+
 ### v7.71.3 (2026-06-03) — 🐛 Cadastro de membro: criação atômica server-side (fim do "Criando..." eterno + órfão)
 
 Fecha a **2ª causa-raiz** do travamento em "Criando..." (caso real: cadastro da Michelly). A v7.71.1 cobriu o `getSession` zumbi, mas o fluxo ainda fazia **4 chamadas de rede**: 1 edge fn (auth+papel) + **3 inserts no cliente** (instância/caixa/departamento via `Promise.all`). Numa oscilação de rede (`ERR_NAME_NOT_RESOLVED`/DNS), o `Promise.all` pendurava pra sempre **e** deixava o membro **órfão** (auth+papel criados, sem vínculos).
