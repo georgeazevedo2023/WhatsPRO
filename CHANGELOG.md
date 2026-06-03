@@ -13,6 +13,20 @@ audited_at: 2026-06-03
 
 ---
 
+### v7.71.3 (2026-06-03) — 🐛 Cadastro de membro: criação atômica server-side (fim do "Criando..." eterno + órfão)
+
+Fecha a **2ª causa-raiz** do travamento em "Criando..." (caso real: cadastro da Michelly). A v7.71.1 cobriu o `getSession` zumbi, mas o fluxo ainda fazia **4 chamadas de rede**: 1 edge fn (auth+papel) + **3 inserts no cliente** (instância/caixa/departamento via `Promise.all`). Numa oscilação de rede (`ERR_NAME_NOT_RESOLVED`/DNS), o `Promise.all` pendurava pra sempre **e** deixava o membro **órfão** (auth+papel criados, sem vínculos).
+
+- **Criação atômica server-side:** `admin-create-user` agora recebe `instance_id`/`inbox_id`/`department_ids` e faz os 3 vínculos **idempotentes** numa única requisição. Se a rede cair depois que a fn terminou, está tudo criado (um refresh mostra o membro inteiro) — sem órfão, sem "e-mail já existe" no retry.
+- **Recuperação self-healing:** se o e-mail já existir de um cadastro interrompido, a fn recupera o usuário e completa os vínculos que faltam (em vez de falhar). Nova RPC `admin_find_auth_user_by_email` (SECURITY DEFINER, grant só `service_role`).
+- **Timeout no `edgeFunctionFetch`:** `AbortController` de 60s → nenhuma chamada a edge function pendura infinitamente (backstop contra qualquer hang de rede).
+- **Frontend:** `UsersTab.tsx` passa os vínculos pra edge fn e **removeu os 3 inserts client-side**.
+- **Caso Michelly:** estava meio-criada (auth+papel sem vínculos) → completei os 3 vínculos direto no DB; loga como Gerente (`michelly@eletropiso.com.br`).
+
+**Deploy:** edge fn `admin-create-user` v4 (CLI scoop, PAT eletropiso) + migration aplicada em PROD + frontend via push. `deno check` 0, `tsc` 0, smoke test runtime 403 OK (boot limpo).
+
+---
+
 ### v7.71.2 (2026-06-03) — ⚡ Fluxo de criar membro mais rápido (paralelização + refetch silencioso)
 
 Complemento da v7.71.1. Otimizações no fluxo de "Novo Membro" (`/dashboard/admin/users`):

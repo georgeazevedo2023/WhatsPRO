@@ -329,26 +329,32 @@ const UsersTab: React.FC<Props> = ({ onCreateUser, openCreate, onOpenCreateChang
     if (!newUserEmail.trim() || !newUserPassword.trim()) { toast.error('Email e senha são obrigatórios'); return; }
     setIsCreatingUser(true);
     try {
-      const result = await edgeFunctionFetch<{ success: boolean; user: { id: string; email: string } }>('admin-create-user', { email: newUserEmail, password: newUserPassword, full_name: newUserName, role: newUserRole });
-      const newUserId = result.user?.id;
+      // Criação + vínculos numa ÚNICA chamada atômica server-side. Antes os 3
+      // vínculos eram inseridos AQUI no cliente após a criação; numa oscilação
+      // de rede o Promise.all pendurava "Criando..." pra sempre e deixava o
+      // membro órfão (auth criado, sem vínculos). Agora a edge fn faz tudo (e é
+      // idempotente: se o e-mail já existir de um cadastro interrompido, ela
+      // recupera e completa os vínculos que faltam).
+      const result = await edgeFunctionFetch<{ success: boolean; existed?: boolean; link_errors?: string[]; user: { id: string; email: string } }>(
+        'admin-create-user',
+        {
+          email: newUserEmail,
+          password: newUserPassword,
+          full_name: newUserName,
+          role: newUserRole,
+          instance_id: newUserInstanceId || null,
+          inbox_id: newUserInboxId || null,
+          department_ids: newUserDeptIds.size > 0 ? Array.from(newUserDeptIds) : [],
+        },
+      );
 
-      if (newUserId) {
-        // Vínculos (instância / caixa / departamentos) em PARALELO — eram em série.
-        const linkOps: PromiseLike<unknown>[] = [];
-        if (newUserInstanceId) {
-          linkOps.push(supabase.from('user_instance_access').insert({ user_id: newUserId, instance_id: newUserInstanceId }));
-        }
-        if (newUserInboxId) {
-          linkOps.push(supabase.from('inbox_users').insert({ user_id: newUserId, inbox_id: newUserInboxId, role: 'agente' as InboxRole, ...ROLE_DEFAULT_VISIBILITY.agente }));
-        }
-        if (newUserDeptIds.size > 0) {
-          const deptInserts = Array.from(newUserDeptIds).map(deptId => ({ user_id: newUserId, department_id: deptId }));
-          linkOps.push(supabase.from('department_members').insert(deptInserts));
-        }
-        if (linkOps.length > 0) await Promise.all(linkOps);
+      if (result.link_errors && result.link_errors.length > 0) {
+        toast.warning('Membro criado, mas alguns vínculos falharam. Revise nos detalhes do membro.');
+      } else if (result.existed) {
+        toast.success('Membro já existia — vínculos completados!');
+      } else {
+        toast.success('Membro criado e vinculado!');
       }
-
-      toast.success('Membro criado e vinculado!');
       setIsCreateUserOpen(false);
       setNewUserEmail(''); setNewUserPassword(''); setNewUserName(''); setNewUserRole('user');
       setNewUserInstanceId(''); setNewUserInboxId(''); setNewUserDeptIds(new Set());
