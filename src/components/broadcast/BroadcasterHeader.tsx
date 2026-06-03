@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
-import { Server, Database } from 'lucide-react';
+import { Database } from 'lucide-react';
 import type { Instance } from '@/types';
+import { InstanceAvatar } from '@/components/instances/InstanceAvatar';
 
 interface LeadDatabase {
   id: string;
@@ -39,7 +40,12 @@ const BroadcasterHeader = ({
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-3 sm:px-4 py-2.5 bg-muted/40 rounded-lg border text-sm">
       <div className="flex items-center gap-2 text-muted-foreground">
-        <Server className="w-4 h-4 shrink-0" />
+        <InstanceAvatar
+          src={instance.profile_pic_url}
+          name={instance.name}
+          instanceId={instance.id}
+          size={24}
+        />
         <span className="font-medium text-foreground truncate">{instance.name}</span>
         {onChangeInstance && (
           <Button
