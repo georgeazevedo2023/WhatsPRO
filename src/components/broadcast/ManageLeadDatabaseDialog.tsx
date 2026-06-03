@@ -36,6 +36,7 @@ import {
   ChevronRight,
   X,
   ArrowRightLeft,
+  Upload,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -43,6 +44,7 @@ import { formatPhoneForDisplay } from '@/lib/phoneUtils';
 import type { LeadDatabase, LeadEntry } from './leadDatabaseTypes';
 import EditContactDialog from './EditContactDialog';
 import MoveContactsDialog from './MoveContactsDialog';
+import ImportContactsDialog from './ImportContactsDialog';
 
 interface ManageLeadDatabaseDialogProps {
   open: boolean;
@@ -74,6 +76,7 @@ const ManageLeadDatabaseDialog = ({
 
   // Add contact
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [newPhone, setNewPhone] = useState('');
   const [newName, setNewName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -470,15 +473,26 @@ const ManageLeadDatabaseDialog = ({
                 </div>
               </div>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full border-dashed"
-                onClick={() => setShowAddForm(true)}
-              >
-                <UserPlus className="w-4 h-4 mr-2" />
-                Adicionar contato manualmente
-              </Button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 border-dashed"
+                  onClick={() => setShowAddForm(true)}
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Adicionar contato manualmente
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 border-dashed"
+                  onClick={() => setShowImport(true)}
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Importar lista, CSV, .vcf ou grupos
+                </Button>
+              </div>
             )}
 
             {/* Search */}
@@ -712,6 +726,18 @@ const ManageLeadDatabaseDialog = ({
         entryIds={Array.from(selectedIds)}
         currentDatabaseId={database.id}
         onDone={handleMoveDone}
+      />
+
+      {/* Bulk import: list / CSV / vCard / groups */}
+      <ImportContactsDialog
+        open={showImport}
+        onOpenChange={setShowImport}
+        database={database}
+        existingPhones={entries.map((e) => e.phone)}
+        onImported={async () => {
+          const fresh = await fetchEntries();
+          await updateLeadsCount(fresh.length);
+        }}
       />
 
       {/* Bulk delete confirmation */}

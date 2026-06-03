@@ -15,7 +15,7 @@ export interface Lead {
   phone: string;
   name?: string;
   jid: string;
-  source: 'manual' | 'paste' | 'group';
+  source: 'manual' | 'paste' | 'group' | 'vcf';
   groupName?: string;
   isVerified?: boolean;
   verifiedName?: string;
