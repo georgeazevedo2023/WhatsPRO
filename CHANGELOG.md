@@ -13,6 +13,14 @@ audited_at: 2026-06-03
 
 ---
 
+### v7.71.1 (2026-06-03) — 🐛 Cadastro de membro (e toda edge function) travando em "Criando..."
+
+Dono reportou: criar novo membro (`/dashboard/admin/users`) ficava preso em "Criando...". **Causa-raiz** (logs + código): `getAccessToken` (`src/hooks/useAuthSession.ts`) fazia `await supabase.auth.getSession()` **cru, sem timeout** — e o `getSession()` do supabase-js **trava** em sessão zumbi (token perto de expirar + aba antiga; mesma família do `fetch_messages_timeout`/v7.62.1). Como `edgeFunctionFetch` chama `getAccessToken()` **antes** do fetch, a requisição nunca saía do navegador — nos logs, `admin-create-user` **não aparecia nenhuma vez**. Afetava **toda** edge function chamada via `edgeFunctionFetch`.
+
+**Fix:** `getAccessToken`/`getSessionUserId` resolvem a sessão de forma resiliente (`resolveSession`): `getSession()` corre contra um teto de 3s e, se travar/expirar, cai no token **já persistido no localStorage** (válido enquanto não expirou); token expirado → "Sessão expirada" em vez de travar para sempre. **E2E real (Playwright, dev local):** criar membro voltou a funcionar (~1-2s, sem travar; confirmado em `auth.users`, usuário de teste excluído). `tsc` 0. Frontend-only — via push→CI.
+
+---
+
 ### v7.71.0 (2026-06-03) — 🟢 Importação em massa de contatos na base existente (lista / CSV / .vcf / grupos)
 
 No "Gerenciar Base de Leads" (que só tinha "Adicionar contato manualmente", 1 por vez) agora dá pra importar em massa por 4 modos. **Descoberta:** 3 já existiam como abas reutilizáveis do wizard de envio (`PasteTab`/`CsvTab`/`GroupsTab` — devolvem `Lead[]` sem tocar o DB); só faltava o vCard.
