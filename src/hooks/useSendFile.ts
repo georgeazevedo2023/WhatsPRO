@@ -53,12 +53,24 @@ export function useSendFile(): UseSendFileReturn {
 
       setSendingFile(true);
       try {
-        // Upload to storage
-        const ext = file.name.split('.').pop() || 'bin';
+        const isImage = file.type.startsWith('image/');
+        const mediaType = isImage ? 'image' : 'document';
+
+        // contentType/extensão robustos: fotos de câmera/share mobile às vezes
+        // chegam com file.type vazio (Storage gravaria octet-stream) ou file.name
+        // sem extensão. Como mandamos a URL pública pro UAZAPI BAIXAR do CDN, o
+        // objeto PRECISA ter content-type de imagem e a URL uma extensão coerente,
+        // senão o UAZAPI não decodifica ("unsupported image format").
+        const resolvedContentType = file.type || (isImage ? 'image/jpeg' : 'application/octet-stream');
+        const extFromName = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+        const extFromType = resolvedContentType.split('/')[1]?.split(';')[0];
+        const ext = extFromName || extFromType || (isImage ? 'jpg' : 'bin');
         const fileName = `${conversationId}/${Date.now()}.${ext}`;
+
+        // Upload to storage
         const { error: uploadError } = await supabase.storage
           .from('helpdesk-media')
-          .upload(fileName, file, { contentType: file.type });
+          .upload(fileName, file, { contentType: resolvedContentType });
         if (uploadError) throw uploadError;
 
         const { data: publicUrlData } = supabase.storage
@@ -66,26 +78,27 @@ export function useSendFile(): UseSendFileReturn {
           .getPublicUrl(fileName);
         const filePublicUrl = publicUrlData.publicUrl;
 
-        // Convert to base64 for UAZAPI (using FileReader for efficiency)
-        const dataUri = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = () => reject(new Error('Failed to read file'));
-          reader.readAsDataURL(file);
-        });
-
-        const isImage = file.type.startsWith('image/');
-        const mediaType = isImage ? 'image' : 'document';
-
-        await uazapiProxy({
+        // Envia a URL PÚBLICA do Storage (UAZAPI baixa do CDN) — NÃO base64.
+        // Comprovado em teste ao vivo: base64-cru é REJEITADO pelo UAZAPI
+        // ("failed to decode image: unsupported image format"); a URL é aceita e
+        // entregue. É o mesmo `file: <URL>` que o AI Agent usa em PROD diariamente.
+        const sendResult = await uazapiProxy({
           action: 'send-media',
           instance_id: instanceId,
           jid: contactJid,
-          mediaUrl: dataUri,
+          mediaUrl: filePublicUrl,
           mediaType,
           filename: isImage ? undefined : file.name,
           caption: '',
-        });
+        }) as Record<string, unknown> | null;
+
+        // NÃO marcar "enviado" sem o UAZAPI confirmar (fim do envio-fantasma):
+        // sucesso = corpo sem `error` e com messageid/id. Caso contrário lança →
+        // o catch mostra erro real e a msg NÃO é inserida no DB.
+        const sentOk = !!sendResult && !sendResult.error && (!!sendResult.messageid || !!sendResult.id);
+        if (!sentOk) {
+          throw new Error((sendResult?.error as string) || 'O WhatsApp não confirmou o envio. Tente novamente.');
+        }
 
         // Save to DB
         const { data: insertedMsg, error } = await supabase
