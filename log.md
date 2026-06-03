@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-03 (tarde IV) — ⚡ Otimização do fluxo de criar membro (v7.71.2)
+
+Complemento da v7.71.1 (que destravou). Otimizei o fluxo: (1) os 3 vínculos pós-criação (instância/caixa/departamento) viram `Promise.all` (eram série); (2) `fetchUsers` ganha opção `silent` — refetch pós-criação sem flash de loading; (3) edge fn `admin-create-user` move `log_admin_action` pra `EdgeRuntime.waitUntil` (resposta volta antes, log completa em background; padrão do projeto). **E2E real (Playwright dev local):** criei membro com instância+caixa+departamento → 3 vínculos criados (DB confirma), role único 'user', sem travar; excluí. tsc/deno 0. Edge fn deployada (CLI); frontend pendente push→CI→Portainer. Detalhe: [[project_member_create_hang_v7711]].
+
+---
 ## 2026-06-03 (tarde III) — 🐛 Cadastro de membro travando em "Criando..." (getAccessToken/getSession) — v7.71.1
 
 Dono mandou print: "Novo Membro" preso em "Criando...". **Diagnóstico com dados:** logs de edge function NÃO mostravam `admin-create-user` (a req nunca saiu do navegador); `edgeFunctionFetch` faz `await getAccessToken()` antes do fetch; `getAccessToken` = `supabase.auth.getSession()` CRU sem timeout → trava em sessão zumbi (mesma família do v7.62.1 `fetch_messages_timeout`, que cobriu o Helpdesk mas deixou `getAccessToken` de fora). Afeta TODA edge fn via `edgeFunctionFetch`.

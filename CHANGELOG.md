@@ -13,6 +13,17 @@ audited_at: 2026-06-03
 
 ---
 
+### v7.71.2 (2026-06-03) — ⚡ Fluxo de criar membro mais rápido (paralelização + refetch silencioso)
+
+Complemento da v7.71.1. Otimizações no fluxo de "Novo Membro" (`/dashboard/admin/users`):
+- **Vínculos em paralelo:** os 3 vínculos pós-criação (`user_instance_access` / `inbox_users` / `department_members`) eram em SÉRIE (3 round-trips) → agora `Promise.all` (1 round-trip).
+- **Refetch silencioso:** após criar, `fetchUsers({ silent: true })` atualiza a lista sem piscar o estado de "carregando" (antes recarregava 8 queries com flash visível).
+- **Edge fn `admin-create-user`:** o log de auditoria (`log_admin_action`) saiu do caminho crítico via `EdgeRuntime.waitUntil` (resposta volta antes; log completa em background sem perda — padrão já usado em `ai-agent-debounce`/`whatsapp-webhook`).
+
+**E2E real (Playwright, dev local):** criar membro COM instância+caixa+departamento → os 3 vínculos criados (confirmado no DB), role único correto, sem travar; usuário de teste excluído. `tsc`/`deno check` 0. Edge fn deployada (CLI); frontend via push→CI.
+
+---
+
 ### v7.71.1 (2026-06-03) — 🐛 Cadastro de membro (e toda edge function) travando em "Criando..."
 
 Dono reportou: criar novo membro (`/dashboard/admin/users`) ficava preso em "Criando...". **Causa-raiz** (logs + código): `getAccessToken` (`src/hooks/useAuthSession.ts`) fazia `await supabase.auth.getSession()` **cru, sem timeout** — e o `getSession()` do supabase-js **trava** em sessão zumbi (token perto de expirar + aba antiga; mesma família do `fetch_messages_timeout`/v7.62.1). Como `edgeFunctionFetch` chama `getAccessToken()` **antes** do fetch, a requisição nunca saía do navegador — nos logs, `admin-create-user` **não aparecia nenhuma vez**. Afetava **toda** edge function chamada via `edgeFunctionFetch`.
