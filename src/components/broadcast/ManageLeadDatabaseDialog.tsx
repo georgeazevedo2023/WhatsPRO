@@ -22,6 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Search,
   User,
@@ -34,32 +35,14 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { formatPhoneForDisplay } from '@/lib/phoneUtils';
-
-interface LeadDatabase {
-  id: string;
-  name: string;
-  description: string | null;
-  leads_count: number;
-  created_at: string;
-  updated_at: string;
-  instance_id?: string | null;
-}
-
-interface LeadEntry {
-  id: string;
-  phone: string;
-  name: string | null;
-  jid: string;
-  source: string | null;
-  group_name: string | null;
-  is_verified: boolean | null;
-  verified_name: string | null;
-  verification_status: string | null;
-}
+import type { LeadDatabase, LeadEntry } from './leadDatabaseTypes';
+import EditContactDialog from './EditContactDialog';
+import MoveContactsDialog from './MoveContactsDialog';
 
 interface ManageLeadDatabaseDialogProps {
   open: boolean;
@@ -99,8 +82,17 @@ const ManageLeadDatabaseDialog = ({
   const [deleteTarget, setDeleteTarget] = useState<LeadEntry | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchEntries = useCallback(async () => {
-    if (!database) return;
+  // Edit single contact
+  const [editTarget, setEditTarget] = useState<LeadEntry | null>(null);
+
+  // Bulk selection / move / bulk delete
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showMove, setShowMove] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  const fetchEntries = useCallback(async (): Promise<LeadEntry[]> => {
+    if (!database) return [];
     setIsLoading(true);
     try {
       // Paginated fetch to get all entries
@@ -125,9 +117,11 @@ const ManageLeadDatabaseDialog = ({
 
       if (error) throw error;
       setEntries(data || []);
+      return data || [];
     } catch (error) {
       console.error('Error fetching entries:', error);
       toast.error('Erro ao carregar contatos');
+      return [];
     } finally {
       setIsLoading(false);
     }
@@ -140,6 +134,7 @@ const ManageLeadDatabaseDialog = ({
       setCurrentPage(1);
       setShowAddForm(false);
       setIsEditingMeta(false);
+      setSelectedIds(new Set());
       setEditName(database.name);
       setEditDescription(database.description || '');
     }
@@ -276,6 +271,69 @@ const ManageLeadDatabaseDialog = ({
     } finally {
       setIsDeleting(false);
       setDeleteTarget(null);
+    }
+  };
+
+  const handleEditSaved = (updated: LeadEntry) => {
+    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allFilteredSelected =
+    filteredEntries.length > 0 && filteredEntries.every((e) => selectedIds.has(e.id));
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filteredEntries.forEach((e) => next.delete(e.id));
+      } else {
+        filteredEntries.forEach((e) => next.add(e.id));
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  // Após mover/copiar: recarrega entries da base atual e sincroniza o contador
+  // exibido na lista pai (a base origem perdeu os contatos movidos).
+  const handleMoveDone = async () => {
+    clearSelection();
+    const list = await fetchEntries();
+    if (database) onDatabaseUpdated({ ...database, leads_count: list.length });
+  };
+
+  const handleBulkDelete = async () => {
+    if (!database || selectedIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const { error } = await supabase
+        .from('lead_database_entries')
+        .delete()
+        .in('id', ids);
+      if (error) throw error;
+
+      const newEntries = entries.filter((e) => !selectedIds.has(e.id));
+      setEntries(newEntries);
+      await updateLeadsCount(newEntries.length);
+      clearSelection();
+      toast.success(`${ids.length} contato${ids.length !== 1 ? 's' : ''} removido${ids.length !== 1 ? 's' : ''}`);
+    } catch (err) {
+      console.error('Error bulk deleting:', err);
+      toast.error('Erro ao remover contatos');
+    } finally {
+      setIsBulkDeleting(false);
+      setBulkDeleteOpen(false);
     }
   };
 
@@ -434,11 +492,55 @@ const ManageLeadDatabaseDialog = ({
               />
             </div>
 
-            {/* Counter */}
-            <div className="text-xs text-muted-foreground">
-              {search && filteredEntries.length !== entries.length
-                ? `${filteredEntries.length} de ${entries.length} contatos`
-                : `${entries.length} contato${entries.length !== 1 ? 's' : ''}`}
+            {/* Selection header + counter + bulk actions */}
+            <div className="flex items-center justify-between gap-2 flex-wrap min-h-7">
+              <div className="flex items-center gap-2">
+                {filteredEntries.length > 0 && (
+                  <Checkbox
+                    checked={allFilteredSelected}
+                    onCheckedChange={toggleSelectAllFiltered}
+                    aria-label="Selecionar todos os contatos visíveis"
+                  />
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {selectedIds.size > 0
+                    ? `${selectedIds.size} selecionado${selectedIds.size !== 1 ? 's' : ''}`
+                    : search && filteredEntries.length !== entries.length
+                    ? `${filteredEntries.length} de ${entries.length} contatos`
+                    : `${entries.length} contato${entries.length !== 1 ? 's' : ''}`}
+                </span>
+              </div>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => setShowMove(true)}
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5 mr-1" />
+                    Mover/Copiar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-destructive hover:text-destructive"
+                    onClick={() => setBulkDeleteOpen(true)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1" />
+                    Remover
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={clearSelection}
+                    aria-label="Limpar seleção"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
             </div>
 
             {/* Contact list */}
@@ -452,8 +554,16 @@ const ManageLeadDatabaseDialog = ({
                   {paginatedEntries.map((entry) => (
                     <div
                       key={entry.id}
-                      className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-colors group"
+                      className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors group ${
+                        selectedIds.has(entry.id) ? 'bg-primary/5' : 'hover:bg-muted/50'
+                      }`}
                     >
+                      <Checkbox
+                        checked={selectedIds.has(entry.id)}
+                        onCheckedChange={() => toggleSelect(entry.id)}
+                        aria-label="Selecionar contato"
+                        className="shrink-0"
+                      />
                       <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
                         <User className="w-4 h-4 text-muted-foreground" />
                       </div>
@@ -484,8 +594,18 @@ const ManageLeadDatabaseDialog = ({
                         <Button
                           variant="ghost"
                           size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => setEditTarget(entry)}
+                          aria-label="Editar contato"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={() => setDeleteTarget(entry)}
+                          aria-label="Remover contato"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -571,6 +691,46 @@ const ManageLeadDatabaseDialog = ({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? 'Removendo...' : 'Remover'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit single contact */}
+      <EditContactDialog
+        open={!!editTarget}
+        onOpenChange={(o) => !o && setEditTarget(null)}
+        entry={editTarget}
+        existingPhones={entries.map((e) => e.phone)}
+        onSaved={handleEditSaved}
+      />
+
+      {/* Move/copy selected contacts to another database */}
+      <MoveContactsDialog
+        open={showMove}
+        onOpenChange={setShowMove}
+        entryIds={Array.from(selectedIds)}
+        currentDatabaseId={database.id}
+        onDone={handleMoveDone}
+      />
+
+      {/* Bulk delete confirmation */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover {selectedIds.size} contato{selectedIds.size !== 1 ? 's' : ''}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Os contatos selecionados serão removidos desta base. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isBulkDeleting ? 'Removendo...' : 'Remover'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

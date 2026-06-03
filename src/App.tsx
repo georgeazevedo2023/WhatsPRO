@@ -27,6 +27,7 @@ const ScheduledMessages = lazy(() => import("./pages/dashboard/ScheduledMessages
 const Broadcaster = lazy(() => import("./pages/dashboard/Broadcaster"));
 const BroadcastHistoryPage = lazy(() => import("./pages/dashboard/BroadcastHistoryPage"));
 const LeadsBroadcaster = lazy(() => import("./pages/dashboard/LeadsBroadcaster"));
+const LeadDatabases = lazy(() => import("./pages/dashboard/LeadDatabases"));
 const MessageTemplatesPage = lazy(() => import("./pages/dashboard/MessageTemplatesPage"));
 const HelpDesk = lazy(() => import("./pages/dashboard/HelpDesk"));
 const QueueDashboard = lazy(() => import("./pages/dashboard/QueueDashboard"));
@@ -196,6 +197,7 @@ const AppRoutes = () => {
         <Route path="broadcast" element={<AdminRoute><ErrorBoundary section="Disparador"><Suspense fallback={<PageLoader />}><Broadcaster /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="broadcast/history" element={<AdminRoute><ErrorBoundary section="Histórico"><Suspense fallback={<PageLoader />}><BroadcastHistoryPage /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="broadcast/leads" element={<AdminRoute><ErrorBoundary section="Leads"><Suspense fallback={<PageLoader />}><LeadsBroadcaster /></Suspense></ErrorBoundary></AdminRoute>} />
+        <Route path="broadcast/databases" element={<AdminRoute><ErrorBoundary section="Bases de Leads"><Suspense fallback={<PageLoader />}><LeadDatabases /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="broadcast/templates" element={<AdminRoute><ErrorBoundary section="Templates"><Suspense fallback={<PageLoader />}><MessageTemplatesPage /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="instances" element={<AdminRoute><ErrorBoundary section="Instâncias"><Suspense fallback={<PageLoader />}><Instances /></Suspense></ErrorBoundary></AdminRoute>} />
         <Route path="instances/:id" element={<AdminRoute><ErrorBoundary section="Detalhes da Instância"><Suspense fallback={<PageLoader />}><InstanceDetails /></Suspense></ErrorBoundary></AdminRoute>} />

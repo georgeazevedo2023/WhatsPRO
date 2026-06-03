@@ -390,7 +390,7 @@ export function useLeadsBroadcaster() {
   const handleContinueToMessage = () => {
     // Warn about unverified leads
     const selectedList = leads.filter(l => selectedLeads.has(l.id));
-    const unverified = selectedList.filter(l => l.verification_status !== 'valid');
+    const unverified = selectedList.filter(l => l.verificationStatus !== 'valid');
     if (unverified.length > 0) {
       toast.warning(`${unverified.length} contato(s) não verificado(s). Mensagens podem não ser entregues.`);
     }

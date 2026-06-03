@@ -650,6 +650,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           <>
             {renderSubItem('/dashboard/broadcast', 'Grupos', undefined)}
             {renderSubItem('/dashboard/broadcast/leads', 'Leads', Contact2)}
+            {renderSubItem('/dashboard/broadcast/databases', 'Bases', Database)}
             {renderSubItem('/dashboard/broadcast/templates', 'Templates', BookMarked)}
             {renderSubItem('/dashboard/broadcast/history', 'Historico', undefined)}
           </>
