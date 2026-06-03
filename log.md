@@ -8,6 +8,16 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-03 (noite II) — 🔴 Helpdesk: envio de FOTO ao cliente voltou a funcionar (v7.71.4)
+
+Dono: vendedores não conseguem enviar fotos aos clientes pelo Helpdesk. **Auditoria por workflow multi-agente** (`audit-helpdesk-image-send`: 5 investigadores paralelos + síntese) com **teste ao vivo**. Causa-raiz: `useSendFile.ts` subia a foto pro Storage (já tinha `filePublicUrl`) mas **descartava a URL** e mandava **base64-cru** pro `/send/media`, que o UAZAPI **rejeita** (HTTP 500 "unsupported image format"); a **URL pública é aceita+entregue** (mesmo `file: <URL>` do AI Agent em PROD). Falha invisível: o front ignorava a resposta do UAZAPI → "Imagem enviada!" fantasma. Último envio de foto por vendedor real: 2026-05-28. **Fix:** envia `filePublicUrl` + **valida a resposta** (sem fantasma) + contentType/ext robustos; `uazapi-proxy` `send-media` vira **502** em 200-com-erro + guard 16MB. **E2E real** (logado como Michelly via proxy deployado, nº controlado): URL→200+foto entregue, base64→500. Deploy: `uazapi-proxy` CLI + frontend push. tsc/deno 0. Commit `e499c37`/merge `78f5cc9`. Detalhe: [[project_helpdesk_image_send_url_v7714]]. **Backlog (mesmo root cause):** `SendMediaForm.tsx` (Enviar ao Grupo) usa base64; `MessageBubble` sem estado de falha; sem HEIC.
+
+---
+## 2026-06-03 (noite I) — 🐛 Cadastro de membro atômico server-side + Michelly resolvida (v7.71.3)
+
+Dono: erro ao cadastrar Michelly (Gerente), preso em "Criando...". **Diagnóstico:** a `admin-create-user` já criava auth+perfil+papel, mas os 3 vínculos (instância/caixa/depto) eram feitos pelo **navegador** depois — travou no meio (`ERR_NAME_NOT_RESOLVED`/DNS na máquina do dono), deixando a Michelly **meio-criada** (sem vínculos). Completei os 3 vínculos da Michelly direto no DB (loga Gerente, `michelly@eletropiso.com.br`). **Fix de raiz:** vínculos movidos pra DENTRO da edge fn (criação **atômica**, 1 requisição) + recuperação self-healing se o e-mail já existir (RPC `admin_find_auth_user_by_email`) + timeout 60s no `edgeFunctionFetch` + remoção dos 3 inserts client-side. Deploy: edge fn `admin-create-user` v4 (CLI) + migration PROD + frontend push. deno/tsc 0, smoke 403. Commit `ce0a997`/merge `9449e5f`. Detalhe: [[project_member_create_hang_v7711]].
+
+---
 ## 2026-06-03 (tarde V) — 🔔 Notificação de novo lead p/ vendedor ATIVADA na EletropisoV2 + teste OK
 
 Dono pediu teste de notificação de novo lead pro atendente Thiago (+5587999031455) + auditoria. **Auditei os 8 guards da `notify-vendor-assignment`:** 7 OK (número, opt-in, não-pausado, fila ativa, horário, rate-limit 0/3, token); só o toggle `instance_settings.notifications_enabled` da EletropisoV2 estava OFF → estava **INATIVA**. Com OK do dono, **ativei** (`notifications_enabled=true` em `re662a6d32de7e0`). **Teste real:** lead de teste atribuído ao Thiago → edge fn passou os guards → `notification_log.status=sent` (msg "🔔 Novo atendimento, Thiago! … Cliente: Teste Notificação"). Lead de teste limpo; toggle mantido ON.
