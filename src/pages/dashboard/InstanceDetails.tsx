@@ -6,7 +6,7 @@ import type { Instance } from '@/types';
 import { handleError } from '@/lib/errorUtils';
 import { Button } from '@/components/ui/button';
 
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { InstanceAvatar } from '@/components/instances/InstanceAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Server, Wifi, WifiOff } from 'lucide-react';
@@ -156,12 +156,13 @@ const InstanceDetails = () => {
       {/* Informações principais */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Avatar className="w-16 h-16 border-2 border-border">
-            <AvatarImage src={instance.profile_pic_url || undefined} />
-            <AvatarFallback className="bg-secondary text-lg">
-              <Server className="w-6 h-6 text-muted-foreground" />
-            </AvatarFallback>
-          </Avatar>
+          <InstanceAvatar
+            src={instance.profile_pic_url}
+            name={instance.name}
+            instanceId={instance.id}
+            size={64}
+            className="border-2 border-border"
+          />
           <div>
             <h1 className="text-2xl font-bold">{instance.name}</h1>
             {phoneNumber && (

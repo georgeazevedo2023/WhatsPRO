@@ -8,6 +8,17 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-03 (madrugada) — 🟢 Fotos de perfil das instâncias (Disparador + telas) — v7.68.0 SHIPPED PROD
+
+Dono mandou print do **Disparador** (`/dashboard/broadcast`): avatares das instâncias quebrados/genéricos. **Causa-raiz** (confirmada no DB PROD): `instances.profile_pic_url` guardava a URL assinada do **CDN do WhatsApp** (`pps.whatsapp.net/...?oe=<expira>`), gravada uma única vez no sync — e o `oe=` já tinha **expirado** (Eletropiso ≈ abr, V2 ≈ mai; hoje jun). Sandbox IA estava `null`. Mesmo mal que contatos já tinham (resolvido via Storage).
+
+**Fix de raiz (espelha o pipeline de avatar de contato):** migration 2 colunas em `instances` (`profile_pic_storage_path` + `profile_pic_synced_at`, reusa bucket `contact-avatars`) · `_shared/avatarStorage.ts` ganha `fetchInstanceProfilePicUrl` (GET `/instance/status` → `profilePicUrl` fresco, só token) + `syncInstanceAvatar` (download→upload `instance-<id>.jpg`→UPDATE) · edge fn `refresh-instance-avatar` (verify_jwt, throttle 5min) · componente `InstanceAvatar.tsx` (espelho do `ContactAvatar`: `isStaleSrc` + rehidrata on-mount/onError, fallback ícone Server) · wire em `InstanceSelector` (Disparador), `InstanceCard`, `InstanceDetails`, `BroadcasterHeader`.
+
+**Descoberta:** `/contact/getProfilePic` (usado p/ contatos) dá **405** no servidor `wsmart.uazapi.com`; p/ a própria instância o canônico é **`GET /instance/status`** (campo `instance.profilePicUrl`). Doc local marcava `/profile/info` (404, inexistente).
+
+**E2E real:** edge fn invocada p/ as 3 instâncias → `ok:true`, `profile_pic_url` agora aponta p/ `...supabase.co/storage/...` (HTTP 200 image/jpeg, inclusive Sandbox IA que era null). Playwright no dev local (8083): Disparador exibe as **3 fotos reais** (Eletropiso azul / V2 amarelo / Sandbox Tamandaré), 0 erro de console. `tsc` 0, `deno check` 0, 29/29 testes avatarStorage. Migration + edge fn já em PROD. **Pendência: push do frontend (CI→Portainer) — dados já corrigem o visual na prod atual.**
+
+---
 ## 2026-06-02 (noite) — 🟢 Equipe: badge "WhatsApp de notificação" sempre visível (frontend)
 
 Dono pediu "deixe exibindo quais atendentes têm whatsapp de notificação cadastrado" na tela Equipe (`/dashboard/admin/users` → `UsersTab.tsx`). Os dados (`personal_whatsapp`, `notify_on_assignment`, `notifications_paused_until`) já vinham no `select * from user_profiles`, mas só apareciam no painel EXPANDIDO (`UserNotificationPanel`). Faltava na linha de badges sempre-visível (que só tinha instâncias/caixas/departamentos).

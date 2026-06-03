@@ -13,6 +13,18 @@ audited_at: 2026-06-01
 
 ---
 
+### v7.68.0 (2026-06-03) — 🟢 Fotos de perfil das instâncias permanentes (Storage) — SHIPPED PROD
+
+Avatares das instâncias apareciam quebrados no **Disparador** (e telas afins). Causa-raiz: `instances.profile_pic_url` guardava a URL assinada do CDN do WhatsApp (`pps.whatsapp.net/...?oe=<expira>`), gravada uma vez no sync e já expirada. Replicado o padrão de avatar de **contato** (Storage permanente + refresh on-demand) para instâncias.
+
+- **Migration `instance_avatar_storage`:** `instances` ganha `profile_pic_storage_path` + `profile_pic_synced_at`; reusa bucket público `contact-avatars` (paths `instance-<id>.jpg`).
+- **`_shared/avatarStorage.ts`:** `fetchInstanceProfilePicUrl` (GET `/instance/status` → `profilePicUrl`, só token — `/contact/getProfilePic` dá 405 no servidor) + `syncInstanceAvatar` (download→upload→UPDATE). `uploadAvatarToStorage` generalizado (`contactId`→`objectId`).
+- **Edge fn `refresh-instance-avatar`:** `{ instance_id }` → re-busca/sobe/grava URL pública estável; `verify_jwt=true`, throttle 5 min.
+- **`InstanceAvatar.tsx`:** espelho do `ContactAvatar` (detecta URL stale, rehidrata on-mount/onError, fallback ícone Server). Wire: `InstanceSelector` (Disparador), `InstanceCard`, `InstanceDetails`, `BroadcasterHeader`.
+- **E2E:** 3 instâncias migradas p/ Storage (HTTP 200, inclusive Sandbox IA antes `null`); Disparador exibe as 3 fotos reais via Playwright; `tsc`/`deno check` 0, 29/29 testes avatarStorage. Migration+edge fn em PROD; frontend via push→CI.
+
+---
+
 ### v7.67.0 (2026-06-02) — 🟢 Auditoria de paridade Agente IA ↔ Painel Admin: 1 bug + 2 toggles mortos religados — SHIPPED PROD
 
 Auditoria cruzando `ai_agents` (70 colunas via SQL) × `ALLOWED_FIELDS` (UI) × reads do backend × controles da UI. Achou 3 gaps reais (corrigidos) + 3 menores (anotados). Releases v7.65/66 confirmadas 100% wired (o "toggle não aparece" era só lag de build do front).

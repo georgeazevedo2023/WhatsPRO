@@ -64,6 +64,34 @@ function extFromMime(mime: string): string {
 }
 
 /**
+ * Faz fetch da UAZAPI GET /instance/status e devolve a URL da foto de perfil
+ * da PRÓPRIA instância (pps.whatsapp.net, fresca). Usa só o token — não
+ * precisa de jid. Retorna null se instância sem foto/token ou erro de rede.
+ *
+ * NB: o endpoint /contact/getProfilePic (usado p/ contatos) responde 405 no
+ * servidor wsmart.uazapi.com; para o próprio número, /instance/status é o
+ * caminho canônico (campo instance.profilePicUrl).
+ */
+export async function fetchInstanceProfilePicUrl(
+  uazapiServerUrl: string,
+  instanceToken: string,
+): Promise<string | null> {
+  if (!uazapiServerUrl || !instanceToken) return null
+  try {
+    const res = await fetchWithTimeout(`${uazapiServerUrl}/instance/status`, {
+      method: 'GET',
+      headers: { token: instanceToken },
+    }, FETCH_TIMEOUT_MS)
+    if (!res.ok) return null
+    const data = await res.json().catch(() => null)
+    const url = (data as { instance?: { profilePicUrl?: unknown } } | null)?.instance?.profilePicUrl
+    return typeof url === 'string' && url.startsWith('http') ? url : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Faz fetch da UAZAPI /contact/getProfilePic e devolve a URL nova (pps.whatsapp.net).
  * Retorna null se contato não tem foto, instância sem token, ou erro de rede.
  */
@@ -108,14 +136,15 @@ export async function downloadAvatar(url: string): Promise<{ bytes: Uint8Array; 
 
 /**
  * Sobe o binário no bucket contact-avatars e devolve {publicUrl, path}.
+ * `objectId` é a base do path (ex: contact_uuid, ou `instance-<id>`).
  */
 export async function uploadAvatarToStorage(
   supabase: SupabaseLike,
-  contactId: string,
+  objectId: string,
   bytes: Uint8Array,
   mime: string,
 ): Promise<{ publicUrl: string; path: string } | null> {
-  const path = `${contactId}.${extFromMime(mime)}`
+  const path = `${objectId}.${extFromMime(mime)}`
   const { error: upErr } = await supabase.storage.from(AVATAR_BUCKET).upload(path, bytes, {
     contentType: mime,
     upsert: true,
@@ -166,6 +195,43 @@ export async function syncContactAvatar(opts: {
       profile_pic_synced_at: new Date().toISOString(),
     })
     .eq('id', contactId)
+
+  if (updErr) return { ok: false, reason: 'db_update_failed' }
+  return { ok: true, url: uploaded.publicUrl, storagePath: uploaded.path }
+}
+
+/**
+ * Pipeline completo p/ a foto da PRÓPRIA instância:
+ * GET /instance/status → download → upload (path instance-<id>) → UPDATE instances.
+ * Usado por refresh-instance-avatar (on-demand, chamado pelo InstanceAvatar).
+ */
+export async function syncInstanceAvatar(opts: {
+  supabase: SupabaseLike
+  instanceId: string
+  uazapiServerUrl: string
+  instanceToken: string
+}): Promise<SyncResult> {
+  const { supabase, instanceId, uazapiServerUrl, instanceToken } = opts
+
+  if (!instanceToken) return { ok: false, reason: 'no_token' }
+
+  const cdnUrl = await fetchInstanceProfilePicUrl(uazapiServerUrl, instanceToken)
+  if (!cdnUrl) return { ok: false, reason: 'no_url' }
+
+  const downloaded = await downloadAvatar(cdnUrl)
+  if (!downloaded) return { ok: false, reason: 'download_failed' }
+
+  const uploaded = await uploadAvatarToStorage(supabase, `instance-${instanceId}`, downloaded.bytes, downloaded.mime)
+  if (!uploaded) return { ok: false, reason: 'upload_failed' }
+
+  const { error: updErr } = await supabase
+    .from('instances')
+    .update({
+      profile_pic_url: uploaded.publicUrl,
+      profile_pic_storage_path: uploaded.path,
+      profile_pic_synced_at: new Date().toISOString(),
+    })
+    .eq('id', instanceId)
 
   if (updErr) return { ok: false, reason: 'db_update_failed' }
   return { ok: true, url: uploaded.publicUrl, storagePath: uploaded.path }

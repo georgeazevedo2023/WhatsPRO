@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Server, Wifi, WifiOff, QrCode, MoreVertical, Trash2, Eye, UserCog, Loader2 } from 'lucide-react';
+import { InstanceAvatar } from '@/components/instances/InstanceAvatar';
+import { Wifi, WifiOff, QrCode, MoreVertical, Trash2, Eye, UserCog, Loader2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,12 +54,13 @@ const InstanceCard = ({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <Avatar className="w-12 h-12 border-2 border-border">
-              <AvatarImage src={instance.profile_pic_url || undefined} />
-              <AvatarFallback className="bg-secondary">
-                <Server className="w-5 h-5 text-muted-foreground" />
-              </AvatarFallback>
-            </Avatar>
+            <InstanceAvatar
+              src={instance.profile_pic_url}
+              name={instance.name}
+              instanceId={instance.id}
+              size={48}
+              className="border-2 border-border"
+            />
             <div>
               <h3 className="font-semibold text-foreground">{instance.name}</h3>
               {phoneNumber && (

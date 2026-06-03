@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { Server, CheckCircle2, XCircle } from 'lucide-react';
 import type { Instance } from '@/types';
 import { useInstances } from '@/hooks/useInstances';
+import { InstanceAvatar } from '@/components/instances/InstanceAvatar';
 
 
 
@@ -66,18 +67,13 @@ const InstanceSelector = ({ selectedInstance, onSelect }: InstanceSelectorProps)
             onClick={() => connected && onSelect(instance)}
           >
             <CardContent className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                {instance.profile_pic_url ? (
-                  <img
-                    src={instance.profile_pic_url}
-                    alt={instance.name}
-                    className="w-10 h-10 rounded-full object-cover"
-                  />
-                ) : (
-                  <Server className="w-5 h-5 text-muted-foreground" />
-                )}
-              </div>
-              
+              <InstanceAvatar
+                src={instance.profile_pic_url}
+                name={instance.name}
+                instanceId={instance.id}
+                size={40}
+              />
+
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{instance.name}</p>
                 <div className="flex items-center gap-1.5 mt-1">
