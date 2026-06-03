@@ -8,6 +8,13 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-03 (tarde V) — 🔔 Notificação de novo lead p/ vendedor ATIVADA na EletropisoV2 + teste OK
+
+Dono pediu teste de notificação de novo lead pro atendente Thiago (+5587999031455) + auditoria. **Auditei os 8 guards da `notify-vendor-assignment`:** 7 OK (número, opt-in, não-pausado, fila ativa, horário, rate-limit 0/3, token); só o toggle `instance_settings.notifications_enabled` da EletropisoV2 estava OFF → estava **INATIVA**. Com OK do dono, **ativei** (`notifications_enabled=true` em `re662a6d32de7e0`). **Teste real:** lead de teste atribuído ao Thiago → edge fn passou os guards → `notification_log.status=sent` (msg "🔔 Novo atendimento, Thiago! … Cliente: Teste Notificação"). Lead de teste limpo; toggle mantido ON.
+
+**Quem recebe agora:** a notif é POR ATRIBUIÇÃO INDIVIDUAL (vai só pro `assigned_to`, NÃO broadcast). Aptos (WhatsApp + opt-in) = **9/15**: Alberto, Djavan, Fernando, Flaviana, Jussara, Lucas, Nerivaldo, Rafaella, Thiago. 6 NÃO recebem por falta de `personal_whatsapp` (Alvaro, Dilma, Flávio, Josafá, Letícia, Televendas — opt-in ON, sem número). Guards por-vendedor seguem: opt-in, horário (08-18 seg-sex/08-12 sáb), rate-limit 3/h, pausa individual. Config-only (sem código/commit). Detalhe: [[project_vendor_notif_activated_eletropisov2]].
+
+---
 ## 2026-06-03 (tarde IV) — ⚡ Otimização do fluxo de criar membro (v7.71.2)
 
 Complemento da v7.71.1 (que destravou). Otimizei o fluxo: (1) os 3 vínculos pós-criação (instância/caixa/departamento) viram `Promise.all` (eram série); (2) `fetchUsers` ganha opção `silent` — refetch pós-criação sem flash de loading; (3) edge fn `admin-create-user` move `log_admin_action` pra `EdgeRuntime.waitUntil` (resposta volta antes, log completa em background; padrão do projeto). **E2E real (Playwright dev local):** criei membro com instância+caixa+departamento → 3 vínculos criados (DB confirma), role único 'user', sem travar; excluí. tsc/deno 0. Edge fn deployada (CLI); frontend pendente push→CI→Portainer. Detalhe: [[project_member_create_hang_v7711]].
