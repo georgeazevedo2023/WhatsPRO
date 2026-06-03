@@ -13,6 +13,12 @@ audited_at: 2026-06-03
 
 ---
 
+### v7.72.0 (2026-06-03) — 🔔 Reatribuição do gestor notifica o novo atendente no WhatsApp
+
+No dashboard da Fila (`/dashboard/fila` → "Sem atend." → **Reatribuir**), reatribuir uma conversa agora **notifica o novo atendente** no WhatsApp pessoal dele (e avisa o **anterior** que saiu). Reusa a `notify-vendor-assignment` da fila automática — mesmos **8 guards** (opt-in, horário comercial, rate-limit 3/h, número cadastrado, etc.). Wire em `useReassignConversation` (fire-and-forget pós-RPC; falha na notif NÃO quebra a reatribuição) + `UnattendedLeadsTab` passa o atendente anterior. `tsc` 0; invocação da fn pelo frontend (como Gerente) confirmada (200, sem spam). Frontend-only (push → CI).
+
+---
+
 ### v7.71.5 (2026-06-03) — 🐛 Grupo + Lead: envio de mídia também base64 → URL (mesmo root cause do Helpdesk)
 
 Estende o fix da v7.71.4 aos 2 pontos que ainda mandavam imagem como **base64** (rejeitada pelo UAZAPI): **Enviar ao Grupo** (`SendMediaForm`) e **Enviar pra Lead** (`LeadMessageForm`). Helper novo `uploadOutboundMedia(file)` sobe o arquivo pro bucket público `helpdesk-media` e devolve a **URL pública** (contentType/ext robustos); o UAZAPI baixa do CDN. No lead, a URL agora também **espelha no Helpdesk/log** (antes ficava vazio em upload de arquivo). **E2E real:** upload ao Storage (como Michelly) → URL pública → proxy deployado → **200 + foto entregue** ao número controlado → objeto de teste limpo. `tsc` 0, frontend-only (push → CI).

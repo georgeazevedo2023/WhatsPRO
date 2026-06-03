@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { broadcastAssignedAgent, broadcastQueueUpdate } from '@/lib/helpdeskBroadcast';
 
 export type QueuePeriod = 'today' | 'yesterday' | 'last7' | 'last15' | 'last30';
@@ -262,9 +263,11 @@ export function useReassignConversation() {
     mutationFn: async ({
       conversationId,
       assigneeId,
+      previousAssigneeId,
     }: {
       conversationId: string;
       assigneeId: string;
+      previousAssigneeId?: string | null;
     }): Promise<{ assigneeName: string }> => {
       const { data, error } = await supabase.rpc(
         'manager_reassign_conversation' as never,
@@ -275,6 +278,18 @@ export function useReassignConversation() {
       const assigneeName = (row as { assignee_name?: string } | null)?.assignee_name ?? 'atendente';
       await broadcastAssignedAgent(conversationId, assigneeId);
       await broadcastQueueUpdate(conversationId);
+
+      // Notifica o NOVO atendente no WhatsApp dele (e avisa o anterior que saiu) —
+      // reusa a MESMA fn da fila automática (`notify-vendor-assignment`, 8 guards:
+      // opt-in, horário, rate-limit, número, etc.). Fire-and-forget: uma falha na
+      // notificação NÃO quebra a reatribuição.
+      void edgeFunctionFetch('notify-vendor-assignment', {
+        conversation_id: conversationId,
+        assigned_to_id: assigneeId,
+        previous_assigned_to_id:
+          previousAssigneeId && previousAssigneeId !== assigneeId ? previousAssigneeId : null,
+      }).catch(() => { /* best-effort, não bloqueia a reatribuição */ });
+
       return { assigneeName };
     },
     onSuccess: () => {

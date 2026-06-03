@@ -80,7 +80,7 @@ function ReassignDrawer({
   const handlePick = (a: AttendantStat) => {
     if (!lead) return;
     reassign.mutate(
-      { conversationId: lead.conversation_id, assigneeId: a.user_id },
+      { conversationId: lead.conversation_id, assigneeId: a.user_id, previousAssigneeId: lead.assigned_to },
       {
         onSuccess: ({ assigneeName }) => {
           toast.success(`Reatribuído a ${assigneeName}`);
