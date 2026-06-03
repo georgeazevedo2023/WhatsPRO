@@ -8,6 +8,15 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-03 (tarde II) — 🟢 Importação em massa na base existente: lista/CSV/.vcf/grupos (v7.71.0)
+
+Dono pediu: no "Gerenciar Base de Leads" (só tinha add manual 1-a-1), importar em massa por digitação de lista, CSV, .vcf e grupos. Explorei e descobri que 3 modos JÁ existiam como abas reutilizáveis do wizard (`PasteTab`/`CsvTab`/`GroupsTab`, devolvem `Lead[]` sem tocar o DB); só vCard não existia.
+
+**Implementação (frontend-only, reaproveitamento máximo):** `ImportContactsDialog` (4 abas) com handler único que insere na base atual (phone=`jidToDigits` pra casar com os 454 em dígitos; dedup cliente+existingPhones + `ON CONFLICT DO NOTHING`; recontagem direta). Parser puro `src/lib/vcfParser.ts` (+11 testes vitest: multi-cartão, multi-TEL, N-fallback, item1.TEL, line folding, malformado) + aba `VcfTab` espelhando `CsvTab`. Grupos usa instância da base ou seletor. Botão no `ManageLeadDatabaseDialog`. `Lead.source` += `'vcf'`.
+
+**Validação:** tsc 0, vitest 11/11. **E2E real (Playwright, dev local 8083, base de teste descartável):** Colar Lista 3→2 (dedup do número duplicado), vCard 3 válidos (Joao multi-telefone→2 entradas), count=5 e telefones em dígitos conferidos no DB; base de teste deletada, base real (454) intacta. **Bug pego em dev:** `recalc_lead_database_count` chamada do front = 403 (RPC service-only revogada de `authenticated` na v7.69.0) → trocado por recontagem direta via UPDATE (RLS permite). Pendente: commit+push+Portainer. Detalhe: [[project_bulk_import_v771]].
+
+---
 ## 2026-06-03 (tarde) — 🟢 Auto-cadastro de leads na base do Disparador, por instância (v7.70.0)
 
 Dono pediu (com print da tela "Bases" vazia): leads que falam numa instância devem entrar automaticamente numa base do Disparador, prontos pra receber ofertas (ex.: quem fala no EletropisoV2 → base "EletropisoV2"). **Auditei antes de codar e descobri que a feature JÁ EXISTIA** no `whatsapp-webhook` (bloco "Auto-add contact to instance lead database", desde o commit base) **mas nascera 100% quebrada**: `total_databases=0`/`entries=0` em PROD. **Causa-raiz provada no DB** (erro `42P10` reproduzido): o upsert de criação da base usa `ON CONFLICT (instance_id)`, mas o índice único de `instance_id` é PARCIAL (`WHERE instance_id IS NOT NULL`) — Postgres não infere índice parcial sem o predicado → exceção engolida pelo `catch` fire-and-forget. Bug 2º: RPC `update_lead_count_from_entries` nunca existiu (só `recalc_lead_database_count`).

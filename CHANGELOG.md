@@ -13,6 +13,19 @@ audited_at: 2026-06-03
 
 ---
 
+### v7.71.0 (2026-06-03) — 🟢 Importação em massa de contatos na base existente (lista / CSV / .vcf / grupos)
+
+No "Gerenciar Base de Leads" (que só tinha "Adicionar contato manualmente", 1 por vez) agora dá pra importar em massa por 4 modos. **Descoberta:** 3 já existiam como abas reutilizáveis do wizard de envio (`PasteTab`/`CsvTab`/`GroupsTab` — devolvem `Lead[]` sem tocar o DB); só faltava o vCard.
+
+- **`ImportContactsDialog`** (novo) — Dialog com 4 abas (Colar Lista · CSV · vCard · Grupos) cujo callback **insere direto na base atual**: telefone normalizado pra dígitos (via `jidToDigits`, casa com os existentes), dedup contra os atuais + `ON CONFLICT (database_id, phone) DO NOTHING`, recontagem direta.
+- **Parser de vCard** `src/lib/vcfParser.ts` (novo, função pura + 11 testes) — lê arquivos `.vcf` com vários cartões e vários telefones por cartão (`FN`/`N` + todas as `TEL`, line folding RFC 6350). Aba `VcfTab` espelha o `CsvTab`.
+- Grupos: usa a instância vinculada à base; se a base não tem instância, oferece um seletor.
+- Botão "Importar lista, CSV, .vcf ou grupos" no `ManageLeadDatabaseDialog`. `Lead.source` += `'vcf'`.
+
+**Validação:** `tsc` 0, `vitest` 11/11 (parser); **E2E real no app** (dev local, base de teste descartável): Colar Lista (dedup do duplicado OK), vCard (multi-telefone → 2 entradas), count e telefone-em-dígitos conferidos no DB, base de teste removida, base real (454) intacta. **Bug pego em dev:** chamar `recalc_lead_database_count` do frontend dava 403 (RPC service-only, REVOKE de `authenticated` na v7.69.0) → trocado por recontagem direta (UPDATE permitido por RLS). Frontend-only — sem backend/migration; via push→CI.
+
+---
+
 ### v7.70.0 (2026-06-03) — 🟢 Auto-cadastro de leads na base do Disparador (por instância)
 
 Dono pediu: todo lead que mandar mensagem numa instância deve entrar automaticamente numa base do Disparador, pronta pra receber ofertas (ex.: quem fala no EletropisoV2 → base "EletropisoV2"). **Descoberta na auditoria:** a feature já existia no `whatsapp-webhook` (bloco "Auto-add contact to instance lead database") mas estava **deployada e 100% quebrada** (`total_databases=0` em PROD). **Causa-raiz provada no DB** (erro `42P10` reproduzido): o upsert de criação da base usava `ON CONFLICT (instance_id)`, mas o índice único de `instance_id` é **parcial** (`WHERE instance_id IS NOT NULL`) — Postgres não infere índice parcial sem predicado → exceção engolida pelo `catch` fire-and-forget. Bug 2º: a RPC `update_lead_count_from_entries` nunca existiu.
