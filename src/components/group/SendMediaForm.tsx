@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
 import { getSessionUserId, getAccessToken } from '@/hooks/useAuthSession';
 import { uazapiProxyRaw } from '@/lib/uazapiClient';
+import { uploadOutboundMedia } from '@/lib/uploadOutboundMedia';
 import { Image, FileIcon, Upload, Send, X, Video, Mic, Users, Clock } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
@@ -148,7 +149,9 @@ const SendMediaForm = ({ instanceToken, groupJid, groupName, participants, onMed
   };
 
   const handleSend = async () => {
-    const finalMediaUrl = selectedFile ? await fileToBase64(selectedFile) : mediaUrl.trim();
+    // Arquivo selecionado → sobe pro Storage e envia a URL (UAZAPI baixa do CDN).
+    // NUNCA base64: o UAZAPI rejeita imagem base64 ("unsupported image format").
+    const finalMediaUrl = selectedFile ? await uploadOutboundMedia(selectedFile, 'group') : mediaUrl.trim();
 
     if (!finalMediaUrl) {
       setErrorMessage('Informe a URL ou selecione um arquivo');
@@ -214,15 +217,6 @@ const SendMediaForm = ({ instanceToken, groupJid, groupName, participants, onMed
       setErrorMessage(error instanceof Error ? error.message : 'Erro ao enviar mídia');
       setSendStatus('error');
     }
-  };
-
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
   };
 
   const handleCloseModal = () => {

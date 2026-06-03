@@ -13,6 +13,14 @@ audited_at: 2026-06-03
 
 ---
 
+### v7.71.5 (2026-06-03) — 🐛 Grupo + Lead: envio de mídia também base64 → URL (mesmo root cause do Helpdesk)
+
+Estende o fix da v7.71.4 aos 2 pontos que ainda mandavam imagem como **base64** (rejeitada pelo UAZAPI): **Enviar ao Grupo** (`SendMediaForm`) e **Enviar pra Lead** (`LeadMessageForm`). Helper novo `uploadOutboundMedia(file)` sobe o arquivo pro bucket público `helpdesk-media` e devolve a **URL pública** (contentType/ext robustos); o UAZAPI baixa do CDN. No lead, a URL agora também **espelha no Helpdesk/log** (antes ficava vazio em upload de arquivo). **E2E real:** upload ao Storage (como Michelly) → URL pública → proxy deployado → **200 + foto entregue** ao número controlado → objeto de teste limpo. `tsc` 0, frontend-only (push → CI).
+
+**Ainda no backlog (mesmo padrão de base64):** Disparador em massa (`BroadcastMessageForm`/`useBroadcastSend`) e carrossel (`sendCarouselToNumber(..., fileToBase64)`) em upload de arquivo.
+
+---
+
 ### v7.71.4 (2026-06-03) — 🔴 Helpdesk: envio de FOTO ao cliente voltou a funcionar (base64 → URL)
 
 **Crítico.** Vendedores/atendentes não conseguiam enviar fotos aos clientes. Auditoria multi-agente com **teste ao vivo** provou a causa-raiz: o Helpdesk mandava a imagem como **base64-cru** no `/send/media` da UAZAPI, que **rejeita** (`HTTP 500 "unsupported image format"`); a **URL pública do Storage** — que o frontend já tinha em mãos e **descartava** — é **aceita e entregue** (mesmo `file: <URL>` que o AI Agent usa em PROD). A falha era invisível porque o frontend **ignorava a resposta** do UAZAPI. Dado de PROD: último envio de foto por vendedor foi **2026-05-28** (vendedores tentaram, falhou, desistiram).

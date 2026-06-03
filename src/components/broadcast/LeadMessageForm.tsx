@@ -19,6 +19,7 @@ import { CarouselPreview } from './CarouselPreview';
 import { TemplateSelector } from './TemplateSelector';
 import { uploadCarouselImage, base64ToFile } from '@/lib/uploadCarouselImage';
 import { saveToHelpdesk } from '@/lib/saveToHelpdesk';
+import { uploadOutboundMedia } from '@/lib/uploadOutboundMedia';
 import type { MessageTemplate } from '@/hooks/useMessageTemplates';
 import type { Instance } from '@/types';
 import type { Lead } from '@/pages/dashboard/LeadsBroadcaster';
@@ -485,8 +486,10 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
 
     const accessToken = await getAccessToken();
 
+    // mediaData é sempre uma URL: arquivo selecionado sobe pro Storage (UAZAPI
+    // baixa do CDN); base64 é rejeitado pelo UAZAPI ("unsupported image format").
     let mediaData = mediaUrl;
-    if (selectedFile) mediaData = await fileToBase64(selectedFile);
+    if (selectedFile) mediaData = await uploadOutboundMedia(selectedFile, 'lead');
     const actualMediaType = mediaType === 'audio' && isPtt ? 'ptt' : mediaType;
 
     const { startedAt, successCount, failCount } = await runSendLoop(accessToken, async (lead) => {
@@ -494,7 +497,7 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
       saveToHelpdesk(instance.id, lead.jid, lead.phone, lead.name || null, {
         content: caption || null,
         media_type: actualMediaType === 'ptt' ? 'audio' : mediaType === 'file' ? 'document' : actualMediaType,
-        media_url: mediaUrl || null,
+        media_url: mediaData || null,
       });
     });
 
@@ -505,7 +508,7 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
 
     const leadNames = selectedLeads.slice(0, 50).map(l => l.name || l.phone);
     await saveBroadcastLog({
-      messageType: actualMediaType, content: caption || null, mediaUrl: mediaUrl || null,
+      messageType: actualMediaType, content: caption || null, mediaUrl: mediaData || null,
       recipientsTargeted: selectedLeads.length, recipientsSuccess: successCount, recipientsFailed: failCount,
       status: isCancelledRef.current ? 'cancelled' : (failCount > 0 ? 'error' : 'completed'),
       startedAt, leadNames,
