@@ -32,6 +32,8 @@ interface ScheduledMessage {
   random_delay: 'none' | '5-10' | '10-20' | null
   status: string
   executions_count: number
+  attempts: number
+  max_retries: number
   instances: { token: string }
 }
 
@@ -179,17 +181,7 @@ async function processMessage(
 ): Promise<void> {
   log.info('Processing scheduled message', { id: message.id, scheduledAt: message.scheduled_at })
 
-  // Mark as processing
-  await fetchWithTimeout(`${supabaseUrl}/rest/v1/scheduled_messages?id=eq.${message.id}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': supabaseKey,
-      'Authorization': `Bearer ${supabaseKey}`,
-      'Prefer': 'return=minimal'
-    },
-    body: JSON.stringify({ status: 'processing' })
-  })
+  // Já vem marcada como 'processing' pelo claim atômico (claim_scheduled_messages).
 
   let recipientsTotal = 1
   let recipientsSuccess = 0
@@ -292,7 +284,16 @@ async function processMessage(
         updateData.next_run_at = nextRun
       }
     } else {
-      updateData.status = recipientsFailed === recipientsTotal ? 'failed' : 'completed'
+      const allFailed = recipientsFailed === recipientsTotal
+      // Retry com backoff exponencial (5, 10, 20 min...) antes de desistir.
+      if (allFailed && message.attempts + 1 < message.max_retries) {
+        const backoffMin = 5 * Math.pow(2, message.attempts)
+        updateData.status = 'pending'
+        updateData.attempts = message.attempts + 1
+        updateData.next_run_at = new Date(Date.now() + backoffMin * 60_000).toISOString()
+      } else {
+        updateData.status = allFailed ? 'failed' : 'completed'
+      }
     }
 
     await fetchWithTimeout(`${supabaseUrl}/rest/v1/scheduled_messages?id=eq.${message.id}`, {
@@ -361,24 +362,29 @@ Deno.serve(async (req) => {
   const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
   try {
-    // Fetch pending messages where next_run_at <= now()
+    // Claim atômico: marca até 50 mensagens devidas como 'processing' com
+    // FOR UPDATE SKIP LOCKED (dois crons concorrentes nunca pegam a mesma).
+    // Devolve as linhas com instances.token embutido.
     const response = await fetchWithTimeout(
-      `${supabaseUrl}/rest/v1/scheduled_messages?status=eq.pending&next_run_at=lte.${new Date().toISOString()}&select=*,instances(token)&limit=50`,
+      `${supabaseUrl}/rest/v1/rpc/claim_scheduled_messages`,
       {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'apikey': supabaseKey,
           'Authorization': `Bearer ${supabaseKey}`,
-        }
+        },
+        body: JSON.stringify({ p_limit: 50 }),
       }
     )
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch messages: ${await response.text()}`)
+      throw new Error(`Failed to claim messages: ${await response.text()}`)
     }
 
     const pendingMessages = await response.json() as ScheduledMessage[]
 
-    log.info('Found pending messages to process', { count: pendingMessages?.length || 0 })
+    log.info('Claimed scheduled messages to process', { count: pendingMessages?.length || 0 })
 
     for (const message of pendingMessages || []) {
       await processMessage(supabaseUrl, supabaseKey, message)

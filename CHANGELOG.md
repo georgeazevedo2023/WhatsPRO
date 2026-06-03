@@ -13,6 +13,28 @@ audited_at: 2026-06-01
 
 ---
 
+### v7.69.0 (2026-06-03) — 🟢 Módulo de gestão de bases do Disparador + hardening do envio agendado
+
+Auditoria completa do Disparador (3 frentes) → módulo dedicado de bases + correção dos riscos do envio agendado.
+
+**Parte A — Módulo de Bases (`/dashboard/broadcast/databases`, sub-item "Bases"):**
+- Página `LeadDatabases.tsx` standalone (listar/criar/renomear/excluir bases + busca + contadores) — antes só dava pra gerenciar bases dentro do wizard de envio.
+- **Editar contato individual** (`EditContactDialog`, gap da auditoria — antes só add/remove).
+- **Seleção em massa + mover/copiar entre bases** (`MoveContactsDialog`) e **remover em lote** no `ManageLeadDatabaseDialog`.
+- **Unir bases com dedup** (`MergeDatabasesDialog`).
+- RPCs atômicas `move_lead_entries` / `merge_lead_databases` (SECURITY DEFINER, dedup por phone, recalc de `leads_count`, ownership via `auth.uid()`) + índice `idx_lead_entries_db_phone`.
+- Fix do bug `useLeadsBroadcaster.ts:393` (`verification_status`→`verificationStatus`; aviso de "não verificado" sempre disparava).
+
+**Parte B — Hardening do envio agendado (`scheduled_messages`):**
+- **Claim atômico** `claim_scheduled_messages` (FOR UPDATE SKIP LOCKED — fim do envio duplicado por crons concorrentes); `process-scheduled-messages` passa a claimar via RPC.
+- **Retry** com backoff exponencial (colunas `attempts`/`max_retries`).
+- **Crons** `requeue-stuck-scheduled-messages` (5min, processing>15min→pending) e `purge-scheduled-message-logs` (90d retention).
+- **Trigger** `enforce_scheduled_message_guards` (valida acesso à instância via `user_instance_access` + rate-limit 500/h) — fecha gap da RLS.
+
+**Validação:** RPCs e trigger testados via SQL (move/merge/dedup/ownership; claim retorna token; guard bloqueia acesso cruzado); módulo via Playwright (criar base, add, editar, seleção+barra, move dialog); `tsc`/`deno check` 0. **Achado de segurança corrigido no E2E:** `claim_scheduled_messages` era executável por `anon` (EXECUTE default a PUBLIC) e devolvia tokens de instância → REVOKE de PUBLIC/anon, só `service_role`. Migrations+edge fn em PROD; frontend via push→CI.
+
+---
+
 ### v7.68.0 (2026-06-03) — 🟢 Fotos de perfil das instâncias permanentes (Storage) — SHIPPED PROD
 
 Avatares das instâncias apareciam quebrados no **Disparador** (e telas afins). Causa-raiz: `instances.profile_pic_url` guardava a URL assinada do CDN do WhatsApp (`pps.whatsapp.net/...?oe=<expira>`), gravada uma vez no sync e já expirada. Replicado o padrão de avatar de **contato** (Storage permanente + refresh on-demand) para instâncias.
@@ -181,120 +203,6 @@ Lead (Cleber, EletropisoV2) pediu *"motor para portão"* e o agente **qualificou
 
 ---
 
-### v7.58.1 (2026-05-30) — 🔴 Incidente: fila de transbordo em rotação infinita + OOF reenviada todo dia
+### v7.58.1 (2026-05-30) e anteriores
 
-Lead (Alex/Alberto, EletropisoV2 PROD) recebia a mensagem `handoff_message_outside_hours` **repetida dia após dia** (27→28→29 às 18h, e sábado 12h09). Investigação na prod expôs um **incidente ativo**: **114 conversas presas em rotação infinita** na fila (`handoff_queue_events`), `rotation_number` real até **293**, **~4.772 eventos/24h**. A OOF era só o sintoma visível.
-
-- **Causa raiz:** `requeue-conversations` Case E alertava o gestor mas **"SEGUIA atribuindo" pra sempre** — conversa que ninguém responde rotacionava a cada ~10min eternamente. Cada evento novo nascia com `out_of_hours_msg_sent=false` → no fechamento do expediente, Case B reenviava a OOF (1 por evento/dia). *(O "fora de horário às 12h09" NÃO era bug: 2026-05-30 é sábado, expediente Sáb 8h-12h → 12h09 é fora mesmo. `businessHours` estava correto.)*
-- **Fix de raiz (2 guardas puras em `_shared/agent/queueRotation.ts`, 8 testes):**
-  - `shouldStopRotation` — para de criar eventos após **2 voltas completas** por todos os elegíveis sem resposta (`rotação ≥ elegíveis×2`); conversa fica *parqueada* (segue atribuída/visível, próxima msg do lead reacende). Mata o runaway.
-  - `decideOutOfHoursSend` — só reenvia a OOF se o lead falou **depois** da última OOF. Defesa-em-profundidade lead-facing.
-- **Remediação de dados:** 105 eventos runaway (rotação ≥32) parqueados manualmente.
-- **Verificado ao vivo:** ativos **118→14**, runaway≥32 **→0**, churn (eventos/3min) **→0**, OOF (30min) **→0** (eram 113 nas 2h anteriores). deno check 0, deploy CLI.
-
-Fecha bug auditado (caso Íris, EletropisoV2 PROD): lead mandou **foto de um tanquinho** + *"vcs tem um desse? está quanto?"* e a IA respondeu *"me manda a foto"* — porque imagem chegava com `content=""` e **nada de visão alimentava o LLM** (só áudio tinha transcrição). O agente era cego pra fotos.
-
-- **Nova fn `describe-image`** (espelha `transcribe-audio`): descreve a foto e grava em `conversation_messages.transcription` — que o `ai-agent` já lê antes do `content` (R132) → o agente "enxerga" a foto sem mexer no fluxo dele.
-  - **Cadeia de provider:** Gemini 2.0 Flash via `inline_data` (primário, ~US$0,0001/img) → **OpenAI gpt-4.1 vision** (fallback, ~US$0,0007/img). Espelha a resiliência do áudio.
-  - Preserva a legenda do cliente (`composeImageTranscription`), dispara o agente DEPOIS de descrever (sempre — mesmo em falha, nunca ignora o lead).
-- **Wire:** webhook chama `describe-image` pra `media_type=image` (igual áudio); `shouldTriggerAiAgentFromWebhook` pula `image` (agente roda só após a descrição). `config.toml verify_jwt=false`.
-- **Validação:** aiRuntime 31/31 (skip image), deno 0. **E2E sandbox com a foto REAL do tanquinho** → *"Tanque de lavar roupas branco, superfície lisa, ranhuras, furo p/ válvula"* (provider=openai). Agente parou de pedir a foto. Deploy `describe-image` + `whatsapp-webhook` CLI. Commit `39bcd3c`.
-- **🔴 ACHADO DE SEGURANÇA:** a `GEMINI_API_KEY` do projeto está **BLOQUEADA pelo Google** (403 *"API key reported as leaked"*) — afeta também o fallback de áudio Gemini. **Rotacionar** (e a visão volta pro Gemini, mais barato). Até lá, roda no fallback OpenAI.
-- **Achado (config):** `excluded_products` tem keyword ampla `"roupa/roupas"` → *"tanque de lavar **roupas**"* vira "vestuário excluído". Refinar a keyword se a loja vende tanques.
-
----
-
-### v7.57.5 (2026-05-30) — R149: fronteira de palavra no `interesse_match` (fim do "biodigestor → portas")
-
-Fecha bug auditado em PROD (caso Rodolfo, EletropisoV2): cliente pediu **biodigestor 1500L**, IA ofereceu **portas** ("material? madeira/PVC/alumínio") e transbordou como *"seu pedido de portas"*.
-
-- **Causa-raiz:** a categoria `portas` tem `interesse_match: "porta|portas"` e o regex era montado como `new RegExp(pattern, 'i')` **sem fronteira de palavra** → casou o substring `porta` dentro de **"portanto"** (transcrição do áudio *"Agora, portanto, que ele tenha 1.500 litros"*) → gravou `interesse:portas` → qualificação rodou o template de portas → handoff errado. Mesma classe pega `cabo`⊂"acabou", `cano`⊂"canoa", `mesa`⊂"mesada", `pia`⊂"apiada".
-- **Fix (fonte única `buildInteresseRegex`, usada nos 5 pontos de match — `serviceCategories.ts`):** lookaround de letra **accent-safe** (o `\b` nativo do JS falha com á/ã/ç, que não são `\w`) cobrindo Latin-1 + sufixo `(?:s|es|ns)?` que **preserva plural** mesmo quando a config só lista o singular (pattern `tinta` ainda casa "tintas"). Valida o pattern **cru** antes de embrulhar (mantém o contrato "lança se inválido" e evita que o wrapping conserte brackets desbalanceados).
-- **Config (3 agentes):** o pattern `"caixa d"` (prefixo proposital pra substring) foi reescrito pra variantes explícitas (`caixa d'agua|caixa d'água|caixa de agua|caixa de água|…`) em Eletropiso/EletropisoV2/Sandbox — senão a fronteira pararia de casar "caixa de água" (trocaria bug por bug). Bônus: `"caixa d"` também casava "caixa de som/ferramentas" → pattern explícito corrige.
-- **Validação:** `serviceCategories.test.ts` **135/135** (bateria anti-substring nova: portanto/acabou/canoa/mesada + plural + acento + multi-palavra). deno 0. **E2E sandbox:** msg *"…portanto, que ele tenha 1500 litros"* NÃO grava `interesse:portas`. Deploy `ai-agent` CLI (sandbox+PROD). Commit `5c477b9`.
-
----
-
-### v7.57.4 (2026-05-29) — Paridade router: specialist recebe Informações da Empresa (fim da loja "São João")
-
-Fecha bug reportado pelo dono: lead perguntou *"essa loja é em São João, Pernambuco né?"* e a IA **confirmou** ("temos loja física em São João sim"), quando a loja real é em **Garanhuns-PE** (R. Dantas Barreto, 118). Endereço estava **certo no `business_info`** dos 3 agentes — a IA inventou.
-
-- **Causa-raiz — gap de paridade router↔monolito (`_shared/agent/specialistBase.ts`):** sob `routing_mode='router'` (os 3 agentes), o `systemPrompt` montado em `runSpecialist` **não incluía `buildBusinessSection`**. O specialist não tinha endereço/horário/pagamento/entrega no contexto → o LLM concordou com a suposição errada do lead (LLM concorda com pergunta capciosa). O monolito (`index.ts:1724/1902`) já injetava essa seção; o router não.
-- **Fix (raiz, zero gambiarra):** injeta `buildBusinessSection(ctx.agent)` no `systemPrompt` entre `basePrompt` e `nameDirective`. Todo specialist passa a receber as Informações da Empresa + a **REGRA ABSOLUTA** anti-alucinação (`responda SOMENTE com as informações listadas... NÃO invente`). Resolve "São João" e qualquer pergunta de negócio (horário/pagamento/frete) sob o router.
-- **Onde se configura (paridade UI):** painel AI Agent → aba **Setup** → card **"Informações da Empresa"** (`BusinessInfoConfig.tsx`) → campo **Endereço**. Preview read-only em Prompt Studio (`business_context`). A UI/DB/monolito já tinham paridade; faltava só o **consumo no router** — era a única peça do gap.
-- **Validação:** `deno check` 0 · `promptSections.test.ts` 28/28 · **E2E sandbox (invocação direta)**: *"essa loja é em São João?"* → *"Nossa loja fica em Garanhuns, Pernambuco, na R. Dantas Barreto, 118 - Santo Antônio..."* (endereço verbatim do `business_info`). Deploy `ai-agent` via CLI (1 função = sandbox + PROD; EletropisoV2 já roda o fix). Commit `19629cb`.
-- **Nota:** o commit carregou junto a lógica deep-qualify v7.58 que estava no working tree do mesmo arquivo (não-commitada de sessão anterior) — `--no-verify` usado pois o hook barrava por 2 wikis WIP untracked fora deste commit.
-
----
-
-### v7.57.3 (2026-05-28) — Humanização raiz: handoff sem "anotei" + validator estendido + greeting que preserva pedido de nome
-
-Atende auditoria do dono nas v7.57.0 quanto a 4 problemas residuais: (1) IA escreve "anotei"/"anotei tudo aqui" no handoff, (2) IA ecoa "Entendi, você quer X" antes de perguntar, (3) IA traduz jargão do lead ("interno" → "dentro de casa"), (4) greeting personalizado perdia branding "Bem-vindo a Eletropiso". Tudo resolvido na FONTE, sem prompt-engineering reativo.
-
-- **Fix A — `_shared/businessHours.ts`:** `personalizeHandoffMessage` trocou "Nome, anotei seu pedido: X." → "Nome, seu pedido de X." (palavra-veneno "anotei" eliminada; pessoa real não fala assim). Sem item: só prefixa o nome, sem "anotei tudo aqui".
-- **Fix B raiz — `_shared/responseValidator.ts` + `_shared/agent/specialistBase.ts`:** 3 regras determinísticas novas + auto-fix cirúrgico (não substitui texto inteiro).
-  - `anti_lead_echo` — detecta "Entendi, você quer X", "Pelo que você falou", "Você quer/procura X" no início → remove a 1ª frase.
-  - `anti_jargon_paraphrase` — se lead usou "interno"/"externo" e bot trocou por "dentro de casa"/"fora de casa", substitui de volta pelo termo do lead.
-  - `anti_anotei` — detecta "anotei"/"já anotei"/"vou anotar"/"deixa eu anotar" em qualquer ponto → remove a frase (ou substitui por ponte neutra se sobrar texto curto).
-  - `specialistBase.sanitizeSpecialistResponse` divide enforcement em 2 sets: `SAFE_TEXT_RULES` (substitui texto inteiro por ponte segura — comportamento atual) e `AUTO_FIX_RULES` (auto-fix cirúrgico via `autoFixHumanizationViolations`).
-  - `lastIncomingText` agora vai pro `ResponseValidatorContext` (necessário pra anti_jargon_paraphrase).
-- **Fix C v4 (raiz) — `ai-agent/index.ts` greeting determinístico:** detect+substitute na CAUDA do template em vez de placeholder `{nome}` (admin escreve template natural pedindo nome, como sempre foi).
-  - Quando capturei nome inline: detecta cauda `", com quem (eu) falo?"` / `", qual seu nome?"` / `", como você se chama?"` no fim do template e substitui por `", no que posso te ajudar?"`. Depois insere o nome após a saudação (`"Olá!"` → `"Olá, Carlos!"`).
-  - Quando NÃO capturei nome: template vai inteiro (com pedido de nome) — CRM extrai no próximo turno.
-  - Mirror de saudação temporal substitui SÓ a palavra `Olá`/`Oi` preservando vírgula+nome+pontuação (usa lookahead `(?![A-Za-zÀ-ÿ])` em vez de `\b`, que falha com acentos em JS — `Olá\b` não casa porque `á` não é `\w`).
-  - **Tentativa anterior usando placeholder `{nome}` no template foi REVERTIDA:** quebrava o caso "sem nome" — perdia o pedido de nome no template e o CRM não extraía mais o nome do lead. Template do sandbox voltou pra `"Olá! Bem-vindo a Eletropiso, com quem eu falo?"` (original).
-- **Validação:**
-  - `deno check supabase/functions/ai-agent/index.ts` 0 erros.
-  - Fix A + Fix B JÁ deployados via CLI (3 deploys nessa sessão), validados nos 4 cenários antes do bug do greeting `{nome}` ser detectado.
-  - Fix C v4 código pronto + `deno check` 0, **NÃO deployado** ainda — OpenAI estava com 502 em massa no fim da sessão (afeta PROD), preferiu-se aguardar estabilizar pra E2E.
-- **Sandbox restaurado** ao estado original (agent disabled, monolith, gpt-5-mini, instance disabled, conversas teste R1/R5/R9/R13 deletadas).
-
----
-
-### v7.57.2 (2026-05-28) — Dashboard de Fila do Gestor (mobile-first)
-
-Página nova `/dashboard/fila` para o gestor acompanhar quem está atendendo, quem perdeu e por quê. Atende ao pedido literal do dono (Hoje/Ontem/7d/15d/30d, por atendente: recebidos / atendidos / deixou de atender + motivo).
-
-- **3 RPCs SECURITY DEFINER** (migration `20260528000000_queue_dashboard_rpcs`): `get_queue_attendant_stats` (stats por atendente no período), `get_queue_live_status` (snapshot atual: fila / disponíveis / pausados / tempo médio), `get_queue_lost_leads` (drill-down: leads perdidos com motivo + próximo atendente que assumiu + link p/ conv).
-- **UI mobile-first** (`src/pages/dashboard/QueueDashboard.tsx`): header com 3 KPIs grandes (Realtime via broadcast `queue-update` do D30 Sprint F + polling 10s); chips sticky de período (Hoje/Ontem/7d/15d/30d); card por atendente com avatar + status (Disponível/Pausado) + 3 KPIs (Recebidos/Atendidos/Perdidos) + breakdown clicável; drawer drill-down com lista de perdidos navegando pro Helpdesk.
-- **Acesso:** rota `CrmRoute` (gerente + super_admin); item "Fila" no Sidebar entre Atendimento e CRM.
-- **Hook único:** `src/hooks/useQueueDashboard.ts` (`useQueueLive` polling 10s + Realtime, `useQueueStats` polling 30s, `useQueueLostLeads` on-demand).
-- **Dados reais Eletropiso (referência):** últimos 30d = 8.135 timed_out vs 31 responded — a página é desenhada exatamente pra essa dor.
-- `npx tsc --noEmit` 0 erros; `npm run build` OK (chunk dedicado `QueueDashboard-*.js`).
-
----
-
-### v7.57.1 (2026-05-28) — Helpdesk: mensagens visíveis + console limpo
-
-Auditoria focada no M2 Helpdesk após relato de mensagens não aparecerem e erros no console.
-
-- `ChatPanel.tsx`: adiciona `fetchIdRef` real para ignorar respostas atrasadas de conversas anteriores, alinhando o código ao contrato já documentado em T2.27. Também limpa estado quando não há conversa selecionada e remove o acesso `conversation!.is_read`, que podia quebrar renderização quando a seleção virava `null` mas mensagens antigas ainda estavam no estado.
-- `ContactAvatar.tsx`: remove chamada assíncrona durante render (`triggerRefresh`) e move a reidratação de avatar para `useEffect`, evitando efeitos colaterais no render e ruído de console.
-- Validação: `npx tsc --noEmit` 0 erros; `npm run build` OK; Vitest focado em helpdesk 17/17; Playwright Helpdesk 11/11; checagem Playwright dedicada com conversa aberta retornou `consoleErrors: []` e `pageErrors: []`. Suíte completa ainda tem falhas fora deste fix (`excludedProducts`, `useForms`, `FormBuilder` e loaders ESM `https:` em testes Deno).
-
----
-
-### v7.57.0 (2026-05-28) — Humanização do atendimento (lead não percebe que é IA)
-
-**Objetivo:** lead NUNCA pode perceber que está falando com IA. Estilo cordial profissional ("você", sem gírias, 1 emoji raríssimo). Auditoria E2E em 13 cenários no Sandbox isolado (router, gpt-4.1-mini) iterando 3x até nota humanização média **5.2/10 → 9.2/10**. Cobertura: saudação pura, com nome, sem nome, intenção direta/indireta, 1 item, multi-item, orçamento, foto, carrossel, qualif progressiva, item offline, item inexistente, handoff explícito, lead enrolado, e **bug crítico de PROD (Moyses, PVC + serviços não oferecidos)**.
-
-**Fixes (7 arquivos, 2 deploys CLI):**
-- `ai-agent/index.ts` — greeting determinístico agora **espelha saudação** ("Bom dia"/"Boa tarde"/"Boa noite" do lead vira saudação do bot), **captura nome inline** ("sou João" / "Boa tarde, João" via `extractLeadName`), **pula greeting estático** quando lead pediu vendedor direto no 1º turno (evita 2 bolhas).
-- `_shared/agent/greetingSpecialist.ts` — diretriz explícita: emoji proibido no início, sem clichês IA, espelho de saudação obrigatório, exemplos few-shot novos.
-- `_shared/agent/qualificationSpecialist.ts` — proíbe **"(interno ou externo)"** estilo formulário, **agradecimentos repetitivos** ("obrigado", "show, perfeito, ótimo" em todo turno), **narração de ações** ("anotei", "vou registrar").
-- `_shared/agent/productSpecialist.ts` — proíbe **"Vou seguir coletando"**, **"Vou seguir com o próximo passo"**, **"Vou resumir para o vendedor"** dentro da msg do lead, **vazamento de sintaxe `handoff_to_human(reason: "...")`** no texto, **repetir nome+preço do produto após mídia**.
-- `_shared/agent/dispatchResponse.ts` — `stripLeakedToolCalls` estendido pra capturar `NOME(key: "val")` sem braces (vazamento R147 mais comum do product specialist).
-- `_shared/excludedProducts.ts` — "Infelizmente não trabalhamos com X" → "Esse não é o nosso forte aqui" (tom natural).
-- `_shared/agent/nameCapture.ts` — `extractLeadName` cobre "sou João" (sem o/a obrigatório) + "Boa tarde, João" (cumprimento+nome após vírgula).
-
-**Regra absoluta nova (todos os specialists):** A loja **SÓ VENDE PRODUTOS**. PROIBIDO oferecer, prometer, sugerir ou "incluir" qualquer serviço (montagem, instalação, "com mão de obra", indicação de pedreiro/encanador/marceneiro/instalador/pintor, visita técnica, projeto, execução). Fecha bug crítico de PROD onde IA dizia *"vou te passar o orçamento completo com todos os acessórios e mão de obra"* pra produto que a loja só vende como material.
-
-**Validação E2E real:** 13 cenários no Sandbox (agent_id `9c71f43e`, instance `rb84e079eeab167`, router PROD). 3 iterações. ~80 LLM calls (~R$ 1,50 OpenAI). 0 conversas de prod afetadas. Sandbox restaurada ao estado original (disabled, monolith, gpt-5-mini, contatos+conversas de teste apagados). Detalhe: [[wiki/relatorio-humanizacao-2026-05-28]].
-
-**Backlog menor (não-bloqueador):** (a) `personalizeHandoffMessage` no path "skip greeting" (S12) — nome inline não é persistido a tempo no fluxo "quero falar com vendedor"; (b) capitalização "Jo" vs "João" no extractLeadName ocasional; (c) parênteses-formulário esporádicos do LLM (1 a cada N turnos — diretriz cobre mas modelo ignora ocasionalmente).
-
----
-
-### v7.56.1 (2026-05-26) e anteriores
-
-v7.56.1 → v7.55.1 → ver [[wiki/changelog/2026-05-part11]]. v7.55.0 e anteriores → [[wiki/changelog/2026-05-part10]].
+v7.58.1 → v7.56.1 → ver [[wiki/changelog/2026-05-part12]]. Anteriores → [[wiki/changelog/2026-05-part11]].
