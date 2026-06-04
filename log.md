@@ -8,6 +8,13 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-04 (tarde II) — 🔍 Causa raiz do `.git/index` corrompido + v7.73.1 (nome do atendente-celular)
+
+**Investigação `.git/index` (3ª corrupção):** o índice corrompido é **172224 bytes 100% zeros** com o tamanho exato de um índice válido — assinatura clássica de **perda do write-back cache do NTFS em desligamento sujo** (NTFS jornaliza o tamanho, não os dados). **Causa raiz CONFIRMADA via Event Log:** a máquina (Acer, notebook) sofre **BSODs frequentes** — ~12 BugChecks (Event 1001) em 20 dias, dominados por **`0x139` KERNEL_SECURITY_CHECK_FAILURE** (subcódigo `0xa`=LIST_ENTRY corrompida) + `0xfc`/`0x50`/`0x1e`. Datas batem exatamente: crash 04/06 09:00 → índice zerado 09:18; crashes 24/05 12:10 e 17:22 → 1ª corrupção. OneDrive descartado (repo fora do OneDrive); Defender não é causa; bateria 100%/AC. **Mitigação aplicada (git):** `core.fsync=all` + `core.fsyncMethod=fsync` GLOBAL — git passa a fazer flush durável do índice ANTES do rename atômico, então um crash não deixa mais o índice zerado (fica o válido antigo OU o novo). **NÃO resolve os BSODs** (driver de kernel/RAM — fora do escopo; recomendado analisar minidumps em `C:\Windows\Minidump` + Windows Memory Diagnostic + atualizar drivers). Detalhe: [[project_git_index_corruption_root_cause]].
+
+**v7.73.1 — nome do atendente pelo celular:** print do dono — msg "BOA TARDE, essas luminárias de jardim…" (contato ".", takeover) saía como "IA". DB confirmou: `sender_id` NULL + `external_id` hex (`3EB09C…`) = atendente no celular; assignee = **Thiago**. Refino: msgs de takeover (sem sender_id) agora mostram o **nome do atendente atribuído** (`assigned_to`→`user_profiles`) em vez de "Atendente" genérico. `ConversationModal.tsx` busca o `assigned_to` da conversa + inclui no `useUserProfiles`. **E2E real (Playwright):** rótulo "Thiago · 02/06, 14:44" confirmado. tsc 0, frontend-only. Detalhe: [[project_fila_message_sender_names_v773]].
+
+---
 ## 2026-06-04 (tarde) — 🟢 Fila: cada mensagem mostra QUEM enviou (lead/atendente/IA) — v7.73.0
 
 Dono (print do modal "Conversa com Marya Silva" na Fila): cada mensagem deve mostrar **quem enviou** e o **nome do atendente**. Hoje o `ConversationModal.tsx` rotulava genérico: incoming→"Lead", outgoing+`sender_id`→"Atendente" (sem nome), senão→"IA".

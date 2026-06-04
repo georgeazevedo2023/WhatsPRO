@@ -63,21 +63,31 @@ function msgInfo(msg: Message) {
 export function ConversationModal({ open, onOpenChange, conversationId, contactName, inboxId }: ConversationModalProps) {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [assignedTo, setAssignedTo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Resolve sender_id → nome do atendente (mesmo padrão do Helpdesk: useUserProfiles).
-  // Só busca os IDs presentes nas mensagens; RLS garante que gestor/admin/co-membro da
-  // inbox vê o full_name (senão cai no fallback "Atendente").
-  const senderIds = useMemo(
-    () => Array.from(new Set(messages.map((m) => m.sender_id).filter((id): id is string => !!id))),
-    [messages],
-  );
+  // Inclui o `assigned_to` da conversa: msgs do atendente enviadas pelo CELULAR (takeover)
+  // não têm sender_id, então atribuímos ao atendente responsável pela conversa.
+  // RLS garante que gestor/admin/co-membro da inbox vê o full_name (senão cai no fallback).
+  const senderIds = useMemo(() => {
+    const ids = new Set(messages.map((m) => m.sender_id).filter((id): id is string => !!id));
+    if (assignedTo) ids.add(assignedTo);
+    return Array.from(ids);
+  }, [messages, assignedTo]);
   const { namesMap: agentNamesMap } = useUserProfiles({ userIds: senderIds, enabled: senderIds.length > 0 });
 
   useEffect(() => {
     if (!open || !conversationId) return;
     setLoading(true);
+    // Atendente responsável pela conversa — nomeia as msgs enviadas pelo celular (sem sender_id).
+    supabase
+      .from('conversations')
+      .select('assigned_to')
+      .eq('id', conversationId)
+      .maybeSingle()
+      .then(({ data }) => setAssignedTo((data?.assigned_to as string | null) ?? null));
     supabase
       .from('conversation_messages')
       .select('id, direction, content, media_type, media_url, transcription, sender_id, external_id, created_at')
@@ -125,13 +135,14 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
                 const info = msgInfo(msg);
                 const Icon = info.icon;
                 const text = msg.content || msg.transcription || (msg.media_type !== 'text' ? `[${msg.media_type}]` : '');
-                // Quem enviou: nome do lead (incoming), nome real do atendente (app),
-                // "Atendente" (takeover pelo celular, sem nome) ou "IA".
+                // Quem enviou: nome do lead (incoming), nome real do atendente (app via sender_id),
+                // nome do atendente atribuído (takeover pelo celular, sem sender_id) ou "IA".
+                const agentPhoneName = (assignedTo && agentNamesMap[assignedTo]) || 'Atendente';
                 const senderLabel =
                   info.kind === 'lead' ? (contactName?.trim() || 'Lead')
                   : info.kind === 'note' ? 'Nota interna'
-                  : info.kind === 'agent' ? (agentNamesMap[msg.sender_id!] || 'Atendente')
-                  : info.kind === 'agentPhone' ? 'Atendente'
+                  : info.kind === 'agent' ? (agentNamesMap[msg.sender_id!] || agentPhoneName)
+                  : info.kind === 'agentPhone' ? agentPhoneName
                   : 'IA';
 
                 return (
