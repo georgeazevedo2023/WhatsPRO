@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-06-03
-audited_at: 2026-06-03
+updated: 2026-06-04
+audited_at: 2026-06-04
 ---
 
 # Changelog
@@ -10,6 +10,14 @@ audited_at: 2026-06-03
 > Releases ativas (últimos ~14 dias). Histórico completo em [[wiki/changelog/]].
 >
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
+
+---
+
+### v7.73.0 (2026-06-04) — 🟢 Fila: cada mensagem mostra QUEM enviou (lead / atendente / IA)
+
+No modal "Conversa com …" da Fila (`/dashboard/fila`, e também no detalhe do Lead), cada mensagem agora identifica **quem enviou**: nome do **lead** (recebidas), nome **real do atendente** (enviadas pelo app, resolvido via `useUserProfiles` — mesmo padrão do Helpdesk), **"Atendente"** quando o vendedor respondeu pelo **celular** (takeover) e **"IA"** quando foi o agente. Antes era genérico ("Lead"/"Atendente"/"IA") e — bug latente — mensagens humanas digitadas no celular apareciam como **"IA"**.
+
+A distinção IA × atendente-no-celular usa o `external_id`: a IA/automação sempre grava prefixo (`ai_agent_`, `ai_*`, `follow_up_`, `abandon_`, `auto_`, `nps_`, `queue_oof_`) ou NULL; o atendente pelo celular chega via webhook com `external_id` cru do WhatsApp (hex) e sem `sender_id`. **Verificado no DB PROD** (3128 linhas hex outgoing, 0 echoes de IA) e **E2E no app real** (Playwright) nos 5 casos. `tsc` 0. Frontend-only (`ConversationModal.tsx`; push → CI). Detalhe: [[project_fila_message_sender_names_v773]].
 
 ---
 
@@ -269,31 +277,8 @@ Três fixes de raiz após auditoria profunda do orquestrador (branch `fix/scenar
 
 Testes: +8 unit (handoffSummary digest, productQualificationFlow, serviceCategories salvage). deno check 0. Regressão 21.33 tinta-digital OK. **Pendências:** monitorar PROD (22 categorias reativadas); vazamento `[[handoff_to_human]]` no fechamento digital; push/merge da branch.
 
-### v7.58.4 (2026-05-30) — 🔴 Greeting inventava interesse pra lead novo ("você estava vendo pisos") — caso Erick/Mirlley
-
-Lead NOVO (Erick) abriu com "Boa tarde" → deu o nome → e a IA respondeu *"Erick! Você estava vendo alguns pisos, quer continuar por aí?"* — **inventando um interesse que o lead nunca mencionou** (ele queria porta de quarto). Quebra de confiança (delata bot/erro).
-
-- **Causa raiz (tripla), em `greetingSpecialist.ts`:** o prompt gateava a retomada de "lead recorrente" em **ter nome** (`leadName ? ...`), então um lead novo que acabou de se apresentar era tratado como returning; o exemplo literal *"você estava vendo [interesse]"* **convidava a hallucinação**; e o `buildLeadMemoryBlock` contava o **resumo da própria conversa em andamento** (turno 1) como "memória", reforçando o falso returning. O "pisos" provavelmente veio do viés de "Eletro**piso**". (Bônus: `buildOpeningDirective`, que tinha a guarda de memória, é **dead code** — nunca foi religado no runtime.)
-- **Fix de raiz:** a retomada agora é gateada em **interesse/produto CONCRETO** de conversa anterior (`hasResumableInterest`: `interests`/`products_seen` não-vazios), não em "tem nome" nem em "tem qualquer resumo". Lead novo que diz o nome → saudação limpa + "PROIBIDO presumir interesse anterior; NÃO cite produto que ele não mencionou". 7 testes do greeting verdes (1 reescrito pro novo contrato + 1 novo memória-vs-sem-memória).
-- **E2E real PASSA:** lead novo "Boa tarde" → "Erick" → *"O que você está procurando hoje?"* (zero interesse inventado). Antes: *"você estava vendo alguns pisos"*. Deploy ai-agent CLI.
-
-E2E do cenário 21.37 (torneira gourmet, catálogo digital vazio) expôs falha grave: a IA **qualificava pra sempre sem transbordar** e **repergunta o que o lead já respondeu**. Em 9 turnos: `status_ia` ainda `ligada`, zero handoff. (Acertava só o essencial: nunca vazou indisponibilidade.)
-
-- **Causa raiz (mismatch de chave + bloqueio de convergência):** `evaluateProductQualificationFlow` compara `answered.has(field.key)` com os field keys da categoria (`ambiente_torneira`, `tipo_torneira`…), mas o LLM specialist grava tags **genéricas** (`ambiente:`, `cor:`, `acabamento:`). Nenhuma casava → `missing` sempre cheio. E pra categorias "premium full" o `readyToHandoff` exigia TODOS os campos → `premiumNeedsMoreFields` era **perpetuamente true** → `noResultReadyForHandoff` nunca disparava, **mesmo batendo o cap de enriquecimento**.
-- **Fix de raiz (`productQualificationFlow.ts`, puro, +5 testes):**
-  - `fieldBaseName` + `isFieldAnswered` — campo `ambiente_torneira` conta como respondido se há tag `ambiente:` (base antes do último `_`). Resolve o mismatch literal e **para de reperguntar**.
-  - Convergência garantida — premium transborda quando coletou tudo **OU** bateu o cap pós-vazio (removido o veto `isPremiumFullQualificationCategory`). Sem isso, campos que o LLM nunca tagueia travavam o handoff pra sempre.
-- **E2E real (Sandbox, invocação direta) PASSA:** torneira gourmet → qualifica fundo (cozinha/mesa/ducha/preto fosco/cuba dupla/premium) → busca 0 → **transborda** com `status_ia=shadow`, fila, e **nota interna completa** pro vendedor (score 100, "validar estoque físico"). 15 testes do fluxo verdes, deno 0, deploy ai-agent CLI.
-- **Resíduo (polish, não bloqueador):** 1 repergunta de "cozinha" na fase qualify-first (LLM) antes do loop determinístico assumir; mesma raiz do bug Raquel.
-
-Lead (Cleber, EletropisoV2) pediu *"motor para portão"* e o agente **qualificou como porta** (perguntou tipo de porta) — porque não havia categoria de motores e o LLM improvisava a vizinha ("portão"→portas). Dono confirmou que **vende motor/automatizador**.
-
-- **Fix:** nova categoria `motores` (`interesse_match: motor|motorizado|automatizador|automatizadores|automatizar`, 3 campos: tipo do portão / material / uso, `exit_action: handoff`) nas 3 instâncias (Eletropiso, EletropisoV2, Sandbox). É **config de DB** — live na hora, sem deploy.
-- **Chaveada em `motor`, NUNCA em "portão"** — `buildInteresseRegex` (R149) garante `porta ≠ portão`, então não colide com `portas`. Provado com o código real (`motorCategory.verify.test.ts`, 4/4): `motor para portão`→motores, `porta de alumínio`→portas, `motorista`→sem falso-positivo, `tinta para porta`→tintas (ordem preservada).
-- **Backlog (não feito):** guard determinístico genérico "produto sem categoria → handoff honesto, nunca finge categoria vizinha" — vale pra QUALQUER produto desconhecido, mas toca o core do agente (HIGH RISK) e pede E2E dedicado.
-
 ---
 
-### v7.58.1 (2026-05-30) e anteriores
+### v7.58.4 (2026-05-30) e anteriores
 
-v7.58.1 → v7.56.1 → ver [[wiki/changelog/2026-05-part12]]. Anteriores → [[wiki/changelog/2026-05-part11]].
+v7.58.4 → v7.56.1 → ver [[wiki/changelog/2026-05-part12]]. Anteriores → [[wiki/changelog/2026-05-part11]].

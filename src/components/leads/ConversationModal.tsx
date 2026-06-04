@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Loader2, Bot, User, Headphones, ExternalLink } from 'lucide-react';
 import { handleError } from '@/lib/errorUtils';
+import { useUserProfiles } from '@/hooks/useUserProfiles';
 
 interface Message {
   id: string;
@@ -15,6 +16,7 @@ interface Message {
   media_url: string | null;
   transcription: string | null;
   sender_id: string | null;
+  external_id: string | null;
   created_at: string;
 }
 
@@ -27,19 +29,35 @@ interface ConversationModalProps {
   inboxId?: string | null;
 }
 
-/** Info de exibição por mensagem. Outgoing distingue IA (sender_id NULL) de Atendente humano. */
+/** Prefixos de external_id usados por mensagens enviadas pela IA/automação.
+ *  Mensagens digitadas pelo atendente no celular (takeover) chegam pelo webhook com
+ *  external_id = id cru do WhatsApp (hex, sem prefixo) e sem sender_id. */
+const AI_EXTERNAL_ID_PREFIX = /^(ai_|abandon_|follow_up_|auto_|nps_|queue_oof_|poll_vote_)/;
+
+/** Outgoing sem sender_id: IA (external_id NULL ou prefixo de automação) vs atendente
+ *  que respondeu pelo celular (external_id hex, sem prefixo). */
+function isAiSent(externalId: string | null): boolean {
+  return !externalId || AI_EXTERNAL_ID_PREFIX.test(externalId);
+}
+
+/** Info de exibição por mensagem. Distingue lead, nota, atendente (app, com nome),
+ *  atendente pelo celular (takeover, sem nome) e IA. */
 function msgInfo(msg: Message) {
   if (msg.direction === 'incoming') {
-    return { label: 'Lead', icon: User, color: 'bg-muted', align: 'justify-start', outgoing: false };
+    return { kind: 'lead' as const, icon: User, color: 'bg-muted', align: 'justify-start', outgoing: false };
   }
   if (msg.direction === 'private_note') {
-    return { label: 'Nota', icon: Headphones, color: 'bg-yellow-500/10', align: 'justify-start', outgoing: false };
+    return { kind: 'note' as const, icon: Headphones, color: 'bg-yellow-500/10', align: 'justify-start', outgoing: false };
   }
-  // outgoing
+  // outgoing enviado pelo app (Helpdesk): tem sender_id → resolve nome do atendente
   if (msg.sender_id) {
-    return { label: 'Atendente', icon: Headphones, color: 'bg-emerald-600 text-white', align: 'justify-end', outgoing: true };
+    return { kind: 'agent' as const, icon: Headphones, color: 'bg-emerald-600 text-white', align: 'justify-end', outgoing: true };
   }
-  return { label: 'IA', icon: Bot, color: 'bg-primary text-primary-foreground', align: 'justify-end', outgoing: true };
+  // outgoing sem sender_id: IA ou atendente pelo celular (takeover)
+  if (isAiSent(msg.external_id)) {
+    return { kind: 'ia' as const, icon: Bot, color: 'bg-primary text-primary-foreground', align: 'justify-end', outgoing: true };
+  }
+  return { kind: 'agentPhone' as const, icon: Headphones, color: 'bg-emerald-600 text-white', align: 'justify-end', outgoing: true };
 }
 
 export function ConversationModal({ open, onOpenChange, conversationId, contactName, inboxId }: ConversationModalProps) {
@@ -48,12 +66,21 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Resolve sender_id → nome do atendente (mesmo padrão do Helpdesk: useUserProfiles).
+  // Só busca os IDs presentes nas mensagens; RLS garante que gestor/admin/co-membro da
+  // inbox vê o full_name (senão cai no fallback "Atendente").
+  const senderIds = useMemo(
+    () => Array.from(new Set(messages.map((m) => m.sender_id).filter((id): id is string => !!id))),
+    [messages],
+  );
+  const { namesMap: agentNamesMap } = useUserProfiles({ userIds: senderIds, enabled: senderIds.length > 0 });
+
   useEffect(() => {
     if (!open || !conversationId) return;
     setLoading(true);
     supabase
       .from('conversation_messages')
-      .select('id, direction, content, media_type, media_url, transcription, sender_id, created_at')
+      .select('id, direction, content, media_type, media_url, transcription, sender_id, external_id, created_at')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true })
       .then(({ data, error }) => {
@@ -98,6 +125,14 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
                 const info = msgInfo(msg);
                 const Icon = info.icon;
                 const text = msg.content || msg.transcription || (msg.media_type !== 'text' ? `[${msg.media_type}]` : '');
+                // Quem enviou: nome do lead (incoming), nome real do atendente (app),
+                // "Atendente" (takeover pelo celular, sem nome) ou "IA".
+                const senderLabel =
+                  info.kind === 'lead' ? (contactName?.trim() || 'Lead')
+                  : info.kind === 'note' ? 'Nota interna'
+                  : info.kind === 'agent' ? (agentNamesMap[msg.sender_id!] || 'Atendente')
+                  : info.kind === 'agentPhone' ? 'Atendente'
+                  : 'IA';
 
                 return (
                   <div key={msg.id} className={`flex gap-2 ${info.align}`}>
@@ -114,7 +149,7 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
                         <img src={msg.media_url} alt="" className="rounded-lg max-w-full mt-1 max-h-48 object-cover" />
                       )}
                       <p className={`text-[10px] mt-1 ${info.outgoing ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                        {info.label} · {new Date(msg.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        {senderLabel} · {new Date(msg.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                     {info.outgoing && (
