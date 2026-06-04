@@ -61,7 +61,7 @@ Located in `supabase/functions/`. Deno runtime.
 - **Production**: crm.wsmart.com.br (Docker Swarm + Traefik + SSL)
 - **CI/CD**: GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
 - **Portainer**: Stack "whatspro" on Hetzner CX42 (65.108.51.109)
-- **Edge Functions**: `SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy <name> --project-ref euljumeflwtljegknawy`
+- **Edge Functions**: binário scoop (NÃO npx) → `$env:SUPABASE_ACCESS_TOKEN=<PAT eletropiso>; supabase functions deploy <name> --project-ref prfcbfumyrrycsrcrvms --use-api` ⚠️ ref ATUAL `prfcbfumyrrycsrcrvms` (antigo `euljumeflwtljegknawy` MORTO). Detalhe: CLAUDE.md "🚀 Deploy & Supabase".
 
 ## Development
 
@@ -70,7 +70,10 @@ npm run dev          # Start dev server
 npm run build        # Production build
 npx tsc --noEmit     # Type check
 npx vitest run       # Run tests
-npx supabase functions deploy <name>  # Deploy edge function
+```
+```powershell
+# Deploy edge function — binário scoop, NÃO npx (npx falha: uv_spawn)
+supabase functions deploy <name> --project-ref prfcbfumyrrycsrcrvms --use-api
 ```
 
 ## Modulos (19)

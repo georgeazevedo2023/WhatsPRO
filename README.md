@@ -78,8 +78,11 @@ npx vitest run
 
 ### Deploy de Edge Function
 
-```bash
-SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy <nome> --project-ref euljumeflwtljegknawy
+> Binário scoop, NÃO `npx` (npx falha com `uv_spawn`). Ref ATUAL `prfcbfumyrrycsrcrvms` (antigo `euljumeflwtljegknawy` MORTO). PAT eletropiso na memória `reference_supabase_token_novo`.
+
+```powershell
+$env:SUPABASE_ACCESS_TOKEN = '<PAT eletropiso>'
+supabase functions deploy <nome> --project-ref prfcbfumyrrycsrcrvms --use-api
 ```
 
 ---

@@ -94,6 +94,24 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
+## 🚀 Deploy & Supabase — coordenadas (LER ANTES de qualquer deploy)
+
+> ⚠️ As wikis antigas tinham ref/comando ERRADOS e me faziam redescobrir tudo toda sessão. Estas são as coordenadas reais (verificadas 2026-06-04). O **valor do PAT** vive SÓ na memória `reference_supabase_token_novo` — **NUNCA** colar token em arquivo commitado (bloqueia push por secret scanning).
+
+| Item | Valor |
+|---|---|
+| **Supabase project ref** | `prfcbfumyrrycsrcrvms` ⚠️ o antigo `euljumeflwtljegknawy` está MORTO |
+| Conta / Org | `eletropiso.wsmart@gmail.com` / org `mqebydjkmkvbmvzjfwgl` |
+| URL | `https://prfcbfumyrrycsrcrvms.supabase.co` |
+| **CLI de deploy** | binário scoop `C:\Users\georg\scoop\shims\supabase.exe` — **`npx supabase` está QUEBRADO** aqui (`uv_spawn`, bin vazio) |
+| Comando edge fn | `$env:SUPABASE_ACCESS_TOKEN=<PAT eletropiso>; supabase functions deploy <fn> --project-ref prfcbfumyrrycsrcrvms --use-api` (`--use-api` evita Docker, bundla `_shared`) |
+| **403 no deploy** | CLI logado na conta ANTIGA → exportar o PAT eletropiso (memória `reference_supabase_token_novo`) |
+| NUNCA | MCP `deploy_edge_function` p/ fns com imports `_shared` (sobe vazio → derruba prod). Só CLI scoop |
+| Deploy frontend | `git push origin master` → GitHub Actions → GHCR → Portainer (stack "whatspro", Hetzner CX42) |
+| Pós-deploy | `mcp__supabase__list_edge_functions` confere `version`/`verify_jwt`/`ezbr_sha256` mudaram |
+
+---
+
 ## 📁 Estrutura da documentação
 
 ```

@@ -8,6 +8,15 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-04 (manhã) — 🧰 Fix de raiz: coordenadas de deploy/Supabase paravam de "sumir" toda sessão
+
+Início de sessão com pedido do dono: "veja o que falta commitar/deployar e **por que você esquece os dados do Supabase e de deploy toda vez**". **Git:** `.git/index` corrompido DE NOVO (assinatura `0x00000000`, 3ª vez — já comeu a v7.47.0 fantasma); reconstruído do HEAD (`git read-tree`, backup `.git/index.corrupt.bak.2026-06-04`), sem perda. Working tree limpo, 0 unpushed, último = v7.72.1; nada estava pendente.
+
+**Causa raiz do "esquecimento" (dupla):** (1) as docs duráveis do repo apontavam pro **ref morto** `euljumeflwtljegknawy` (atual = `prfcbfumyrrycsrcrvms`, migração 2026-05-19) e mandavam `npx supabase` (**quebrado** nesta máquina, `uv_spawn`) — eu lia, errava, tomava 403/uv_spawn e redescobria. (2) A info certa (`reference_supabase_token_novo`, `feedback_deploy_edge_use_cli_not_mcp`) existia em memória mas **não carregava**: `MEMORY.md` estava 26.9 KB > limite 24.4 KB → truncado → seção References nunca chegava ao contexto.
+
+**Fix (3 frentes, aprovado via AskUserQuestion):** (a) bloco **"🚀 Deploy & Supabase — coordenadas"** no `CLAUDE.md` (sempre carregado; ref/binário scoop/`--use-api`/403=PAT, SEM valor do token). (b) **11 docs corrigidas** (deploy.md, deploy-checklist.md, deploy-detalhado.md, ARCHITECTURE.md, AGENTS.md, RULES.md, README.md, banco-de-dados.md, ai-agent.md, regras-preventivas.md + este log): ref atual + binário scoop (não npx). (c) `MEMORY.md` enxugado 26.9→20.4 KB (hooks ≤~150 chars, dedupe `manager_attendance_dashboard`, corrigido hook errado "npx" do `deploy_edge_use_cli_not_mcp`) + memória `reference_supabase_token_novo` alinhada ao scoop. Healthcheck 300 lin OK em todos. Planos/auditorias datados deixados como registro point-in-time.
+
+---
 ## 2026-06-03 (noite IV) — 🔔 Reatribuição do gestor notifica o novo atendente (v7.72.0)
 
 Dono pediu: ao reatribuir uma conversa no dashboard da Fila ("Sem atend." → Reatribuir), o **novo atendente** recebe a notificação no WhatsApp pessoal dele (e o anterior é avisado que saiu). Reusa a `notify-vendor-assignment` da fila automática (8 guards). Wire em `useReassignConversation` (fire-and-forget pós-RPC; falha não quebra a reatribuição) + `UnattendedLeadsTab` passa o `assigned_to` anterior. tsc 0; invocação frontend confirmada (200 skipped sem spam). Frontend-only. Commit `89cb7f8`/merge `8984e7d`. Cruza [[project_manager_attendance_dashboard]] e [[project_vendor_notif_activated_eletropisov2]].

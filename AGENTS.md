@@ -103,14 +103,14 @@ Located in `supabase/functions/`. Deno runtime.
 - `supabase/functions/ai-agent/index.ts` (~2600 lines)
 - `supabase/functions/ai-agent-playground/index.ts`
 - `supabase/functions/e2e-test/index.ts`
-- `src/integrations/supabase/types.ts` (only via `npx supabase gen types`)
+- `src/integrations/supabase/types.ts` (only via `supabase gen types` — binário scoop, NÃO npx)
 
 ## Deployment
 
 - **Production:** crm.wsmart.com.br (Docker Swarm + Traefik + SSL)
 - **CI/CD:** GitHub Actions → ghcr.io/georgeazevedo2023/whatspro:latest
 - **Portainer:** Stack "whatspro" on Hetzner CX42 (65.108.51.109)
-- **Edge Functions:** `SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy <name> --project-ref euljumeflwtljegknawy`
+- **Edge Functions:** binário scoop (NÃO npx) → `$env:SUPABASE_ACCESS_TOKEN=<PAT eletropiso>; supabase functions deploy <name> --project-ref prfcbfumyrrycsrcrvms --use-api` ⚠️ ref ATUAL `prfcbfumyrrycsrcrvms` (antigo `euljumeflwtljegknawy` MORTO)
 
 ## Source of Truth
 

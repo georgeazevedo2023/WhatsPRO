@@ -2,13 +2,14 @@
 title: Deploy Checklist
 tags: [deploy, checklist, producao]
 sources: [CLAUDE.md, wiki/erros-e-licoes.md]
-updated: 2026-04-05
-audited_at: 2026-05-11
+updated: 2026-06-04
+audited_at: 2026-06-04
 ---
 
 # Deploy Checklist
 
 > Consultar ANTES de cada deploy. Nenhum item pode ser ignorado.
+> Coordenadas (ref/CLI/PAT) no `CLAUDE.md` → seção "🚀 Deploy & Supabase". Project ref ATUAL: `prfcbfumyrrycsrcrvms`.
 
 ---
 
@@ -35,7 +36,7 @@ audited_at: 2026-05-11
 
 ### Banco de Dados
 - [ ] Migrations testadas localmente
-- [ ] types.ts regenerado (`npx supabase gen types`)
+- [ ] types.ts regenerado (`supabase gen types` — binário scoop, NÃO npx)
 - [ ] RLS policies testadas
 
 ---
@@ -43,7 +44,7 @@ audited_at: 2026-05-11
 ## Deploy
 
 - [ ] `npm run build` sem erros
-- [ ] Edge functions deployadas (`npx supabase functions deploy <nome>`)
+- [ ] Edge functions deployadas (`supabase functions deploy <nome> --project-ref prfcbfumyrrycsrcrvms --use-api` — binário scoop + PAT eletropiso; 403 = conta antiga)
 - [ ] Docker build + push para ghcr.io
 - [ ] Stack atualizada no Portainer
 - [ ] Smoke test: login → helpdesk → enviar mensagem → AI responde

@@ -10,12 +10,12 @@ audited_at: 2026-05-11
 
 ## Provedor
 
-Supabase (PostgreSQL 17) — projeto `wspro_v2` (ref: `euljumeflwtljegknawy`)
+Supabase (PostgreSQL 17) — projeto ATUAL ref `prfcbfumyrrycsrcrvms` (conta `eletropiso.wsmart@gmail.com`). ⚠️ O antigo `wspro_v2` / `euljumeflwtljegknawy` está MORTO (migração 2026-05-19).
 
 ## Padrões Globais
 
 - **RLS** em todas as tabelas; gates via `auth.uid()` + materialized views (`mv_user_inbox_roles`)
-- **Tipos:** `npx supabase gen types` — NUNCA editar `src/integrations/supabase/types.ts` à mão (R5)
+- **Tipos:** `supabase gen types` (binário scoop, NÃO npx) — NUNCA editar `src/integrations/supabase/types.ts` à mão (R5)
 - **Datas:** `created_at`, `updated_at` com triggers automáticos
 - **FKs:** `instances.id` é **TEXT** (não UUID — R24); `lead_profiles.contact_id` é FK para `contacts(id)` 1:1
 - **Tags:** `TEXT[]` formato `key:value` em `conversations.tags` — NUNCA `[]` vazio (R9)

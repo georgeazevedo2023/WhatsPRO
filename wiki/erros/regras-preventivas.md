@@ -22,7 +22,7 @@ audited_at: 2026-05-22
 | 2 | NUNCA dar nota/score parcial e depois mudar para pior | Regra de integridade |
 | 3 | Token UAZAPI NUNCA no frontend — sempre via uazapi-proxy | Segurança |
 | 4 | Não selecionar campo `token` da tabela `instances` no frontend | Segurança |
-| 5 | types.ts só via `npx supabase gen types` — NUNCA editar manual | Padrão |
+| 5 | types.ts só via `supabase gen types` (binário scoop, NÃO npx) — NUNCA editar manual | Padrão |
 | 6 | Debounce NO RETRY on 500 — é timeout do gateway, não crash | AI Agent |
 | 7 | Empty LLM response = silêncio — NUNCA enviar fallback ao lead | AI Agent |
 | 8 | NUNCA dizer "não encontrei/não temos" ao lead — usar [INTERNO] | AI Agent |
