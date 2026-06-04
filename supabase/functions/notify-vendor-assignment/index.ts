@@ -27,6 +27,13 @@ interface RequestBody {
   assigned_to_id: string
   /** Se diferente de assigned_to_id, manda msg de "removido" pro vendor anterior. */
   previous_assigned_to_id?: string | null
+  /**
+   * Reatribuição MANUAL do gestor (não a fila automática). Quando true, bypassa os
+   * guards de DISPONIBILIDADE (`queue_paused` e `off_hours`) — o gestor escolheu a
+   * pessoa deliberadamente (mesmo vendo "Pausado"), então ela deve ser avisada.
+   * Continua respeitando opt-out, DND pessoal (paused_until), sem-número e rate-limit.
+   */
+  force_manual?: boolean
 }
 
 type SkipReason =
@@ -245,7 +252,7 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  const { conversation_id, assigned_to_id, previous_assigned_to_id } = body
+  const { conversation_id, assigned_to_id, previous_assigned_to_id, force_manual } = body
   if (!conversation_id || !assigned_to_id) {
     return new Response(JSON.stringify({ error: 'missing_params' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -355,7 +362,8 @@ Deno.serve(async (req: Request) => {
       .eq('user_id', assigned_to_id)
     const allPaused = Array.isArray(queuePaused) && queuePaused.length > 0
       && queuePaused.every((d: { queue_paused?: boolean }) => d.queue_paused === true)
-    if (allPaused) {
+    // force_manual (reatribuição manual do gestor) bypassa o guard de fila pausada.
+    if (allPaused && !force_manual) {
       await logSkip(conversation_id, assigned_to_id, instanceId, 'skip_queue_paused')
       return new Response(JSON.stringify({ ok: true, skipped: 'skip_queue_paused' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -363,7 +371,9 @@ Deno.serve(async (req: Request) => {
     }
 
     const agentRow = agent as { business_hours?: unknown; extended_hours_until?: string | null } | null
-    if (!isWithinBusinessHours(agentRow?.business_hours, agentRow?.extended_hours_until ?? null)) {
+    // force_manual bypassa horário comercial: gestor reatribuindo fora do horário
+    // ainda quer que o atendente escolhido seja avisado.
+    if (!force_manual && !isWithinBusinessHours(agentRow?.business_hours, agentRow?.extended_hours_until ?? null)) {
       await logSkip(conversation_id, assigned_to_id, instanceId, 'skip_off_hours')
       return new Response(JSON.stringify({ ok: true, skipped: 'skip_off_hours' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

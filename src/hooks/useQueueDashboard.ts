@@ -288,6 +288,9 @@ export function useReassignConversation() {
         assigned_to_id: assigneeId,
         previous_assigned_to_id:
           previousAssigneeId && previousAssigneeId !== assigneeId ? previousAssigneeId : null,
+        // Reatribuição manual do gestor: bypassa guards de disponibilidade
+        // (fila pausada / fora de horário) — a pessoa foi escolhida de propósito.
+        force_manual: true,
       }).catch(() => { /* best-effort, não bloqueia a reatribuição */ });
 
       return { assigneeName };

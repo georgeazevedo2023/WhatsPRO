@@ -17,6 +17,8 @@ audited_at: 2026-06-03
 
 No dashboard da Fila (`/dashboard/fila` → "Sem atend." → **Reatribuir**), reatribuir uma conversa agora **notifica o novo atendente** no WhatsApp pessoal dele (e avisa o **anterior** que saiu). Reusa a `notify-vendor-assignment` da fila automática — mesmos **8 guards** (opt-in, horário comercial, rate-limit 3/h, número cadastrado, etc.). Wire em `useReassignConversation` (fire-and-forget pós-RPC; falha na notif NÃO quebra a reatribuição) + `UnattendedLeadsTab` passa o atendente anterior. `tsc` 0; invocação da fn pelo frontend (como Gerente) confirmada (200, sem spam). Frontend-only (push → CI).
 
+**v7.72.1 (2026-06-04) — bypass de guards de disponibilidade na reatribuição manual.** A reatribuição manual do gestor agora passa `force_manual` → a `notify-vendor-assignment` **bypassa `queue_paused` e `off_hours`** (mantém opt-out/DND/sem-número/rate-limit). Sem isso a notif era pulada quando o atendente escolhido estava **"Pausado"** na fila (achado real: Letícia). **E2E real (Playwright dev→PROD):** reatribuir Carmem Lucia → Letícia (pausada) → `notification_log` **status=sent** + WhatsApp entregue (`🔔 Novo atendimento, Letícia!`). Edge fn `notify-vendor-assignment` redeployada (CLI).
+
 ---
 
 ### v7.71.5 (2026-06-03) — 🐛 Grupo + Lead: envio de mídia também base64 → URL (mesmo root cause do Helpdesk)
