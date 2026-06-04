@@ -67,7 +67,7 @@ NUNCA reportar feature como concluida sem todos os 6 passos verificados.
 Toda alteracao em campo configuravel, regra do agente, ou comportamento DEVE ser sincronizada em TODOS os 8 locais:
 
 1. **Banco (coluna)** — campo existe em `ai_agents`? Default correto? Migration criada?
-2. **Types.ts** — campo adicionado em Row, Insert e Update? (so via `npx supabase gen types`)
+2. **Types.ts** — campo adicionado em Row, Insert e Update? (so via `supabase gen types` — binario scoop, NAO npx)
 3. **Admin UI** — campo visivel e editavel no painel? Label e descricao claras?
 4. **ALLOWED_FIELDS** — campo listado em `AIAgentTab.tsx` ALLOWED_FIELDS para auto-save?
 5. **Backend (ai-agent)** — campo lido e usado no `index.ts`? Logica implementada?
@@ -84,7 +84,7 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA.
 - `supabase/functions/ai-agent/index.ts` (~2600 linhas)
 - `supabase/functions/ai-agent-playground/index.ts`
 - `supabase/functions/e2e-test/index.ts`
-- `src/integrations/supabase/types.ts` (so via `npx supabase gen types`, nunca editar manual)
+- `src/integrations/supabase/types.ts` (so via `supabase gen types` — binario scoop, NAO npx; nunca editar manual)
 
 ---
 

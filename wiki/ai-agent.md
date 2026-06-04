@@ -191,7 +191,7 @@ NUNCA pular etapas.
 - `supabase/functions/ai-agent/index.ts` (~2600 linhas)
 - `supabase/functions/ai-agent-playground/index.ts`
 - `supabase/functions/e2e-test/index.ts`
-- `src/integrations/supabase/types.ts` (so via `npx supabase gen types`)
+- `src/integrations/supabase/types.ts` (so via `supabase gen types` — binario scoop, NAO npx)
 
 ## Links
 

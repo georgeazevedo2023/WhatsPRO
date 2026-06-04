@@ -2,8 +2,10 @@
 title: Deploy e Infraestrutura — Documentacao Detalhada
 tags: [deploy, docker, cicd, github, portainer, hetzner, detalhado]
 sources: [Dockerfile, .github/workflows/deploy.yml, supabase/functions/health-check/, wiki/deploy-checklist.md]
-updated: 2026-04-10
+updated: 2026-06-04
 ---
+
+> ⚠️ Coordenadas corretas de deploy (project ref ATUAL `prfcbfumyrrycsrcrvms`, binário scoop, PAT) no `CLAUDE.md` → "🚀 Deploy & Supabase" e em [[wiki/deploy]]. Esta página foi corrigida em 2026-06-04 (antes apontava pro ref morto `euljumeflwtljegknawy` e pro `npx` quebrado).
 
 # Deploy e Infraestrutura — Producao e CI/CD (6 Sub-Funcionalidades)
 
@@ -70,7 +72,12 @@ updated: 2026-04-10
 
 **O que e:** As 31 edge functions rodam no Supabase Cloud (nao no servidor proprio). Deploy via CLI separado do Docker.
 
-**Deploy:** `SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy <nome> --project-ref euljumeflwtljegknawy`
+**Deploy:** binário scoop (NÃO `npx` — quebrado: `uv_spawn`):
+```powershell
+$env:SUPABASE_ACCESS_TOKEN = '<PAT eletropiso — memória reference_supabase_token_novo>'
+supabase functions deploy <nome> --project-ref prfcbfumyrrycsrcrvms --use-api
+```
+⚠️ Ref ATUAL = `prfcbfumyrrycsrcrvms` (o antigo `euljumeflwtljegknawy` está MORTO). 403 = CLI na conta antiga → usar o PAT eletropiso.
 
 **Secrets necessarios (Supabase Vault):**
 - ALLOWED_ORIGIN (https://crm.wsmart.com.br)
@@ -79,7 +86,7 @@ updated: 2026-04-10
 - SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL
 - INTERNAL_FUNCTION_KEY
 
-> **Tecnico:** Config em `supabase/config.toml` (project_id, 30 function entries com verify_jwt). Deploy: CLI `npx supabase functions deploy`. Cada function: Deno runtime, imports de `_shared/`. verify_jwt=false para: webhooks, ai-agent, transcribe-audio, form-public, bio-public, go, health-check.
+> **Tecnico:** Config em `supabase/config.toml` (project_id `prfcbfumyrrycsrcrvms`, ~32 function entries com verify_jwt). Deploy: CLI scoop `supabase functions deploy ... --use-api` (NÃO npx). Cada function: Deno runtime, imports de `_shared/` (o `--use-api` bundla automaticamente). verify_jwt=false para: webhooks, ai-agent, transcribe-audio, form-public, bio-public, go, health-check.
 
 ---
 
@@ -121,7 +128,7 @@ updated: 2026-04-10
 
 **Deploy:**
 - Build + push Docker (via GitHub Actions)
-- Deploy edge functions: `npx supabase functions deploy <name>`
+- Deploy edge functions: `supabase functions deploy <name> --project-ref prfcbfumyrrycsrcrvms --use-api` (binário scoop, NÃO npx)
 - Atualizar Portainer stack
 - Smoke test: login → helpdesk → enviar mensagem → IA responde
 
