@@ -13,6 +13,12 @@ audited_at: 2026-06-04
 
 ---
 
+### v7.73.1 (2026-06-04) — 🟢 Fila: msg do atendente pelo celular mostra o NOME (atendente atribuído)
+
+Refino da v7.73.0 (pedido do dono, print): mensagens que o vendedor responde **pelo celular** (takeover — sem `sender_id`) agora exibem o **nome do atendente atribuído à conversa** (`conversations.assigned_to` → `user_profiles.full_name`) em vez do genérico "Atendente". Caso real validado: *"BOA TARDE, essas luminárias de jardim, eu irei verificar as cores…"* (contato ".", assignee Thiago) saía como **"IA"** (versão antiga) → agora **"Thiago · 02/06, 14:44"**. O modal passa a buscar o `assigned_to` da conversa e incluí-lo no `useUserProfiles`. App-sent segue por `sender_id` (exato); sem assignee, fallback "Atendente". **E2E real no app** (Playwright): rótulo confirmado "Thiago". `tsc` 0. Frontend-only (`ConversationModal.tsx`; push → CI). Detalhe: [[project_fila_message_sender_names_v773]].
+
+---
+
 ### v7.73.0 (2026-06-04) — 🟢 Fila: cada mensagem mostra QUEM enviou (lead / atendente / IA)
 
 No modal "Conversa com …" da Fila (`/dashboard/fila`, e também no detalhe do Lead), cada mensagem agora identifica **quem enviou**: nome do **lead** (recebidas), nome **real do atendente** (enviadas pelo app, resolvido via `useUserProfiles` — mesmo padrão do Helpdesk), **"Atendente"** quando o vendedor respondeu pelo **celular** (takeover) e **"IA"** quando foi o agente. Antes era genérico ("Lead"/"Atendente"/"IA") e — bug latente — mensagens humanas digitadas no celular apareciam como **"IA"**.
