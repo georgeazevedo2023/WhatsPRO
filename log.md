@@ -8,6 +8,15 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-05 (auditoria) — ✅ Base do Disparador: 100% dos leads do Helpdesk cadastrados + rede de segurança
+
+Dono pediu auditoria: leads que mandam mensagem no Helpdesk estão MESMO entrando na base de disparo? **Veredito: SIM, 100%.** EletropisoV2 (`re662a6d32de7e0`), base `b37207fd` "Eletropiso 558781592373": **496 messagers individuais → 496 na base, 0 faltando**; 500/500 entries `source='helpdesk'`; **46/46 leads novos pós-deploy** e **20/20 das últimas 24h** na base; cresce diário (03/06: 485 · 04/06: 4 · 05/06: 11). Instância antiga "Eletropiso" só tem 4 messagers **internos/teste** (próprio número de controle + Sandbox + 1 teste) → recomendei NÃO ligar captura lá (criaria base de lixo).
+
+**Investigação do lag (lote das 12:10):** as mensagens entraram **contínuas** (sem gap → webhook no ar), mas os enrolls atrasaram (mediana 5s, mas p90 ~32min, máx ~58min). **Causa-raiz:** o enroll é **fire-and-forget no `whatsapp-webhook:1110` SEM retry**; sob rajada (12:00–12:10) alguns atrasam e o lead só entra quando manda outra mensagem → **risco**: lead de mensagem única cujo enroll falhe nunca entraria. O path de segurança antigo (`process-jobs` job `lead_auto_add`) está **morto e quebrado** (`job_queue` vazia; usa upsert ON CONFLICT em índice parcial + RPC inexistente `update_lead_count_from_entries`).
+
+**Fix (migration `20260605140000_reconcile_broadcast_enrollments.sql`):** RPC `reconcile_broadcast_enrollments(p_lookback)` SECURITY DEFINER (espelha o enroll, varre messagers da janela não-cadastrados, `ON CONFLICT DO NOTHING`, REVOKE PUBLIC) + **pg_cron `*/2` (jobid 41)**. Testado: sweep completo = **0** (cobertura já 100%, idempotente); cron rodou `succeeded` em 172ms. Agora cobertura é **garantida** + lag ≤2min mesmo com engasgo. Detalhe: [[project_auto_enroll_broadcast_v770]].
+
+---
 ## 2026-06-05 — 🟢 Fila: msg de atendente saía "IA" = DEPLOY-FANTASMA + atribuição honesta (v7.73.2)
 
 Dono (print do modal "Conversa com Márcia Patriota"): a msg **"Não tenho esse revestimento da ceral."** aparecia como **"IA"**, mas foi um **atendente**. DB confirmou takeover pelo celular: `sender_id` NULL, `external_id` hex `3EB0E808…` (sem prefixo de automação), conversa `shadow`.
