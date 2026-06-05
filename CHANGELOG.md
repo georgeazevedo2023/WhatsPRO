@@ -13,6 +13,12 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.74.0 (2026-06-05) — 🔎 Fila: busca por nome ou número do lead (parcial)
+
+Na lista "Sem atend." do dashboard da Fila (`/dashboard/fila`), novo campo **"Buscar por nome ou número (ex.: Tiago, 6099)…"** filtra os leads carregados por **nome** OU por **trecho do número** do WhatsApp (dígitos normalizados — "6099" casa qualquer telefone que contenha 6099) e lista os matches na hora (client-side, sem rede). Compõe com os filtros de janela/ordenação/atendente já existentes; empty-state dedicado ("Nenhum lead encontrado para …"). Pedido do dono junto do print do Tiago Feitosa. `UnattendedLeadsTab.tsx`, frontend-only, `tsc` 0, E2E real no app. Detalhe: [[project_fila_message_sender_names_v773]].
+
+---
+
 ### v7.73.2 (2026-06-05) — 🟢 Fila: atendente pelo celular só recebe nome se já era o responsável no horário (senão "Atendente")
 
 Fecha 2 problemas levantados pelo print do dono (msg *"Não tenho esse revestimento da ceral."*, contato Márcia Patriota, aparecendo como **"IA"**). **(1) Defeito operacional — causa-raiz:** a PROD estava rodando bundle **pré-v7.73.0**. A v7.73.0/.1 foi buildada (GHCR `:latest`, CI verde) mas o **redeploy do Portainer nunca foi disparado** (`deploy.yml` só builda a imagem; o redeploy no servidor é um webhook manual). Por isso o modal usava a lógica antiga (todo outgoing sem `sender_id` = "IA"), mesmo a msg sendo de takeover pelo celular (`external_id` hex `3EB0E808…`, sem `sender_id`, conversa `shadow`). **Provado** varrendo os 132 chunks JS do site live (`agentPhone`/`queue_oof_`/"Nota interna" ausentes; "Abrir no Helpdesk" presente = modal antigo). Este release dispara o redeploy. **(2) Atribuição honesta:** takeover pelo celular não registra QUEM digitou — a v7.73.1 atribuía ao responsável **atual**, errado em **2398/3128 (~77%)** das msgs (conversa atribuída/reatribuída depois do envio). Agora o nome do atendente só aparece se `assigned_at <= created_at` (já era o responsável no momento do envio); senão **"Atendente"** (não inventa nome). No caso Márcia: Alvaro só foi atribuído às 17:50, msg às 12:56 → **"Atendente"**. `tsc` 0. Frontend-only (`ConversationModal.tsx`; push → CI → Portainer webhook). Detalhe: [[project_fila_message_sender_names_v773]].
@@ -281,13 +287,7 @@ Ajustes pedidos pelo dono na aba "Sem atendimento" (`UnattendedLeadsTab`):
 
 ### v7.59.0 (2026-05-31) — Cenário 21.36 nota 10 + resumo universal pro vendedor + config do agent reativada (branch, não mergeada)
 
-Três fixes de raiz após auditoria profunda do orquestrador (branch `fix/scenario-2136-area-marmorizado`, 3 commits, 5 deploys, **ainda não mergeada/pushada**):
-
-- **21.36 (porcelanato ausente) 7,5→~9,5** (`83153cf`): captura de **área** desacoplada do cap (2 verdicts uncapped no `inNoResultLoop` — o cap só governa o handoff); **greeting-seed** de `interesse`+`pedido_original` no 1º contato + override `saudacao→qualification_specialist` (turno-2 personaliza e já entra no funil); linha **"Pedido original"** no resumo (preserva descritor "marmorizado"). E2E 21.36/21.37 ao vivo no sandbox.
-- **Resumo universal pro vendedor** (`7e37849`): o handoff por trigger "falar com vendedor" **não gerava nota**, e o resumo só funcionava nas categorias premium. Novo `buildConversationDigest` (pares pergunta→resposta como fallback quando tags esparsas, gate <3 atributos) + nota religada no `handoff_trigger` + mensagens propagadas a todos os paths. Agora o vendedor recebe resumo em **toda** categoria.
-- **Config do agent ignorada** (`c68521c`): a categoria `motores` SEM `label` nos 3 agentes (incl. **EletropisoV2 PROD**) fazia `isValidConfig` rejeitar a config de **26 categorias** (tudo-ou-nada) → DEFAULT (4). **~22 categorias estavam dormentes em produção.** Fix: `salvageConfig()` mantém as categorias válidas (uma quebrada não derruba as demais) + reparo do dado (`label` em motores). **Deploy reativou as 22 categorias em EletropisoV2 PROD.**
-
-Testes: +8 unit (handoffSummary digest, productQualificationFlow, serviceCategories salvage). deno check 0. Regressão 21.33 tinta-digital OK. **Pendências:** monitorar PROD (22 categorias reativadas); vazamento `[[handoff_to_human]]` no fechamento digital; push/merge da branch.
+Três fixes de raiz (branch `fix/scenario-2136-area-marmorizado`): **21.36** (porcelanato ausente) 7,5→~9,5 — área desacoplada do cap + greeting-seed + linha "Pedido original" no resumo; **`buildConversationDigest`** — resumo pro vendedor em TODA categoria (não só premium); **`salvageConfig()`** — uma categoria quebrada (`motores` sem `label`) derrubava as 26 → DEFAULT; fix reativou **~22 categorias dormentes em EletropisoV2 PROD**. +8 unit, deno 0.
 
 ---
 
