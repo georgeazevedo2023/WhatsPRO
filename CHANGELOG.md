@@ -13,6 +13,12 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.74.1 (2026-06-05) — 🛡️ Disparador: rede de segurança do auto-cadastro (cobertura garantida)
+
+Auditoria do dono confirmou que os leads do Helpdesk entram **100%** na base de disparo (496/496 messagers do EletropisoV2 na base; 500/500 `source=helpdesk`; 46/46 novos pós-deploy; 20/20 das últimas 24h). Mas o enroll real-time (`whatsapp-webhook` fire-and-forget) é **sem retry** → lag p90 ~32min sob rajada e risco de lead de mensagem única escapar; o path de segurança antigo (`process-jobs` `lead_auto_add`) está morto (`job_queue` vazia) e quebrado. **Fix:** migration `20260605140000_reconcile_broadcast_enrollments.sql` — RPC `reconcile_broadcast_enrollments` (idempotente, SECURITY DEFINER, REVOKE PUBLIC) + **pg_cron `*/2` (jobid 41)** varre e cadastra quem escapou (sweep testado=0, cron `succeeded` 172ms). Número antigo NÃO ligado (só tráfego interno/teste). Detalhe: [[project_auto_enroll_broadcast_v770]].
+
+---
+
 ### v7.74.0 (2026-06-05) — 🔎 Fila: busca por nome ou número do lead (parcial)
 
 Na lista "Sem atend." do dashboard da Fila (`/dashboard/fila`), novo campo **"Buscar por nome ou número (ex.: Tiago, 6099)…"** filtra os leads carregados por **nome** OU por **trecho do número** do WhatsApp (dígitos normalizados — "6099" casa qualquer telefone que contenha 6099) e lista os matches na hora (client-side, sem rede). Compõe com os filtros de janela/ordenação/atendente já existentes; empty-state dedicado ("Nenhum lead encontrado para …"). Pedido do dono junto do print do Tiago Feitosa. `UnattendedLeadsTab.tsx`, frontend-only, `tsc` 0, E2E real no app. Detalhe: [[project_fila_message_sender_names_v773]].
@@ -281,9 +287,7 @@ Ajustes pedidos pelo dono na aba "Sem atendimento" (`UnattendedLeadsTab`):
 
 **Fix de raiz** (`_shared/agent/dispatchResponse.ts`): `stripLeakedToolCalls` reescrito. Nomes são snake_case inglês (nunca em pt-BR) → ancora no nome + remove payload em qualquer sintaxe (parens/JSON **balanceados 1 nível** + truncado, pipe de wikilink, space-kv) + wrappers (`functions.`/`[[`/`[`/`<`/`` ` ``/`**`), flag `i`, `set_cart` adicionado. **Anti over-strip** (achado na verificação adversarial): nome pelado só some fora de URL/e-mail (lookbehind/lookahead) — `…/search_products?q=` e `send_media@loja.com` ficam intactos. Defesa extra: `leakedHandoff` reforça o handoff implícito + guarda anti-bolha-vazia.
 
-**Carrossel-sem-mídia: NÃO é bug** (veredito por evidência: 15 carrosseis em prod, todos com cards + imagem `https`; 110/110 produtos com 1ª imagem; código filtra sem-imagem antes de enviar). Misdiagnóstico da sessão anterior — nada inventado (zero gambiarra).
-
-**Testes:** 123 verdes (108 strip — 5 formas reais verbatim + 52 msgs legítimas byte-exact + corpora adversariais + URL/e-mail + nested/truncado; 15 dispatch). deno check 0 (dispatchResponse/specialistBase/ai-agent index). Full `_shared/agent` 565 pass (2 fails pré-existentes: load `https:` ESM, confirmados via git stash). 2 workflows (investigação forense + verificação adversarial over/under-strip). Deploy ai-agent CLI.
+**Testes:** 123 verdes (108 strip + 15 dispatch), deno 0, `_shared/agent` 565 pass (2 fails pré-existentes). Carrossel-sem-mídia = NÃO-bug (15 carrosseis prod ok, imagem `https`). Deploy ai-agent CLI.
 
 ### v7.59.0 (2026-05-31) — Cenário 21.36 nota 10 + resumo universal pro vendedor + config do agent reativada (branch, não mergeada)
 
