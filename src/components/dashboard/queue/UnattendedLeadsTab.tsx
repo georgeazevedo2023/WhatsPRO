@@ -21,10 +21,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Eye, ArrowRightLeft, Clock, UserCheck, CheckCircle2, Loader2, Pause, ArrowDownWideNarrow } from 'lucide-react';
+import { Eye, ArrowRightLeft, Clock, UserCheck, CheckCircle2, Loader2, Pause, ArrowDownWideNarrow, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 const WINDOWS: { value: UnattendedWindow; label: string }[] = [
@@ -162,6 +163,7 @@ export default function UnattendedLeadsTab({
   const [reassignLead, setReassignLead] = useState<UnattendedLead | null>(null);
   const [sort, setSort] = useState<SortMode>('recent');
   const [attendantFilter, setAttendantFilter] = useState<string>(ALL_ATTENDANTS);
+  const [search, setSearch] = useState('');
 
   // Atendentes presentes nos leads atuais (fonte do filtro), com contagem.
   const attendantOptions = useMemo(() => {
@@ -175,13 +177,23 @@ export default function UnattendedLeadsTab({
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   }, [leads]);
 
-  // Lista visível: filtra por atendente + ordena (client-side sobre a lista carregada).
+  // Lista visível: busca (nome ou telefone, parcial) + filtro por atendente + ordena
+  // (tudo client-side sobre a lista já carregada). Telefone casa por dígitos (ex.: "6099").
   const visible = useMemo(() => {
-    const filtered = attendantFilter === ALL_ATTENDANTS
+    const byAttendant = attendantFilter === ALL_ATTENDANTS
       ? leads
       : leads.filter((l) => l.assigned_to === attendantFilter);
-    return sortLeads(filtered, sort);
-  }, [leads, attendantFilter, sort]);
+    const q = search.trim().toLowerCase();
+    const qDigits = search.replace(/\D/g, '');
+    const searched = !q
+      ? byAttendant
+      : byAttendant.filter((l) => {
+          const nameHit = (l.contact_name || '').toLowerCase().includes(q);
+          const phoneHit = qDigits.length > 0 && (l.contact_phone || '').replace(/\D/g, '').includes(qDigits);
+          return nameHit || phoneHit;
+        });
+    return sortLeads(searched, sort);
+  }, [leads, attendantFilter, sort, search]);
 
   return (
     <div className="space-y-3">
@@ -203,6 +215,21 @@ export default function UnattendedLeadsTab({
           </button>
         ))}
       </div>
+
+      {/* Busca por nome ou número do lead (parcial) */}
+      {!isLoading && leads.length > 0 && (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nome ou número (ex.: Tiago, 6099)…"
+            className="h-9 pl-8"
+            inputMode="search"
+            aria-label="Buscar lead por nome ou número do WhatsApp"
+          />
+        </div>
+      )}
 
       {/* Ordenação + filtro por atendente */}
       {!isLoading && leads.length > 0 && (
@@ -242,7 +269,11 @@ export default function UnattendedLeadsTab({
 
       {!isLoading && leads.length > 0 && visible.length === 0 && (
         <Card className="p-6 text-center">
-          <p className="text-sm text-muted-foreground">Nenhum lead deste atendente na janela atual.</p>
+          <p className="text-sm text-muted-foreground">
+            {search.trim()
+              ? `Nenhum lead encontrado para "${search.trim()}".`
+              : 'Nenhum lead deste atendente na janela atual.'}
+          </p>
         </Card>
       )}
 
