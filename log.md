@@ -8,6 +8,13 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-05 (Contexto IA) — cor "gelo" NÃO sumiu: a IA capturou, o painel é que escondia (v7.74.2)
+
+Dono: "por que o Contexto IA não colocou a cor do produto gelo?" (caso JJgomes/Jurandir, vasos sanitarios). **Investiguei o DB e a premissa estava errada: a IA CAPTUROU certo.** Tags da conversa têm **`cor_vaso:gelo`** + **`tipo_vaso:acoplado`**; a **nota interna do vendedor** lista o Resumo da conversa ("Qual cor… → Gelo", "Acoplado… → Com Caixa acoplada") + linha "Tags: …cor_vaso:gelo". Nada se perdeu — o vendedor tem a cor/tipo.
+
+**Problema real = só o painel `ContactInfoPanel.tsx`:** os campos em destaque (Motivo/Produto/Em falta) só liam `motivo:`/`interesse:`/`produto:`/`marca_indisponivel:` — **sem campo p/ cor/tipo**; a cor virava um chip CINZA enterrado entre ~18 chips internos (`lead_score`, `enriching`, `flow_mode`, `agent_status`, `seller_notified`…), e o print do dono estava cortado. **Fix (frontend, v7.74.2):** campo **"Especificações do pedido"** (`cor_vaso`/`tipo_vaso`/`acabamento`/`marca_preferida`) em destaque roxo → "Tipo: Acoplado · Cor: Gelo"; + `HIDDEN_TAG_KEYS` esconde os chips de ruído interno (só atributos úteis ao atendente). `tsc` 0, push→CI→Portainer. CHANGELOG: arquivei v7.60.0/v7.59.0 no [[wiki/changelog/2026-05-part12]] pra respeitar 300.
+
+---
 ## 2026-06-05 (auditoria) — ✅ Base do Disparador: 100% dos leads do Helpdesk cadastrados + rede de segurança
 
 Dono pediu auditoria: leads que mandam mensagem no Helpdesk estão MESMO entrando na base de disparo? **Veredito: SIM, 100%.** EletropisoV2 (`re662a6d32de7e0`), base `b37207fd` "Eletropiso 558781592373": **496 messagers individuais → 496 na base, 0 faltando**; 500/500 entries `source='helpdesk'`; **46/46 leads novos pós-deploy** e **20/20 das últimas 24h** na base; cresce diário (03/06: 485 · 04/06: 4 · 05/06: 11). Instância antiga "Eletropiso" só tem 4 messagers **internos/teste** (próprio número de controle + Sandbox + 1 teste) → recomendei NÃO ligar captura lá (criaria base de lixo).
