@@ -13,6 +13,12 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.74.3 (2026-06-05) — 🟢 Fila: atendente pelo celular vira "{Nome} (responsável)" (revisa o gate honesto da v7.73.2)
+
+No modal "Conversa com…" da Fila, mensagens que o vendedor responde **pelo celular** (takeover, sem `sender_id`) agora exibem **"{Nome} (responsável)"** — o atendente atribuído à conversa, nome curto sem o sufixo " - Eletropiso" — no lugar do genérico **"Atendente"**. Pedido do dono (print do Djavan: msg 16h08 pelo celular saindo "Atendente"). **Revisa deliberadamente o gate `assigned_at <= created_at` da v7.73.2:** a linha do celular é COMPARTILHADA (16 operadores na EletropisoV2) e o sistema não registra quem digitou, então **"(responsável)" é atribuição de DONO da conversa (`assigned_to`), NÃO de autoria da bolha** — o sufixo é o que mantém honesto ([[feedback_never_false_data]]); mensagens do **app** (com `sender_id`) seguem mostrando o **autor EXATO** sem sufixo (e nunca caem no nome do responsável — bug latente pego na revisão adversarial). Dono escolheu (AskUserQuestion) ciente do trade-off (vira o assignee atual; reatribuir renomeia bolhas antigas). Lógica pura extraída p/ `conversationLabel.ts` + **14 testes** fixam a decisão (caso Djavan, fallback do app, reatribuição). `tsc` 0, ESLint 0, trace determinístico nos dados reais = "Djavan (responsável)". Frontend-only (`ConversationModal.tsx` + `conversationLabel.ts`); entrega: push → CI → Portainer webhook. Detalhe: [[project_fila_message_sender_names_v773]].
+
+---
+
 ### v7.74.2 (2026-06-05) — 🔎 Contexto IA (Helpdesk): especificações do pedido em destaque + chips sem ruído
 
 No painel "Contexto IA" (`ContactInfoPanel.tsx`) a cor/tipo do pedido ficavam invisíveis: a IA **capturava** certo (`cor_vaso:gelo`, `tipo_vaso:acoplado` nos tags **e** na nota do vendedor), mas o painel só destacava a categoria ("vasos sanitarios") e jogava a cor num chip cinza enterrado entre ~18 chips internos (`lead_score`, `enriching`, `flow_mode`, `seller_notified`…). Agora: campo **"Especificações do pedido"** lê `cor_vaso`/`tipo_vaso`/`acabamento`/`marca_preferida` e mostra **"Tipo: Acoplado · Cor: Gelo"** em destaque; chips de ruído interno escondidos (só atributos úteis ao atendente). Pedido do dono (caso JJgomes/Jurandir). Frontend-only, `tsc` 0, E2E real.

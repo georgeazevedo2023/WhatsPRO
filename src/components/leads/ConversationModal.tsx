@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Bot, User, Headphones, ExternalLink } from 'lucide-react';
 import { handleError } from '@/lib/errorUtils';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
+import { msgKind, senderLabelFor, type MsgKind } from './conversationLabel';
 
 interface Message {
   id: string;
@@ -29,42 +30,20 @@ interface ConversationModalProps {
   inboxId?: string | null;
 }
 
-/** Prefixos de external_id usados por mensagens enviadas pela IA/automação.
- *  Mensagens digitadas pelo atendente no celular (takeover) chegam pelo webhook com
- *  external_id = id cru do WhatsApp (hex, sem prefixo) e sem sender_id. */
-const AI_EXTERNAL_ID_PREFIX = /^(ai_|abandon_|follow_up_|auto_|nps_|queue_oof_|poll_vote_)/;
-
-/** Outgoing sem sender_id: IA (external_id NULL ou prefixo de automação) vs atendente
- *  que respondeu pelo celular (external_id hex, sem prefixo). */
-function isAiSent(externalId: string | null): boolean {
-  return !externalId || AI_EXTERNAL_ID_PREFIX.test(externalId);
-}
-
-/** Info de exibição por mensagem. Distingue lead, nota, atendente (app, com nome),
- *  atendente pelo celular (takeover, sem nome) e IA. */
-function msgInfo(msg: Message) {
-  if (msg.direction === 'incoming') {
-    return { kind: 'lead' as const, icon: User, color: 'bg-muted', align: 'justify-start', outgoing: false };
-  }
-  if (msg.direction === 'private_note') {
-    return { kind: 'note' as const, icon: Headphones, color: 'bg-yellow-500/10', align: 'justify-start', outgoing: false };
-  }
-  // outgoing enviado pelo app (Helpdesk): tem sender_id → resolve nome do atendente
-  if (msg.sender_id) {
-    return { kind: 'agent' as const, icon: Headphones, color: 'bg-emerald-600 text-white', align: 'justify-end', outgoing: true };
-  }
-  // outgoing sem sender_id: IA ou atendente pelo celular (takeover)
-  if (isAiSent(msg.external_id)) {
-    return { kind: 'ia' as const, icon: Bot, color: 'bg-primary text-primary-foreground', align: 'justify-end', outgoing: true };
-  }
-  return { kind: 'agentPhone' as const, icon: Headphones, color: 'bg-emerald-600 text-white', align: 'justify-end', outgoing: true };
-}
+/** Apresentação por categoria (ícone/cor/alinhamento). A CLASSIFICAÇÃO e o RÓTULO de
+ *  remetente são lógica pura em ./conversationLabel (testada em conversationLabel.test.ts). */
+const KIND_PRESENTATION: Record<MsgKind, { icon: typeof Bot; color: string; align: string; outgoing: boolean }> = {
+  lead:       { icon: User,       color: 'bg-muted',                          align: 'justify-start', outgoing: false },
+  note:       { icon: Headphones, color: 'bg-yellow-500/10',                  align: 'justify-start', outgoing: false },
+  agent:      { icon: Headphones, color: 'bg-emerald-600 text-white',         align: 'justify-end',   outgoing: true },
+  agentPhone: { icon: Headphones, color: 'bg-emerald-600 text-white',         align: 'justify-end',   outgoing: true },
+  ia:         { icon: Bot,        color: 'bg-primary text-primary-foreground', align: 'justify-end',   outgoing: true },
+};
 
 export function ConversationModal({ open, onOpenChange, conversationId, contactName, inboxId }: ConversationModalProps) {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
-  const [assignedAt, setAssignedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -85,12 +64,11 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
     // Atendente responsável pela conversa — nomeia as msgs enviadas pelo celular (sem sender_id).
     supabase
       .from('conversations')
-      .select('assigned_to, assigned_at')
+      .select('assigned_to')
       .eq('id', conversationId)
       .maybeSingle()
       .then(({ data }) => {
         setAssignedTo((data?.assigned_to as string | null) ?? null);
-        setAssignedAt((data?.assigned_at as string | null) ?? null);
       });
     supabase
       .from('conversation_messages')
@@ -136,24 +114,11 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
           <ScrollArea className="flex-1 px-6 py-4" ref={scrollRef}>
             <div className="space-y-3">
               {messages.map((msg) => {
-                const info = msgInfo(msg);
+                const info = KIND_PRESENTATION[msgKind(msg)];
                 const Icon = info.icon;
                 const text = msg.content || msg.transcription || (msg.media_type !== 'text' ? `[${msg.media_type}]` : '');
-                // Quem enviou: nome do lead (incoming), nome real do atendente (app via sender_id),
-                // nome do atendente atribuído (takeover pelo celular, sem sender_id) ou "IA".
-                // Takeover pelo celular não registra QUEM digitou; só atribuímos ao responsável se
-                // ele já estava atribuído quando a mensagem foi enviada (assigned_at <= created_at).
-                // Reatribuição posterior NÃO renomeia msgs antigas → "Atendente" (não inventa nome).
-                const assignedBeforeMsg =
-                  !!assignedAt && new Date(assignedAt).getTime() <= new Date(msg.created_at).getTime();
-                const agentPhoneName =
-                  (assignedTo && assignedBeforeMsg && agentNamesMap[assignedTo]) || 'Atendente';
-                const senderLabel =
-                  info.kind === 'lead' ? (contactName?.trim() || 'Lead')
-                  : info.kind === 'note' ? 'Nota interna'
-                  : info.kind === 'agent' ? (agentNamesMap[msg.sender_id!] || agentPhoneName)
-                  : info.kind === 'agentPhone' ? agentPhoneName
-                  : 'IA';
+                // Rótulo "quem enviou" (lógica + política "(responsável)" em ./conversationLabel).
+                const senderLabel = senderLabelFor(msg, { contactName, assignedTo, agentNamesMap });
 
                 return (
                   <div key={msg.id} className={`flex gap-2 ${info.align}`}>

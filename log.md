@@ -8,6 +8,13 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-05 (noite) — 🟢 Fila: atendente-celular vira "{Nome} (responsável)" — revisa o gate da v7.73.2 (v7.74.3)
+
+Dono (print do Djavan): a msg das **16h08 pelo celular** ("Boa tarde / Tudo bem? / No que posso ajudar") saía **"Atendente"**; queria ver o nome. **Auditei DB + código + histórico (workflow 3 agentes) e fui crítico:** é o MESMO caso decidido 2× hoje (Márcia v7.73.2, Alberto v7.74.0) — `sender_id` NULL, `assigned_at` (17:53 UTC) **>** `created_at` (16:08 BRT/19:08 UTC), conversa `shadow`; a linha EletropisoV2 tem **16 operadores** e o sistema não registra quem digitou (a saudação genérica pode ter sido o balcão/Alberto, não o Djavan). O `assigned_to` é "Djavan - Eletropiso", atribuído **1h45 depois** → o gate `assigned_at<=created_at` mostrava "Atendente" CERTO pela regra antiga. Apresentei 4 opções (AskUserQuestion com mockups). **Dono escolheu "Por-msg: '{Nome} (responsável)'"** ciente do trade-off (vira o assignee atual; ~77% das bolhas de celular podem não ser do dono exibido; reatribuir renomeia).
+
+**Fix (v7.74.3, `ConversationModal.tsx`):** bolha de celular → `shortName(assigned_to.full_name) + " (responsável)"` ("Djavan - Eletropiso"→"Djavan (responsável)"), **gate temporal removido**; app (`sender_id`) segue **autor EXATO** sem sufixo; "(responsável)" = atribuição de DONO, não autoria ([[feedback_never_false_data]]). **Lógica pura extraída** p/ `conversationLabel.ts` (sem React/Supabase) + **14 testes** (`conversationLabel.test.ts`). **Revisão adversarial (workflow 2 agentes)** confirmou apresentação IDÊNTICA (5 kinds) e **pegou 1 BUG REAL** que eu deixei passar: o fallback do caso `agent` (app) era `|| agentPhoneName` → msg do app com autor não-resolvido por RLS viraria "{assignee} (responsável)" (atribuir humano a OUTRA pessoa) → corrigido p/ `|| 'Atendente'` + 2 testes. `tsc`/ESLint 0, trace determinístico nos dados reais = "Djavan (responsável)". **Entrega:** feature branch comitada; push→CI→Portainer webhook a disparar (confirmar bundle, lição deploy-fantasma). Detalhe: [[project_fila_message_sender_names_v773]].
+
+---
 ## 2026-06-05 (Contexto IA) — cor "gelo" NÃO sumiu: a IA capturou, o painel é que escondia (v7.74.2)
 
 Dono: "por que o Contexto IA não colocou a cor do produto gelo?" (caso JJgomes/Jurandir, vasos sanitarios). **Investiguei o DB e a premissa estava errada: a IA CAPTUROU certo.** Tags da conversa têm **`cor_vaso:gelo`** + **`tipo_vaso:acoplado`**; a **nota interna do vendedor** lista o Resumo da conversa ("Qual cor… → Gelo", "Acoplado… → Com Caixa acoplada") + linha "Tags: …cor_vaso:gelo". Nada se perdeu — o vendedor tem a cor/tipo.
