@@ -40,7 +40,7 @@ Located in `supabase/functions/`. Deno runtime.
 - `ai-agent` — cerebro IA (~2600 linhas), SDR+handoff+shadow, circuit breaker, 9 tools
 - `ai-agent-debounce` — agrupamento 10s atomico
 - `ai-agent-playground` — testing sandbox
-- `whatsapp-webhook` — recebe msgs do UAZAPI, parallel I/O, broadcast Realtime
+- `whatsapp-webhook` — entrada das msgs (chamado pelo **n8n**, NÃO direto do UAZAPI — ver "Fluxo de entrada"), parallel I/O, broadcast Realtime
 - `uazapi-proxy` — proxy autenticado para UAZAPI (send-chat, send-media, send-poll, etc.)
 - `scrape-product` — URL → dados do produto (JSON-LD/OG/meta)
 - `form-bot` — formularios WhatsApp (FORM:slug trigger, validacoes, webhook)
@@ -53,6 +53,8 @@ Located in `supabase/functions/`. Deno runtime.
 - `health-check` — DB + MV + env → 200/503
 - `e2e-test` — testes E2E do AI Agent
 - `automationEngine.ts` — motor de automacao (7 gatilhos, 4 condicoes, 6 acoes)
+
+**Fluxo de entrada de mensagens (ingestão) — IMPORTANTE:** o UAZAPI **NÃO** chama a edge function direto. A instância UAZAPI aponta o webhook pro **n8n** (`https://fluxwebhook.wsmart.com.br/webhook/<path>`); o n8n (Webhook node → Set → **HTTP Request** POST, body = `$json.body` cru) é quem chama a edge fn `whatsapp-webhook` (`.../functions/v1/whatsapp-webhook`). Cadeia completa: **UAZAPI → n8n → HTTP Request → `whatsapp-webhook` → DB → ai-agent-debounce**. **Consequência:** atrasos/lotes de entrega podem vir do **n8n** (fila/retry/restart) — a edge fn só roda quando o n8n entrega; ela NÃO é o endpoint que o WhatsApp/UAZAPI atinge. Setup por instância: [[wiki/migracao-eletropiso-558781592373]] ("Próximos passos").
 
 **Shared Modules (17):** cors.ts, fetchWithTimeout.ts, circuitBreaker.ts, llmProvider.ts, constants.ts, logger.ts, agentHelpers.ts, auth.ts, supabaseClient.ts, carousel.ts, rateLimit.ts, validatorAgent.ts, ttsProviders.ts, response.ts, aiRuntime.ts, leadHelper.ts, automationEngine.ts
 

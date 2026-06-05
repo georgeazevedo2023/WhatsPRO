@@ -16,6 +16,8 @@ Dono pediu auditoria: leads que mandam mensagem no Helpdesk estão MESMO entrand
 
 **Fix (migration `20260605140000_reconcile_broadcast_enrollments.sql`):** RPC `reconcile_broadcast_enrollments(p_lookback)` SECURITY DEFINER (espelha o enroll, varre messagers da janela não-cadastrados, `ON CONFLICT DO NOTHING`, REVOKE PUBLIC) + **pg_cron `*/2` (jobid 41)**. Testado: sweep completo = **0** (cobertura já 100%, idempotente); cron rodou `succeeded` em 172ms. Agora cobertura é **garantida** + lag ≤2min mesmo com engasgo. Detalhe: [[project_auto_enroll_broadcast_v770]].
 
+**Correção (dono apontou):** a entrada NÃO é UAZAPI→edge fn direto — é **UAZAPI → n8n (`fluxwebhook.wsmart.com.br`) → HTTP Request → `whatsapp-webhook`**. Logo o lote das 12:10 (timestamps espalhados, processados juntos) provavelmente veio do **n8n entregando backlog** (fila/retry/restart), não de lock de DB; e "endurecer o webhook com retry" NÃO resolveria algo a montante no n8n — a reconciliação (já shipada) é o fix certo justamente porque independe de onde está o atraso. O fluxo estava só nos docs de migração, NÃO no `ARCHITECTURE.md` (dizia "recebe msgs do UAZAPI"). Corrigido o `ARCHITECTURE.md` (seção "Fluxo de entrada") + memória [[project_message_ingestion_n8n]].
+
 ---
 ## 2026-06-05 — 🟢 Fila: msg de atendente saía "IA" = DEPLOY-FANTASMA + atribuição honesta (v7.73.2)
 
