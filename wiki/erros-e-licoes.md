@@ -2,8 +2,8 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-06-03
-audited_at: 2026-06-03
+updated: 2026-06-05
+audited_at: 2026-06-05
 ---
 
 # Erros e Lições
@@ -19,6 +19,11 @@ audited_at: 2026-06-03
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
 
 ---
+
+## 🚨 Sessão 2026-06-05 — DEPLOY-FANTASMA: CI "success" ≠ deployado (atendente saía "IA" na Fila) — v7.73.2
+Detalhe: CHANGELOG/log + [[project_fila_message_sender_names_v773]] · [[reference_portainer_webhook]].
+1. **Build verde no GitHub NÃO significa que a PROD atualizou.** Print do dono: msg de atendente (takeover pelo celular, `external_id` hex, sem `sender_id`) aparecia como "IA". **Não era bug de código** — a v7.73.0/.1 estava no GHCR (CI verde) mas o **redeploy do Portainer nunca foi disparado** (`deploy.yml` SÓ builda a imagem; o redeploy no servidor é **webhook manual**). O site servia o bundle ANTIGO (modal que rotula todo outgoing sem `sender_id` = "IA"). **Diagnóstico decisivo:** baixar e varrer os chunks JS de `crm.wsmart.com.br` por um marker de string do código novo (`agentPhone`/`queue_oof_`) — ausentes = não deployado; presentes só depois do webhook. **Regra:** após push, (a) esperar CI `success`, (b) disparar o webhook do Portainer, (c) CONFIRMAR no bundle live (entry hash muda + marker presente) ANTES de declarar "no ar". Release-fantasma de 2ª espécie (≠ commit faltando do v7.47.0).
+2. **Atribuir takeover-celular ao `assigned_to` ATUAL inventa nome.** A msg da Márcia seria "Alvaro", mas ele só assumiu 5h depois (medido: 2398/3128 ~77% das msgs mal-atribuídas). **Regra:** só usar o nome do responsável se `assigned_at <= created_at`; senão "Atendente" genérico — nunca inventar nome ([[feedback_never_false_data]]). E2E real no app confirmou "Atendente" na msg, "IA" nas da IA.
 
 ## 🚨 Sessão 2026-06-03 (tarde III) — `getAccessToken` travava TODA edge function (`getSession()` sem timeout) — v7.71.1
 Detalhe: CHANGELOG/log + [[project_member_create_hang_v7711]] · cruza [[project_tab_resume_session_zombie_v762]]. "Novo Membro" preso em "Criando...".
