@@ -13,6 +13,12 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.74.2 (2026-06-05) — 🔎 Contexto IA (Helpdesk): especificações do pedido em destaque + chips sem ruído
+
+No painel "Contexto IA" (`ContactInfoPanel.tsx`) a cor/tipo do pedido ficavam invisíveis: a IA **capturava** certo (`cor_vaso:gelo`, `tipo_vaso:acoplado` nos tags **e** na nota do vendedor), mas o painel só destacava a categoria ("vasos sanitarios") e jogava a cor num chip cinza enterrado entre ~18 chips internos (`lead_score`, `enriching`, `flow_mode`, `seller_notified`…). Agora: campo **"Especificações do pedido"** lê `cor_vaso`/`tipo_vaso`/`acabamento`/`marca_preferida` e mostra **"Tipo: Acoplado · Cor: Gelo"** em destaque; chips de ruído interno escondidos (só atributos úteis ao atendente). Pedido do dono (caso JJgomes/Jurandir). Frontend-only, `tsc` 0, E2E real.
+
+---
+
 ### v7.74.1 (2026-06-05) — 🛡️ Disparador: rede de segurança do auto-cadastro (cobertura garantida)
 
 Auditoria do dono confirmou que os leads do Helpdesk entram **100%** na base de disparo (496/496 messagers do EletropisoV2 na base; 500/500 `source=helpdesk`; 46/46 novos pós-deploy; 20/20 das últimas 24h). Mas o enroll real-time (`whatsapp-webhook` fire-and-forget) é **sem retry** → lag p90 ~32min sob rajada e risco de lead de mensagem única escapar; o path de segurança antigo (`process-jobs` `lead_auto_add`) está morto (`job_queue` vazia) e quebrado. **Fix:** migration `20260605140000_reconcile_broadcast_enrollments.sql` — RPC `reconcile_broadcast_enrollments` (idempotente, SECURITY DEFINER, REVOKE PUBLIC) + **pg_cron `*/2` (jobid 41)** varre e cadastra quem escapou (sweep testado=0, cron `succeeded` 172ms). Número antigo NÃO ligado (só tráfego interno/teste). Detalhe: [[project_auto_enroll_broadcast_v770]].
@@ -281,20 +287,6 @@ Ajustes pedidos pelo dono na aba "Sem atendimento" (`UnattendedLeadsTab`):
 
 **Verificação (Playwright no app real, cenário do dono):** abriu conversa → aba oculta 4s → voltou: `reloadCalled=false`, `app:tab-resumed` disparou 1×, probe de documento sobreviveu (sem reload), conversa permaneceu aberta (header + mensagens), 0 erros de console. tsc 0 · build OK. 4 arquivos, +46/−7.
 
-### v7.60.0 (2026-05-31) — 🔴 Vazamento de tool-call no texto ao lead (handoff_to_human) — stripLeakedToolCalls reescrito
+### v7.60.0 (2026-05-31) e anteriores
 
-**Trigger:** cenário 21.33 (fechamento digital de tinta) mostrava `[[handoff_to_human|reason=…` cru pro lead. Forense em PROD (EletropisoV2, 30d, via `mcp supabase-novo`): **10 msgs `outgoing` vazadas em 5 formas — a regex antiga pegava 0/10**: bare-name (`\nhandoff_to_human`, 4×), parens sem aspas (`handoff_to_human(reason: …)`, 3×), wikilink truncado (`[[handoff_to_human|reason=…`, 1× = o 21.33), JSON em linha (`handoff_to_human\n{…}`, 1×), space-kv (`set_tags nome:… ambiente:…`, 1×). Defeito **cosmético** (o handoff implícito sempre disparou: fila+shadow+nota OK); só a sintaxe crua chegava ao cliente.
-
-**Fix de raiz** (`_shared/agent/dispatchResponse.ts`): `stripLeakedToolCalls` reescrito. Nomes são snake_case inglês (nunca em pt-BR) → ancora no nome + remove payload em qualquer sintaxe (parens/JSON **balanceados 1 nível** + truncado, pipe de wikilink, space-kv) + wrappers (`functions.`/`[[`/`[`/`<`/`` ` ``/`**`), flag `i`, `set_cart` adicionado. **Anti over-strip** (achado na verificação adversarial): nome pelado só some fora de URL/e-mail (lookbehind/lookahead) — `…/search_products?q=` e `send_media@loja.com` ficam intactos. Defesa extra: `leakedHandoff` reforça o handoff implícito + guarda anti-bolha-vazia.
-
-**Testes:** 123 verdes (108 strip + 15 dispatch), deno 0, `_shared/agent` 565 pass (2 fails pré-existentes). Carrossel-sem-mídia = NÃO-bug (15 carrosseis prod ok, imagem `https`). Deploy ai-agent CLI.
-
-### v7.59.0 (2026-05-31) — Cenário 21.36 nota 10 + resumo universal pro vendedor + config do agent reativada (branch, não mergeada)
-
-Três fixes de raiz (branch `fix/scenario-2136-area-marmorizado`): **21.36** (porcelanato ausente) 7,5→~9,5 — área desacoplada do cap + greeting-seed + linha "Pedido original" no resumo; **`buildConversationDigest`** — resumo pro vendedor em TODA categoria (não só premium); **`salvageConfig()`** — uma categoria quebrada (`motores` sem `label`) derrubava as 26 → DEFAULT; fix reativou **~22 categorias dormentes em EletropisoV2 PROD**. +8 unit, deno 0.
-
----
-
-### v7.58.4 (2026-05-30) e anteriores
-
-v7.58.4 → v7.56.1 → ver [[wiki/changelog/2026-05-part12]]. Anteriores → [[wiki/changelog/2026-05-part11]].
+v7.60.0 → v7.56.1 → ver [[wiki/changelog/2026-05-part12]]. Anteriores → [[wiki/changelog/2026-05-part11]].

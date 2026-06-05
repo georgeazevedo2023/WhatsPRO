@@ -91,6 +91,21 @@ export const ContactInfoPanel = ({
   const kpiItens = [...kpiProdutos, ...kpiInteresses];
   const kpiProdutoFalta = convTags.find(t => t.startsWith('marca_indisponivel:'))?.split(':').slice(1).join(':').replace(/_/g, ' ').replace(/,\s*/g, ', ') ?? null;
   const kpiAtendidoIA = convTags.some(t => t.startsWith('ia:shadow')) ? 'Shadow' : (convTags.some(t => t.startsWith('motivo:') || t.startsWith('produto:') || t.startsWith('interesse:')) ? 'Sim' : 'Não');
+  // Especificações do pedido (respostas de qualificação): cor, tipo, acabamento, marca…
+  const SPEC_LABELS: Record<string, string> = {
+    tipo_vaso: 'Tipo', cor_vaso: 'Cor', acabamento: 'Acabamento', marca_preferida: 'Marca',
+    cor: 'Cor', tipo: 'Tipo', tamanho: 'Tamanho', medida: 'Medida', ambiente: 'Ambiente', voltagem: 'Voltagem',
+  };
+  const kpiEspecificacoes = convTags
+    .map(t => { const [k, ...r] = t.split(':'); return { k, v: r.join(':') }; })
+    .filter(s => SPEC_LABELS[s.k] && s.v)
+    .map(s => { const v = s.v.replace(/_/g, ' '); return `${SPEC_LABELS[s.k]}: ${v.charAt(0).toUpperCase()}${v.slice(1)}`; });
+  // Tags internas/técnicas que NÃO interessam ao atendente (não viram chip).
+  const HIDDEN_TAG_KEYS = new Set([
+    'ia', 'ia_cleared', 'search_fail', 'enrich_count', 'enriching', 'lead_score',
+    'questions_after_empty', 'catalog_result', 'physical_stock_required', 'flow_mode',
+    'handoff_created', 'agent_status', 'human_assigned', 'seller_notified', 'followups_paused', 'vendedor_tom',
+  ]);
   const fmtTime = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
   const fmtDate = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
   const fmtDateTime = (iso: string | null | undefined) => iso ? `${fmtDate(iso)} ${fmtTime(iso)}` : '—';
@@ -706,11 +721,19 @@ export const ContactInfoPanel = ({
               </div>
             </div>
 
+            {/* Especificações do pedido (cor, tipo, acabamento, marca) — em destaque */}
+            {kpiEspecificacoes.length > 0 && (
+              <div className="flex flex-col gap-0.5 rounded-md bg-purple-500/10 border border-purple-500/30 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-purple-300/80"><Sparkles className="w-2.5 h-2.5" />Especificações do pedido</span>
+                <span className="text-[11px] font-semibold text-purple-200 leading-snug">{kpiEspecificacoes.join('  ·  ')}</span>
+              </div>
+            )}
+
             {/* Conversation Tags — formatted as pills */}
             {(conversation as any).tags?.length > 0 && (
               <div className="flex flex-wrap gap-1 pt-1 border-t border-border/30">
                 {((conversation as any).tags as string[])
-                  .filter((t: string) => !t.startsWith('ia:') && !t.startsWith('ia_cleared:') && !t.startsWith('search_fail:') && !t.startsWith('enrich_count:'))
+                  .filter((t: string) => { const k = t.split(':')[0]; return !HIDDEN_TAG_KEYS.has(k) && !SPEC_LABELS[k]; })
                   .map((t: string) => {
                     const [key, ...rest] = t.split(':');
                     const val = rest.join(':') || key;
