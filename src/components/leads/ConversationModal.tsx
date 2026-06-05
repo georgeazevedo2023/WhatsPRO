@@ -64,6 +64,7 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
+  const [assignedAt, setAssignedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -84,10 +85,13 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
     // Atendente responsável pela conversa — nomeia as msgs enviadas pelo celular (sem sender_id).
     supabase
       .from('conversations')
-      .select('assigned_to')
+      .select('assigned_to, assigned_at')
       .eq('id', conversationId)
       .maybeSingle()
-      .then(({ data }) => setAssignedTo((data?.assigned_to as string | null) ?? null));
+      .then(({ data }) => {
+        setAssignedTo((data?.assigned_to as string | null) ?? null);
+        setAssignedAt((data?.assigned_at as string | null) ?? null);
+      });
     supabase
       .from('conversation_messages')
       .select('id, direction, content, media_type, media_url, transcription, sender_id, external_id, created_at')
@@ -137,7 +141,13 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
                 const text = msg.content || msg.transcription || (msg.media_type !== 'text' ? `[${msg.media_type}]` : '');
                 // Quem enviou: nome do lead (incoming), nome real do atendente (app via sender_id),
                 // nome do atendente atribuído (takeover pelo celular, sem sender_id) ou "IA".
-                const agentPhoneName = (assignedTo && agentNamesMap[assignedTo]) || 'Atendente';
+                // Takeover pelo celular não registra QUEM digitou; só atribuímos ao responsável se
+                // ele já estava atribuído quando a mensagem foi enviada (assigned_at <= created_at).
+                // Reatribuição posterior NÃO renomeia msgs antigas → "Atendente" (não inventa nome).
+                const assignedBeforeMsg =
+                  !!assignedAt && new Date(assignedAt).getTime() <= new Date(msg.created_at).getTime();
+                const agentPhoneName =
+                  (assignedTo && assignedBeforeMsg && agentNamesMap[assignedTo]) || 'Atendente';
                 const senderLabel =
                   info.kind === 'lead' ? (contactName?.trim() || 'Lead')
                   : info.kind === 'note' ? 'Nota interna'
