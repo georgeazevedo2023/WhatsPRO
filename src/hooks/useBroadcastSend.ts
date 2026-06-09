@@ -12,7 +12,7 @@ import type { MediaType } from '@/lib/broadcastSender';
 import {
   MAX_MESSAGE_LENGTH, GROUP_DELAY_MS,
   sendToNumber, sendMediaToNumber, sendCarouselToNumber, sendPollToNumber,
-  fileToBase64, getRandomDelay as getRandomDelayMs,
+  getRandomDelay as getRandomDelayMs,
 } from '@/lib/broadcastSender';
 
 // ── Param / Return types ─────────────────────────────────────────────
@@ -495,14 +495,14 @@ export function useBroadcastSend(params: UseBroadcastSendParams): UseBroadcastSe
         const members = uniqueRegularMembers.filter(m => selectedParticipants.has(m.jid));
         await runIndividualLoop(
           accessToken, members,
-          (jid) => sendCarouselToNumber(instance.id, jid, carouselData, accessToken, fileToBase64),
+          (jid) => sendCarouselToNumber(instance.id, jid, carouselData, accessToken, uploadCarouselImage),
           (jid, phone) => { saveCarouselToHelpdesk(jid, phone); },
           logParams,
         );
       } else {
         await runGroupLoop(
           accessToken,
-          (groupId) => sendCarouselToNumber(instance.id, groupId, carouselData, accessToken, fileToBase64),
+          (groupId) => sendCarouselToNumber(instance.id, groupId, carouselData, accessToken, uploadCarouselImage),
           logParams,
         );
       }
@@ -542,8 +542,10 @@ export function useBroadcastSend(params: UseBroadcastSendParams): UseBroadcastSe
       const total = targets.length;
       setProgress({ current: 0, total, status: 'sending', successCount: 0, failCount: 0 });
 
+      // Imagem antes da enquete vai como URL pública (NÃO base64): o UAZAPI
+      // rejeita imagem base64. uploadCarouselImage devolve a URL do Storage.
       const imageUrl = pollData.imageBeforePoll && pollData.imageFile
-        ? await fileToBase64(pollData.imageFile)
+        ? await uploadCarouselImage(pollData.imageFile)
         : pollData.imageBeforePoll && pollData.imageUrl
           ? pollData.imageUrl
           : undefined;

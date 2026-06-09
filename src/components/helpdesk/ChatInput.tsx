@@ -18,6 +18,14 @@ import { useSendFile } from '@/hooks/useSendFile';
 import { mediaPreview } from '@/lib/messagePreview';
 import type { Conversation, Label, Message } from '@/types';
 
+/** Falha persistente de envio de mídia (bolha vermelha com "tentar de novo"). */
+export interface FailedSend {
+  id: string;
+  fileName: string;
+  error: string;
+  retry: () => void;
+}
+
 interface ChatInputProps {
   conversation: Conversation;
   onMessageSent: () => void;
@@ -28,9 +36,13 @@ interface ChatInputProps {
   onStatusChange?: (status: string) => void;
   replyTo?: Message | null;
   onClearReply?: () => void;
+  /** Notifica falha de envio de arquivo p/ exibir bolha persistente com retry. */
+  onSendFailed?: (failure: FailedSend) => void;
+  /** Limpa a bolha de falha (ao reentrar pra retry). */
+  onClearFailed?: (id: string) => void;
 }
 
-export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, onAgentAssigned, inboxLabels = [], assignedLabelIds = [], onLabelsChanged, onStatusChange, replyTo, onClearReply }: ChatInputProps) {
+export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, onAgentAssigned, inboxLabels = [], assignedLabelIds = [], onLabelsChanged, onStatusChange, replyTo, onClearReply, onSendFailed, onClearFailed }: ChatInputProps) {
   const { user } = useAuth();
   const { isRecording, recordingTime, startRecording, stopRecording, cancelRecording, formatTime } = useAudioRecorder();
   const { sendingFile, fileInputRef, imageInputRef, handleSendFile } = useSendFile();
@@ -343,6 +355,16 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
         media_url: result.mediaUrl || null,
       });
       onMessageSent();
+    } else if (onSendFailed) {
+      // Falha deixa de ser só um toast efêmero: vira bolha persistente com
+      // "tentar de novo" (mantém o File em memória pro retry).
+      const id = crypto.randomUUID();
+      onSendFailed({
+        id,
+        fileName: file.name || (file.type.startsWith('image/') ? 'imagem' : 'arquivo'),
+        error: result.error || 'Não foi possível enviar.',
+        retry: () => { onClearFailed?.(id); onFileSelected(file); },
+      });
     }
   };
 
@@ -511,7 +533,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
             type="file"
             ref={imageInputRef}
             className="hidden"
-            accept=".jpg,.jpeg,.png,.gif,.webp"
+            accept="image/*,.heic,.heif"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileSelected(f); }}
           />
 

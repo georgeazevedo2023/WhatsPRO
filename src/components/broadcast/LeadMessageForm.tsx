@@ -28,7 +28,7 @@ import {
   InitialData, MediaType, ActiveTab,
   MAX_MESSAGE_LENGTH,
   sendToNumber, sendMediaToNumber, sendCarouselToNumber,
-  fileToBase64, formatTime, getRandomDelay,
+  formatTime, getRandomDelay,
 } from '@/lib/broadcastSender';
 
 interface LeadMessageFormProps {
@@ -360,7 +360,7 @@ const LeadMessageForm = ({ instance, selectedLeads, onComplete, initialData }: L
   const sendMedia = (jid: string, mediaData: string, type: string, captionText: string, docName: string, accessToken: string) =>
     sendMediaToNumber(instance.id, jid, mediaData, type, captionText, docName, accessToken);
   const sendCarousel = (jid: string, carousel: CarouselData, accessToken: string) =>
-    sendCarouselToNumber(instance.id, jid, carousel, accessToken, fileToBase64);
+    sendCarouselToNumber(instance.id, jid, carousel, accessToken, uploadCarouselImage);
 
   // ── Generic send loop ──────────────────────────────────────────────
   const runSendLoop = async (

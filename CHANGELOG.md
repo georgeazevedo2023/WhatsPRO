@@ -13,6 +13,23 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.75.0 (2026-06-09) — 🟢 Helpdesk: foto de iPhone/Android (HEIC) finalmente envia — conversão p/ JPEG + UX de erro
+
+**Reclamação do dono:** atendentes não conseguem enviar FOTO ao cliente; suspeita em "arquivos grandes".
+
+**Diagnóstico (auditoria multi-agente + teste empírico ao vivo no proxy DEPLOYADO, instância Sandbox):** "arquivos grandes" é **falso culpado** — JPEG/PNG/WEBP de até **17,6MB** enviam e são entregues (200+messageid, ~5s, sem timeout; o limite de 10MB da doc UAZAPI NÃO é imposto via URL). A causa real é **FORMATO**: esta instância UAZAPI transcodifica toda imagem p/ JPEG e **não decodifica HEIC/HEIF** (padrão de foto do iPhone e do Android em "alta eficiência"/HEIF) → HTTP 500 `unsupported image format` (mesmo erro do base64 da v7.71.4). Pós-v7.71.4 esse 500 virou toast → atendente vê falhar.
+
+**Fix de raiz (frontend, helper único compartilhado):**
+- `normalizeOutboundImage.ts` (novo): detecta formato por **magic bytes** (não confia em `file.type`, vazio no mobile); JPEG/PNG/WEBP/GIF passam direto; **HEIC/HEIF → JPEG** via `heic2any` (import dinâmico, chunk lazy — wasm só baixa quando há HEIC); desconhecido decodificável → canvas→JPEG; senão erro amigável. Também conserta o caso "foto vira documento" quando `file.type` vem vazio.
+- `useSendFile` + `uploadOutboundMedia` chamam a normalização (Helpdesk, Grupo, Lead). `ChatInput` `accept="image/*,.heic,.heif"`.
+- **UX de erro** (`sendErrors.ts` `humanizeSendError`): traduz o erro cru ("unsupported image format", "timed out after 30000ms") em PT acionável; rótulo imagem/documento correto. **Bolha de "Falha ao enviar" persistente** no `ChatPanel` (vermelha, com "Tentar de novo"/"Dispensar") — fim do toast efêmero.
+- **Disparador/Carrossel base64→URL** (mesma raiz): `BroadcastMessageForm`, `sendCarouselToNumber` (carrossel/lead) e imagem da enquete agora sobem ao Storage e mandam **URL** (não base64).
+- **Edge `uazapi-proxy`**: `send-media` timeout **30s→60s** + erro de timeout em PT (504).
+
+**Verificação:** E2E real no navegador (Chromium) — `sample.heic` 718KB → módulo do app + heic2any → **JPEG válido** (`FF D8 FF`, 465KB). 23 unit tests novos. tsc 0 · deno check 0 · ESLint 0 (arquivos novos) · suíte 1696✓ (19 fails pré-existentes, 0 regressão). Dep nova: `heic2any` (lazy). Detalhe: memória `project_heic_photo_send_v775`.
+
+---
+
 ### v7.74.3 (2026-06-05) — 🟢 Fila: atendente pelo celular vira "{Nome} (responsável)" (revisa o gate honesto da v7.73.2)
 
 No modal "Conversa com…" da Fila, mensagens que o vendedor responde **pelo celular** (takeover, sem `sender_id`) agora exibem **"{Nome} (responsável)"** — o atendente atribuído à conversa, nome curto sem o sufixo " - Eletropiso" — no lugar do genérico **"Atendente"**. Pedido do dono (print do Djavan: msg 16h08 pelo celular saindo "Atendente"). **Revisa deliberadamente o gate `assigned_at <= created_at` da v7.73.2:** a linha do celular é COMPARTILHADA (16 operadores na EletropisoV2) e o sistema não registra quem digitou, então **"(responsável)" é atribuição de DONO da conversa (`assigned_to`), NÃO de autoria da bolha** — o sufixo é o que mantém honesto ([[feedback_never_false_data]]); mensagens do **app** (com `sender_id`) seguem mostrando o **autor EXATO** sem sufixo (e nunca caem no nome do responsável — bug latente pego na revisão adversarial). Dono escolheu (AskUserQuestion) ciente do trade-off (vira o assignee atual; reatribuir renomeia bolhas antigas). Lógica pura extraída p/ `conversationLabel.ts` + **14 testes** fixam a decisão (caso Djavan, fallback do app, reatribuição). `tsc` 0, ESLint 0, trace determinístico nos dados reais = "Djavan (responsável)". Frontend-only (`ConversationModal.tsx` + `conversationLabel.ts`); entrega: push → CI → Portainer webhook. Detalhe: [[project_fila_message_sender_names_v773]].
@@ -248,50 +265,9 @@ Ajustes pedidos pelo dono na aba "Sem atendimento" (`UnattendedLeadsTab`):
 - **Filtro por atendente** (client-side): dropdown derivado dos próprios leads, com contagem por atendente ("Dilma (12)") + "Todos os atendentes (N)". Compõe com a ordenação.
 - **E2E real** (Playwright app): ordem padrão crescente (35m→39m), filtro Dilma → 12 cards só dela, "Maior espera" → 54h no topo, sort+filtro compõem. tsc 0 nos arquivos da feature, vite build OK.
 
-### v7.63.0 (2026-05-31) — 🟢 Dashboard mobile do Gestor: "Sem atendimento" + ver/reatribuir
+### v7.63.0 → v7.61.0 (2026-05-31)
 
-**Pedido do dono:** dashboard mobile pro gestor (1) acompanhar a fila dos atendentes, (2) clicar e ver a conversa, (3) reatribuir + ver **leads sem atendimento** (a IA transbordou mas o atendente atribuído ainda não respondeu).
-
-**Entregue (expande `/dashboard/fila`, 3 abas — não cria tela nova):**
-- **Aba "Sem atendimento"** (default, badge de contagem): leads `status_ia='shadow'` + `assigned_to` + sem resposta do atendente; seletor de recência (24h/3d/7d/tudo) + carência de 3min. **👁 Ver** (modal read-only `ConversationModal` — distingue IA de Atendente + "Abrir no Helpdesk" `?inbox=&conv=`) e **↪ Reatribuir** (drawer com atendentes da instância).
-- **Abas "Ao vivo" / "Atendentes"**: conteúdo existente (LiveHeader + stats + leads perdidos) reorganizado.
-- **Backend** (migration `20260531000000_manager_attendance_dashboard.sql`, aplicada no projeto PROD): RPC `get_unattended_handoff_leads(p_instance_id, p_min_minutes_waiting=3, p_max_age_hours=72)` — detecção robusta (resposta humana por `sender_id` web **OU** `+90s` para takeover por celular; exclui ponte do handoff e OOF/abandono de cron); RPC `manager_reassign_conversation` (gate super_admin||gerente, troca `assigned_to`+`assigned_at`, evento ativo→`manual_override`, mantém `status_ia=shadow`). Ambas SECURITY DEFINER + gate de papel.
-- **Front**: hooks `useUnattendedLeads`/`useReassignConversation` (realtime `queue-update`/`assigned-agent` + invalidação), `UnattendedLeadsTab`, helper `broadcastQueueUpdate`. Zero toque em `ai-agent`/HIGH RISK; sem SYNC RULE.
-- **Ajustes do dono:** dashboard de fila usa `useManagerInstances` (só `is_sandbox=false`) → mostra **apenas EletropisoV2** (esconde Sandbox/Eletropiso-teste, sem hardcode); novo `formatWaiting` mostra dias a partir de 24h ("esperando há 31h 58m · 1 dia", "70h 3m · 2 dias").
-- **E2E real** (Playwright no app + SQL): 108 leads reais (EletropisoV2 72h) na aba; só EletropisoV2 no seletor; tempo com dias renderizado; Ver/Abrir-no-Helpdesk OK; Reatribuir → toast + badge; gate confirmado (`forbidden` sem papel). tsc 0 nos arquivos da feature, `vite build` OK.
-
-### v7.62.1 (2026-05-31) — 🔴 fetch_messages_timeout PERSISTIA — recuperação por reinicialização (o v7.62.0 não bastava)
-
-**Trigger:** dono reportou que o erro CONTINUAVA mesmo com o v7.62.0 deployado (bundle novo confirmado). O v7.62.0 só gateava o caminho do RESUME; o `fetchMessages` no **load inicial** (selecionar a conversa) e no reconnect de canal seguiam travando.
-
-**Diagnóstico empírico (Playwright + `window.__sb` no app real, PROD):** medi o `getSession()` sob token expirado → **trava 14-20s** (vs. o `Promise.race` de 12s do ChatPanel). Pior: provei que é **IRRECUPERÁVEL em memória** — (1) o hang é no estado interno do GoTrueClient (`refreshingDeferred`/`pendingInLock`), não na rede (ZERO request durante o hang); (2) um teto no `fetch` de auth ABORTA o refresh travado e o auth-js re-tenta com sucesso (`token_refreshed:true`), mas o `getSession()` ORIGINAL fica órfão (não resolve); (3) `setSession()` com token novo cru (refresh manual 200) **também trava**. Nem fetch-timeout, nem lock (navigator.locks foi desabilitado de propósito no `264a1b6` justamente por travar 10s em aba stale), nem setSession destravam o client.
-
-**Fix de raiz (a única recuperação confiável = reinicializar o client):**
-- `client.ts` — `global.fetch` com **teto de 8s SÓ em `/auth/v1/`** (REST/uploads intactos): o refresh de token não pendura mais ∞ → o `localStorage` recebe token fresco rápido, deixando o client pós-reload pronto.
-- `sessionRecovery.ts` — `recoverStuckSession()`: refresca o token via **fetch CRU** (bypassa o GoTrueClient envenenado) → grava no `localStorage` → **reload**. Diferente do reload removido no v7.61.0: é **CONDICIONAL** (só quando a sessão está comprovadamente travada), **preserva a conversa** (está na URL `?conv=`, restaurada no mount) e tem **guarda anti-loop** (1 reload/30s; `force` no clique explícito de "Tentar novamente").
-- `ChatPanel.tsx` — no timeout do `fetchMessages`, auto-recupera (guardado) em vez de só mostrar erro; "Tentar novamente" força a recuperação (o retry antigo re-loopava no mesmo client morto).
-
-**Verificação Playwright PROD:** medido o hang (14-20s, 0 requests); provada a irrecuperabilidade (setSession trava); recuperação end-to-end **PASSA** — token expirado → refresh cru **200** → reload → conversa restaurada da URL, `conversation_messages` **200**, sem erro, sem logout, sem "Selecione uma conversa". 14 testes (10 sessionRecovery incl. guarda/force + 4 useTabFocusRefresh), build OK, tsc 0 (arquivos novos; de quebra corrigi o tipo genérico do `lock`).
-
-### v7.62.0 (2026-05-31) — 🔴 Helpdesk: "Falha ao carregar mensagens" (fetch_messages_timeout) ao voltar pra aba — sessão revalidada no resume
-
-**Trigger:** print do dono (console PROD) — `[ChatPanel] Falha ao carregar mensagens (timeout ou erro) Error: fetch_messages_timeout`; a conversa aberta (Leonardo Noronha) mostrava "Falha ao carregar mensagens" + "Tentar novamente". Efeito colateral exposto pelo v7.61.0 (a recuperação graciosa de aba).
-
-**Causa-raiz (frontend, cravada com workflow de auditoria adversarial + Playwright em PROD):** **sessão supabase-js zumbi**. Após horas de aba suspensa, o access token (TTL 1h) expira e o `autoRefreshToken` é congelado pelo throttling de aba oculta do Chrome. No retorno, o `useTabFocusRefresh` (v7.61.0) reconectava o realtime e disparava `app:tab-resumed` **sem revalidar a auth** → o `ChatPanel.fetchMessages` refetchava → o `getSession()` interno do supabase-js (refresh fetch da auth-js **sem timeout** + `lock` no-op que não serializa refreshes) **TRAVA** → o `AbortController` não cobre esse await → o `Promise.race` de 12s do ChatPanel estoura com `fetch_messages_timeout`. O "Tentar novamente" re-loopava no mesmo token morto. **DB descartado por números:** `SELECT … LIMIT 50` na `conversation_messages` executa em **~10ms** (índice `idx_conversation_messages_conv_created`); estourar 12.000ms é 100% client-side.
-
-**Fix de raiz (`src/hooks/useTabFocusRefresh.ts` extraído de `App.tsx` + `src/lib/sessionRecovery.ts`):** sonda a sessão na **origem única do resume** ANTES de refetchar. `probeSession()` raceia `getSession()` com 5s → `'valid'` (sessão ok, refresca token expirado) / `'dead'` (resolveu com `session=null` = evidência POSITIVA de refresh token morto; supabase-js sinaliza assim, sem `throw`) / `'unknown'` (timeout/erro — ambíguo). Decisão: **'dead'** → `clearDeadSession()` (`signOut({scope:'local'})` → `SIGNED_OUT` → `ProtectedRoute` redireciona, **sem reload**); **'valid'** → reconecta realtime + dispara `app:tab-resumed` (refetch); **'unknown'** → reconecta realtime mas **NÃO refetcha** (refetchar num token incerto reproduziria o timeout). **NUNCA desloga por timeout** (seria pior que o bug: destruiria a conversa aberta numa lentidão de rede transitória) — só com `session=null`. Lock funcional (navigator.locks) fica como **hardening separado** (o no-op foi proposital; risco de regressão de boot).
-
-**Verificação:** workflow de 8 agentes (4 investigadores → síntese → 3 verificadores adversariais que reprovaram o fix ingênuo e geraram os refinamentos: não-deslogar-por-timeout, branch em `session=null`, `scope:'local'`, desacoplar o lock). 11 testes (7 `sessionRecovery` + 4 `useTabFocusRefresh`: valid/dead/unknown/<3s). **Playwright no app real (PROD data, 2 cenários):** (A) token válido → resume → 2º fetch `conversation_messages` **200**, sem erro; (B) token expirado → `getSession` trava → `probe='unknown'` → **sem refetch → SEM `fetch_messages_timeout`**, sem logout, sem reload, conversa intacta; `POST /auth/v1/token` 200 recompõe a sessão em background. tsc 0 (meus arquivos) · build OK.
-
-### v7.61.0 (2026-05-31) — 🔴 Helpdesk perdia a conversa aberta ao trocar de aba — reload removido
-
-**Trigger:** print do dono — atendendo um cliente, troca pra outra aba (vídeo no YouTube), volta e a conversa aberta sumiu (caía em "Selecione uma conversa").
-
-**Causa-raiz (frontend, NÃO ai-agent):** `src/App.tsx` `useTabFocusRefresh` fazia `window.location.reload()` ao retornar pra aba após >3s fora. O reload desmontava o SPA inteiro → `selectedConversation` (estado em memória) era destruída → tela vazia. Comentário antigo alegava "é o que Slack/Discord fazem" — falso: esses apps reconectam o socket e refazem fetch em silêncio, sem recarregar.
-
-**Fix de raiz (zero reload, preserva 100% do estado):** troca o reload por recuperação graciosa — (1) `supabase.realtime.connect()` (idempotente; browser fecha o WS em aba suspensa) + (2) dispara `app:tab-resumed`. Hooks de fetch manual ouvem e recarregam: `useHelpdeskConversations` (lista), `ChatPanel` (mensagens da conversa aberta), `useInstances` (instâncias). Páginas em react-query já cobrem via `refetchOnWindowFocus`.
-
-**Verificação (Playwright no app real, cenário do dono):** abriu conversa → aba oculta 4s → voltou: `reloadCalled=false`, `app:tab-resumed` disparou 1×, probe de documento sobreviveu (sem reload), conversa permaneceu aberta (header + mensagens), 0 erros de console. tsc 0 · build OK. 4 arquivos, +46/−7.
+Movidas p/ [[wiki/changelog/2026-05-part13]] (Dashboard gestor + fetch_messages_timeout + reload de aba).
 
 ### v7.60.0 (2026-05-31) e anteriores
 

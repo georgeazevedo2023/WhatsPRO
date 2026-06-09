@@ -2,8 +2,9 @@ import { useState, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { uazapiProxy } from '@/lib/uazapiClient';
 import { toast } from 'sonner';
-import { handleError } from '@/lib/errorUtils';
 import { STATUS_IA } from '@/constants/statusIa';
+import { detectImageKind, normalizeImageForSend } from '@/lib/normalizeOutboundImage';
+import { humanizeSendError } from '@/lib/sendErrors';
 import type { Tables } from '@/integrations/supabase/types';
 
 interface SendFileOptions {
@@ -18,7 +19,7 @@ export interface UseSendFileReturn {
   sendingFile: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   imageInputRef: React.RefObject<HTMLInputElement | null>;
-  handleSendFile: (file: File, opts: SendFileOptions) => Promise<{ success: boolean; mediaType?: string; mediaUrl?: string; insertedMsg?: Tables<'conversation_messages'> }>;
+  handleSendFile: (file: File, opts: SendFileOptions) => Promise<{ success: boolean; mediaType?: string; mediaUrl?: string; insertedMsg?: Tables<'conversation_messages'>; error?: string }>;
 }
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
@@ -52,25 +53,40 @@ export function useSendFile(): UseSendFileReturn {
       }
 
       setSendingFile(true);
+      // isImage precisa estar visível no catch (mensagem de erro por tipo)
+      let isImage = file.type.startsWith('image/');
       try {
-        const isImage = file.type.startsWith('image/');
+        // Decide imagem vs documento por MAGIC BYTES, não por file.type: no
+        // mobile o file.type chega vazio (foto vira "documento" octet-stream).
+        const detectedKind = await detectImageKind(file);
+        isImage = detectedKind !== 'unknown' || file.type.startsWith('image/');
         const mediaType = isImage ? 'image' : 'document';
 
-        // contentType/extensão robustos: fotos de câmera/share mobile às vezes
-        // chegam com file.type vazio (Storage gravaria octet-stream) ou file.name
-        // sem extensão. Como mandamos a URL pública pro UAZAPI BAIXAR do CDN, o
-        // objeto PRECISA ter content-type de imagem e a URL uma extensão coerente,
-        // senão o UAZAPI não decodifica ("unsupported image format").
-        const resolvedContentType = file.type || (isImage ? 'image/jpeg' : 'application/octet-stream');
-        const extFromName = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
-        const extFromType = resolvedContentType.split('/')[1]?.split(';')[0];
-        const ext = extFromName || extFromType || (isImage ? 'jpg' : 'bin');
+        // Para imagem: normaliza p/ um formato que o UAZAPI decodifica. HEIC
+        // (foto de iPhone / Android HEIF) é convertido p/ JPEG no navegador —
+        // o UAZAPI rejeita HEIC com 500 "unsupported image format". JPEG/PNG/
+        // WEBP/GIF passam direto. Mandamos a URL pública pro UAZAPI BAIXAR do
+        // CDN, então o objeto precisa de content-type/extensão coerentes.
+        let uploadFile = file;
+        let resolvedContentType: string;
+        let ext: string;
+        if (isImage) {
+          const norm = await normalizeImageForSend(file);
+          uploadFile = norm.file;
+          resolvedContentType = norm.contentType;
+          ext = norm.ext;
+        } else {
+          resolvedContentType = file.type || 'application/octet-stream';
+          const extFromName = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+          const extFromType = resolvedContentType.split('/')[1]?.split(';')[0];
+          ext = extFromName || extFromType || 'bin';
+        }
         const fileName = `${conversationId}/${Date.now()}.${ext}`;
 
         // Upload to storage
         const { error: uploadError } = await supabase.storage
           .from('helpdesk-media')
-          .upload(fileName, file, { contentType: resolvedContentType });
+          .upload(fileName, uploadFile, { contentType: resolvedContentType });
         if (uploadError) throw uploadError;
 
         const { data: publicUrlData } = supabase.storage
@@ -139,8 +155,10 @@ export function useSendFile(): UseSendFileReturn {
         toast.success(isImage ? 'Imagem enviada!' : 'Documento enviado!');
         return { success: true, mediaType, mediaUrl: filePublicUrl, insertedMsg };
       } catch (err) {
-        handleError(err, 'Erro ao enviar documento', 'Send file error');
-        return { success: false };
+        console.error('Send file error:', err);
+        const friendly = humanizeSendError(err, { isImage });
+        toast.error(friendly);
+        return { success: false, error: friendly };
       } finally {
         setSendingFile(false);
         if (fileInputRef.current) fileInputRef.current.value = '';

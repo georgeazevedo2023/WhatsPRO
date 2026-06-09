@@ -6,7 +6,7 @@ import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { handleError } from '@/lib/errorUtils';
 import { useContactProfilePic } from '@/hooks/useContactProfilePic';
 import { MessageBubble } from './MessageBubble';
-import { ChatInput } from './ChatInput';
+import { ChatInput, type FailedSend } from './ChatInput';
 import { ConversationStatusSelect } from './ConversationStatusSelect';
 import { ContactAvatar } from './ContactAvatar';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,7 @@ import { TicketResolutionDrawer } from './TicketResolutionDrawer';
 import { STATUS_IA } from '@/constants/statusIa';
 
 import { Button } from '@/components/ui/button';
-import { MessageSquare, ArrowLeft, User, PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose, Bot, StickyNote, RefreshCw, WifiOff, CheckCircle2 } from 'lucide-react';
+import { MessageSquare, ArrowLeft, User, PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose, Bot, StickyNote, RefreshCw, WifiOff, CheckCircle2, AlertCircle, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Conversation, Message, Label } from '@/types';
 
@@ -65,12 +65,17 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   const [ativandoIa, setAtivandoIa] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const prevMsgCountRef = useRef(0);
   const [typingAgent, setTypingAgent] = useState<string | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const currentUserIdRef = useRef<string | null>(null);
   const fetchIdRef = useRef(0);
+
+  // Limpa bolhas de falha de envio ao trocar de conversa (estado local,
+  // independente do realtime/refetch das mensagens).
+  useEffect(() => { setFailedSends([]); }, [conversation?.id]);
 
   // Cache user id once on mount — avoids async-without-await in broadcast callback
   useEffect(() => {
@@ -285,7 +290,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         const audio = new Audio('data:audio/wav;base64,UklGRlYAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YTIAAABkZGRkAACAgP//ZGT//wAA//8AAICAR0eAgEdH//9HR///R0f//0dHAABHR0dHAABHRw==');
         audio.volume = 0.3;
         audio.play().catch(() => {});
-      } catch {}
+      } catch { /* notificação sonora indisponível — ignora */ }
     }
     prevMsgCountRef.current = incomingCount;
   }, [chatMessages]);
@@ -520,6 +525,32 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
             })}
           </div>
         )}
+
+        {/* Bolhas de FALHA de envio (estado persistente, não só toast) */}
+        {failedSends.length > 0 && (
+          <div className="space-y-1 mt-1">
+            {failedSends.map((f) => (
+              <div key={f.id} className="flex justify-end">
+                <div className="max-w-[75%] rounded-2xl rounded-br-md px-3 py-2 text-sm bg-destructive/10 border border-destructive/30 text-foreground">
+                  <div className="flex items-center gap-1.5 text-destructive font-medium text-[11px] mb-0.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    Falha ao enviar
+                  </div>
+                  <p className="text-xs break-words">{f.error}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate" title={f.fileName}>{f.fileName}</p>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <Button variant="outline" size="sm" className="h-6 text-[11px] gap-1 px-2" onClick={f.retry}>
+                      <RotateCw className="w-3 h-3" /> Tentar de novo
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1 px-2 text-muted-foreground" onClick={() => setFailedSends(prev => prev.filter(x => x.id !== f.id))}>
+                      <X className="w-3 h-3" /> Dispensar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -531,7 +562,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       )}
 
       {/* Input */}
-      <ChatInput conversation={conversation} onMessageSent={handleMessageSent} onAgentAssigned={onAgentAssigned} inboxLabels={inboxLabels} assignedLabelIds={assignedLabelIds} onLabelsChanged={onLabelsChanged} onStatusChange={handleStatusChange} replyTo={replyTo} onClearReply={handleClearReply} />
+      <ChatInput conversation={conversation} onMessageSent={handleMessageSent} onAgentAssigned={onAgentAssigned} inboxLabels={inboxLabels} assignedLabelIds={assignedLabelIds} onLabelsChanged={onLabelsChanged} onStatusChange={handleStatusChange} replyTo={replyTo} onClearReply={handleClearReply} onSendFailed={(f) => setFailedSends(prev => [...prev, f])} onClearFailed={(id) => setFailedSends(prev => prev.filter(x => x.id !== id))} />
 
       <NotesPanel open={notesOpen} onOpenChange={setNotesOpen} notes={notes} onNoteDeleted={(noteId) => setMessages(prev => prev.filter(m => m.id !== noteId))} agentNamesMap={agentNamesMap} />
     </>

@@ -79,15 +79,16 @@ export const sendCarouselToNumber = async (
   recipientJid: string,
   carousel: CarouselData,
   accessToken: string,
-  fileToBase64: (file: File) => Promise<string>
+  uploadImage: (file: File) => Promise<string>,
 ) => {
   const processedCards = await Promise.all(
     carousel.cards.map(async (card) => {
       let imageUrl = card.image;
+      // Imagem do card vai como URL pública, NÃO base64: o UAZAPI rejeita
+      // imagem base64 ("unsupported image format"). uploadImage sobe ao
+      // Storage e devolve a URL (ver v7.71.4 / auditoria 2026-06-09).
       if (card.imageFile) {
-        imageUrl = await fileToBase64(card.imageFile);
-        const base64Data = imageUrl.split(',')[1] || imageUrl;
-        imageUrl = base64Data;
+        imageUrl = await uploadImage(card.imageFile);
       }
       return {
         text: card.text,

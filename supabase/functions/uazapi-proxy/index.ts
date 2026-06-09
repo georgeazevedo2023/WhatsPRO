@@ -357,15 +357,31 @@ Deno.serve(async (req) => {
           mediaBody.docName = body.filename
         }
         
-        const mediaResponse = await fetchWithTimeout(mediaEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'token': instanceToken,
-          },
-          body: JSON.stringify(mediaBody),
-        })
-        
+        // Timeout 60s (não o default de 30s): o UAZAPI BAIXA a mídia do CDN +
+        // transcodifica p/ JPEG + sobe ao WhatsApp; mídia grande pode passar
+        // dos 30s. No timeout devolve 504 com mensagem em PT (não a string crua
+        // "...timed out after Xms" vazando pro atendente).
+        let mediaResponse: Response
+        try {
+          mediaResponse = await fetchWithTimeout(mediaEndpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'token': instanceToken,
+            },
+            body: JSON.stringify(mediaBody),
+          }, 60000)
+        } catch (err) {
+          const isTimeout = err instanceof Error && /timed out/i.test(err.message)
+          log.error('Media send failed', { error: err instanceof Error ? err.message : String(err), isTimeout })
+          return new Response(
+            JSON.stringify({ error: isTimeout
+              ? 'O envio da mídia demorou demais. Tente um arquivo menor ou tente de novo.'
+              : 'Falha de rede ao enviar a mídia. Tente de novo.' }),
+            { status: isTimeout ? 504 : 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+
         log.info('Media response status', { status: mediaResponse.status })
         
         const mediaRawText = await mediaResponse.text()

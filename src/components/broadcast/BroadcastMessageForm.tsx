@@ -23,8 +23,8 @@ import { useBroadcastSend } from '@/hooks/useBroadcastSend';
 import {
   InitialData, MediaType, ActiveTab,
   MAX_MESSAGE_LENGTH, MAX_FILE_SIZE,
-  fileToBase64,
 } from '@/lib/broadcastSender';
+import { uploadOutboundMedia } from '@/lib/uploadOutboundMedia';
 
 interface BroadcastMessageFormProps {
   instance: Instance;
@@ -143,7 +143,9 @@ const BroadcastMessageForm = ({ instance, selectedGroups, onComplete, initialDat
       await broadcast.sendPoll({ pollData });
       setPollData(createEmptyPoll());
     } else {
-      const mediaData = selectedFile ? await fileToBase64(selectedFile) : mediaUrl.trim();
+      // Arquivo selecionado vai como URL pública (NÃO base64): o UAZAPI rejeita
+      // imagem base64. uploadOutboundMedia sobe ao Storage (e normaliza HEIC).
+      const mediaData = selectedFile ? await uploadOutboundMedia(selectedFile, 'broadcast') : mediaUrl.trim();
       await broadcast.sendMedia({ mediaData, mediaType, caption, isPtt, filename, mediaUrl });
       clearFile(); setMediaUrl(''); setCaption('');
     }
