@@ -1124,12 +1124,34 @@ Deno.serve(async (req) => {
     // Extract status_ia from original message payload
     const statusIa = message.status_ia || rawPayload?.status_ia || (Array.isArray(rawPayload) ? rawPayload[0]?.status_ia : null) || null
     if (statusIa) {
-      log.info('status_ia detected — persisting', { statusIa, conversationId: conversation.id })
-      await supabase
-        .from('conversations')
-        .update({ status_ia: statusIa })
-        .eq('id', conversation.id)
-      conversation.status_ia = statusIa
+      // (2026-06-09) NÃO deixar o payload do n8n REABRIR a IA (shadow→ligada) numa
+      // conversa com handoff ATIVO. O payload traz frequentemente um 'ligada' default
+      // que atropelava o 'shadow' posto pelo transbordo → a IA voltava a responder e
+      // re-disparava o MESMO handoff (raiz do bug Guedes/EletropisoV2). Só bloqueamos
+      // o DOWNGRADE pra 'ligada' quando há marcador durável de handoff; 'desligada'
+      // (bloqueio manual) e 'shadow' do payload continuam valendo normalmente.
+      let skipStatusIaPersist = false
+      if (statusIa === STATUS_IA.LIGADA) {
+        const { data: durable } = await supabase
+          .from('conversations')
+          .select('tags')
+          .eq('id', conversation.id)
+          .maybeSingle()
+        const dtags = ((durable?.tags as string[] | null) || [])
+        skipStatusIaPersist = dtags.some(
+          (t) => t === 'handoff_created:true' || t === 'human_assigned:true',
+        )
+      }
+      if (skipStatusIaPersist) {
+        log.info('status_ia=ligada do payload IGNORADO — handoff durável ativo', { conversationId: conversation.id })
+      } else {
+        log.info('status_ia detected — persisting', { statusIa, conversationId: conversation.id })
+        await supabase
+          .from('conversations')
+          .update({ status_ia: statusIa })
+          .eq('id', conversation.id)
+        conversation.status_ia = statusIa
+      }
     }
 
     // ── Takeover humano: atendente respondeu o lead pelo celular ──────────

@@ -320,8 +320,34 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     setAtivandoIa(true);
     const newStatus = iaAtivada ? STATUS_IA.DESLIGADA : STATUS_IA.LIGADA;
     try {
-      // Update status_ia directly in database
-      await supabase.from('conversations').update({ status_ia: newStatus }).eq('id', conversation.id);
+      if (newStatus === STATUS_IA.LIGADA) {
+        // Religar a IA = devolver o controle ao agente. Precisa LIMPAR o estado
+        // durável de handoff/atendimento-humano (+ tags do loop sem-resultado),
+        // senão o gate de silêncio no ai-agent (que coage status_ia→shadow enquanto
+        // houver handoff_created/human_assigned) manteria a IA muda mesmo após o
+        // clique, e o loop re-dispararia o transbordo. Sem isso, "Ativar IA" não
+        // religa de fato (bug Guedes/EletropisoV2, 2026-06-09).
+        const { data: cur } = await supabase
+          .from('conversations')
+          .select('tags')
+          .eq('id', conversation.id)
+          .maybeSingle();
+        const CLEAR_KEYS = new Set([
+          'handoff_created', 'human_assigned', 'seller_notified', 'followups_paused',
+          'agent_status', 'handoff_at', 'enriching', 'enrich_count',
+          'questions_after_empty', 'catalog_result', 'physical_stock_required',
+          'flow_mode', 'search_fail', 'seller_handoff_pending',
+        ]);
+        const cleanedTags = (((cur?.tags as string[] | null) || [])).filter(
+          (t) => typeof t === 'string' && !CLEAR_KEYS.has(t.split(':')[0]),
+        );
+        await supabase
+          .from('conversations')
+          .update({ status_ia: newStatus, tags: cleanedTags })
+          .eq('id', conversation.id);
+      } else {
+        await supabase.from('conversations').update({ status_ia: newStatus }).eq('id', conversation.id);
+      }
       setIaAtivada(newStatus === STATUS_IA.LIGADA);
       toast.success(newStatus === STATUS_IA.LIGADA ? 'IA ativada' : 'IA desativada');
     } catch (err) { handleError(err, 'Erro ao alterar IA', 'Toggle IA'); }

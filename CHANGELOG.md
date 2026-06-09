@@ -13,6 +13,23 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.76.0 (2026-06-09) — 🔴→🟢 AI Agent: handoff repetia + IA falava depois do transbordo — gate de silêncio durável + handoff idempotente
+
+**Bug do dono** (print MARMOBOX ALMOXARIFADO / lead Guedes — na verdade **EletropisoV2**, "MARMOBOX" é só o nome de perfil do contato): após o transbordo a IA **reenviou a MESMA mensagem de handoff** ("Guedes, seu pedido de cabos. Já passei tudo pro nosso vendedor…") a cada nova mensagem do lead. No DB de prod: **3 transbordos idênticos** (11:00/14:58/15:04) + filas/notas/vendedores novos a cada um. Regra violada: **depois do handoff a IA deve ficar MUDA pro lead até o atendente Finalizar ou clicar "Ativar IA"**.
+
+**Causa-raiz (auditoria multi-agente 6 traces + verificação adversarial, ancorada no DB real):** dois defeitos compostos. **(1) não-silenciado:** "humano no controle" estava codificado SÓ em `status_ia` (volátil) — o gate de entrada só barra `desligada`, `assigned_to` nunca era lido, e `dispatchResponse:417`/`webhook:1124`/reabertura regravavam `ligada` por cima do `shadow` do handoff. **(2) repetição:** o handoff não era idempotente — `handoffToHuman` gravava `handoff_created:true` mas **nunca o lia**, o `handoff_cooldown_minutes=30` **só era logado** (nunca enforçado), e as **tags do loop sem-resultado** (`enriching/enrich_count/catalog_result/flow_mode`) **nunca eram limpas** → assim que `status_ia` voltava a ≠shadow, o loop re-detectava "pronto pra handoff" e re-disparava o MESMO transbordo.
+
+**Fix de raiz (zero gambiarra, 7 arquivos):**
+- **Gate de silêncio durável** (`ai-agent/index.ts` após :219): se `handoff_created`/`human_assigned` presente e `status_ia≠shadow` → coage `status_ia→shadow` (+self-heal no DB). Cai no SHADOW MODE → **detecção interna viva, zero texto pro lead** (decisão do dono). Neutraliza TODOS os resets de uma vez.
+- **Handoff idempotente** (`setTagsAndHandoff.ts`): suprime reenvio se `handoff_created`/`handoff_at:<ms>` dentro do cooldown; grava `handoff_at` (cooldown agora REAL); **remove as tags de loop** no transbordo.
+- **Defesa em profundidade** (loop guard :3093): checa a tag durável `handoff_created` ([[feedback_guard_must_check_durable_tags]]).
+- **Religar de fato** (`ChatPanel` "Ativar IA" + `conversationReopen`): limpam `handoff_created/human_assigned/handoff_at` + tags de loop (decisão: *Ativar IA OU Finalizar/reabrir* religam).
+- **Webhook** (`whatsapp-webhook:1124`): não deixa o payload do n8n rebaixar `shadow→ligada` com handoff ativo.
+
+**Verificação:** `deno check` 0 · `tsc` (ChatPanel) 0 · **+4 testes novos** (idempotência ×3 + reopen-strip), suíte 0 regressão (14 fails pré-existentes não-relacionados). **Deploy PROD** (ai-agent v260, whatsapp-webhook v15). **Cleanup:** UPDATE limpou as tags de loop de **128 conversas órfãs** (preservou handoff markers + tags de negócio). Detalhe: [[project_handoff_repeat_silence_v776]].
+
+---
+
 ### v7.75.0 (2026-06-09) — 🟢 Helpdesk: foto de iPhone/Android (HEIC) finalmente envia — conversão p/ JPEG + UX de erro
 
 **Reclamação do dono:** atendentes não conseguem enviar FOTO ao cliente; suspeita em "arquivos grandes".

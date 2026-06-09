@@ -93,6 +93,37 @@ describe('shouldReopenConversation (D34)', () => {
     expect(d.mergedTags?.filter(t => t === 'reaberta:2026-05-17').length).toBe(1)
   })
 
+  it('strips handoff/control + loop tags on reopen, keeps business tags (2026-06-09)', () => {
+    const c: ReopenCandidate = {
+      id: 'c1',
+      tags: [
+        'interesse:cabos', 'cidade:circleyton',
+        'handoff_created:true', 'human_assigned:true', 'seller_notified:true',
+        'followups_paused:true', 'agent_status:inactive', 'handoff_at:1749480000000',
+        'enriching:1', 'enrich_count:2', 'questions_after_empty:2',
+        'catalog_result:empty', 'physical_stock_required:true',
+        'flow_mode:qualify_then_handoff', 'search_fail:1', 'seller_handoff_pending:cabos',
+      ],
+      resolved_at: daysAgo(3),
+    }
+    const d = shouldReopenConversation(c, NOW)
+    expect(d.reopen).toBe(true)
+    // tags de negócio preservadas
+    expect(d.mergedTags).toContain('interesse:cabos')
+    expect(d.mergedTags).toContain('cidade:circleyton')
+    expect(d.mergedTags).toContain('reaberta:2026-05-17')
+    // tags de controle/loop removidas → conversa reaberta nasce com IA atendendo
+    for (const stripped of [
+      'handoff_created:true', 'human_assigned:true', 'seller_notified:true',
+      'followups_paused:true', 'agent_status:inactive', 'handoff_at:1749480000000',
+      'enriching:1', 'enrich_count:2', 'questions_after_empty:2', 'catalog_result:empty',
+      'physical_stock_required:true', 'flow_mode:qualify_then_handoff', 'search_fail:1',
+      'seller_handoff_pending:cabos',
+    ]) {
+      expect(d.mergedTags).not.toContain(stripped)
+    }
+  })
+
   it('honors custom windowDays', () => {
     const c: ReopenCandidate = {
       id: 'c1',

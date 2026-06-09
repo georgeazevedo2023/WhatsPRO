@@ -222,6 +222,34 @@ Deno.serve(async (req) => {
       })
     }
 
+    // ── GATE DE SILÊNCIO DURÁVEL — humano no controle (2026-06-09) ───────────
+    // Bug real (conv Guedes/EletropisoV2): após o transbordo a IA voltava a falar e
+    // re-disparava o MESMO handoff. Raiz: "humano no controle" estava codificado SÓ
+    // em status_ia (volátil) — e dispatchResponse/webhook/reabertura regravavam
+    // 'ligada' por cima do 'shadow' do handoff. Aqui usamos a verdade DURÁVEL: se a
+    // conversa carrega marcador de handoff ativo (handoff_created/human_assigned),
+    // COAGIMOS status_ia→shadow. Isso (a) faz TODOS os caminhos de envio pularem (já
+    // guardam `!== SHADOW`) e (b) cai no SHADOW MODE (extração silenciosa) — a IA
+    // SEGUE detectando/extraindo internamente mas NUNCA responde ao lead. Só "Ativar
+    // IA"/Finalizar+reabrir limpam essas tags (→ IA religa). Self-heal: persiste o
+    // shadow de volta pra UI e demais leitores ficarem consistentes.
+    const durableTagsEarly = Array.isArray(conversation.tags) ? conversation.tags : []
+    const handoffActiveDurable = durableTagsEarly.some(
+      (t: string) => t === 'handoff_created:true' || t === 'human_assigned:true',
+    )
+    if (handoffActiveDurable && conversation.status_ia !== STATUS_IA.SHADOW) {
+      log.info('Gate de silêncio: handoff durável ativo → coage status_ia para shadow', {
+        conversationId: conversation_id,
+        previousStatusIa: conversation.status_ia,
+        assignedTo: conversation.assigned_to ?? null,
+      })
+      conversation.status_ia = STATUS_IA.SHADOW
+      await supabase
+        .from('conversations')
+        .update({ status_ia: STATUS_IA.SHADOW })
+        .eq('id', conversation_id)
+    }
+
     // 3. Load contact
     const { data: contact } = await supabase
       .from('contacts')
@@ -3090,8 +3118,18 @@ ${contextBlock}`
               typeof t === 'string' &&
               /^interesse:(revestimentos|porcelanatos_revestimentos|torneiras|tintas)\b/.test(t),
           )
+          // (2026-06-09) Defesa em profundidade: o loop sem-resultado NÃO pode
+          // reentrar se já existe handoff durável ativo (handoff_created/human_assigned).
+          // O gate de silêncio (após :219) já coage status_ia→shadow nesse caso — mas se
+          // qualquer caminho fizer status_ia driftar, esta checagem de tag DURÁVEL impede
+          // o re-disparo do MESMO transbordo (feedback_guard_must_check_durable_tags).
+          const handoffAlreadyCreated = (conversation.tags || []).some(
+            (t: string) => t === 'handoff_created:true' || t === 'human_assigned:true',
+          )
           const inNoResultLoop =
-            (enrichingNow || legacySellerPending || premiumSearchFailNow) && conversation.status_ia !== STATUS_IA.SHADOW
+            (enrichingNow || legacySellerPending || premiumSearchFailNow)
+            && conversation.status_ia !== STATUS_IA.SHADOW
+            && !handoffAlreadyCreated
           if (inNoResultLoop) {
             // Captura da resposta do lead DESACOPLADA do cap (2026-05-30, fix 21.36
             // defeito área): com maxQuestionsAfterEmpty=maxEnrichNow, no turno em que o

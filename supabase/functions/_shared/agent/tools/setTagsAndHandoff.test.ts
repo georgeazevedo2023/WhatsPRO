@@ -436,6 +436,70 @@ describe('handoffToHuman', () => {
     expect(upsert).toBeTruthy()
     expect(upsert.payload.notes).toContain('Qualificação:')
   })
+
+  // ── Idempotência do transbordo (2026-06-09, bug Guedes/EletropisoV2) ──────
+  it('idempotente: handoff_created já presente → SUPRIME reenvio (sem msg/fila/log)', async () => {
+    const { supabase, calls } = makeSupabase({
+      'conversations.maybeSingle': () => ({
+        data: { tags: ['interesse:cabos', 'handoff_created:true'], cart_items: null },
+        error: null,
+      }),
+    })
+    const ctx = baseCtx(supabase, {
+      conversation: { tags: ['interesse:cabos', 'handoff_created:true'], status_ia: 'shadow', inbox_id: 'inb-1' },
+    })
+    const res = await handoffToHuman({ reason: 'orçamento' }, ctx, makeLog())
+    expect(res).toContain('handoff ativo')
+    expect(ctx.sendTextMsg).not.toHaveBeenCalled()
+    expect(ctx.runQueueAssignment).not.toHaveBeenCalled()
+    expect(ctx.toolCallsLog.some((tc) => tc.result === 'suppressed_already_handed_off')).toBe(true)
+    const handoffLog = calls.find((c) => c.table === 'ai_agent_logs' && c.payload?.event === 'handoff')
+    expect(handoffLog).toBeFalsy()
+  })
+
+  it('idempotente: handoff_at recente (dentro do cooldown 30min) → SUPRIME reenvio', async () => {
+    const recent = String(Date.now() - 5 * 60000) // 5 min atrás
+    const { supabase } = makeSupabase({
+      'conversations.maybeSingle': () => ({
+        data: { tags: ['interesse:cabos', `handoff_at:${recent}`], cart_items: null },
+        error: null,
+      }),
+    })
+    const ctx = baseCtx(supabase, {
+      conversation: { tags: [], status_ia: 'ligada', inbox_id: 'inb-1' },
+    })
+    const res = await handoffToHuman({ reason: 'orçamento' }, ctx, makeLog())
+    expect(res).toContain('handoff ativo')
+    expect(ctx.sendTextMsg).not.toHaveBeenCalled()
+  })
+
+  it('1º handoff (sem tags duráveis) NÃO é suprimido + grava handoff_at + remove tags de loop', async () => {
+    const { supabase, calls } = makeSupabase({
+      'conversations.maybeSingle': () => ({
+        data: {
+          tags: ['interesse:cabos', 'enriching:1', 'enrich_count:2', 'flow_mode:qualify_then_handoff', 'catalog_result:empty'],
+          cart_items: null,
+        },
+        error: null,
+      }),
+    })
+    const ctx = baseCtx(supabase, {
+      conversation: { tags: ['interesse:cabos'], status_ia: 'ligada', inbox_id: 'inb-1' },
+    })
+    const res = await handoffToHuman({ reason: 'orçamento' }, ctx, makeLog())
+    expect(res).toContain('Conversa transferida')
+    expect(ctx.sendTextMsg).toHaveBeenCalledTimes(1)
+    const convUpdate = calls.find((c) => c.table === 'conversations' && c.op === 'update' && c.payload?.status_ia === 'shadow')
+    expect(convUpdate?.payload.tags.some((t: string) => t.startsWith('handoff_at:'))).toBe(true)
+    expect(convUpdate?.payload.tags).toContain('handoff_created:true')
+    // tags de loop REMOVIDAS (desarma re-handoff)
+    expect(convUpdate?.payload.tags.some((t: string) => t.startsWith('enriching:'))).toBe(false)
+    expect(convUpdate?.payload.tags.some((t: string) => t.startsWith('enrich_count:'))).toBe(false)
+    expect(convUpdate?.payload.tags.some((t: string) => t.startsWith('flow_mode:'))).toBe(false)
+    expect(convUpdate?.payload.tags.some((t: string) => t.startsWith('catalog_result:'))).toBe(false)
+    // tag de negócio preservada
+    expect(convUpdate?.payload.tags).toContain('interesse:cabos')
+  })
 })
 
 // =============================================================================

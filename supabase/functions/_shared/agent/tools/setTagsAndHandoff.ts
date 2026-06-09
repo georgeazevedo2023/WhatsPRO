@@ -832,6 +832,41 @@ export async function handoffToHuman(
     freshConversationForHandoff = null
   }
   const handoffTags = ((freshConversationForHandoff as any)?.tags || conversation.tags || []) as string[]
+
+  // ── IDEMPOTÊNCIA do transbordo (2026-06-09) ──────────────────────────────
+  // Bug real (conv Guedes/EletropisoV2): a MESMA mensagem de handoff foi enviada
+  // 3x (cada msg nova do lead re-disparava o transbordo) porque NADA suprimia o
+  // reenvio — `handoff_created:true` era gravado mas nunca LIDO, e o
+  // `handoff_cooldown_minutes` (=30) só era logado, jamais enforçado. Aqui, ANTES
+  // de enviar/criar fila/nota, suprimimos se já há um handoff ATIVO (tag durável
+  // handoff_created:true) OU se houve handoff recente dentro do cooldown
+  // (tag durável handoff_at:<ms>). O 1º handoff sempre passa (tags ausentes);
+  // só "Ativar IA"/reabertura limpam handoff_created/handoff_at (→ novo pedido
+  // depois transborda de novo). Defesa em profundidade junto do gate de silêncio
+  // no ai-agent (status_ia coagido a shadow quando handoff_created presente).
+  {
+    const alreadyHandedOff = handoffTags.some((t) => t === 'handoff_created:true')
+    const cooldownMs = (Number(cooldown) || 30) * 60000
+    let lastHandoffAt = 0
+    for (const t of handoffTags) {
+      if (typeof t === 'string' && t.startsWith('handoff_at:')) {
+        const n = Number(t.slice('handoff_at:'.length))
+        if (Number.isFinite(n)) lastHandoffAt = Math.max(lastHandoffAt, n)
+      }
+    }
+    const withinCooldown = lastHandoffAt > 0 && Date.now() - lastHandoffAt < cooldownMs
+    if (alreadyHandedOff || withinCooldown) {
+      log.info('Handoff suprimido (idempotente): já ativo / dentro do cooldown', {
+        alreadyHandedOff,
+        withinCooldown,
+        minutesSinceLast: lastHandoffAt > 0 ? Math.round((Date.now() - lastHandoffAt) / 60000) : null,
+        cooldownMinutes: cooldown,
+      })
+      toolCallsLog.push({ name: 'handoff_to_human', args, result: 'suppressed_already_handed_off' })
+      return 'Conversa já está com atendente humano (handoff ativo). Nenhuma ação adicional — não reenviar mensagem de transbordo.'
+    }
+  }
+
   const cartItems = normalizeCart((freshConversationForHandoff as any)?.cart_items || (conversation as Record<string, unknown>).cart_items)
   const cartOneLine = formatCartOneLine(cartItems)
   const cartFull = formatCartSummary(cartItems)
@@ -918,13 +953,27 @@ export async function handoffToHuman(
   }
 
   // Set IA to SHADOW + tag + reset lead_msg_count (R86)
+  // (2026-06-09) DESARMA o loop sem-resultado no transbordo: as tags que armam o
+  // re-handoff (enriching/enrich_count/catalog_result/flow_mode/...) eram preservadas
+  // pelo mergeTags (só faz upsert das chaves listadas) e, assim que status_ia voltava
+  // a ≠shadow, reativavam inNoResultLoop → MESMO handoff de novo. Removemos essas
+  // chaves antes de mergear. Também gravamos handoff_at:<ms> (timestamp durável) pro
+  // cooldown ter o que comparar — antes era só logado, nunca enforçado.
+  const LOOP_TAG_KEYS = new Set([
+    'enriching', 'enrich_count', 'questions_after_empty', 'catalog_result',
+    'physical_stock_required', 'flow_mode', 'search_fail', 'seller_handoff_pending',
+  ])
+  const handoffBaseTags = handoffTags.filter(
+    (t) => typeof t === 'string' && !LOOP_TAG_KEYS.has(t.split(':')[0]),
+  )
   await supabase
     .from('conversations')
     .update({
       status_ia: newStatus,
-      tags: mergeTags(handoffTags, {
+      tags: mergeTags(handoffBaseTags, {
         ia: STATUS_IA.SHADOW,
         handoff_created: 'true',
+        handoff_at: String(Date.now()),
         agent_status: 'inactive',
         human_assigned: 'true',
         seller_notified: 'true',

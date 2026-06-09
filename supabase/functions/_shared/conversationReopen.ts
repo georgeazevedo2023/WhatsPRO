@@ -24,6 +24,18 @@ export interface ReopenDecision {
 
 export const REOPEN_WINDOW_DAYS_DEFAULT = 60
 
+/**
+ * Tags de CONTROLE (handoff/atendimento-humano + loop sem-resultado) que devem ser
+ * REMOVIDAS ao reabrir uma conversa, pra a IA voltar a atender o lead que retornou.
+ * Mantemos as tags de NEGÓCIO (interesse/motivo/resultado/valor/cidade/...).
+ */
+export const CONTROL_TAG_KEYS = new Set<string>([
+  'handoff_created', 'human_assigned', 'seller_notified', 'followups_paused',
+  'agent_status', 'handoff_at', 'enriching', 'enrich_count', 'questions_after_empty',
+  'catalog_result', 'physical_stock_required', 'flow_mode', 'search_fail',
+  'seller_handoff_pending',
+])
+
 export function shouldReopenConversation(
   candidate: ReopenCandidate | null,
   now: Date,
@@ -48,11 +60,21 @@ export function shouldReopenConversation(
     return { reopen: false, reason: 'spam' }
   }
 
+  // (2026-06-09) Reabrir = conversa NOVA pro lead que voltou. Limpa o estado DURÁVEL
+  // de handoff/controle-humano e do loop sem-resultado. Sem isso, o gate de silêncio
+  // no ai-agent (coage status_ia→shadow enquanto houver handoff_created/human_assigned)
+  // manteria a IA muda numa conversa reaberta, e as tags do loop re-disparariam o
+  // transbordo — foi exatamente o 3º handoff idêntico do incidente Guedes, logo após a
+  // reabertura. Tags de NEGÓCIO (interesse/motivo/resultado/valor/cidade...) são mantidas.
+  const cleanedTags = existingTags.filter(
+    (t) => typeof t === 'string' && !CONTROL_TAG_KEYS.has(t.split(':')[0]),
+  )
+
   const today = now.toISOString().slice(0, 10)
   const reopenTag = `reaberta:${today}`
-  const mergedTags = existingTags.includes(reopenTag)
-    ? existingTags
-    : [...existingTags, reopenTag]
+  const mergedTags = cleanedTags.includes(reopenTag)
+    ? cleanedTags
+    : [...cleanedTags, reopenTag]
 
   return { reopen: true, reason: 'reopen', mergedTags, reopenTag }
 }
