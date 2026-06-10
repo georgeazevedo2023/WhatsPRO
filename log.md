@@ -8,6 +8,13 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-10 (tarde) — 🟢 Free Forever: retenção do Storage LIGADA (cleanup-old-media diário) — fecha o último gap do plano grátis
+
+Dono pediu: "leia o banco e certifique-se que nunca será pausado e sairá do plano free". **Auditoria completa:** pausa = risco ZERO (`keep-alive-daily` jobid 22 rodando, último 04:00 UTC hoje + 3 crons HTTP por minuto + tráfego de webhook — Free só pausa com 7 dias SEM atividade). DB 60MB/500MB (12%), 0 falhas de cron em 3 dias, monitoring diário verde (jobid 26), MAU 17/50K, db→fn calls ~1.094/dia (~33K/mês de 500K). **Único risco real era o Storage:** helpdesk-media 262MB/1GB crescendo ~100MB/semana (+133MB sem 01/06, +71MB parcial 08/06 — efeito v7.75/7.77 destravando envio de foto) → estouraria o 1GB em ~5-7 semanas. A edge fn `cleanup-old-media` (mídia >30d em helpdesk-media+audio-messages) existia desde 05/05 mas NUNCA teve cron (e estava `verify_jwt=true`, que rejeitaria a chamada do cron no gateway).
+
+**Aplicado:** config.toml `cleanup-old-media` → `verify_jwt=false` + redeploy CLI scoop (v3, `_shared` bundlado) · migration `storage_media_retention_cron_daily` (cron `cleanup-old-media-daily` jobid 43, diário 04:35 UTC, padrão vault CRON_AUTH_KEY idêntico ao jobid 38 + cron `purge-cron-run-history-daily` jobid 44, `cron.job_run_details` >7d — crescia sem teto, 3.3MB) · **E2E real:** disparo via pg_net (mesmo caminho do cron) → POST 200 em 6.9s, audio-messages 6→4 arquivos (apagou exatamente os 2 com >30d), helpdesk-media intacto (nada >30d ainda; começa ~21/06). Timeout 5s do pg_net é só do client — função completa (mesmo padrão fire-and-forget dos outros crons). **Steady state projetado:** ~430MB (43% do 1GB) com 30d de janela — sustentável. **Trade-off documentado:** mídia some aos 30d mas mensagens ficam 120d (retention policy 6) → preview quebrado em msgs de 30-120d (texto e transcrição permanecem). **Dimensão sem visibilidade:** bandwidth 5GB/mês não é monitorável via SQL — acompanhar no painel.
+
+---
 ## 2026-06-10 — 🟢 Saúde do banco + plano Free: 150MB de bloat recuperados (209→59MB) + views fechadas pra anon
 
 Dono pediu saúde do DB + cuidados do plano Free + análise de email Supabase ("Table publicly accessible — rls_disabled_in_public em public.keep_alive"). **Email é de OUTRO projeto da conta:** neste (prfcbfumyrrycsrcrvms) o `keep_alive` tem RLS ligado desde a migration `keep_alive_enable_rls` (2026-05-06), e os contadores do print (1 error/6 warnings) não batem com os daqui (6/166). Fix pro outro projeto: `ALTER TABLE public.keep_alive ENABLE ROW LEVEL SECURITY;`.

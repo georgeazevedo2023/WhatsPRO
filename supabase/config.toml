@@ -37,7 +37,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.cleanup-old-media]
-verify_jwt = true
+verify_jwt = false
 
 [functions.db-retention-backup]
 verify_jwt = true
