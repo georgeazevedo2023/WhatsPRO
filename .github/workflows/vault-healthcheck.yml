@@ -9,16 +9,16 @@ jobs:
   check-md-length:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Check no .md file exceeds 300 lines
         run: bash scripts/check-md-length.sh --strict
 
   check-schema-parity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
       - name: Check view/table .select() columns exist in types.ts
         run: node scripts/check-view-selects.mjs --strict
