@@ -47,6 +47,26 @@ export interface NormalizedImage {
 export const UNSUPPORTED_IMAGE_FORMAT = 'UNSUPPORTED_IMAGE_FORMAT';
 
 /**
+ * Erros TIPADOS do caminho HEIC (auditoria 2026-06-09: aba que atravessa um
+ * redeploy toma 404 no chunk lazy do heic2any; worker do heic2any morto por OOM
+ * pendura a Promise pra sempre). Cada um vira mensagem própria no
+ * `humanizeSendError` — antes era bolha genérica ou spinner infinito.
+ */
+export const CHUNK_LOAD_FAILED = 'CHUNK_LOAD_FAILED';
+export const HEIC_CONVERSION_FAILED = 'HEIC_CONVERSION_FAILED';
+export const HEIC_CONVERSION_TIMEOUT = 'HEIC_CONVERSION_TIMEOUT';
+
+/** Teto da conversão HEIC→JPEG (asm.js em device fraco é lento; generoso de propósito). */
+const HEIC_CONVERT_TIMEOUT_MS = 60_000;
+
+/**
+ * Teto de dimensão do re-encode via canvas. Foto de 50MP alocaria ~200MB de
+ * pixels e mata aba de celular de entrada; o WhatsApp recomprime pra ~1600px
+ * de qualquer forma, então 4096px não perde nada na prática.
+ */
+const MAX_CANVAS_DIM = 4096;
+
+/**
  * Detecta o formato de imagem pelos magic bytes. Função PURA (testável sem
  * File/DOM): recebe os primeiros bytes do arquivo.
  */
@@ -106,11 +126,55 @@ function toJpgName(name: string): string {
   return `${base || 'image'}.jpg`;
 }
 
-/** Converte HEIC/HEIF → JPEG via heic2any (import dinâmico: lazy chunk). */
+/**
+ * Importa o heic2any (chunk lazy de ~1,3MB) com 1 retry e erro tipado.
+ * O 404 pós-redeploy é recuperado pelo listener global de `vite:preloadError`
+ * (reload); aqui o retry cobre falha transitória de rede móvel.
+ */
+async function importHeic2any(): Promise<(opts: { blob: Blob; toType: string; quality: number }) => Promise<Blob | Blob[]>> {
+  try {
+    return (await import('heic2any')).default;
+  } catch {
+    try {
+      return (await import('heic2any')).default;
+    } catch {
+      throw new Error(CHUNK_LOAD_FAILED);
+    }
+  }
+}
+
+/**
+ * Converte HEIC/HEIF → JPEG via heic2any, com TETO de tempo (o worker do
+ * heic2any 0.0.4 não tem error-handler: se morre por OOM, a Promise nunca
+ * resolve — sem o teto o atendente ficava com spinner infinito). Rejeições do
+ * heic2any são objetos `{code, message}` (não Error) — normalizamos preservando
+ * a message real pro humanizeSendError.
+ */
 async function heicToJpeg(file: File): Promise<Blob> {
-  const { default: heic2any } = await import('heic2any');
-  const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
-  return Array.isArray(out) ? out[0] : out;
+  const heic2any = await importHeic2any();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(HEIC_CONVERSION_TIMEOUT)), HEIC_CONVERT_TIMEOUT_MS);
+  });
+  try {
+    const out = await Promise.race([
+      heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 }),
+      timeout,
+    ]);
+    return Array.isArray(out) ? out[0] : out;
+  } catch (err) {
+    if (err instanceof Error && (err.message === HEIC_CONVERSION_TIMEOUT || err.message === CHUNK_LOAD_FAILED)) {
+      throw err;
+    }
+    const message = err instanceof Error
+      ? err.message
+      : (err && typeof err === 'object' && typeof (err as { message?: unknown }).message === 'string')
+        ? (err as { message: string }).message
+        : String(err);
+    throw new Error(`${HEIC_CONVERSION_FAILED}: ${message}`);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /** Re-encoda qualquer imagem que o browser consiga decodificar → JPEG. */
@@ -120,16 +184,21 @@ function canvasToJpeg(file: File, quality = 0.92): Promise<Blob> {
     const img = new Image();
     img.onload = () => {
       try {
+        // Cap de dimensão: foto de câmera 50/108MP estoura memória de canvas em
+        // celular de entrada (ImageData ≈ 4 bytes/pixel). Escala mantendo proporção.
+        const scale = Math.min(1, MAX_CANVAS_DIM / Math.max(img.naturalWidth, img.naturalHeight, 1));
+        const w = Math.max(1, Math.round(img.naturalWidth * scale));
+        const h = Math.max(1, Math.round(img.naturalHeight * scale));
         const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext('2d');
         if (!ctx || !canvas.width || !canvas.height) {
           URL.revokeObjectURL(url);
           reject(new Error('canvas indisponível'));
           return;
         }
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
         canvas.toBlob(
           (blob) => (blob ? resolve(blob) : reject(new Error('toBlob retornou null'))),
@@ -167,7 +236,20 @@ export async function normalizeImageForSend(file: File): Promise<NormalizedImage
   }
 
   if (kind === 'heic') {
-    const jpeg = await heicToJpeg(file);
+    let jpeg: Blob;
+    try {
+      jpeg = await heicToJpeg(file);
+    } catch (heicErr) {
+      // Fallback: Safari/iOS decodifica HEIC NATIVAMENTE no canvas — se o
+      // heic2any falhou (chunk 404, worker morto, variante não suportada),
+      // ainda dá pra converter sem a lib. No Chrome/Android o canvas também
+      // falha → propaga o erro TIPADO original (mensagem acionável).
+      try {
+        jpeg = await canvasToJpeg(file);
+      } catch {
+        throw heicErr;
+      }
+    }
     return {
       file: new File([jpeg], toJpgName(file.name), { type: 'image/jpeg' }),
       contentType: 'image/jpeg',

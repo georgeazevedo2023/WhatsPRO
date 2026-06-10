@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { STATUS_IA } from '@/constants/statusIa';
 import { detectImageKind, normalizeImageForSend } from '@/lib/normalizeOutboundImage';
 import { humanizeSendError } from '@/lib/sendErrors';
+import { logSendFailure, type SendStage } from '@/lib/sendTelemetry';
+import { recoverStuckSession } from '@/lib/sessionRecovery';
 import type { Tables } from '@/integrations/supabase/types';
 
 interface SendFileOptions {
@@ -22,7 +24,11 @@ export interface UseSendFileReturn {
   handleSendFile: (file: File, opts: SendFileOptions) => Promise<{ success: boolean; mediaType?: string; mediaUrl?: string; insertedMsg?: Tables<'conversation_messages'>; error?: string }>;
 }
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB (checado APÓS a conversão — HEIC→JPEG reduz)
+const MAX_RAW_FILE_SIZE = 50 * 1024 * 1024; // teto duro pré-conversão (protege heic2any de OOM)
+// Teto do upload ao Storage: foto de 15MB em 3G leva ~2min — generoso de
+// propósito. O que ele mata é o HANG infinito (sessão zumbi), não upload lento.
+const UPLOAD_TIMEOUT_MS = 120_000;
 
 /**
  * Encapsulates file/image upload-and-send logic:
@@ -39,27 +45,47 @@ export function useSendFile(): UseSendFileReturn {
       file: File,
       { conversationId, inboxId, instanceId, contactJid, userId }: SendFileOptions,
     ) => {
+      const telemetryBase = {
+        conversation_id: conversationId,
+        instance_id: instanceId,
+        user_id: userId || null,
+        file_size: file.size,
+        file_type: file.type || null,
+      };
       if (!instanceId) {
         toast.error('Instância não encontrada');
-        return { success: false };
+        return { success: false, error: 'Instância não encontrada.' };
       }
       if (!contactJid) {
         toast.error('Contato sem JID');
-        return { success: false };
+        return { success: false, error: 'Contato sem número de WhatsApp.' };
       }
-      if (file.size > MAX_FILE_SIZE) {
-        toast.error('Arquivo deve ter no máximo 20MB');
-        return { success: false };
+      // Foto "cloud-only" do Google Fotos chega como File de 0 bytes no Android.
+      if (file.size === 0) {
+        const msg = 'Essa foto parece estar só na nuvem (Google Fotos). Abra a foto no aparelho primeiro e tente de novo.';
+        logSendFailure({ ...telemetryBase, stage: 'validate', outcome: 'fail', raw_error: 'empty file (0 bytes)' });
+        toast.error(msg);
+        return { success: false, error: msg };
+      }
+      if (file.size > MAX_RAW_FILE_SIZE) {
+        const msg = 'O arquivo é grande demais (máximo 50MB). Reduza o tamanho e tente de novo.';
+        logSendFailure({ ...telemetryBase, stage: 'validate', outcome: 'fail', raw_error: `raw file too large: ${file.size}` });
+        toast.error(msg);
+        return { success: false, error: msg };
       }
 
       setSendingFile(true);
       // isImage precisa estar visível no catch (mensagem de erro por tipo)
       let isImage = file.type.startsWith('image/');
+      // Estágio corrente — vai pra telemetria no catch (diz ONDE falhou).
+      let stage: SendStage = 'normalize';
+      let detectedKind: string | null = null;
       try {
         // Decide imagem vs documento por MAGIC BYTES, não por file.type: no
         // mobile o file.type chega vazio (foto vira "documento" octet-stream).
-        const detectedKind = await detectImageKind(file);
-        isImage = detectedKind !== 'unknown' || file.type.startsWith('image/');
+        const kind = await detectImageKind(file);
+        detectedKind = kind;
+        isImage = kind !== 'unknown' || file.type.startsWith('image/');
         const mediaType = isImage ? 'image' : 'document';
 
         // Para imagem: normaliza p/ um formato que o UAZAPI decodifica. HEIC
@@ -81,13 +107,38 @@ export function useSendFile(): UseSendFileReturn {
           const extFromType = resolvedContentType.split('/')[1]?.split(';')[0];
           ext = extFromName || extFromType || 'bin';
         }
+        // Cap de 20MB DEPOIS da normalização: a conversão HEIC→JPEG (0.92)
+        // reduz o tamanho — checar antes rejeitava foto que caberia.
+        if (uploadFile.size > MAX_FILE_SIZE) {
+          throw new Error(`file size exceeds maximum: ${uploadFile.size}`);
+        }
         const fileName = `${conversationId}/${Date.now()}.${ext}`;
 
-        // Upload to storage
-        const { error: uploadError } = await supabase.storage
-          .from('helpdesk-media')
-          .upload(fileName, uploadFile, { contentType: resolvedContentType });
-        if (uploadError) throw uploadError;
+        // Upload ao Storage com TETO de wall-clock (anti sessão-zumbi): o
+        // supabase-js chama getSession() ANTES do fetch e era o ÚNICO passo de
+        // rede do envio sem proteção — em aba mobile retomada podia pendurar e o
+        // atendente ficava com spinner infinito, sem erro e sem rastro. No
+        // timeout, dispara a recuperação de sessão (pro retry funcionar) e
+        // falha LIMPO com mensagem acionável.
+        stage = 'upload';
+        let uploadTimer: ReturnType<typeof setTimeout> | undefined;
+        const uploadTimeout = new Promise<never>((_, reject) => {
+          uploadTimer = setTimeout(() => {
+            void recoverStuckSession().catch(() => {});
+            reject(new Error('upload timeout: o envio demorou demais (conexão ou sessão)'));
+          }, UPLOAD_TIMEOUT_MS);
+        });
+        try {
+          const { error: uploadError } = await Promise.race([
+            supabase.storage
+              .from('helpdesk-media')
+              .upload(fileName, uploadFile, { contentType: resolvedContentType }),
+            uploadTimeout,
+          ]);
+          if (uploadError) throw uploadError;
+        } finally {
+          if (uploadTimer !== undefined) clearTimeout(uploadTimer);
+        }
 
         const { data: publicUrlData } = supabase.storage
           .from('helpdesk-media')
@@ -98,6 +149,7 @@ export function useSendFile(): UseSendFileReturn {
         // Comprovado em teste ao vivo: base64-cru é REJEITADO pelo UAZAPI
         // ("failed to decode image: unsupported image format"); a URL é aceita e
         // entregue. É o mesmo `file: <URL>` que o AI Agent usa em PROD diariamente.
+        stage = 'proxy';
         const sendResult = await uazapiProxy({
           action: 'send-media',
           instance_id: instanceId,
@@ -111,12 +163,14 @@ export function useSendFile(): UseSendFileReturn {
         // NÃO marcar "enviado" sem o UAZAPI confirmar (fim do envio-fantasma):
         // sucesso = corpo sem `error` e com messageid/id. Caso contrário lança →
         // o catch mostra erro real e a msg NÃO é inserida no DB.
+        stage = 'confirm';
         const sentOk = !!sendResult && !sendResult.error && (!!sendResult.messageid || !!sendResult.id);
         if (!sentOk) {
           throw new Error((sendResult?.error as string) || 'O WhatsApp não confirmou o envio. Tente novamente.');
         }
 
         // Save to DB
+        stage = 'insert';
         const { data: insertedMsg, error } = await supabase
           .from('conversation_messages')
           .insert({
@@ -156,6 +210,16 @@ export function useSendFile(): UseSendFileReturn {
         return { success: true, mediaType, mediaUrl: filePublicUrl, insertedMsg };
       } catch (err) {
         console.error('Send file error:', err);
+        // Telemetria fire-and-forget (falha client-side era INVISÍVEL — nenhum
+        // rastro no DB; auditoria 2026-06-09 ficou cega por isso).
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        logSendFailure({
+          ...telemetryBase,
+          stage,
+          outcome: /timeout/i.test(rawMsg) ? 'hang_timeout' : 'fail',
+          detected_kind: detectedKind,
+          raw_error: rawMsg,
+        });
         const friendly = humanizeSendError(err, { isImage });
         toast.error(friendly);
         return { success: false, error: friendly };

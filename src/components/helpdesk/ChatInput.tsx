@@ -338,6 +338,19 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
   };
 
   const onFileSelected = async (file: File) => {
+    // Guard de sessão (2026-06-09): sem user, o fluxo seguia com userId:'' — o
+    // UAZAPI ENTREGAVA a foto, o INSERT falhava (uuid inválido) e o retry
+    // DUPLICAVA a foto no WhatsApp do lead. Aborta ANTES de qualquer envio.
+    if (!user?.id) {
+      const id = crypto.randomUUID();
+      onSendFailed?.({
+        id,
+        fileName: file.name || 'arquivo',
+        error: 'Sua sessão expirou. Recarregue a página e tente de novo.',
+        retry: () => { onClearFailed?.(id); onFileSelected(file); },
+      });
+      return;
+    }
     const instanceId = conversation.inbox?.instance_id || '';
     const contactJid = conversation.contact?.jid || '';
     const result = await handleSendFile(file, {

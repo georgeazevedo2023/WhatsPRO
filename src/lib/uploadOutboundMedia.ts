@@ -38,10 +38,25 @@ export async function uploadOutboundMedia(file: File, pathPrefix = 'outbound'): 
   }
   const path = `${pathPrefix}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-  const { error } = await supabase.storage
-    .from('helpdesk-media')
-    .upload(path, uploadFile, { contentType });
-  if (error) throw error;
+  // Teto de wall-clock no upload (anti sessão-zumbi — mesmo padrão do
+  // useSendFile): o supabase-js resolve getSession() antes do fetch e podia
+  // pendurar indefinidamente em aba mobile retomada.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('upload timeout: o envio demorou demais (conexão ou sessão)')),
+      120_000,
+    );
+  });
+  try {
+    const { error } = await Promise.race([
+      supabase.storage.from('helpdesk-media').upload(path, uploadFile, { contentType }),
+      timeout,
+    ]);
+    if (error) throw error;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 
   const { data } = supabase.storage.from('helpdesk-media').getPublicUrl(path);
   return data.publicUrl;

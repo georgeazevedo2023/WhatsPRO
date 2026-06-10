@@ -34,3 +34,17 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      # Redeploy automático (2026-06-09): o build+push acima NÃO atualiza o
+      # servidor — o container só puxa :latest quando o webhook do Portainer é
+      # chamado. Era passo MANUAL e esquecível (2 deploy-fantasmas registrados:
+      # v7.73.x em 06-04 e v7.76.0 em 06-09). Secret: PORTAINER_WEBHOOK_URL.
+      - name: Redeploy via Portainer webhook
+        if: success()
+        run: |
+          if [ -z "${{ secrets.PORTAINER_WEBHOOK_URL }}" ]; then
+            echo "::warning::PORTAINER_WEBHOOK_URL não configurado — redeploy manual necessário"
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}" -o /dev/null
+          echo "Portainer redeploy disparado"

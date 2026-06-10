@@ -113,6 +113,11 @@ verify_jwt = true
 [functions.health-check]
 verify_jwt = false
 
+# Beacon de telemetria de falha de envio — verify_jwt=false DE PROPÓSITO:
+# o caso nº1 monitorado é sessão expirada/zumbi (exigir JWT mataria o sinal).
+[functions.log-send-failure]
+verify_jwt = false
+
 # Called by cron (requeue-conversations) and helpdesk gestor manual reassign — manual auth inside
 [functions.assign-handoff]
 verify_jwt = false

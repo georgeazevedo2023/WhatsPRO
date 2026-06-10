@@ -1,6 +1,38 @@
 import { useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { probeSession, clearDeadSession } from '@/lib/sessionRecovery';
+
+// ── Version-check passivo no tab-resume ──────────────────────────────
+// Celular mantém a aba do Helpdesk viva por DIAS sem recarregar → o atendente
+// roda bundle velho (foi a causa nº1 do "não envio foto": aba pré-v7.75.0 sem a
+// conversão HEIC). Aqui, ao voltar pra aba, comparamos o build embutido
+// (__APP_BUILD__) com /version.json (no-store, gerado no MESMO build). Se
+// divergir, TOAST persistente com botão — NUNCA reload forçado (lição v7.61.0:
+// reload automático desmontava a aplicação no meio do atendimento).
+let versionToastShown = false;
+
+async function checkAppVersion(): Promise<void> {
+  if (!import.meta.env.PROD || versionToastShown) return;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4_000);
+    const res = await fetch('/version.json', { cache: 'no-store', signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return;
+    const { build } = (await res.json()) as { build?: string };
+    if (build && build !== __APP_BUILD__) {
+      versionToastShown = true;
+      toast.info('Nova versão do sistema disponível', {
+        description: 'Recarregue a página para atualizar.',
+        duration: Infinity,
+        action: { label: 'Recarregar', onClick: () => window.location.reload() },
+      });
+    }
+  } catch {
+    // offline/timeout — silencioso; tenta de novo no próximo resume
+  }
+}
 
 /**
  * Recupera dados/conexão quando o atendente volta pra aba depois de um tempo fora.
@@ -45,6 +77,8 @@ export function useTabFocusRefresh() {
       if (awayMs < 3_000 || resumingRef.current) return; // <3s, ou já recuperando
 
       resumingRef.current = true;
+      // Version-check em paralelo (passivo, nunca bloqueia a recuperação da sessão).
+      void checkAppVersion();
       try {
         // 0) Sonda a sessão ANTES de qualquer refetch. Confirmado em PROD: num token
         //    expirado pós-suspensão, o getSession() interno do supabase-js TRAVA (o
