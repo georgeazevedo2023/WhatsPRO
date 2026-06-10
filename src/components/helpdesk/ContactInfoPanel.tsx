@@ -19,6 +19,7 @@ import { formatBR } from '@/lib/dateUtils';
 import { handleError } from '@/lib/errorUtils';
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/lib/constants';
 import { useDepartments } from '@/hooks/useDepartments';
+import { contactDisplayName } from '@/lib/contactDisplayName';
 
 interface PastConversation {
   id: string;
@@ -65,7 +66,7 @@ export const ContactInfoPanel = ({
   agentNamesMap = {},
 }: ContactInfoPanelProps) => {
   const contact = conversation.contact;
-  const name = contact?.name || contact?.phone || 'Desconhecido';
+  const name = contactDisplayName(contact);
 
   // KPI computed values
   const convTags: string[] = (conversation as any).tags ?? [];

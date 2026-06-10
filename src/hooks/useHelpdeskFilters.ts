@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { leadFullName } from '@/lib/contactDisplayName';
 import type { Conversation } from '@/types';
 
 interface UseHelpdeskFiltersOptions {
@@ -48,7 +49,9 @@ export function useHelpdeskFilters({ conversations, conversationLabelsMap, depar
   const filteredConversations = conversations.filter(c => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const matchesName = c.contact?.name?.toLowerCase().includes(q) || c.contact?.phone?.includes(q);
+      const matchesName = c.contact?.name?.toLowerCase().includes(q)
+        || leadFullName(c.contact)?.toLowerCase().includes(q)
+        || c.contact?.phone?.includes(q);
       const matchesMessage = messageSearchIds.has(c.id);
       if (!matchesName && !matchesMessage) return false;
     }

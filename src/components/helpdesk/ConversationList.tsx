@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { ConversationItem } from './ConversationItem';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ManageLabelsDialog } from './ManageLabelsDialog';
+import { contactDisplayName } from '@/lib/contactDisplayName';
 import type { Conversation, Label } from '@/types';
 
 interface ConversationListProps {
@@ -102,13 +103,13 @@ function ConversationRow({
   const c = conversations[index];
   if (!c) return null;
   return (
-    <div style={style} className="border-b border-border/30 flex items-stretch" role="listitem" aria-label={`Conversa com ${c.contact?.name || c.contact?.phone || 'Desconhecido'}`}>
+    <div style={style} className="border-b border-border/30 flex items-stretch" role="listitem" aria-label={`Conversa com ${contactDisplayName(c.contact)}`}>
       {bulkMode && (
         <div className="flex items-center pl-2 shrink-0" onClick={(e) => e.stopPropagation()}>
           <Checkbox
             checked={selectedIds.has(c.id)}
             onCheckedChange={() => onToggleSelect?.(c.id)}
-            aria-label={`Selecionar conversa com ${c.contact?.name || 'Desconhecido'}`}
+            aria-label={`Selecionar conversa com ${contactDisplayName(c.contact)}`}
           />
         </div>
       )}

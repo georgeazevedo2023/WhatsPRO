@@ -1,7 +1,7 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-06-05
+updated: 2026-06-10
 audited_at: 2026-06-05
 ---
 
@@ -12,6 +12,20 @@ audited_at: 2026-06-05
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
 
 ---
+
+### v7.78.0 (2026-06-10) — 🟢 Helpdesk: nome extraído pela IA vence o pushname na exibição (caso "oi" → Jessica)
+
+**Bug do dono:** lead com pushname do WhatsApp literalmente "oi" se apresentou como "Jessica"; a IA gravou certinho em `lead_profiles.full_name` (via `update_lead_profile`), mas header/lista do Helpdesk continuavam mostrando "oi". **Não era falha de extração — é a arquitetura de DOIS nomes:** `contacts.name` preserva o pushname (re-sincronizado a cada mensagem pelo `whatsapp-webhook`; sobrescrever = o webhook reverte na próxima msg) e o nome informado na conversa vive em `lead_profiles`. A UI só olhava `contacts.name`.
+
+**Fix (camada de exibição, zero mudança no backend/webhook):**
+- `src/lib/contactDisplayName.ts` — lógica PURA (8 testes): prioridade `lead_profiles.full_name` → pushname → telefone.
+- Lista (`ConversationItem`), header do chat (`ChatPanel`), painel lateral (`ContactInfoPanel`) e aria-labels (`ConversationList`) usam o helper.
+- Busca local também encontra pelo nome extraído (`useHelpdeskFilters`) — quem vê "Jessica" acha digitando "Jessica".
+- Select da lista embeda `lead_profiles(full_name)` aninhado (1:1, `contact_id` UNIQUE).
+
+**Validação:** tsc 0 · 22/22 testes das áreas tocadas · 19 fails da suite provados pré-existentes (re-rodados com `src/` stashado) · **E2E real Playwright** no app local (login admin → deep-link da conversa): header "oi"→"Jessica" + busca "Jessica" acha a conversa (screenshot conferido).
+
+**Limitação anotada:** `GlobalSearchDialog` (busca global, server-side) ainda não busca por full_name extraído — backlog.
 
 ### v7.77.0 (2026-06-09) — 🟢 Helpdesk: vendedores Android sem enviar foto — aba velha pós-deploy era a causa; auto-recuperação de versão + upload anti-zumbi + telemetria
 

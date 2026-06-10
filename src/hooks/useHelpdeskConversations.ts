@@ -35,7 +35,7 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
   const buildQuery = useCallback(() => {
     let query = supabase
       .from('conversations')
-      .select('id, inbox_id, contact_id, status, priority, assigned_to, department_id, is_read, last_message_at, last_message, status_ia, tags, ai_summary, created_at, contacts(id, phone, jid, name, profile_pic_url), inboxes(id, name, instance_id, webhook_outgoing_url), departments(id, name)')
+      .select('id, inbox_id, contact_id, status, priority, assigned_to, department_id, is_read, last_message_at, last_message, status_ia, tags, ai_summary, created_at, contacts(id, phone, jid, name, profile_pic_url, lead_profiles(full_name)), inboxes(id, name, instance_id, webhook_outgoing_url), departments(id, name)')
       .eq('inbox_id', selectedInboxId)
       .eq('archived', false)
       .order('last_message_at', { ascending: false });

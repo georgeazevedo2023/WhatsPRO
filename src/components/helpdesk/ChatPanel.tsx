@@ -19,6 +19,7 @@ import { STATUS_IA } from '@/constants/statusIa';
 import { Button } from '@/components/ui/button';
 import { MessageSquare, ArrowLeft, User, PanelRightOpen, PanelRightClose, PanelLeftOpen, PanelLeftClose, Bot, StickyNote, RefreshCw, WifiOff, CheckCircle2, AlertCircle, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { contactDisplayName } from '@/lib/contactDisplayName';
 import type { Conversation, Message, Label } from '@/types';
 
 interface ChatPanelProps {
@@ -418,9 +419,9 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
             </Button>
           )}
 
-          <ContactAvatar src={headerPic} name={contact?.name} size={36} contactId={contact?.id} />
+          <ContactAvatar src={headerPic} name={contactDisplayName(contact)} size={36} contactId={contact?.id} />
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm truncate">{contact?.name || contact?.phone || 'Desconhecido'}</h3>
+            <h3 className="font-semibold text-sm truncate">{contactDisplayName(contact)}</h3>
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
               {contact?.phone && <span>{contact.phone}</span>}
               {agentName && <><span className="text-muted-foreground/40">·</span><span className="text-primary/70 font-medium">{agentName}</span></>}

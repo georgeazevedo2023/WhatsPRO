@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { smartDateBR } from '@/lib/dateUtils';
+import { contactDisplayName } from '@/lib/contactDisplayName';
 import { ConversationLabels } from './ConversationLabels';
 import type { Label, Conversation } from '@/types';
 import { PRIORITY_COLOR_MAP } from '@/lib/constants';
@@ -28,7 +29,7 @@ const fmtCountdown = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString()
 
 export const ConversationItem = memo(function ConversationItem({ conversation, isSelected, onClick, labels = [], agentName, hasNotes, hasDraft = false, queueBadge = null }: ConversationItemProps) {
   const contact = conversation.contact;
-  const name = contact?.name || contact?.phone || 'Desconhecido';
+  const name = contactDisplayName(contact);
   const initials = name.charAt(0).toUpperCase();
 
   // Calculate wait time for unresolved conversations

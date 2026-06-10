@@ -66,6 +66,9 @@ export interface Conversation {
     phone: string;
     jid: string;
     profile_pic_url: string | null;
+    /** Nome que o lead informou na conversa (extraído pela IA). Exibição prioriza
+     *  este sobre name (pushname) — ver src/lib/contactDisplayName.ts */
+    lead_profiles?: { full_name: string | null } | null;
   };
   inbox?: {
     id: string;
