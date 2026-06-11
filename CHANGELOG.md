@@ -13,6 +13,22 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.81.0 (2026-06-11) — 🟢 Dashboard Gestor: "Motivos de conversa" religado (pipeline ai_summary NUNCA tinha rodado) + Ranking Vendedores contava 0 resolvidas (views com status em INGLÊS)
+
+**Pedido do dono:** "audite e veja pq nao tem motivos de conversa no dashboard". **Achado 1 — o card nunca teve dado:** das 805 conversas (30d), **ZERO com `ai_summary`** (zero all-time). O único produtor automático era o trigger `auto_summarize_on_resolve`, **morto em 4 camadas**: (a) lia GUC `app.settings.anon_key` que é sempre NULL (Supabase não seta — só emitia WARNING e pulava o HTTP call); (b) URL de fallback hardcoded do projeto MORTO `crzcpnczpuzwieyzbqev` (herança Lovable, 2 migrações atrás); (c) `extensions.net.http_post` = schema inexistente; (d) mesmo se chamasse, `verify_jwt=true` + anon key → 401. E os modos `backfill`/`inactive` da fn nunca tiveram cron (só existia o cron que APAGA summaries expirados).
+
+**Fix (padrão estabelecido, zero gambiarra):**
+- Trigger morto DROPado; cron `auto-summarize-backfill` (vault `CRON_AUTH_KEY`, mesmo padrão do jobid 38) chama `mode=backfill`.
+- RPC `find_summarize_candidates`: filtro de ≥3 mensagens vai pro SQL — antes, conversas curtas ("oi" e sumiu) ficavam PERMANENTEMENTE no topo da janela de candidatos, estrangulando as elegíveis mais antigas. + piso 60d alinhado ao expiry (sem ele, summaries expirados re-entravam em churn infinito). `REVOKE FROM PUBLIC/anon/authenticated`.
+- `verify_jwt=false` no config.toml (regra: fn chamada por pg_cron) + deploy CLI scoop (v3).
+- `TopContactReasons`: filtro de instância passa pro servidor (`inboxes!inner`) — client-side após `limit(500)` deixava outras instâncias consumirem o limite.
+
+**Achado 2 — família de bugs EN×PT em `conversations.status`** (valores reais: `aberta`/`pendente`/`resolvida`): 3 views comparavam `'resolved'`/`'pending'` → `v_vendor_activity` (Ranking Vendedores "0 resolv./0%" pra todos + `v_ia_vs_vendor.vendor_resolved` herdado), `v_handoff_details` (**`converteu` sempre false**), `v_lead_metrics` (resolved_count 0). + `aggregate-metrics:149` (`'resolved'` → shadow_metrics histórico zerado), `assistantQueries.pending_conversations` (`'pending'` → assistente sempre respondia 0), `useVendorDetail.ts` front (`'open'/'pending'`). **Tudo corrigido** (migration `fix_view_status_literals_pt` + 2 fns redeployadas + front) e shadow_metrics dos últimos 30 dias **recomputado** (fn aceita `date`). Bônus: 3 erros deno pré-existentes zerados (aggregate-metrics tipo do consolidated; assistant-chat `.catch` em PromiseLike).
+
+**Validação E2E real (Playwright, localhost + DB prod):** backfill ao vivo populando (89+ resumos na 1ª hora, motivos coerentes: "telha de PVC", "chuveiro Lorenzetti", "caixa d'água 2000L"); card "Principais Motivos de Contato" RENDERIZANDO com agrupamento IA; Ranking Vendedores ao vivo: Lucas 110 conv/28 resolv./26%, Rafaella 64% (antes: tudo 0). deno check 0 nas 3 fns; tsc sem erro novo (5 pré-existentes provados via stash). Backfill completo ~750 conversas conclui via cron.
+
+---
+
 ### v7.80.0 (2026-06-11) — 🟢 Cutucada e transbordo por inatividade citam o PEDIDO do lead ("Vi que você procurava porcelanato 60 por 60!")
 
 **Pedido do dono (caso real Van/porcelanato):** a cutucada de abandono saía genérica ("Ainda tá por aí? 😊…") mesmo com o pedido seedado nas tags (`pedido_original:porcelanato 60 por 60`) — contexto que recupera o interesse do lead estava jogado fora.

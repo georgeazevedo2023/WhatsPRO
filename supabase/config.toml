@@ -76,8 +76,9 @@ verify_jwt = true
 
 # ── Internal functions (called by triggers/cron/other functions with ANON_KEY) ─
 # ANON_KEY is a valid signed JWT, so verify_jwt = true still works
+# auto-summarize: chamada por pg_cron com CRON_AUTH_KEY (não-JWT) → verify_jwt = false
 [functions.auto-summarize]
-verify_jwt = true
+verify_jwt = false
 
 [functions.process-scheduled-messages]
 verify_jwt = true

@@ -75,15 +75,20 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
         const since = new Date();
         since.setDate(since.getDate() - periodDays);
 
+        // Filtro de instância server-side (!inner) — filtrar no client depois do
+        // limit(500) deixava conversas de outras instâncias consumirem o limite
         let query = supabase
           .from('conversations')
-          .select('ai_summary, inbox_id, inboxes(name, instance_id)')
+          .select('ai_summary, inbox_id, inboxes!inner(name, instance_id)')
           .not('ai_summary', 'is', null)
           .gte('created_at', since.toISOString())
           .limit(500);
 
         if (inboxId) {
           query = query.eq('inbox_id', inboxId);
+        }
+        if (instanceId) {
+          query = query.eq('inboxes.instance_id', instanceId);
         }
 
         const { data, error } = await query;
@@ -95,10 +100,7 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
           return;
         }
 
-        let filtered = data;
-        if (instanceId) {
-          filtered = data.filter((c) => c.inboxes?.instance_id === instanceId);
-        }
+        const filtered = data;
 
         // Group reasons by inbox
         const inboxMap = new Map<string, { name: string; reasons: Map<string, number>; total: number }>();

@@ -271,10 +271,13 @@ Dica: ${intentResult.summary_hint}`
             expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
           })
       )
-      .then((res: any) => {
-        if (res?.error) log.warn('Cache write failed', { error: res.error.message })
-      })
-      .catch((err: any) => log.warn('Cache write error', { error: err?.message }))
+      .then(
+        (res: any) => {
+          if (res?.error) log.warn('Cache write failed', { error: res.error.message })
+        },
+        // PostgrestFilterBuilder é PromiseLike (sem .catch) — rejeição tratada via 2º arg do then
+        (err: any) => log.warn('Cache write error', { error: err?.message }),
+      )
 
     // 11. Save to conversation (fire-and-forget)
     saveToConversation(serviceClient, conversation_id, instance_id, userId, message, answer)

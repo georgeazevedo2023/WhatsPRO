@@ -169,16 +169,13 @@ Deno.serve(async (req) => {
         if (!admin) return unauthorizedResponse(corsHeaders)
       }
       const batchLimit = Math.min(limit || 20, 50); // max 50 per call
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
-      // We fetch candidates and filter by message count in JS (no subquery in REST API)
+      // RPC filters by message count in SQL — conversations with <3 messages would
+      // otherwise sit in the candidate window forever, starving older eligible ones.
+      // Window: inactive 1h+ AND last_message_at within 60d (summaries expire at 60d;
+      // without the floor, expired ones would be re-summarized in an endless churn).
       const { data: candidates, error } = await serviceSupabase
-        .from("conversations")
-        .select("id, last_message_at")
-        .is("ai_summary", null)
-        .lt("last_message_at", oneHourAgo)
-        .order("last_message_at", { ascending: false })
-        .limit(batchLimit * 3); // fetch more to account for those with <3 messages
+        .rpc("find_summarize_candidates", { _limit: batchLimit });
 
       if (error) {
         log.error('Error fetching backfill candidates', { error: error.message });
@@ -223,16 +220,11 @@ Deno.serve(async (req) => {
         const admin = await verifySuperAdmin(req)
         if (!admin) return unauthorizedResponse(corsHeaders)
       }
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const batchLimit = limit || 20;
+      const batchLimit = Math.min(limit || 20, 50);
 
+      // Same RPC as backfill: SQL-side message-count filter + 60d floor
       const { data: inactiveConvs, error } = await serviceSupabase
-        .from("conversations")
-        .select("id")
-        .lt("last_message_at", oneHourAgo)
-        .is("ai_summary", null)
-        .order("last_message_at", { ascending: false })
-        .limit(batchLimit * 3); // fetch extra to account for those with <3 messages
+        .rpc("find_summarize_candidates", { _limit: batchLimit });
 
       if (error) {
         log.error('Error fetching inactive conversations', { error: error.message });

@@ -452,7 +452,7 @@ async function pending_conversations(
     .from('conversations' as any)
     .select('id', { count: 'exact' })
     .in('inbox_id', inboxIds)
-    .eq('status', 'pending')
+    .eq('status', 'pendente')
   if (error) throw error
   const count = data?.length ?? 0
   return { data: { pending: count }, format_type: 'number', summary_hint: `${count} conversas pendentes agora` }

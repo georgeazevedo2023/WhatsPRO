@@ -122,7 +122,7 @@ export function useVendorDetail(
       // ── Conversas: IDs + pendingCount + uniqueContacts ──
       const convRows = (convsRes.data || []) as any[];
       const convIds = convRows.map((c: any) => c.id as string);
-      const pendingCount = convRows.filter((c: any) => c.status === 'open' || c.status === 'pending').length;
+      const pendingCount = convRows.filter((c: any) => c.status === 'aberta' || c.status === 'pendente').length;
       const uniqueContactsSet = new Set(convRows.map((c: any) => c.contact_id as string).filter(Boolean));
       const uniqueContacts = uniqueContactsSet.size;
 

@@ -146,7 +146,7 @@ async function aggregateDaily(instanceId: string, dateStr: string): Promise<Metr
     : null
 
   // 5. Métricas de conversas
-  const resolvedConvs    = convs.filter((c) => c.status === 'resolved')
+  const resolvedConvs    = convs.filter((c) => c.status === 'resolvida')
   const avgResolutionMin = resolvedConvs.length > 0
     ? Math.round(
         resolvedConvs
@@ -294,7 +294,7 @@ async function consolidatePeriod(
   if (!dailies || dailies.length === 0) return
 
   // Soma métricas numéricas, mantém objetos como merge
-  const consolidated: Record<string, number | null | Record<string, number> | string[]> = {
+  const consolidated: Record<string, number | string | null | Record<string, number> | string[]> = {
     leads_count: 0, conversations_count: 0, messages_count: 0,
     shadow_extractions_count: 0, handoffs_count: 0, resolved_count: 0,
     ia_responses: 0, ia_tokens: 0, ia_cost_usd: 0,
