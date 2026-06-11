@@ -55,6 +55,7 @@ audited_at: 2026-05-11
 
 | Página | Conteúdo |
 |--------|----------|
+| [[wiki/auditoria-melhorias-2026-06-11]] | **Auditoria do que falta + 10 melhorias** (pós v7.81–v7.83: funil/motivos/score) |
 | [[wiki/roadmap/planejado-resumo]] | Listas resumidas dos itens planejados |
 | [[wiki/roadmap/m10-agente-ia-part1]] · [[wiki/roadmap/m10-agente-ia-part2]] | M10 Agente IA (12 tasks) |
 | [[wiki/roadmap/m11-ecommerce-part1]] · [[wiki/roadmap/m11-ecommerce-part2]] | M11 E-commerce (12 tasks) |
