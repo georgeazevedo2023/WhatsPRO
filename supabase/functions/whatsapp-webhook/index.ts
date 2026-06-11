@@ -1098,8 +1098,11 @@ Deno.serve(async (req) => {
       })
     }
 
-    // last_message_at + last_message + is_read (incoming) são atualizados pelo trigger
-    // `update_conversation_on_message_insert` no INSERT acima.
+    // last_message_at + last_message (texto/preview de mídia) + is_read (incoming)
+    // são atualizados pelo trigger `trg_update_last_message_at`
+    // (update_conversation_last_message_at) no INSERT acima. Completo desde
+    // 2026-06-10 (migration last_message_preview_trigger) — antes só atualizava o
+    // timestamp e o preview da lista congelava na última msg da IA.
 
     // Auto-cadastro do lead na base do Disparador da instância (toggle por instância).
     // Tudo atômico via RPC enroll_lead_in_instance_database (SECURITY DEFINER): ela

@@ -13,6 +13,16 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.78.1 (2026-06-10) — 🟢 Helpdesk: preview da lista congelava na última msg da IA (725 conversas corrigidas)
+
+**Bug do dono (print):** na conversa a última mensagem era "ta certo" (17:17), mas a lista mostrava "Vai ser para uso em área interna ou externa?" — com a hora certa. **Causa raiz:** `conversations.last_message` (texto do preview) só era escrito pela IA; webhook (mensagens do lead + takeover pelo celular) e app confiavam num trigger que só atualizava o TIMESTAMP. O comentário do webhook (linha 1101) prometia "last_message_at + last_message + is_read atualizados pelo trigger" citando um trigger (`update_conversation_on_message_insert`) que **nunca existiu**. Enquanto a aba está aberta o realtime mascara (patch em memória); ao recarregar volta o valor stale do DB.
+
+**Fix de raiz (fonte única):** trigger `update_conversation_last_message_at` agora grava os 3 campos em TODOS os caminhos de escrita — `last_message_at`, `last_message` (content ou preview de mídia 📷/🎥/🎵/📎/🌟/🎠/📊/👤, espelhando `mediaPreview()` do front; `private_note` não altera preview) e `is_read=false` em incoming (antes NENHUM caminho backend resetava unread em conversa existente — badge dependia do realtime). Migration `last_message_preview_trigger` + **backfill: 725 conversas** com preview congelado recalculadas. Comentário do webhook corrigido (sem redeploy — só comentário).
+
+**Validação E2E real:** caso do print conferido no DB ("Vai ser para uso…" → "ta certo") + INSERT de teste em transação com rollback automático (trigger atualizou preview/is_read/timestamp; dado de teste comprovadamente não persistiu).
+
+---
+
 ### v7.78.0 (2026-06-10) — 🟢 Helpdesk: nome extraído pela IA vence o pushname na exibição (caso "oi" → Jessica)
 
 **Bug do dono:** lead com pushname do WhatsApp literalmente "oi" se apresentou como "Jessica"; a IA gravou certinho em `lead_profiles.full_name` (via `update_lead_profile`), mas header/lista do Helpdesk continuavam mostrando "oi". **Não era falha de extração — é a arquitetura de DOIS nomes:** `contacts.name` preserva o pushname (re-sincronizado a cada mensagem pelo `whatsapp-webhook`; sobrescrever = o webhook reverte na próxima msg) e o nome informado na conversa vive em `lead_profiles`. A UI só olhava `contacts.name`.
