@@ -13,6 +13,22 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.82.0 (2026-06-11) — 🟢 Motivos de contato com TAXONOMIA de negócio ("info sobre telha de PVC" = Interesse de compra) + subinteresses no tooltip
+
+**Pedido do dono (print do card):** motivos saíam como frases soltas ("Solicitação De Informações Sobre Telha De Pvc" 1x cada) — *"se o lead manda informações sobre telha de pvc e não é uma dúvida técnica isso é interesse de compra, reclassifique todos ou crie um subinteresse"*.
+
+**Fix na fonte (taxonomia no resumo, não pós-processamento):**
+- `_shared/summaryPrompt.ts` NOVO — fonte única do prompt de resumo + taxonomia fixa de 8 categorias (`interesse_compra`, `duvida_tecnica`, `troca_devolucao`, `status_entrega`, `reclamacao`, `vaga_emprego`, `fornecedor`, `outro`) com a REGRA do dono: *pedido de informação/preço/disponibilidade/modelos de PRODUTO = interesse_compra; dúvida técnica é SÓ uso/instalação/aplicação; na dúvida, interesse_compra*. `normalizeSummaryCategory()` coage resposta inválida do LLM pra `outro`.
+- `auto-summarize` + `summarize-conversation` usam o prompt compartilhado e gravam `ai_summary.category` validado (antes cada um tinha cópia do prompt sem categoria).
+- **`TopContactReasons` reescrito:** agrupa por categoria DETERMINISTICAMENTE (sem LLM em tempo de view — aposenta a chamada `group-reasons` do card, que ainda caía em CORS no localhost); barra por categoria + **subinteresses no tooltip** ("telha de PVC (3x)…"); badge "Classificado por IA". De quebra zera os 4 erros tsc pré-existentes do arquivo.
+- `AiSummary.category?` no types.
+- **Reclassificação total:** 121 resumos da era sem-categoria anulados → o cron backfill (v7.81.0) regenera tudo com categoria; restantes ~600 já nascem categorizados.
+- **Bug pego no E2E da reclassificação — cota do Groq free:** após o wipe, os ticks do cron retornavam 200 em ~17s gravando ZERO (~350ms/conversa = todas as chamadas Groq falhando rápido; o teto DIÁRIO de tokens do free tier esgotou com os ~120 resumos + recompute — falha progressiva silenciosa que começou ANTES da taxonomia). **Fix de raiz:** summarizers migrados do fetch Groq cru pro **`callLLM` do `_shared/llmProvider.ts`** (stack padrão do projeto: OpenAI `gpt-4.1-mini` primário + fallback Gemini + circuit breaker). Custo do backfill completo ~US$0,70. Sonda pós-deploy: `interesse_compra` / "Interesse em telha Imbralit… tamanhos e preços" ✓.
+
+**Validação:** deno check 0 (2 fns), tsc 0 erros novos, E2E real (sonda single-conv + categorias coerentes no DB + card agrupado por categoria).
+
+---
+
 ### v7.81.0 (2026-06-11) — 🟢 Dashboard Gestor: "Motivos de conversa" religado (pipeline ai_summary NUNCA tinha rodado) + Ranking Vendedores contava 0 resolvidas (views com status em INGLÊS)
 
 **Pedido do dono:** "audite e veja pq nao tem motivos de conversa no dashboard". **Achado 1 — o card nunca teve dado:** das 805 conversas (30d), **ZERO com `ai_summary`** (zero all-time). O único produtor automático era o trigger `auto_summarize_on_resolve`, **morto em 4 camadas**: (a) lia GUC `app.settings.anon_key` que é sempre NULL (Supabase não seta — só emitia WARNING e pulava o HTTP call); (b) URL de fallback hardcoded do projeto MORTO `crzcpnczpuzwieyzbqev` (herança Lovable, 2 migrações atrás); (c) `extensions.net.http_post` = schema inexistente; (d) mesmo se chamasse, `verify_jwt=true` + anon key → 401. E os modos `backfill`/`inactive` da fn nunca tiveram cron (só existia o cron que APAGA summaries expirados).

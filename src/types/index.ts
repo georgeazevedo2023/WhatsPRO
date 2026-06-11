@@ -42,6 +42,8 @@ export interface AiSummary {
   reason: string;
   summary: string;
   resolution: string;
+  /** Taxonomia fixa (interesse_compra, duvida_tecnica, ...) — ver _shared/summaryPrompt.ts */
+  category?: string;
   generated_at: string;
   message_count: number;
 }

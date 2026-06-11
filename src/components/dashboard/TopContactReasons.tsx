@@ -3,9 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
-import { MessageCircle, TrendingUp, Sparkles, ChevronDown } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { MessageCircle, TrendingUp, Sparkles } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface TopReasonsChartProps {
@@ -14,23 +12,25 @@ interface TopReasonsChartProps {
   periodDays?: number;
 }
 
-interface ReasonItem {
-  reason: string;
-  count: number;
-}
+// Taxonomia fixa — espelha SUMMARY_CATEGORIES de supabase/functions/_shared/summaryPrompt.ts.
+// Regra de negócio: pedido de info/preço sobre produto = interesse de compra.
+const CATEGORY_LABELS: Record<string, string> = {
+  interesse_compra: 'Interesse de compra',
+  duvida_tecnica: 'Dúvida técnica',
+  troca_devolucao: 'Troca / Devolução',
+  status_entrega: 'Status de entrega',
+  reclamacao: 'Reclamação',
+  vaga_emprego: 'Vaga de emprego',
+  fornecedor: 'Fornecedor',
+  outro: 'Outro',
+};
 
-interface GroupedReason {
+interface CategoryRow {
   category: string;
+  label: string;
   count: number;
-  original_reasons?: string[];
-}
-
-interface InboxReasons {
-  inboxId: string;
-  inboxName: string;
-  reasons: ReasonItem[];
-  grouped?: GroupedReason[];
-  total: number;
+  /** Subinteresses: motivos específicos dentro da categoria, ex. "telha de PVC (3x)" */
+  reasons: string[];
 }
 
 const COLORS = [
@@ -48,25 +48,9 @@ function normalizeReason(reason: string): string {
   return reason.toLowerCase().trim().replace(/[.!?]+$/, '').replace(/\s+/g, ' ');
 }
 
-async function groupReasonsWithAI(reasons: ReasonItem[]): Promise<GroupedReason[]> {
-  try {
-    const { data, error } = await supabase.functions.invoke('group-reasons', {
-      body: { reasons },
-    });
-    if (error) throw error;
-    return data?.grouped || reasons.map(r => ({ category: r.reason, count: r.count }));
-  } catch (err) {
-    console.error('Error grouping reasons with AI:', err);
-    return reasons.map(r => ({ category: r.reason, count: r.count }));
-  }
-}
-
 const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsChartProps) => {
   const [loading, setLoading] = useState(true);
-  const [grouping, setGrouping] = useState(false);
-  const [inboxReasons, setInboxReasons] = useState<InboxReasons[]>([]);
-  const [globalGrouped, setGlobalGrouped] = useState<GroupedReason[] | null>(null);
-  const [useAIGrouping, setUseAIGrouping] = useState(true);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
 
   useEffect(() => {
     const fetchReasons = async () => {
@@ -79,7 +63,7 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
         // limit(500) deixava conversas de outras instâncias consumirem o limite
         let query = supabase
           .from('conversations')
-          .select('ai_summary, inbox_id, inboxes!inner(name, instance_id)')
+          .select('ai_summary, inbox_id, inboxes!inner(instance_id)')
           .not('ai_summary', 'is', null)
           .gte('created_at', since.toISOString())
           .limit(500);
@@ -94,66 +78,40 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
         const { data, error } = await query;
         if (error) throw error;
 
-        if (!data || data.length === 0) {
-          setInboxReasons([]);
-          setLoading(false);
-          return;
-        }
+        const catMap = new Map<string, { count: number; reasons: Map<string, number> }>();
 
-        const filtered = data;
+        (data || []).forEach((conv) => {
+          const summary = conv.ai_summary as { reason?: string; category?: string } | null;
+          if (!summary) return;
+          const reason = typeof summary.reason === 'string' ? summary.reason : '';
+          const rawCat = typeof summary.category === 'string' ? summary.category : '';
+          const category = CATEGORY_LABELS[rawCat] ? rawCat : 'outro';
+          if (!reason && !CATEGORY_LABELS[rawCat]) return; // resumo legado sem nada útil
 
-        // Group reasons by inbox
-        const inboxMap = new Map<string, { name: string; reasons: Map<string, number>; total: number }>();
-
-        filtered.forEach((conv) => {
-          const summary = conv.ai_summary as { reason?: string } | null;
-          const reason = summary?.reason;
-          if (!reason || typeof reason !== 'string') return;
-
-          const ibId = conv.inbox_id;
-          const ibName = conv.inboxes?.name || 'Sem caixa';
-
-          if (!inboxMap.has(ibId)) {
-            inboxMap.set(ibId, { name: ibName, reasons: new Map(), total: 0 });
+          if (!catMap.has(category)) {
+            catMap.set(category, { count: 0, reasons: new Map() });
           }
-
-          const entry = inboxMap.get(ibId)!;
-          const normalized = normalizeReason(reason);
-          entry.reasons.set(normalized, (entry.reasons.get(normalized) || 0) + 1);
-          entry.total++;
+          const entry = catMap.get(category)!;
+          entry.count++;
+          if (reason) {
+            const norm = normalizeReason(reason);
+            entry.reasons.set(norm, (entry.reasons.get(norm) || 0) + 1);
+          }
         });
 
-        const result: InboxReasons[] = Array.from(inboxMap.entries())
-          .map(([id, val]) => ({
-            inboxId: id,
-            inboxName: val.name,
-            total: val.total,
+        const rows: CategoryRow[] = Array.from(catMap.entries())
+          .map(([category, val]) => ({
+            category,
+            label: CATEGORY_LABELS[category],
+            count: val.count,
             reasons: Array.from(val.reasons.entries())
-              .map(([reason, count]) => ({ reason, count }))
-              .sort((a, b) => b.count - a.count)
-              .slice(0, 10),
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 6)
+              .map(([r, c]) => (c > 1 ? `${r} (${c}x)` : r)),
           }))
-          .sort((a, b) => b.total - a.total);
+          .sort((a, b) => b.count - a.count);
 
-        setInboxReasons(result);
-        setGlobalGrouped(null);
-
-        // AI grouping (cross-inbox)
-        if (useAIGrouping) {
-          setGrouping(true);
-          const allReasons = result.flatMap(ir => ir.reasons);
-          const merged = new Map<string, number>();
-          allReasons.forEach(r => merged.set(r.reason, (merged.get(r.reason) || 0) + r.count));
-          const mergedArr = Array.from(merged.entries())
-            .map(([reason, count]) => ({ reason, count }))
-            .sort((a, b) => b.count - a.count);
-
-          if (mergedArr.length > 3) {
-            const grouped = await groupReasonsWithAI(mergedArr);
-            setGlobalGrouped(grouped);
-          }
-          setGrouping(false);
-        }
+        setCategories(rows);
       } catch (err) {
         console.error('Error fetching contact reasons:', err);
       } finally {
@@ -162,7 +120,7 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
     };
 
     fetchReasons();
-  }, [instanceId, inboxId, periodDays, useAIGrouping]);
+  }, [instanceId, inboxId, periodDays]);
 
   if (loading) {
     return (
@@ -173,7 +131,7 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
     );
   }
 
-  if (inboxReasons.length === 0) {
+  if (categories.length === 0) {
     return (
       <Card className="glass-card">
         <CardContent className="py-8 text-center text-muted-foreground">
@@ -185,26 +143,7 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
     );
   }
 
-  // Use AI-grouped data if available
-  const grouped = globalGrouped;
-  const displayData: { label: string; count: number; details?: string[] }[] = grouped
-    ? grouped.map(g => ({
-        label: g.category,
-        count: g.count,
-        details: g.original_reasons,
-      }))
-    : inboxReasons
-        .flatMap(ir => ir.reasons)
-        .reduce((acc, r) => {
-          const existing = acc.find(a => a.label === r.reason);
-          if (existing) existing.count += r.count;
-          else acc.push({ label: r.reason, count: r.count });
-          return acc;
-        }, [] as { label: string; count: number; details?: string[] }[])
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 8);
-
-  const maxCount = displayData[0]?.count || 1;
+  const maxCount = categories[0]?.count || 1;
 
   return (
     <Card className="glass-card-hover">
@@ -213,40 +152,34 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-primary" />
             Principais Motivos de Contato
-            {grouped && (
-              <Badge variant="secondary" className="text-[9px] gap-1">
-                <Sparkles className="w-2.5 h-2.5" />
-                Agrupado por IA
-              </Badge>
-            )}
+            <Badge variant="secondary" className="text-[9px] gap-1">
+              <Sparkles className="w-2.5 h-2.5" />
+              Classificado por IA
+            </Badge>
           </CardTitle>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Últimos {periodDays} dias · Baseado em resumos IA
-          {grouping && ' · Agrupando...'}
+          Últimos {periodDays} dias · Baseado em resumos IA · Passe o mouse para ver os itens
         </p>
       </CardHeader>
       <CardContent className="pt-0 px-4 pb-4 space-y-2.5">
         <TooltipProvider>
-          {displayData.map((item, idx) => (
-            <div key={idx} className="space-y-1">
+          {categories.map((item, idx) => (
+            <div key={item.category} className="space-y-1">
               <div className="flex items-center justify-between gap-2">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="text-xs truncate max-w-[75%] capitalize cursor-default">
+                    <span className="text-xs truncate max-w-[75%] cursor-default">
                       {item.label}
                     </span>
                   </TooltipTrigger>
-                  {item.details && item.details.length > 0 && (
+                  {item.reasons.length > 0 && (
                     <TooltipContent side="right" className="max-w-[280px]">
-                      <p className="text-[10px] font-medium mb-1">Motivos agrupados:</p>
+                      <p className="text-[10px] font-medium mb-1">Itens nesta categoria:</p>
                       <ul className="text-[10px] space-y-0.5">
-                        {item.details.slice(0, 5).map((d, i) => (
-                          <li key={i} className="capitalize">• {d}</li>
+                        {item.reasons.map((r, i) => (
+                          <li key={i} className="capitalize">• {r}</li>
                         ))}
-                        {item.details.length > 5 && (
-                          <li className="text-muted-foreground">+ {item.details.length - 5} mais</li>
-                        )}
                       </ul>
                     </TooltipContent>
                   )}

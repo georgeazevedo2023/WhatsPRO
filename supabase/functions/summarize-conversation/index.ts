@@ -1,9 +1,10 @@
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
-import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { callLLM } from '../_shared/llmProvider.ts'
 import { checkRateLimit, rateLimitHeaders } from '../_shared/rateLimit.ts'
 import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { SUMMARY_SYSTEM_PROMPT, normalizeSummaryCategory } from '../_shared/summaryPrompt.ts'
 
 const serviceSupabase = createServiceClient()
 const log = createLogger('summarize-conversation')
@@ -118,52 +119,23 @@ Deno.serve(async (req) => {
       })
       .join("\n");
 
-    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-    if (!GROQ_API_KEY) {
-      return errorResponse(corsHeaders, "AI not configured");
-    }
-
-    const systemPrompt = `Você é um assistente de atendimento ao cliente. Analise esta conversa de WhatsApp e gere um resumo estruturado.
-
-Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem texto extra. O JSON deve ter exatamente estas chaves:
-- "reason": motivo principal do contato em 1 frase curta
-- "summary": resumo da conversa em 2-3 frases
-- "resolution": como foi resolvido ou qual o próximo passo (ou "Em aberto" se não resolvido)`;
-
-    const userPrompt = `Conversa:\n${conversationText}`;
-
-    const aiResponse = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+    // callLLM = stack padrão (OpenAI gpt-4.1-mini primário + fallback Gemini);
+    // o Groq free esgotava a cota diária de tokens.
+    let rawContent = "";
+    try {
+      const llmResp = await callLLM({
+        systemPrompt: SUMMARY_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: `Conversa:\n${conversationText}` }],
+        tools: [],
         temperature: 0.3,
-      }),
-    }, 30000);
-
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      log.error("AI gateway error", { status: aiResponse.status, body: errorText });
-
-      if (aiResponse.status === 429) {
-        return errorResponse(corsHeaders, "Limite de IA atingido. Tente novamente em alguns instantes.", 429);
-      }
-      if (aiResponse.status === 402) {
-        return errorResponse(corsHeaders, "Créditos de IA insuficientes.", 402);
-      }
-
+        maxTokens: 1024,
+        model: "gpt-4.1-mini",
+      });
+      rawContent = llmResp.text;
+    } catch (err) {
+      log.error("AI gateway error", { error: err instanceof Error ? err.message : String(err) });
       return errorResponse(corsHeaders, "Falha ao gerar resumo");
     }
-
-    const aiData = await aiResponse.json();
-    const rawContent = aiData.choices?.[0]?.message?.content || "";
 
     // Parse JSON from AI response (strip any accidental markdown fences)
     let parsedSummary: Record<string, string>;
@@ -177,6 +149,7 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
 
     const summaryData = {
       ...parsedSummary,
+      category: normalizeSummaryCategory(parsedSummary.category),
       generated_at: new Date().toISOString(),
       message_count: messages.length,
     };

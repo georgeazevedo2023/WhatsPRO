@@ -1,9 +1,10 @@
 import { browserCorsHeaders as corsHeaders } from '../_shared/cors.ts'
-import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
+import { callLLM } from '../_shared/llmProvider.ts'
 import { verifyAuth, verifyCronOrService, verifySuperAdmin, unauthorizedResponse } from '../_shared/auth.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { SUMMARY_SYSTEM_PROMPT, normalizeSummaryCategory } from '../_shared/summaryPrompt.ts'
 
 const serviceSupabase = createServiceClient()
 const log = createLogger('auto-summarize')
@@ -48,38 +49,23 @@ async function summarizeConversation(conversationId: string): Promise<boolean> {
     })
     .join("\n");
 
-  const systemPrompt = `Você é um assistente de atendimento ao cliente. Analise esta conversa de WhatsApp e gere um resumo estruturado.
-
-Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem texto extra. O JSON deve ter exatamente estas chaves:
-- "reason": motivo principal do contato em 1 frase curta
-- "summary": resumo da conversa em 2-3 frases
-- "resolution": como foi resolvido ou qual o próximo passo (ou "Em aberto" se não resolvido)`;
-
-  const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-
-  const aiResponse = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Conversa:\n${conversationText}` },
-      ],
+  // callLLM = stack padrão do projeto (OpenAI gpt-4.1-mini primário + fallback Gemini
+  // + circuit breaker). O Groq free esgotava a cota diária de tokens no backfill.
+  let rawContent = "";
+  try {
+    const llmResp = await callLLM({
+      systemPrompt: SUMMARY_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: `Conversa:\n${conversationText}` }],
+      tools: [],
       temperature: 0.3,
-    }),
-  });
-
-  if (!aiResponse.ok) {
-    log.error('AI error for conversation', { conversationId, status: aiResponse.status });
+      maxTokens: 1024,
+      model: "gpt-4.1-mini",
+    });
+    rawContent = llmResp.text;
+  } catch (err) {
+    log.error('AI error for conversation', { conversationId, error: err instanceof Error ? err.message : String(err) });
     return false;
   }
-
-  const aiData = await aiResponse.json();
-  const rawContent = aiData.choices?.[0]?.message?.content || "";
 
   let parsedSummary: Record<string, string>;
   try {
@@ -92,6 +78,7 @@ Responda APENAS com um JSON válido, sem markdown, sem blocos de código, sem te
 
   const summaryData = {
     ...parsedSummary,
+    category: normalizeSummaryCategory(parsedSummary.category),
     generated_at: new Date().toISOString(),
     message_count: messages.length,
   };
