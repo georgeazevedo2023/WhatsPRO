@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useHelpdeskInboxes } from '@/hooks/useHelpdeskInboxes';
-import { useHelpdeskConversations } from '@/hooks/useHelpdeskConversations';
+import { useHelpdeskConversations, CONVERSATION_LIST_SELECT, mapConversationRows } from '@/hooks/useHelpdeskConversations';
 import { useHelpdeskFilters } from '@/hooks/useHelpdeskFilters';
 import { useActiveQueueEvents } from '@/hooks/useActiveQueueEvents';
 import { Inbox as InboxIcon, Circle, Clock, CheckCircle2, LayoutList, Lock, User, UserMinus, Users } from 'lucide-react';
@@ -106,14 +106,34 @@ const HelpDesk = () => {
   // na URL como fonte da verdade, qualquer re-render/refetch re-seleciona a MESMA
   // conversa, e ela também sobrevive a reload. (2026-05-26)
   useEffect(() => {
-    if (!convParam || loading || conversations.length === 0) return;
+    if (!convParam || loading) return;
     if (selectedConversation?.id === convParam) return; // já selecionada
     const found = conversations.find(c => c.id === convParam);
     if (found) {
       setSelectedConversation(found);
       if (isMobile) setMobileView('chat');
+      return;
     }
-  }, [convParam, loading, conversations, selectedConversation?.id, isMobile, setSelectedConversation]);
+    // Fora da página/filtro carregado (ex.: conversa RESOLVIDA vinda da busca
+    // global ou de deep-link): busca direta por id. Sem isso o ?conv= falhava
+    // silenciosamente — a conversa existia mas não estava nas 50 carregadas.
+    let cancelled = false;
+    supabase
+      .from('conversations')
+      .select(CONVERSATION_LIST_SELECT)
+      .eq('id', convParam)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const [conv] = mapConversationRows([data as Record<string, unknown>]);
+        // Só seleciona se for da caixa atual — conv de outra caixa abriria chat órfão
+        if (conv && conv.inbox_id === selectedInboxId) {
+          setSelectedConversation(conv);
+          if (isMobile) setMobileView('chat');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [convParam, loading, conversations, selectedConversation?.id, isMobile, setSelectedConversation, selectedInboxId]);
 
   // Filters
   const {
@@ -130,6 +150,7 @@ const HelpDesk = () => {
     departmentFilter,
     userId: user?.id,
     defaultAssignmentFilter,
+    inboxId: selectedInboxId,
   });
 
   // Bulk action handler (needs statusFilter + setConversations from above)

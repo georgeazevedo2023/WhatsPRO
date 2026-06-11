@@ -13,6 +13,20 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.79.0 (2026-06-11) — 🟢 Helpdesk: busca acha QUALQUER conversa da caixa (server-side) + deep-link abre conversa fora do filtro
+
+**Bug do dono:** buscou `558196970061` (até com filtro "Todas") e não achou a conversa — ela era "resolvida" e fora das 50 carregadas. **Causa:** a busca era 100% client-side sobre a página carregada (status filtrado no servidor + paginação 50); o `?conv=` da URL também só selecionava conversa presente na lista carregada (deep-link da busca global pra conversa resolvida falhava silencioso).
+
+**Fix:**
+- **Busca server-side (3+ chars):** consulta `contacts` (telefone só-dígitos + pushname) e `lead_profiles.full_name` (nome extraído), busca as conversas da caixa em QUALQUER status e injeta na lista (dedup por id, mesmo shape via `CONVERSATION_LIST_SELECT`/`mapConversationRows` compartilhados). Helpers puros em `src/lib/helpdeskServerSearch.ts` (10 testes). Telefone formatado funciona ("+55 81 9697-0061").
+- **Deep-link `?conv=`:** fallback fetch-by-id quando a conversa não está na página carregada (guard: só abre se for da caixa atual).
+
+**Causa-raiz lateral descoberta no E2E:** o arquivo da página estava como `Helpdesk.tsx` no disco Windows mas `HelpDesk.tsx` no git/imports → Vite (case-sensitive no module graph) servia versão STALE da página em dev; edits não chegavam no browser. Disco renomeado pro casing do git.
+
+**E2E real Playwright 3/3 PASS:** busca pelo número acha a "Van" (resolvida, fora da página) · clique abre · deep-link abre direto. tsc 0, 138 testes lib verdes.
+
+---
+
 ### v7.78.1 (2026-06-10) — 🟢 Helpdesk: preview da lista congelava na última msg da IA (725 conversas corrigidas)
 
 **Bug do dono (print):** na conversa a última mensagem era "ta certo" (17:17), mas a lista mostrava "Vai ser para uso em área interna ou externa?" — com a hora certa. **Causa raiz:** `conversations.last_message` (texto do preview) só era escrito pela IA; webhook (mensagens do lead + takeover pelo celular) e app confiavam num trigger que só atualizava o TIMESTAMP. O comentário do webhook (linha 1101) prometia "last_message_at + last_message + is_read atualizados pelo trigger" citando um trigger (`update_conversation_on_message_insert`) que **nunca existiu**. Enquanto a aba está aberta o realtime mascara (patch em memória); ao recarregar volta o valor stale do DB.

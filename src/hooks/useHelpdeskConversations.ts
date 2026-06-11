@@ -6,6 +6,23 @@ import type { Conversation } from '@/types';
 
 const PAGE_SIZE = 50;
 
+/** Select da lista — compartilhado com a busca server-side (useHelpdeskFilters)
+ *  pra resultado injetado ter o MESMO shape de uma conversa carregada. */
+export const CONVERSATION_LIST_SELECT =
+  'id, inbox_id, contact_id, status, priority, assigned_to, department_id, is_read, last_message_at, last_message, status_ia, tags, ai_summary, created_at, contacts(id, phone, jid, name, profile_pic_url, lead_profiles(full_name)), inboxes(id, name, instance_id, webhook_outgoing_url), departments(id, name)';
+
+/** Mapper puro row PostgREST → Conversation (contacts→contact, inboxes→inbox…). */
+export function mapConversationRows(data: Record<string, unknown>[]): Conversation[] {
+  return data.map((c: Record<string, unknown>) => ({
+    ...c,
+    contact: c.contacts,
+    inbox: c.inboxes,
+    last_message: c.last_message || null,
+    ai_summary: c.ai_summary || null,
+    department_name: (c.departments as Record<string, unknown> | null)?.name || null,
+  })) as Conversation[];
+}
+
 export function useHelpdeskConversations(selectedInboxId: string, statusFilter: string) {
   const { user } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -21,21 +38,12 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
   // de ConversationItem dentro da lista virtualizada.
   const [draftSet, setDraftSet] = useState<Set<string>>(new Set());
 
-  const mapConversations = useCallback((data: Record<string, unknown>[]): Conversation[] => {
-    return data.map((c: Record<string, unknown>) => ({
-      ...c,
-      contact: c.contacts,
-      inbox: c.inboxes,
-      last_message: c.last_message || null,
-      ai_summary: c.ai_summary || null,
-      department_name: (c.departments as Record<string, unknown> | null)?.name || null,
-    })) as Conversation[];
-  }, []);
+  const mapConversations = useCallback(mapConversationRows, []);
 
   const buildQuery = useCallback(() => {
     let query = supabase
       .from('conversations')
-      .select('id, inbox_id, contact_id, status, priority, assigned_to, department_id, is_read, last_message_at, last_message, status_ia, tags, ai_summary, created_at, contacts(id, phone, jid, name, profile_pic_url, lead_profiles(full_name)), inboxes(id, name, instance_id, webhook_outgoing_url), departments(id, name)')
+      .select(CONVERSATION_LIST_SELECT)
       .eq('inbox_id', selectedInboxId)
       .eq('archived', false)
       .order('last_message_at', { ascending: false });
