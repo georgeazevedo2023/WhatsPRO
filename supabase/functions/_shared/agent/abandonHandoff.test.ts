@@ -4,6 +4,7 @@ import {
   looksLikeConversationClosed,
   parseNudgedAtMs,
   parsePendingTrigger,
+  parsePedidoOriginal,
   personalizeNudge,
   DEFAULT_NUDGE_MESSAGE,
 } from './abandonHandoff'
@@ -211,5 +212,49 @@ describe('personalizeNudge', () => {
   })
   it('default tem texto', () => {
     expect(DEFAULT_NUDGE_MESSAGE).toContain('vendedor')
+  })
+
+  // ── pedido (contexto do interesse, caso Van/porcelanato 2026-06-11) ──
+  it('tece o pedido como prefixo quando não há placeholder (caso real Van)', () => {
+    expect(personalizeNudge('Ainda tá por aí? 😊', null, 'porcelanato 60 por 60'))
+      .toBe('Vi que você procurava porcelanato 60 por 60! Ainda tá por aí? 😊')
+  })
+  it('nome + pedido compõem (nome primeiro, inicial minúscula)', () => {
+    expect(personalizeNudge('Ainda tá por aí?', 'Eduarda Silva', 'porcelanato 60 por 60'))
+      .toBe('Eduarda, vi que você procurava porcelanato 60 por 60! Ainda tá por aí?')
+  })
+  it('placeholder {pedido} posiciona o item onde o dono quis', () => {
+    expect(personalizeNudge('Sobre {pedido}: ainda quer? 😊', null, 'porcelanato 60 por 60'))
+      .toBe('Sobre porcelanato 60 por 60: ainda quer? 😊')
+  })
+  it('placeholder sem pedido → removido graciosamente', () => {
+    expect(personalizeNudge('Sobre {pedido} ainda quer?', null, null))
+      .toBe('Sobre ainda quer?')
+  })
+  it('sem pedido → comportamento de sempre (retrocompat)', () => {
+    expect(personalizeNudge('Ainda tá por aí?', null, null)).toBe('Ainda tá por aí?')
+    expect(personalizeNudge('Ainda tá por aí?', null, '  ')).toBe('Ainda tá por aí?')
+  })
+})
+
+describe('parsePedidoOriginal', () => {
+  it('pedido_original ganha de interesse', () => {
+    expect(parsePedidoOriginal(['interesse:revestimentos', 'pedido_original:porcelanato 60 por 60']))
+      .toBe('porcelanato 60 por 60')
+  })
+  it('fallback pro interesse (underscores viram espaço)', () => {
+    expect(parsePedidoOriginal(['interesse:caixa_dagua', 'ia:ligada'])).toBe('caixa dagua')
+  })
+  it('sem tags relevantes → null', () => {
+    expect(parsePedidoOriginal(['ia:ligada'])).toBeNull()
+    expect(parsePedidoOriginal(null)).toBeNull()
+    expect(parsePedidoOriginal(['pedido_original:'])).toBeNull()
+  })
+  it('cap 60 chars em fronteira de palavra', () => {
+    const longo = 'pedido_original:' + 'porcelanato acetinado retificado bege para área externa coberta com rejunte'
+    const out = parsePedidoOriginal([longo])!
+    expect(out.length).toBeLessThanOrEqual(61)
+    expect(out.endsWith('…')).toBe(true)
+    expect(out).not.toContain('  ')
   })
 })

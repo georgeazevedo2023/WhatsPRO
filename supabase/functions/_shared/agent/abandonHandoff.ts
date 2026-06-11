@@ -155,15 +155,52 @@ export function parsePendingTrigger(tags: string[] | null | undefined): string {
 }
 
 /**
- * Prefixa o primeiro nome do lead na cutucada, sem duplicar se já começa com ele.
+ * Extrai o pedido do lead das tags pra dar CONTEXTO na cutucada/transbordo.
+ * `pedido_original:{texto cru}` (greeting-seed, fix 21.36) ganha; fallback
+ * `interesse:{categoria}` (id legível tipo "revestimentos"). Cap de 60 chars
+ * pra não inflar a mensagem (corta em fronteira de palavra).
+ * Caso real que motivou (2026-06-11): lead Van mandou áudio "Vocês têm
+ * porcelanato 60 por 60?", seed gravou o pedido, mas a cutucada saiu genérica.
+ */
+export function parsePedidoOriginal(tags: string[] | null | undefined): string | null {
+  const find = (prefix: string) => {
+    const tag = (tags || []).find((t) => typeof t === 'string' && t.startsWith(prefix))
+    return tag ? tag.slice(prefix.length).replace(/_/g, ' ').trim() : ''
+  }
+  const raw = find('pedido_original:') || find('interesse:')
+  if (!raw) return null
+  if (raw.length <= 60) return raw
+  const cut = raw.slice(0, 60)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${cut.slice(0, lastSpace > 30 ? lastSpace : 60).trim()}…`
+}
+
+/**
+ * Personaliza a cutucada: tece o PEDIDO do lead (contexto/interesse) e prefixa
+ * o primeiro nome, sem duplicar se já começa com ele.
+ * Pedido: mensagem configurada pode posicionar com o placeholder `{pedido}`;
+ * sem placeholder, prefixa "Vi que você procurava {pedido}! " (neutro de gênero,
+ * funciona com qualquer texto configurado). Sem pedido → comportamento de sempre.
  * Cutucada é leve (não usa personalizeHandoffMessage, que é flavor de transbordo).
  */
-export function personalizeNudge(message: string, leadName?: string | null): string {
+export function personalizeNudge(
+  message: string,
+  leadName?: string | null,
+  pedido?: string | null,
+): string {
+  let text = message
+  const item = (pedido || '').trim()
+  if (text.includes('{pedido}')) {
+    // placeholder: substitui (ou remove graciosamente quando não há pedido)
+    text = text.split('{pedido}').join(item).replace(/\s{2,}/g, ' ').trim()
+  } else if (item) {
+    text = `Vi que você procurava ${item}! ${text}`
+  }
   const name = (leadName || '').trim().split(/\s+/)[0] || ''
-  if (!name) return message
+  if (!name) return text
   const already = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[,!?.\\s]`, 'i')
-  if (already.test(message.trimStart())) return message
-  return `${name}, ${message.charAt(0).toLowerCase()}${message.slice(1)}`
+  if (already.test(text.trimStart())) return text
+  return `${name}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`
 }
 
 /** Texto default da cutucada quando o agente não configurou um. */

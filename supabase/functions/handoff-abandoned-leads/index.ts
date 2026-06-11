@@ -41,6 +41,7 @@ import {
   looksLikeConversationClosed,
   parseNudgedAtMs,
   parsePendingTrigger,
+  parsePedidoOriginal,
   personalizeNudge,
   DEFAULT_NUDGE_MESSAGE,
 } from '../_shared/agent/abandonHandoff.ts'
@@ -216,11 +217,14 @@ Deno.serve(async (req: Request) => {
       if (!c.contact_jid || !c.instance_token) { stats.skipped++; continue }
 
       const leadName = await leadFullName(supabase, c.contact_id)
+      // Pedido seedado do 1º contato (pedido_original) ou interesse — dá contexto
+      // na cutucada/transbordo ("Vi que você procurava porcelanato 60 por 60!").
+      const pedido = parsePedidoOriginal(c.tags)
 
       // ─── ESTÁGIO 1: cutucada ──────────────────────────────────────────────
       if (stage === 'nudge') {
         const base = (c.abandon_nudge_message || '').trim() || DEFAULT_NUDGE_MESSAGE
-        const text = personalizeNudge(base, leadName)
+        const text = personalizeNudge(base, leadName, pedido)
         const sent = await sendText(c.instance_token, c.contact_jid, text, log)
         if (!sent) { stats.errors++; continue }
 
@@ -252,7 +256,9 @@ Deno.serve(async (req: Request) => {
       const silenceRef = incomingAt ?? botAt
       const silentMin = Math.round((Date.now() - new Date(silenceRef).getTime()) / 60_000)
       const trigger = viaInactivity
-        ? (cartOneLine ? `Pedido em andamento: ${cartOneLine}` : 'Lead conversando com a IA')
+        ? (cartOneLine
+            ? `Pedido em andamento: ${cartOneLine}`
+            : (pedido ? `Lead buscava: ${pedido}` : 'Lead conversando com a IA'))
         : parsePendingTrigger(c.tags)
 
       const notifyOutside = c.notify_outside_hours_on_handoff !== false
@@ -263,10 +269,11 @@ Deno.serve(async (req: Request) => {
             : null)
         : (c.handoff_message || null)
       const baseMsg = rawBase || 'Só um instante, vou te encaminhar para nosso consultor de vendas.'
-      // No caso de inatividade sem carrinho, não inventa "pedido" no texto pro lead.
+      // Inatividade sem carrinho: usa o pedido seedado (pedido_original) — é o que
+      // o lead LITERALMENTE pediu, não invenção. Sem pedido → null (texto neutro).
       const handoffMsg = personalizeHandoffMessage(baseMsg, {
         leadName,
-        itemSummary: viaInactivity ? (cartOneLine || null) : (cartOneLine || trigger),
+        itemSummary: viaInactivity ? (cartOneLine || pedido || null) : (cartOneLine || trigger),
       })
 
       // Atribui via fila (resolve dept: o da conversa OU o default da inbox).
@@ -305,9 +312,16 @@ Deno.serve(async (req: Request) => {
       const noteHeader = viaInactivity
         ? `📋 Transbordo automático — lead ficou ${silentMin}min sem responder à IA (interno):`
         : '📋 Resumo do pedido (interno):'
+      // Vendedor recebe o pedido seedado sem precisar rolar a conversa (achado
+      // da auditoria de áudio 2026-06-11: nota dizia só "Sem itens no carrinho").
+      const inactivityDetail = [
+        pedido ? `🔎 Lead buscava: ${pedido}` : '',
+        cartFull ? `🛒 ${cartFull}` : '',
+      ].filter(Boolean).join('\n\n')
       const noteBody = viaInactivity
-        ? (cartFull ? `🛒 ${cartFull}` : 'Lead estava em conversa com a IA e parou de responder. Sem itens no carrinho.')
-        : [trigger, cartFull ? `🛒 ${cartFull}` : ''].filter(Boolean).join('\n\n').trim()
+        ? (inactivityDetail || 'Lead estava em conversa com a IA e parou de responder. Sem itens no carrinho.')
+        : [trigger, pedido && !trigger.includes(pedido) ? `🔎 Pedido: ${pedido}` : '', cartFull ? `🛒 ${cartFull}` : '']
+            .filter(Boolean).join('\n\n').trim()
       if (noteBody) {
         await supabase.from('conversation_messages').insert({
           conversation_id: c.conversation_id, direction: 'private_note',
