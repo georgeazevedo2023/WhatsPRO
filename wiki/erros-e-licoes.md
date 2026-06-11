@@ -2,7 +2,7 @@
 title: Erros e Lições
 tags: [erros, bugs, licoes, preventivo]
 sources: [CLAUDE.md, docs/REGRAS_ASSISTENTE.md]
-updated: 2026-06-05
+updated: 2026-06-10
 audited_at: 2026-06-05
 ---
 
@@ -19,6 +19,12 @@ audited_at: 2026-06-05
 - **Arquivo histórico** (abril e anteriores): [[wiki/erros-arquivo-historico-abril]]
 
 ---
+
+## 🚨 Sessão 2026-06-10 — Helpdesk mentia em 2 lugares: nome (pushname vs extraído) e preview da lista (trigger incompleto) — v7.78.0/.1
+Detalhe: CHANGELOG/log + memórias `project_helpdesk_display_name_v778` · `project_last_message_preview_trigger_v7781`.
+1. **Comentário que cita um trigger NÃO prova que o trigger existe (nem que faz aquilo).** O webhook dizia *"last_message_at + last_message + is_read atualizados pelo trigger `update_conversation_on_message_insert`"* — esse trigger **nunca existiu**; o real só atualizava o timestamp. Resultado: preview da lista congelado na última msg da IA em **725 conversas** + unread nunca resetado no DB. **Regra:** ao confiar em side-effect de trigger, conferir `pg_trigger` + `pg_get_triggerdef` de verdade; e estado derivado exibido em lista (preview/badge) deve ter **UMA fonte de verdade no DB** (trigger no INSERT), nunca N escritores de app "cada um lembra de atualizar".
+2. **Realtime que faz patch em memória MASCARA dado stale do DB** — a lista parecia certa com a aba aberta e mentia após reload/refetch. **Regra:** ao validar "lista mostra X", validar no DB (e/ou após F5), não só na tela viva.
+3. **Dois nomes por design: `contacts.name` = pushname (re-sincronizado a CADA msg pelo webhook → sobrescrever é enxugar gelo); nome informado na conversa = `lead_profiles.full_name`.** Exibição SEMPRE via `contactDisplayName()`/`leadFullName()` (src/lib) — nunca `contact.name` cru, nunca UPDATE em contacts.name.
 
 ## 🚨 Sessão 2026-06-09 — "não envia foto" era FORMATO (HEIC), não TAMANHO; medir antes de assumir — v7.75.0
 Detalhe: CHANGELOG/log + [[project_helpdesk_image_send_url_v7714]] + memória `project_heic_photo_send_v775`.
