@@ -2,6 +2,7 @@ import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { verifyCronOrService } from '../_shared/auth.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
+import { deriveFunnelStages } from '../_shared/funnelStages.ts'
 
 /**
  * aggregate-metrics — Consolida shadow_extractions em shadow_metrics.
@@ -124,7 +125,7 @@ async function aggregateDaily(instanceId: string, dateStr: string): Promise<Metr
   const { data: convRows } = inboxIds.length > 0
     ? await supabase
         .from('conversations')
-        .select('id, assigned_to, status, updated_at, created_at')
+        .select('id, contact_id, assigned_to, status, updated_at, created_at, resolved_at, tags, cart_items')
         .in('inbox_id', inboxIds)
         .gte('created_at', start)
         .lte('created_at', end)
@@ -150,10 +151,11 @@ async function aggregateDaily(instanceId: string, dateStr: string): Promise<Metr
   const avgResolutionMin = resolvedConvs.length > 0
     ? Math.round(
         resolvedConvs
-          .filter((c) => c.updated_at)
+          .filter((c) => c.resolved_at || c.updated_at)
           .reduce((s, c) => {
-            // updated_at em conversas resolvidas é proxy de resolved_at (conversations não tem a coluna)
-            const diffMs = new Date(c.updated_at as string).getTime() - new Date(c.created_at as string).getTime()
+            // resolved_at é o timestamp real do Finalizar; updated_at é fallback legado
+            const endMs = new Date((c.resolved_at ?? c.updated_at) as string).getTime()
+            const diffMs = endMs - new Date(c.created_at as string).getTime()
             return s + diffMs / 60000
           }, 0) / resolvedConvs.length
       )
@@ -185,22 +187,19 @@ async function aggregateDaily(instanceId: string, dateStr: string): Promise<Metr
     .slice(0, 10)
     .map(([tag]) => tag)
 
-  // T7: Atualiza lead scores baseado nas extrações shadow do dia
-  if (hasShadow) {
-    try {
-      await updateLeadScores(instanceId, extractions ?? [])
-    } catch (err) {
-      log.error('updateLeadScores failed', { instanceId, error: (err as Error).message })
-    }
+  // T7: Lead scores das TAGS DURÁVEIS (lead_score:NN, determinístico via preLLMAutoExtract).
+  // Antes lia extracted_data.tags do shadow — que é JSON livre SEM array tags → delta 0 sempre.
+  try {
+    await updateLeadScores(instanceId, convs)
+  } catch (err) {
+    log.error('updateLeadScores failed', { instanceId, error: (err as Error).message })
   }
 
-  // T8: Registra transições de etapa no funil de conversão
-  if (hasShadow) {
-    try {
-      await recordFunnelEvents(instanceId, extractions ?? [])
-    } catch (err) {
-      log.error('recordFunnelEvents failed', { instanceId, error: (err as Error).message })
-    }
+  // T8: Funil derivado das tags duráveis da conversa (decisão opção C, 2026-06-11).
+  try {
+    await recordFunnelEvents(instanceId, convs)
+  } catch (err) {
+    log.error('recordFunnelEvents failed', { instanceId, error: (err as Error).message })
   }
 
   return {
@@ -364,124 +363,85 @@ async function consolidatePeriod(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T7: Lead score — calcula delta por tags shadow e persiste em lead_score_history
+// T7: Lead score — lê lead_score:NN das tags duráveis da conversa (determinístico,
+// escrito pelo preLLMAutoExtract/qualificação). O caminho antigo (extracted_data.tags
+// do shadow) estava morto: o tool extract_shadow_data emite JSON livre sem `tags`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function calculateScoreDelta(tags: string[]): number {
-  let delta = 0
-  for (const tag of tags) {
-    if      (tag === 'intencao:alta')               delta += 15
-    else if (tag === 'intencao:media')              delta += 8
-    else if (tag === 'intencao:baixa')              delta += 2
-    else if (tag.startsWith('conversao:comprou'))   delta += 30
-    else if (tag.startsWith('conversao:converteu')) delta += 25
-    else if (tag.startsWith('conversao:'))          delta += 10
-    else if (tag.startsWith('objecao:'))            delta -= 5
-    else if (tag.startsWith('motivo_perda:'))       delta -= 20
-    else if (tag.startsWith('concorrente:'))        delta -= 5
-  }
-  return delta
+type ConvRow = {
+  id: string
+  contact_id: string | null
+  assigned_to: string | null
+  tags: string[] | null
+  cart_items: unknown
+  updated_at: string | null
 }
 
-type ExtractionRow = {
-  dimension: string
-  extracted_data: unknown
-  conversation_id: string | null
-}
-
-async function updateLeadScores(instanceId: string, extractions: ExtractionRow[]): Promise<void> {
-  const leadExts = extractions.filter((e) => e.dimension === 'lead' && e.conversation_id)
-  if (leadExts.length === 0) return
-
-  const convIds = [...new Set(leadExts.map((e) => e.conversation_id as string))]
-
-  const { data: convRows } = await supabase
-    .from('conversations').select('id, contact_id').in('id', convIds)
-  const convToContact = new Map((convRows ?? []).map((c) => [c.id as string, c.contact_id as string]))
-
-  const contactIds = [...new Set([...convToContact.values()].filter(Boolean))]
-  if (contactIds.length === 0) return
-
-  const { data: lpRows } = await supabase
-    .from('lead_profiles').select('id, contact_id, current_score').in('contact_id', contactIds)
-  const contactToLp = new Map((lpRows ?? []).map((lp) => [lp.contact_id as string, lp]))
-
-  // Agrega deltas por lead (pode haver múltiplas extrações por lead no dia)
-  const lpDeltas = new Map<string, { delta: number; tags: string[]; convId: string; current: number }>()
-
-  for (const ext of leadExts) {
-    const data  = (ext.extracted_data ?? {}) as Record<string, unknown>
-    const tags  = Array.isArray(data.tags) ? (data.tags as string[]) : []
-    const delta = calculateScoreDelta(tags)
-    if (delta === 0) continue
-
-    const contactId = convToContact.get(ext.conversation_id as string)
-    if (!contactId) continue
-    const lp = contactToLp.get(contactId)
-    if (!lp) continue
-
-    const relevantTags = tags.filter((t) =>
-      t.startsWith('intencao:') || t.startsWith('conversao:') ||
-      t.startsWith('objecao:')  || t.startsWith('motivo_perda:')
-    )
-    const lpId = lp.id as string
-    const existing = lpDeltas.get(lpId)
-    if (existing) {
-      existing.delta += delta
-      existing.tags.push(...relevantTags)
-    } else {
-      lpDeltas.set(lpId, {
-        delta,
-        tags: relevantTags,
-        convId:  ext.conversation_id as string,
-        current: (lp.current_score as number) ?? 50,
-      })
+/** Extrai o valor numérico da tag lead_score:NN (0-100); null se ausente/inválida. */
+function durableLeadScore(tags: string[] | null): number | null {
+  for (const t of tags ?? []) {
+    if (typeof t === 'string' && t.startsWith('lead_score:')) {
+      const n = parseInt(t.slice('lead_score:'.length).trim(), 10)
+      if (Number.isFinite(n)) return Math.max(0, Math.min(100, n))
     }
   }
+  return null
+}
 
-  for (const [lpId, { delta, tags, convId, current }] of lpDeltas) {
-    const scoreAfter = Math.max(0, Math.min(100, current + delta))
-    await supabase.from('lead_profiles').update({ current_score: scoreAfter }).eq('id', lpId)
+async function updateLeadScores(instanceId: string, convs: ConvRow[]): Promise<void> {
+  // Conversa mais recente por contato vence (a tag lead_score é substituída a cada avanço)
+  const byContact = new Map<string, { score: number; convId: string; updatedAt: string }>()
+  for (const c of convs) {
+    const score = durableLeadScore(c.tags)
+    if (score === null || !c.contact_id) continue
+    const prev = byContact.get(c.contact_id)
+    const updatedAt = c.updated_at ?? ''
+    if (!prev || updatedAt > prev.updatedAt) {
+      byContact.set(c.contact_id, { score, convId: c.id, updatedAt })
+    }
+  }
+  if (byContact.size === 0) return
+
+  const { data: lpRows } = await supabase
+    .from('lead_profiles')
+    .select('id, contact_id, current_score')
+    .in('contact_id', [...byContact.keys()])
+
+  for (const lp of lpRows ?? []) {
+    const entry = byContact.get(lp.contact_id as string)
+    if (!entry) continue
+    const current = (lp.current_score as number) ?? 50
+    if (entry.score === current) continue
+
+    await supabase.from('lead_profiles').update({ current_score: entry.score }).eq('id', lp.id)
     await supabase.from('lead_score_history').insert({
-      lead_id:         lpId,
-      conversation_id: convId,
-      score_delta:     delta,
-      reason:          tags.length > 0 ? `shadow: ${tags.join(', ')}` : 'shadow_aggregate',
-      score_after:     scoreAfter,
+      lead_id:         lp.id,
+      conversation_id: entry.convId,
+      score_delta:     entry.score - current,
+      reason:          `durable_tag: lead_score:${entry.score}`,
+      score_after:     entry.score,
       metadata:        { instance_id: instanceId },
     })
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T8: Funil de conversão — detecta etapa e registra em conversion_funnel_events
+// T8: Funil de conversão — etapas derivadas das tags duráveis (opção C, 2026-06-11):
+// contact → qualification → intention → handoff → conversion (venda marcada).
+// Lógica pura em _shared/funnelStages.ts (testada).
 // ─────────────────────────────────────────────────────────────────────────────
 
-function detectFunnelStage(tags: string[]): 'qualification' | 'intention' | 'conversion' | null {
-  if (tags.some((t) => t.startsWith('conversao:')))                                  return 'conversion'
-  if (tags.some((t) => t === 'intencao:alta' || t === 'intencao:media'))             return 'intention'
-  if (tags.some((t) => t.startsWith('intencao:') || t.startsWith('dado_pessoal:'))) return 'qualification'
-  return null  // 'contact' (trivial) não é registrado
-}
+async function recordFunnelEvents(instanceId: string, convs: ConvRow[]): Promise<void> {
+  const withContact = convs.filter((c) => c.contact_id)
+  if (withContact.length === 0) return
 
-async function recordFunnelEvents(instanceId: string, extractions: ExtractionRow[]): Promise<void> {
-  const leadExts = extractions.filter((e) => e.dimension === 'lead' && e.conversation_id)
-  if (leadExts.length === 0) return
-
-  const convIds = [...new Set(leadExts.map((e) => e.conversation_id as string))]
-
-  const { data: convRows } = await supabase
-    .from('conversations').select('id, contact_id').in('id', convIds)
-  const convToContact = new Map((convRows ?? []).map((c) => [c.id as string, c.contact_id as string]))
-
-  const contactIds = [...new Set([...convToContact.values()].filter(Boolean))]
-  if (contactIds.length === 0) return
-
+  const contactIds = [...new Set(withContact.map((c) => c.contact_id as string))]
   const { data: lpRows } = await supabase
     .from('lead_profiles').select('id, contact_id').in('contact_id', contactIds)
-  const contactToLp = new Map((lpRows ?? []).map((lp) => [lp.contact_id as string, lp]))
+  const contactToLp = new Map((lpRows ?? []).map((lp) => [lp.contact_id as string, lp.id as string]))
 
-  // Eventos já existentes (evita duplicatas)
+  // Eventos já existentes (evita duplicatas no re-run do cron/backfill)
+  const convIds = withContact.map((c) => c.id)
   const { data: existing } = await supabase
     .from('conversion_funnel_events')
     .select('conversation_id, stage')
@@ -491,23 +451,17 @@ async function recordFunnelEvents(instanceId: string, extractions: ExtractionRow
 
   const toInsert: Array<{ instance_id: string; lead_id: string; conversation_id: string; stage: string }> = []
 
-  for (const ext of leadExts) {
-    const data  = (ext.extracted_data ?? {}) as Record<string, unknown>
-    const tags  = Array.isArray(data.tags) ? (data.tags as string[]) : []
-    const stage = detectFunnelStage(tags)
-    if (!stage) continue
+  for (const c of withContact) {
+    const lpId = contactToLp.get(c.contact_id as string)
+    if (!lpId) continue
 
-    const convId    = ext.conversation_id as string
-    const contactId = convToContact.get(convId)
-    if (!contactId) continue
-    const lp = contactToLp.get(contactId)
-    if (!lp) continue
-
-    const key = `${convId}:${stage}`
-    if (seen.has(key)) continue
-    seen.add(key)
-
-    toInsert.push({ instance_id: instanceId, lead_id: lp.id as string, conversation_id: convId, stage })
+    const stages = deriveFunnelStages({ tags: c.tags, cartItems: c.cart_items, assignedTo: c.assigned_to })
+    for (const stage of stages) {
+      const key = `${c.id}:${stage}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      toInsert.push({ instance_id: instanceId, lead_id: lpId, conversation_id: c.id, stage })
+    }
   }
 
   if (toInsert.length > 0) {

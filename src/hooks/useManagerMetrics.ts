@@ -59,7 +59,8 @@ export interface ManagerMetrics {
   iaVsVendor: IAvsVendorData;
 }
 
-const FUNNEL_ORDER = ['contact', 'qualification', 'intention', 'conversion'];
+// 5 etapas (opção C, 2026-06-11): handoff = repasse ao vendedor; conversion = venda marcada
+const FUNNEL_ORDER = ['contact', 'qualification', 'intention', 'handoff', 'conversion'];
 
 export function useManagerMetrics(instanceId: string | null, periodDays = 30) {
   return useQuery({

@@ -13,6 +13,20 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.83.0 (2026-06-11) — 🟢 Funil de Conversão REAL (5 etapas por tags duráveis) + lead score religado + família de venda unificada + resolved_at honesto
+
+**Decisão do dono (opção C):** funil contato → qualificação → intenção → **repasse ao vendedor** → **venda marcada** (híbrida: IA `venda:fechada` via saleClosedDetection + humano `resultado:venda` via Finalizar Atendimento — que JÁ EXISTIA completo no `TicketResolutionDrawer`).
+
+**Causa raiz do funil 2 meses zerado:** contrato produtor↔consumidor quebrado — `aggregate-metrics` esperava `extracted_data.tags[]` com vocabulário `intencao:alta`/`conversao:*`, mas o tool `extract_shadow_data` emite objeto LIVRE sem `tags` → etapa null e score delta 0 SEMPRE (653 leads parados no default 50). **Fix na fonte:** etapas derivadas DETERMINISTICAMENTE das tags duráveis de `conversations.tags` (`_shared/funnelStages.ts` puro, 10 testes) + lead score lido de `lead_score:NN` (determinístico, preLLMAutoExtract). Migration: etapa `handoff` no CHECK; TRUNCATE+re-derivação 30d.
+
+**Família de venda unificada** (KPI dizia 97, funil 19): TODOS os contadores agora contam `venda:fechada` OU `resultado:venda` — `dash_kpis_resumo`, `dash_vendas_por_vendedor`, `dash_cotacoes`, `dash_conversao_orcamento_venda`, `get_conversion_by_origin` (que ainda buscava a tag fantasma `venda:fechada` em `lead_profiles.tags` → 0 eterno; agora lê eventos reais do funil + **SECURITY DEFINER** — sem ele, RLS de `conversion_funnel_events` exige inbox_users membership e o gestor via 0). `venda_status:fechando` = em-fechamento → intenção, não conversão.
+
+**resolved_at honesto:** `v_vendor_activity`/`v_handoff_details`/`aggregate-metrics` usam `resolved_at` real (drawer) com fallback `updated_at` + backfill 2 faltantes — tempo médio do Lucas caiu de "192h52min" (proxy updated_at) pra **2h50min**.
+
+**E2E real (Playwright + DB):** funil ao vivo 591→412→380→480→**99** · Conversão por origem 99/16,8% · KPI 100 · score médio 41 (302 leads com score real, 42 quentes ≥70, antes ZERO) · varredura card a card do /dashboard/gestao. 10/10 testes funnelStages, deno 0, tsc 0 novos.
+
+---
+
 ### v7.82.0 (2026-06-11) — 🟢 Motivos de contato com TAXONOMIA de negócio ("info sobre telha de PVC" = Interesse de compra) + subinteresses no tooltip
 
 **Pedido do dono (print do card):** motivos saíam como frases soltas ("Solicitação De Informações Sobre Telha De Pvc" 1x cada) — *"se o lead manda informações sobre telha de pvc e não é uma dúvida técnica isso é interesse de compra, reclassifique todos ou crie um subinteresse"*.

@@ -7,14 +7,16 @@ import type { FunnelStageData } from '@/hooks/useManagerMetrics';
 const STAGE_LABELS: Record<string, string> = {
   contact: 'Contato',
   qualification: 'Qualificação',
-  intention: 'Intenção',
-  conversion: 'Conversão',
+  intention: 'Intenção de compra',
+  handoff: 'Repassado ao vendedor',
+  conversion: 'Venda marcada',
 };
 
 const STAGE_COLORS: Record<string, string> = {
   contact: 'hsl(217 91% 60%)',
   qualification: 'hsl(262 83% 58%)',
   intention: 'hsl(43 96% 56%)',
+  handoff: 'hsl(186 64% 42%)',
   conversion: 'hsl(142 70% 45%)',
 };
 
@@ -34,7 +36,7 @@ export default function ManagerConversionFunnel({ data }: Props) {
         </CardHeader>
         <CardContent>
           <p className="text-xs text-muted-foreground text-center py-10">
-            Nenhum dado — aguardando cron de agregação (hourly)
+            Nenhum dado no período — o funil é agregado a cada hora
           </p>
         </CardContent>
       </Card>
@@ -48,7 +50,7 @@ export default function ManagerConversionFunnel({ data }: Props) {
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <Target className="w-4 h-4 text-primary" />
-          Funil de Conversão (Shadow)
+          Funil de Conversão
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 pt-2">

@@ -20,7 +20,7 @@ export default function VendedoresRanking({ items, isLoading }: VendedoresRankin
           <CardTitle className="text-sm font-display font-semibold">Vendas por vendedor</CardTitle>
         </div>
         <CardDescription className="text-xs">
-          Conversas com tag <code className="text-[10px]">venda:fechada</code> agrupadas por atribuído
+          Vendas marcadas (IA ou Finalizar Atendimento) agrupadas por atribuído
         </CardDescription>
       </CardHeader>
       <CardContent>
