@@ -10,6 +10,11 @@ audited_at: 2026-06-05
 
 > **Consultado no INÍCIO de cada sessão** (Protocolo de Início, passo 3 do `CLAUDE.md`). Verifique se o erro que você está prestes a cometer já está aqui.
 
+## 🚨 Sessão 2026-06-11 (cont. VI) — Grupo OPCIONAL em regex de detecção deixa palavra banal virar evento de negócio ("Tá certo" = venda) — v7.84.0
+1. **Padrão com complemento opcional degrada pro termo solto.** `/(t(á|a)\s+)?(fechado|finalizado|certo)(\s+pra\s+(mim|n(ó|o)s))?\b/` — o `?` no complemento fazia `\bcerto\b` casar SOZINHO → **97/99** `sale_closed_detected` (30d) eram "Tá certo"/"Certo, obrigada!" (confirmação conversacional, não venda). Efeito duplo: funil INFLADO (a métrica nova do v7.83 nasceu contaminada na fonte) + handoff prematuro (Bug 18 path dispara em modo normal). **Regras:** (a) em padrão de evento de negócio, o CONTEXTO discriminativo é OBRIGATÓRIO, nunca opcional — termo ambíguo solto ("certo", "fechado", "ok") não pode ser gatilho; (b) ao shipar métrica nova, AUDITAR a distribuição da fonte (`GROUP BY detection_type` + amostrar textos) — o número "plausível" (16,8%) escondia 94% de falso-positivo; (c) deixar telemetria pronta: `metadata.source` + `detection_type` no log foi o que permitiu medir.
+2. **Sinal de LLM com vocabulário controlado + promoção determinística + guard de veredito** é o padrão pra eventos que regex não pega ("o financeiro deu ok"): shadow tagueia `venda_status:fechada` (enum fixo) → código promove pra `venda:fechada` SÓ se nem IA (`venda:*`) nem humano (`resultado:*`) já deram veredito. Humano SEMPRE vence LLM (ex.: `resultado:perdido` bloqueia promoção).
+3. **Echo do app é invisível pro shadow** (webhook descarta `wasSentByApi=true`) — vendedor que atende pelo Helpdesk nunca passa pela extração em tempo real; a cobertura vem do summarizer (vê a conversa INTEIRA). Por isso re-resumo por atividade nova (RPC) é parte do design, não otimização.
+
 ## Mapa
 
 - **Lições recentes** (incidentes da última semana): abaixo

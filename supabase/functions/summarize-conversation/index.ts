@@ -4,7 +4,8 @@ import { checkRateLimit, rateLimitHeaders } from '../_shared/rateLimit.ts'
 import { createServiceClient, createUserClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
-import { SUMMARY_SYSTEM_PROMPT, normalizeSummaryCategory } from '../_shared/summaryPrompt.ts'
+import { SUMMARY_SYSTEM_PROMPT, normalizeSummaryCategory, normalizeSaleClosed } from '../_shared/summaryPrompt.ts'
+import { hasSaleVerdict } from '../_shared/saleClosedDetection.ts'
 
 const serviceSupabase = createServiceClient()
 const log = createLogger('summarize-conversation')
@@ -147,9 +148,12 @@ Deno.serve(async (req) => {
       return errorResponse(corsHeaders, "Resposta da IA inválida");
     }
 
+    const saleClosed = normalizeSaleClosed(parsedSummary.sale_closed);
+
     const summaryData = {
       ...parsedSummary,
       category: normalizeSummaryCategory(parsedSummary.category),
+      sale_closed: saleClosed,
       generated_at: new Date().toISOString(),
       message_count: messages.length,
     };
@@ -159,12 +163,29 @@ Deno.serve(async (req) => {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 60);
 
+    const updatePayload: Record<string, unknown> = {
+      ai_summary: summaryData,
+      ai_summary_expires_at: expiresAt.toISOString(),
+    };
+
+    // Melhoria #1 (v7.84.0): mesmo mapeamento do auto-summarize — venda vista na
+    // conversa inteira vira venda:fechada, sem sobrescrever veredito existente.
+    if (saleClosed) {
+      const { data: convTags } = await serviceSupabase
+        .from("conversations")
+        .select("tags")
+        .eq("id", conversation_id)
+        .single();
+      const existingTags: string[] = convTags?.tags || [];
+      if (!hasSaleVerdict(existingTags)) {
+        updatePayload.tags = [...existingTags, "venda:fechada"];
+        log.info('Sale detected by summarizer — tagging venda:fechada', { conversationId: conversation_id });
+      }
+    }
+
     const { error: updateError } = await serviceSupabase
       .from("conversations")
-      .update({
-        ai_summary: summaryData,
-        ai_summary_expires_at: expiresAt.toISOString(),
-      })
+      .update(updatePayload)
       .eq("id", conversation_id);
 
     if (updateError) {

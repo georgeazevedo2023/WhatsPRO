@@ -7,7 +7,7 @@ import { createLogger } from '../_shared/logger.ts'
 import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
 import { unauthorizedResponse, verifyCronOrService } from '../_shared/auth.ts'
 import { detectObjection } from '../_shared/objectionDetection.ts'
-import { detectSaleClosed } from '../_shared/saleClosedDetection.ts'
+import { detectSaleClosed, detectVendorSaleClosed, shouldPromoteVendorStatusToSale } from '../_shared/saleClosedDetection.ts'
 import { detectPayment } from '../_shared/paymentDetection.ts'
 import { detectBrand } from '../_shared/brandDetection.ts'
 import { detectClientType } from '../_shared/clientTypeDetection.ts'
@@ -927,7 +927,12 @@ Deno.serve(async (req) => {
       const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
       const textForDetection = shadow_only ? (vendor_message || '') : incomingText
       if (!hasVendaTag && textForDetection) {
-        const saleType = detectSaleClosed(textForDetection)
+        // Melhoria #1 (v7.84.0): msg de VENDEDOR (takeover celular) usa o conjunto
+        // vendor-side ("segue a chave pix", "pedido faturado") com fallback pros
+        // padrões de lead — antes a msg do vendedor era varrida só com padrões de lead.
+        const saleType = shadow_only
+          ? detectVendorSaleClosed(textForDetection)
+          : detectSaleClosed(textForDetection)
         if (saleType) {
           await supabase.from('conversations').update({
             tags: mergeTags(conversation.tags || [], { venda: 'fechada' }),
@@ -936,7 +941,7 @@ Deno.serve(async (req) => {
           await supabase.from('ai_agent_logs').insert({
             agent_id, conversation_id, event: 'sale_closed_detected',
             latency_ms: Date.now() - startTime,
-            metadata: { detection_type: saleType, incoming_text: textForDetection.substring(0, 200) },
+            metadata: { detection_type: saleType, source: shadow_only ? 'vendor_message' : 'lead_message', incoming_text: textForDetection.substring(0, 200) },
           })
           log.info('Sale closed detected', { type: saleType, conversation_id })
           // Bug 18 fix: marca handoff automático (executado mais à frente, após load de profile/funnel/runQueueAssignment)
@@ -1869,8 +1874,10 @@ Tags disponíveis (use set_tags):
 - vendedor_upsell: produto ou serviço adicional mencionado
 - vendedor_followup: quando vendedor prometeu contato (ex: amanha, semana_que_vem)
 - vendedor_alternativa: produto alternativo sugerido ao lead
-- venda_status: negociando / fechando / perdida / pausada / sem_interesse
+- venda_status: negociando / fechando / fechada / perdida / pausada / sem_interesse
 - pagamento: forma de pagamento mencionada (ex: pix, cartao, boleto, parcelado)
+
+IMPORTANTE: use venda_status:fechada SOMENTE quando a venda foi CONCLUÍDA (pagamento confirmado, pix/comprovante recebido, pedido fechado/faturado, entrega de compra combinada). Negociação em andamento = negociando; quase fechando = fechando.
 ${contextBlock}`
       } else {
         // T3: Lead shadow prompt (enhanced with new tag taxonomy)
@@ -1986,6 +1993,17 @@ ${contextBlock}`
         const tagMap = new Map<string, string>()
         for (const t of existing) tagMap.set(t.split(':')[0], t)
         for (const t of newTags) tagMap.set(t.split(':')[0], t)
+        // Melhoria #1 (v7.84.0): venda_status:fechada (shadow vendor LLM, vocabulário
+        // controlado) promove a tag durável venda:fechada que o funil conta — só se
+        // nem IA (venda:*) nem humano (resultado:*) já deram veredito.
+        if (shouldPromoteVendorStatusToSale(newTags, existing)) {
+          tagMap.set('venda', 'venda:fechada')
+          await supabase.from('ai_agent_logs').insert({
+            agent_id, conversation_id, event: 'sale_closed_detected',
+            latency_ms: Date.now() - startTime,
+            metadata: { detection_type: 'venda_status_fechada', source: 'shadow_vendor_llm' },
+          })
+        }
         await supabase.from('conversations').update({ tags: Array.from(tagMap.values()) }).eq('id', conversation_id)
       }
       if (name === 'update_lead_profile') {

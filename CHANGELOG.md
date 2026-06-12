@@ -13,6 +13,25 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.84.0 (2026-06-11) — 🟢 Venda detectada na fase do VENDEDOR (melhoria #1) + fix falso-positivo "Tá certo" (97/99 das vendas IA eram fantasma)
+
+**Contexto:** funil v7.83 tinha venda só por regex lead-side (`detectSaleClosed`) + drawer (7 usos/30d). 587 handoffs/30d → só 89 com venda marcada; o fechamento que acontece COM O VENDEDOR não virava tag. Dono aprovou opção C (defesa em profundidade, 2 camadas).
+
+**Camada A — tempo real (takeover celular):**
+- `detectVendorSaleClosed` em `_shared/saleClosedDetection.ts`: padrões do lado VENDEDOR ("segue a chave pix", "comprovante recebido", "pedido faturado", "entrega agendada", "obrigado pela compra") com fallback pros padrões lead. Wire no bloco `sale_closed_detected` do ai-agent quando `shadow_only` (antes a msg do vendedor era varrida só com padrões de lead) + `metadata.source` (`vendor_message`/`lead_message`).
+- Shadow vendor LLM: enum `venda_status` ganha **`fechada`** (só negociando/fechando/perdida/pausada existiam — o sinal não tinha onde ser registrado) + regra anti-intenção. `executeShadowTool` promove deterministicamente `venda_status:fechada` → `venda:fechada` (`shouldPromoteVendorStatusToSale`), com guard: veredito existente (`venda:*` da IA ou `resultado:*` do humano, ex. `resultado:perdido`) NUNCA é sobrescrito por LLM.
+
+**Camada B — rede de segurança no summarizer (cobre vendedor pelo Helpdesk app, invisível pro shadow):**
+- `SUMMARY_SYSTEM_PROMPT` ganha chave `sale_closed` (regras estritas: pagamento/pix/comprovante/pedido faturado = sim; INTENÇÃO não é venda; na dúvida false) + `normalizeSaleClosed` (boolean coerce, default false).
+- `auto-summarize`/`summarize-conversation`: `sale_closed=true` sem veredito prévio → merge `venda:fechada`. Custo extra ZERO (mesma chamada).
+- Migration `find_summarize_candidates_resummary`: conversa com atividade nova pós-resumo (last_message_at > generated_at, fallback expires-60d) volta a ser candidata — sem isso, venda que fecha DEPOIS do resumo escaparia pra sempre. Auto-throttle (re-resumo atualiza generated_at). Re-burn imediato: 31 convs.
+
+**🚨 Achado de auditoria no E2E — funil INFLADO, não subnotificado:** medindo `sale_closed_detected` (30d), **97/99 tinham casado só a palavra "certo"** ("Tá certo", "Certo, obrigada!") — o grupo `(\s+pra\s+(mim|n(ó|o)s))?` do padrão `fechado` era OPCIONAL e `\bcerto\b` casava sozinho. Inflava o funil E disparava handoff prematuro (path Bug 18) em modo normal. **Fix:** "certo"/"finalizado" agora exigem o complemento "pra mim/nós"; venda verbalizada de forma vaga fica pro shadow LLM/summarizer (com guard). **Decisão do dono: histórico intocado** — as 99 tags antigas ficam (limitação documentada); só dados novos são confiáveis.
+
+**E2E real (sandbox, pipeline vivo):** (1) summarizer sobre conversa com fechamento → `sale_closed=true` + tag ✓; (2) `vendor_message` "Segue a chave pix" → `pix_enviado`/`source:vendor_message` + tag ✓; (3) msg vaga sem regex → LLM tagueou `venda_status:fechada` → promoção gravou `venda:fechada` (`source:shadow_vendor_llm`) ✓; (4) "Tá certo, obrigado!" → ZERO detecção determinística ✓. Cleanup completo (msgs de teste deletadas, tags restauradas). 17+3 testes deno + 10 vitest, deno check 0. Deploy: ai-agent v262, auto-summarize v7, summarize-conversation v6.
+
+---
+
 ### v7.83.0 (2026-06-11) — 🟢 Funil de Conversão REAL (5 etapas por tags duráveis) + lead score religado + família de venda unificada + resolved_at honesto
 
 **Decisão do dono (opção C):** funil contato → qualificação → intenção → **repasse ao vendedor** → **venda marcada** (híbrida: IA `venda:fechada` via saleClosedDetection + humano `resultado:venda` via Finalizar Atendimento — que JÁ EXISTIA completo no `TicketResolutionDrawer`).

@@ -4,7 +4,8 @@ import { verifyAuth, verifyCronOrService, verifySuperAdmin, unauthorizedResponse
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { successResponse, errorResponse } from '../_shared/response.ts'
 import { createLogger } from '../_shared/logger.ts'
-import { SUMMARY_SYSTEM_PROMPT, normalizeSummaryCategory } from '../_shared/summaryPrompt.ts'
+import { SUMMARY_SYSTEM_PROMPT, normalizeSummaryCategory, normalizeSaleClosed } from '../_shared/summaryPrompt.ts'
+import { hasSaleVerdict } from '../_shared/saleClosedDetection.ts'
 
 const serviceSupabase = createServiceClient()
 const log = createLogger('auto-summarize')
@@ -76,9 +77,12 @@ async function summarizeConversation(conversationId: string): Promise<boolean> {
     return false;
   }
 
+  const saleClosed = normalizeSaleClosed(parsedSummary.sale_closed);
+
   const summaryData = {
     ...parsedSummary,
     category: normalizeSummaryCategory(parsedSummary.category),
+    sale_closed: saleClosed,
     generated_at: new Date().toISOString(),
     message_count: messages.length,
   };
@@ -87,12 +91,30 @@ async function summarizeConversation(conversationId: string): Promise<boolean> {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 60);
 
+  const updatePayload: Record<string, unknown> = {
+    ai_summary: summaryData,
+    ai_summary_expires_at: expiresAt.toISOString(),
+  };
+
+  // Melhoria #1 (v7.84.0): venda detectada na conversa inteira (inclui fase do
+  // vendedor pós-handoff, que o shadow não vê quando o atendente usa o app) vira
+  // a tag durável que o funil conta. Veredito existente (venda:*/resultado:*) vence.
+  if (saleClosed) {
+    const { data: convRow } = await serviceSupabase
+      .from("conversations")
+      .select("tags")
+      .eq("id", conversationId)
+      .single();
+    const existingTags: string[] = convRow?.tags || [];
+    if (!hasSaleVerdict(existingTags)) {
+      updatePayload.tags = [...existingTags, "venda:fechada"];
+      log.info('Sale detected by summarizer — tagging venda:fechada', { conversationId });
+    }
+  }
+
   const { error: updateError } = await serviceSupabase
     .from("conversations")
-    .update({
-      ai_summary: summaryData,
-      ai_summary_expires_at: expiresAt.toISOString(),
-    })
+    .update(updatePayload)
     .eq("id", conversationId);
 
   if (updateError) {

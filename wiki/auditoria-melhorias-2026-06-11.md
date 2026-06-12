@@ -88,7 +88,10 @@ Re-derivar do zero = `TRUNCATE conversion_funnel_events` + `mode=daily` com `dat
 15. **Latência carrossel UAZAPI** (~4s serial) — próximo gargalo do agente (nota v7.48).
 
 ### Limitações conhecidas do dado (documentadas, não-bugs)
-- Venda pós-handoff subnotificada (IA em shadow não vê o fechamento com o vendedor).
+- ~~Venda pós-handoff subnotificada~~ → v7.84.0 fechou (vendor shadow + summarizer).
+  **Nova limitação no lugar:** as ~99 `venda:fechada` ANTERIORES a 2026-06-11 são
+  majoritariamente falso-positivo de "Tá certo" (dono optou por não mexer no
+  histórico) — comparações período-vs-período cruzando essa data superestimam o passado.
 - KPI strip usa janela `last_message_at`; funil usa `created_at` → diferenças de ±1-2.
 - Lead multi-conversa pode contar 2× na mesma etapa em dias distintos (aproximação herdada).
 - `ai_summary` expira em 60d (cron `cleanup-expired-summaries`) — card de motivos é janela móvel.
@@ -97,10 +100,13 @@ Re-derivar do zero = `TRUNCATE conversion_funnel_events` + `mode=daily` com `dat
 
 ## 💡 10 melhorias propostas (priorizadas)
 
-1. **Detecção de venda na fase do VENDEDOR (shadow seller)** — o shadow já analisa a
-   conversa pós-handoff (1.816 extrações `seller`/30d); detectar "venda concluída" e
-   tagear `venda:fechada` automaticamente → fecha a subnotificação do funil (hoje 16,8%
-   é piso). *Maior alavanca de fidelidade da métrica-mãe.*
+1. ~~**Detecção de venda na fase do VENDEDOR (shadow seller)**~~ — ✅ **SHIPPED v7.84.0
+   (2026-06-11)**: 2 camadas (detectVendorSaleClosed + enum `venda_status:fechada` com
+   promoção guardada; `sale_closed` no summarizer + re-resumo por atividade). **Achado
+   no E2E: o funil estava INFLADO, não subnotificado** — 97/99 `venda:fechada` (30d)
+   eram falso-positivo de "Tá certo" (regex frouxo, corrigido). **Decisão do dono:
+   histórico intocado** — as 99 tags antigas ficam; a métrica é confiável DAQUI PRA
+   FRENTE. Detalhe: CHANGELOG v7.84.0 + memória `project_sale_detection_v784`.
 2. **Receita no dashboard (R$)** — o drawer já grava `valor:NNN`; somar receita por
    período/vendedor/origem (hoje só contagem de vendas). Card "Receita do período" +
    ticket médio real.
