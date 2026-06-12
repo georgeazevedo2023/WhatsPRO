@@ -27,7 +27,23 @@ const NON_NAME_WORDS = new Set([
   'qual', 'quanto', 'quanta', 'como', 'onde', 'quando', 'vcs', 'voces', 'vocês', 'voce', 'você',
   'obrigado', 'obrigada', 'valeu', 'tudo', 'bem', 'aqui', 'ok', 'okay', 'blz', 'beleza',
   'preço', 'preco', 'valor', 'telha', 'tinta', 'porta', 'janela', 'piso', 'lampada', 'lâmpada',
+  // Ambientes/cômodos — caso real 2026-06-12: IA gravou o INTERESSE ("produtos para
+  // garagem") como full_name do lead → lista/header exibiam "Garagem" como nome.
+  'garagem', 'cozinha', 'banheiro', 'quarto', 'sala', 'varanda', 'quintal', 'lavanderia',
+  'escritorio', 'escritório', 'area', 'área', 'externa', 'interna', 'externo', 'interno',
+  'casa', 'apartamento', 'obra', 'reforma', 'loja', 'terraco', 'terraço', 'lavabo', 'sacada',
+  // Papéis/genéricos que o LLM confunde com nome
+  'cliente', 'gerente', 'vendedor', 'vendedora', 'atendente', 'empresa', 'pessoal', 'amigo', 'amiga',
+  // Materiais/produtos comuns do nicho
+  'ceramica', 'cerâmica', 'porcelanato', 'azulejo', 'argamassa', 'cimento', 'rejunte',
+  'chuveiro', 'torneira', 'cuba', 'telhado', 'madeira', 'aluminio', 'alumínio', 'vidro', 'ferro',
+  'produto', 'produtos', 'material', 'materiais', 'orcamento', 'orçamento', 'entrega',
 ])
+
+/** Conectivos de nome composto ("Maria da Silva") — ignorados na checagem lexical. */
+const NAME_CONNECTIVES = new Set(['de', 'da', 'do', 'das', 'dos', 'e'])
+
+const deaccent = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
 
 function capitalizeName(s: string): string {
   return s
@@ -87,4 +103,56 @@ export function extractLeadName(raw: string | null | undefined): string | null {
   }
   // 3. Primeira linha como nome puro (caso "George\nQual preço...")
   return plausibleBareName(text.split('\n')[0])
+}
+
+/**
+ * Validação de plausibilidade do full_name vindo do LLM (tool update_lead_profile).
+ *
+ * Caso real (2026-06-12): a IA atribuiu o INTERESSE do lead ("produtos para garagem")
+ * como nome → lista e header do Helpdesk exibiam "Garagem" como nome do cliente.
+ * Regras (todas determinísticas):
+ *  - estrutura: só letras/apóstrofo, 1-5 palavras, sem dígito/?/@
+ *  - léxico: nenhuma palavra significativa pode ser termo comum/ambiente/produto
+ *    (NON_NAME_WORDS, com e sem acento); conectivos ("da", "de") são ignorados
+ *  - contexto: candidato que aparece dentro dos interesses do lead é interesse, não nome
+ *
+ * Mantém a capitalização original e colapsa o doubling do LLM ("PedroPedro" → "Pedro",
+ * regra herdada do dedup do crmTools: cada metade >= 3 chars pra não comer "dudu"/"Ana").
+ * Retorna null quando implausível — o chamador NÃO deve gravar nada nesse caso.
+ */
+export function sanitizeProfileName(
+  raw: string | null | undefined,
+  interests: Array<string | null | undefined> = [],
+): string | null {
+  if (!raw) return null
+  let name = String(raw).trim().replace(/[.,!?;:]+$/g, '')
+  if (name.length >= 6 && name.length % 2 === 0) {
+    const half = name.length / 2
+    if (name.slice(0, half).toLowerCase() === name.slice(half).toLowerCase()) {
+      name = name.slice(0, half)
+    }
+  }
+  if (!name || /[?@\d]/.test(name)) return null
+  const words = name.split(/\s+/).filter(Boolean)
+  if (words.length < 1 || words.length > 5) return null
+  const significant = words.filter((w) => !NAME_CONNECTIVES.has(w.toLowerCase()))
+  if (!significant.length) return null
+  for (const w of significant) {
+    if (!/^[A-Za-zÀ-ÿ']{2,}$/.test(w)) return null
+    const lw = w.toLowerCase()
+    if (NON_NAME_WORDS.has(lw) || NON_NAME_WORDS.has(deaccent(lw))) return null
+  }
+  // "Garagem" ⊂ interesse "produtos para garagem" → é interesse, não nome.
+  // Trade-off aceito: nome real igual a palavra do interesse (lead "Rosa" comprando
+  // "tinta rosa") é rejeitado — não gravar é mais seguro que gravar nome errado.
+  const normName = deaccent(name.toLowerCase())
+  for (const it of interests) {
+    const normIt = deaccent(String(it || '').toLowerCase())
+    if (!normIt) continue
+    const itTokens = normIt.split(/[^a-z']+/).filter(Boolean)
+    if (normIt === normName || itTokens.includes(normName) || (normName.includes(' ') && normIt.includes(normName))) {
+      return null
+    }
+  }
+  return name
 }

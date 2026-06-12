@@ -330,6 +330,55 @@ describe('updateLeadProfile', () => {
     expect(upsertCall.payload.full_name).toBe('george')
   })
 
+  // 2026-06-12: LLM atribuiu o INTERESSE do lead como nome ("produtos para garagem"
+  // → full_name "Garagem"). Validação de plausibilidade via sanitizeProfileName.
+  it('REJEITA ambiente/produto como nome ("Garagem") e avisa o LLM', async () => {
+    const { supabase, calls } = makeSupabase({
+      'lead_profiles.upsert': () => ({ data: null, error: null }),
+    })
+    const res = await updateLeadProfile({ full_name: 'Garagem' }, baseCtx(supabase), makeLog())
+    const upsertCall = calls.find((c) => c.table === 'lead_profiles' && c.op === 'upsert')!
+    expect(upsertCall.payload.full_name).toBeUndefined()
+    expect(res).toContain('NÃO foi salvo como nome')
+    expect(res).not.toContain('IMPORTANTE: o lead acaba de informar o nome')
+  })
+
+  it('REJEITA nome contido nos interesses do mesmo call', async () => {
+    const { supabase, calls } = makeSupabase({
+      'lead_profiles.upsert': () => ({ data: null, error: null }),
+    })
+    const res = await updateLeadProfile(
+      { full_name: 'Suvinil', interests: ['tinta suvinil 18L'] },
+      baseCtx(supabase),
+      makeLog(),
+    )
+    const upsertCall = calls.find((c) => c.table === 'lead_profiles' && c.op === 'upsert')!
+    expect(upsertCall.payload.full_name).toBeUndefined()
+    expect(upsertCall.payload.interests).toEqual(['tinta suvinil 18L']) // interesse ainda salva
+    expect(res).toContain('NÃO foi salvo como nome')
+  })
+
+  it('REJEITA nome contido nos interesses do perfil existente', async () => {
+    const { supabase, calls } = makeSupabase({
+      'lead_profiles.upsert': () => ({ data: null, error: null }),
+    })
+    const ctx = baseCtx(supabase, { leadProfile: { interests: ['produtos para garagem'] } })
+    await updateLeadProfile({ full_name: 'Garagem' }, ctx, makeLog())
+    const upsertCall = calls.find((c) => c.table === 'lead_profiles' && c.op === 'upsert')!
+    expect(upsertCall.payload.full_name).toBeUndefined()
+  })
+
+  it('nome legítimo passa mesmo com interesses no perfil', async () => {
+    const { supabase, calls } = makeSupabase({
+      'lead_profiles.upsert': () => ({ data: null, error: null }),
+    })
+    const ctx = baseCtx(supabase, { leadProfile: { interests: ['produtos para garagem'] } })
+    const res = await updateLeadProfile({ full_name: 'Michelly Andrade' }, ctx, makeLog())
+    const upsertCall = calls.find((c) => c.table === 'lead_profiles' && c.op === 'upsert')!
+    expect(upsertCall.payload.full_name).toBe('Michelly Andrade')
+    expect(res).toContain('"Michelly"')
+  })
+
   it('merge objections com existentes sem duplicar', async () => {
     const { supabase, calls } = makeSupabase({
       'lead_profiles.upsert': () => ({ data: null, error: null }),

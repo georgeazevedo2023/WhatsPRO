@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractLeadName, wasNameAsked } from './nameCapture.ts'
+import { extractLeadName, sanitizeProfileName, wasNameAsked } from './nameCapture.ts'
 
 describe('wasNameAsked', () => {
   it('detecta o pedido de nome do greeting', () => {
@@ -39,5 +39,52 @@ describe('extractLeadName', () => {
   })
   it('rejeita frases longas (não é nome)', () => {
     expect(extractLeadName('estou procurando uma porta de alumínio')).toBeNull()
+  })
+  it('rejeita ambiente/produto como nome (caso Garagem 2026-06-12)', () => {
+    expect(extractLeadName('garagem')).toBeNull()
+    expect(extractLeadName('Garagem')).toBeNull()
+    expect(extractLeadName('cozinha')).toBeNull()
+    expect(extractLeadName('porcelanato')).toBeNull()
+  })
+})
+
+describe('sanitizeProfileName (caso real: LLM gravou interesse "Garagem" como nome)', () => {
+  it('aceita nomes normais preservando capitalização', () => {
+    expect(sanitizeProfileName('George')).toBe('George')
+    expect(sanitizeProfileName('Maria da Silva')).toBe('Maria da Silva')
+    expect(sanitizeProfileName('Ana Paula Souza')).toBe('Ana Paula Souza')
+  })
+  it('colapsa doubling do LLM sem comer nomes curtos', () => {
+    expect(sanitizeProfileName('PedroPedro')).toBe('Pedro')
+    expect(sanitizeProfileName('georgeGeorge')).toBe('george')
+    expect(sanitizeProfileName('João')).toBe('João')
+    expect(sanitizeProfileName('dudu')).toBe('dudu')
+    expect(sanitizeProfileName('Ana')).toBe('Ana')
+  })
+  it('rejeita ambiente/cômodo/produto/papel', () => {
+    expect(sanitizeProfileName('Garagem')).toBeNull()
+    expect(sanitizeProfileName('garagem')).toBeNull()
+    expect(sanitizeProfileName('Cozinha')).toBeNull()
+    expect(sanitizeProfileName('Área Externa')).toBeNull()
+    expect(sanitizeProfileName('Cliente')).toBeNull()
+    expect(sanitizeProfileName('Porcelanato')).toBeNull()
+    expect(sanitizeProfileName('Cerâmica')).toBeNull() // com acento
+    expect(sanitizeProfileName('Ceramica')).toBeNull() // sem acento
+  })
+  it('rejeita estrutura implausível (dígitos, pergunta, frase longa)', () => {
+    expect(sanitizeProfileName('60x60')).toBeNull()
+    expect(sanitizeProfileName('qual o preço?')).toBeNull()
+    expect(sanitizeProfileName('estou procurando uma porta de alumínio bem barata')).toBeNull()
+    expect(sanitizeProfileName('')).toBeNull()
+    expect(sanitizeProfileName(null)).toBeNull()
+  })
+  it('rejeita candidato contido nos interesses do lead', () => {
+    expect(sanitizeProfileName('Suvinil', ['tinta suvinil 18L'])).toBeNull()
+    expect(sanitizeProfileName('Brasilit', ['telha brasilit 244x110'])).toBeNull()
+    // não-contido nos interesses passa normal
+    expect(sanitizeProfileName('George', ['tinta suvinil 18L'])).toBe('George')
+  })
+  it('interesses vazios/nulos não quebram', () => {
+    expect(sanitizeProfileName('George', [null, undefined, ''])).toBe('George')
   })
 })

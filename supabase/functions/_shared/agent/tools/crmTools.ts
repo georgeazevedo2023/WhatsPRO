@@ -11,6 +11,7 @@
  */
 
 import type { Logger } from '../context.ts'
+import { sanitizeProfileName } from '../nameCapture.ts'
 
 // =============================================================================
 // Tipos públicos
@@ -159,21 +160,19 @@ export async function updateLeadProfile(
 ): Promise<string> {
   const updates: Record<string, any> = { last_contact_at: new Date().toISOString() }
 
+  // Plausibilidade do nome (2026-06-12): o LLM atribuía o INTERESSE como nome
+  // ("produtos para garagem" → full_name "Garagem"). sanitizeProfileName (fonte
+  // única em nameCapture.ts) colapsa doubling, rejeita ambiente/produto/papel e
+  // rejeita candidato contido nos interesses (do call atual + perfil existente).
+  let rejectedName: string | null = null
   if (args.full_name) {
-    // Colapsa nome dobrado pelo LLM ("PedroPedro" → "Pedro", "GeorgeGeorge" → "George").
-    // Exige cada metade com >= 3 chars (length >= 6): o doubling do LLM repete o nome
-    // INTEIRO, gerando string longa; nomes curtos e apelidos reduplicados ("João",
-    // "Ana", "lulu", "bibi", "dudu") têm metades de 2 chars e eram comidos pela metade
-    // ("dudu"→"du"). Comparação case-insensitive cobre "joãoJoão" sem novo falso-positivo
-    // (um nome real que seja 2x um string de 3+ chars não existe na prática).
-    let cleanName = args.full_name.trim()
-    if (cleanName.length >= 6 && cleanName.length % 2 === 0) {
-      const half = cleanName.length / 2
-      if (cleanName.slice(0, half).toLowerCase() === cleanName.slice(half).toLowerCase()) {
-        cleanName = cleanName.slice(0, half)
-      }
-    }
-    updates.full_name = cleanName
+    const knownInterests = [
+      ...(Array.isArray(args.interests) ? args.interests : []),
+      ...(Array.isArray(ctx.leadProfile?.interests) ? ctx.leadProfile!.interests : []),
+    ]
+    const cleanName = sanitizeProfileName(args.full_name, knownInterests)
+    if (cleanName) updates.full_name = cleanName
+    else rejectedName = String(args.full_name)
   }
   if (args.city) updates.city = args.city
   if (args.interests?.length) updates.interests = args.interests
@@ -204,6 +203,9 @@ export async function updateLeadProfile(
   if (args.full_name && updates.full_name) {
     const firstName = updates.full_name.split(' ')[0]
     return `Perfil atualizado: ${saved}. IMPORTANTE: o lead acaba de informar o nome "${firstName}". Use "${firstName}" para se dirigir a ele nesta resposta.`
+  }
+  if (rejectedName) {
+    return `Perfil atualizado: ${saved}. ATENÇÃO: "${rejectedName}" NÃO foi salvo como nome — parece ambiente/produto/interesse, não nome de pessoa. NUNCA chame o lead de "${rejectedName}". Se precisar do nome, pergunte diretamente.`
   }
   return `Perfil atualizado: ${saved}`
 }

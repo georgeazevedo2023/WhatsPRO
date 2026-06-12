@@ -13,6 +13,18 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.85.0 (2026-06-12) — 🟢 Telefone do lead na lista do Helpdesk + IA não grava mais INTERESSE como NOME ("Garagem")
+
+**Contexto (2 prints do dono):** (1) lista de conversas não mostrava o número do WhatsApp do lead; (2) lead aparecia como **"Garagem"** — a IA pegou o interesse ("produtos para garagem") e gravou como `full_name` via `update_lead_profile`. Auditoria no DB: **5 leads** afetados ("Garagem", "Chuveiro" ×2, "Material", "Cozinha"); o caso Garagem tinha pushname real "Juliana Wanderley 👫" sendo escondido pelo nome errado (display name prioriza `lead_profiles.full_name`, v7.78.0).
+
+**Fix UI:** `ConversationItem.tsx` mostra o telefone formatado (`formatPhone` de `phoneUtils`) sob o nome; omitido quando o display name JÁ é o telefone (sem duplicar).
+
+**Fix de raiz (nome):** `sanitizeProfileName` em `_shared/agent/nameCapture.ts` (fonte única) — estrutura (só letras, 1-5 palavras, sem dígito/?/@), léxico (`NON_NAME_WORDS` ampliada: ambientes/cômodos, papéis, materiais — com e sem acento) e **contexto** (candidato contido nos interesses do lead = interesse, não nome; trade-off "lead Rosa × tinta rosa" documentado). Aplicado no `updateLeadProfile` (crmTools): nome rejeitado NÃO grava + feedback explícito pro LLM ("NUNCA chame o lead de X; pergunte o nome"). O dedup de doubling ("PedroPedro") migrou pra dentro do sanitize. Os caminhos determinísticos (`extractLeadName`, 2 usos no index.ts) herdam a blocklist ampliada sem mudança.
+
+**Dados:** `full_name` dos 5 leads anulado (exibição volta pro pushname sincronizado pelo webhook). 47 testes verdes (14 nameCapture + 33 crmTools, casos novos p/ Garagem/Suvinil-em-interesse/Michelly legítimo), deno check 0. Deploy: ai-agent **v263**.
+
+---
+
 ### v7.84.0 (2026-06-11) — 🟢 Venda detectada na fase do VENDEDOR (melhoria #1) + fix falso-positivo "Tá certo" (97/99 das vendas IA eram fantasma)
 
 **Contexto:** funil v7.83 tinha venda só por regex lead-side (`detectSaleClosed`) + drawer (7 usos/30d). 587 handoffs/30d → só 89 com venda marcada; o fechamento que acontece COM O VENDEDOR não virava tag. Dono aprovou opção C (defesa em profundidade, 2 camadas).

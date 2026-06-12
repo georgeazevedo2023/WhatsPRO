@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { smartDateBR } from '@/lib/dateUtils';
 import { contactDisplayName } from '@/lib/contactDisplayName';
+import { formatPhone } from '@/lib/phoneUtils';
 import { ConversationLabels } from './ConversationLabels';
 import type { Label, Conversation } from '@/types';
 import { PRIORITY_COLOR_MAP } from '@/lib/constants';
@@ -31,6 +32,9 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
   const contact = conversation.contact;
   const name = contactDisplayName(contact);
   const initials = name.charAt(0).toUpperCase();
+  // Telefone sob o nome (pedido 2026-06-12) — omitido quando o nome JÁ é o telefone
+  // (contactDisplayName cai pro phone quando não há nome) pra não duplicar a linha.
+  const phone = contact?.phone && contact.phone !== name ? formatPhone(contact.phone) : null;
 
   // Calculate wait time for unresolved conversations
   const getWaitInfo = () => {
@@ -105,6 +109,12 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
             </span>
           </div>
         </div>
+
+        {phone && (
+          <p className="text-[11px] text-muted-foreground/70 tabular-nums leading-tight">
+            {phone}
+          </p>
+        )}
 
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <p className="text-xs text-muted-foreground truncate flex-1">
