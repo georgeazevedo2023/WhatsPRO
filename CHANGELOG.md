@@ -19,6 +19,8 @@ audited_at: 2026-06-05
 
 **Fix por PAPEL (não por nome):** RPC `get_queue_attendant_stats` ganha coluna `is_manager` (EXISTS em `user_roles` com role `gerente`/`super_admin` — cobre multi-role; DROP+CREATE porque RETURNS TABLE não aceita coluna nova, GRANT reaplicado). O `ReassignDrawer` filtra `!is_manager`; os **cards de stats da aba Atendentes continuam mostrando todos** (o RPC inclui gestor de propósito ali). Migration `20260612000000_queue_attendant_stats_is_manager`. Validado no DB real: Josafá/Michelly/George/**Televendas** vêm `is_manager=true` — ⚠️ Televendas tem role `gerente` no sistema e também saiu da lista; se ele deve ser reatribuível, trocar a role pra `user`.
 
+**Fila automática ("mesma coisa para a fila"):** auditoria mostrou que o rodízio JÁ filtra gestor por design — `pick_next_assignee` (D30, Q6) pula role `gerente` sem `gestor_in_queue=true`, e os 3 gestores estão com `gestor_in_queue=false`. **Buraco real achado e fechado:** o reuso D-β (`isPreviousAssigneeEligible` em `handoffQueue.ts`) só checava `queue_paused` — selecionava `gestor_in_queue` mas NUNCA usava → gestor que pegou uma conversa manualmente UMA vez podia receber o re-handoff da mesma conversa pra sempre. Agora espelha a regra Q6 (lookup `user_roles` role=gerente + `gestor_in_queue`). 2 testes novos (23 verdes), deno 0. Deploy das 4 fns que bundlam handoffQueue: ai-agent v265, requeue-conversations, assign-handoff, handoff-abandoned-leads.
+
 ---
 
 ### v7.86.0 (2026-06-12) — 🟢 Vaga de emprego: resposta determinística pedindo currículo + classificação (pedido do dono) + docs de providers corrigidas

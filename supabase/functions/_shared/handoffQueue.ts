@@ -96,6 +96,19 @@ async function isPreviousAssigneeEligible(
       .maybeSingle()
     if (!data) return false
     if (data.queue_paused) return false
+    // v7.87.0: espelha a regra Q6 do pick_next_assignee (gestor fora por default):
+    // role gerente só é elegível com gestor_in_queue=true. Sem isto, o reuso D-β
+    // devolvia a conversa pra um gestor que a pegou manualmente uma vez — o único
+    // caminho da fila que escapava do filtro de gestor.
+    if (!data.gestor_in_queue) {
+      const { data: roleRow } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .eq('role', 'gerente')
+        .maybeSingle()
+      if (roleRow) return false
+    }
     return true
   } catch {
     return false

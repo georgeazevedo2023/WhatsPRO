@@ -46,6 +46,8 @@ function makeBuilder(plan: {
 function makeSupabase(handlers: {
   departments?: QueryResult
   member?: QueryResult
+  /** v7.87.0: lookup de role gerente no D-β (default: não é gerente) */
+  userRole?: QueryResult
   rpcResult?: { data?: unknown; error?: { message: string } | null }
   insertEvent?: QueryResult
   updateConv?: QueryResult
@@ -61,6 +63,9 @@ function makeSupabase(handlers: {
       }
       if (table === 'department_members') {
         return makeBuilder({ maybeSingle: handlers.member || { data: null, error: null } })
+      }
+      if (table === 'user_roles') {
+        return makeBuilder({ maybeSingle: handlers.userRole || { data: null, error: null } })
       }
       if (table === 'handoff_queue_events') {
         return makeBuilder({ single: handlers.insertEvent || { data: { id: 'evt-1' }, error: null } })
@@ -304,6 +309,48 @@ describe('assignHandoff — D-β (re-handoff)', () => {
     })
     expect(r.reason).toBe('reused_previous')
     expect(r.assigned_user_id).toBe('user-prev')
+    expect(supabase.rpc).not.toHaveBeenCalled()
+  })
+
+  // v7.87.0: gestor que pegou a conversa manualmente NÃO pode ser reusado pelo
+  // D-β (espelha a regra Q6 do pick_next_assignee: gerente fora sem gestor_in_queue).
+  it('previous assignee GERENTE sem gestor_in_queue -> NÃO reusa, cai pro RPC', async () => {
+    const supabase = makeSupabase({
+      departments: {
+        data: { id: 'd1', queue_mode_enabled: true, queue_mode_timeout_minutes: 5, default_assignee_id: null },
+        error: null,
+      },
+      member: { data: { user_id: 'gestor-prev', queue_paused: false, gestor_in_queue: false }, error: null },
+      userRole: { data: { role: 'gerente' }, error: null },
+      rpcResult: { data: 'user-next', error: null },
+    })
+    const r = await assignHandoff({
+      supabase,
+      conversation_id: 'conv-1',
+      department_id: 'd1',
+      previous_assignee_id: 'gestor-prev',
+    })
+    expect(r.reason).toBe('queue_on_picked')
+    expect(r.assigned_user_id).toBe('user-next')
+  })
+
+  it('previous assignee GERENTE com gestor_in_queue=true -> reusa normalmente (opt-in)', async () => {
+    const supabase = makeSupabase({
+      departments: {
+        data: { id: 'd1', queue_mode_enabled: true, queue_mode_timeout_minutes: 5, default_assignee_id: null },
+        error: null,
+      },
+      member: { data: { user_id: 'gestor-prev', queue_paused: false, gestor_in_queue: true }, error: null },
+      userRole: { data: { role: 'gerente' }, error: null },
+    })
+    const r = await assignHandoff({
+      supabase,
+      conversation_id: 'conv-1',
+      department_id: 'd1',
+      previous_assignee_id: 'gestor-prev',
+    })
+    expect(r.reason).toBe('reused_previous')
+    expect(r.assigned_user_id).toBe('gestor-prev')
     expect(supabase.rpc).not.toHaveBeenCalled()
   })
 
