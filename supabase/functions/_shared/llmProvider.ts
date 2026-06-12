@@ -12,6 +12,7 @@
 import { fetchWithTimeout } from './fetchWithTimeout.ts'
 import { CircuitBreaker } from './circuitBreaker.ts'
 import { createLogger } from './logger.ts'
+import { DEFAULT_LLM_MODEL } from './constants.ts'
 
 const log = createLogger('llm-provider')
 
@@ -90,10 +91,11 @@ export function isReasoningModel(model: string): boolean {
 
 async function callOpenAI(req: LLMRequest): Promise<LLMResponse> {
   const startMs = Date.now()
-  // Sprint A I3 (2026-05-21): fallback default migrado pra gpt-5-mini.
-  // Custo praticamente neutro ($6 vs $6.40/10k msgs), instruction following melhor,
-  // structured outputs nativos. Agentes com agent.model setado mantêm o valor.
-  const model = req.model || 'gpt-5-mini'
+  // Onda 1 (2026-06-12): default alinhado ao callLLM (era gpt-5-mini aqui vs
+  // gpt-4.1-mini lá — com req.model vazio o roteamento decidia como 4.1-mini
+  // mas executava gpt-5-mini reasoning, 4x mais caro). callLLM agora repassa
+  // o modelo resolvido; este fallback é safety net pra chamada interna direta.
+  const model = req.model || DEFAULT_LLM_MODEL
   const isReasoning = isReasoningModel(model)
 
   const openaiMessages: any[] = [
@@ -279,7 +281,7 @@ async function callGemini(req: LLMRequest): Promise<LLMResponse> {
 /* ═══════════════════════════════════════════ */
 
 export async function callLLM(req: LLMRequest): Promise<LLMResponse> {
-  const model = req.model || 'gpt-4.1-mini'
+  const model = req.model || DEFAULT_LLM_MODEL
   const isGeminiModel = model.startsWith('gemini-')
 
   // Route by model prefix: gemini-* → Gemini first, gpt-* → OpenAI first
@@ -297,7 +299,7 @@ export async function callLLM(req: LLMRequest): Promise<LLMResponse> {
     }
     if (OPENAI_API_KEY && !openaiBreaker.isOpen) {
       try {
-        const result = await callOpenAI({ ...req, model: 'gpt-4.1-mini' })
+        const result = await callOpenAI({ ...req, model: DEFAULT_LLM_MODEL })
         openaiBreaker.onSuccess()
         return result
       } catch (err) {
@@ -309,7 +311,9 @@ export async function callLLM(req: LLMRequest): Promise<LLMResponse> {
     // OpenAI-preferred path (default): try OpenAI first, fallback to Gemini
     if (OPENAI_API_KEY && !openaiBreaker.isOpen) {
       try {
-        const result = await callOpenAI(req)
+        // Onda 1 (2026-06-12): repassa o modelo RESOLVIDO — antes req.model vazio
+        // roteava aqui como gpt-4.1-mini mas callOpenAI aplicava o próprio default.
+        const result = await callOpenAI({ ...req, model })
         openaiBreaker.onSuccess()
         return result
       } catch (err) {

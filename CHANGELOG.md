@@ -13,6 +13,19 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.88.0 (2026-06-12) — 🧹 Onda 1 da auditoria do AI Agent: constantes únicas + hot path + observabilidade
+
+Quick wins da auditoria de inconsistências (4 agentes + verificação manual), comportamento preservado:
+
+- **Constantes fonte única** (`_shared/constants.ts`): modelos default (`DEFAULT_SPECIALIST_MODEL` substituiu 'gpt-4.1' inline em 5 pontos do index; validator/router idem), caps de handoff (8/40, R146) e `max_lead_interactions` (15), e os **markers de handoff** `handoff_created:true`/`human_assigned:true` (2 leitores via `hasActiveHandoffMarker` + 6 escritores em 3 arquivos com chave computada — typo aqui desligava o gate de silêncio v7.76).
+- **llmProvider coerente**: `callLLM` repassa o modelo RESOLVIDO pro `callOpenAI` (antes, `req.model` vazio roteava como gpt-4.1-mini mas executava o default interno **gpt-5-mini** reasoning, 4× mais caro); defaults unificados em `DEFAULT_LLM_MODEL`.
+- **Hot path**: `getLeadFullName` memoizado (full_name era re-buscado em até 5 paths de handoff/turno) + logs dos 5 detectores determinísticos viram fire-and-forget **com catch logado** (~50-100ms/turno) + índice composto `ai_agent_logs(conversation_id, agent_id, event, created_at)` pros 2 COUNTs do greeting check (migration `20260612010000`).
+- **Gap do v7.85 fechado**: `executeShadowTool.update_lead_profile` gravava `full_name` SEM `sanitizeProfileName` — o shadow vendor LLM ainda podia gravar "Garagem" como nome. Agora usa a mesma fonte única.
+- **Observabilidade**: 2 `catch {}` do `automationEngine` (parse do messageId do poll) agora logam. **Docs**: router documentado como gpt-4.1-mini (gpt-5-nano falhava parse JSON) em `wiki/arquitetura.md` + nota no CLAUDE.md.
+- Suíte: 1207 verdes (14 fails pré-existentes idênticos no HEAD — testes Deno `https:` + asserts antigos do "anotei"; confirmado via stash). deno check 0. Deploy: ai-agent v266, whatsapp-webhook, form-bot.
+
+---
+
 ### v7.87.0 (2026-06-12) — 🟢 Drawer "Reatribuir atendimento" não lista mais gestores
 
 **Pedido (print):** Josafá e Michelly (gestores) apareciam como candidatos no drawer de reatribuição do dashboard de Fila — gestor não atende.

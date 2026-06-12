@@ -520,7 +520,8 @@ async function executeAction(
 
         if (res.ok) {
           let msgId: string | null = null
-          try { const j = await res.json(); msgId = j.messageId || j.MessageId || null } catch {}
+          try { const j = await res.json(); msgId = j.messageId || j.MessageId || null }
+          catch (e) { log.warn('poll send: resposta sem JSON parseável — message_id ficará null', { error: (e as Error).message, status: res.status }) }
 
           // Save poll
           await supabase.from('poll_messages').insert({
@@ -623,7 +624,8 @@ export async function triggerNpsIfEnabled(
 
         if (res.ok) {
           let msgId: string | null = null
-          try { const j = await res.json(); msgId = j.messageId || j.MessageId || null } catch {}
+          try { const j = await res.json(); msgId = j.messageId || j.MessageId || null }
+          catch (e) { log.warn('poll send: resposta sem JSON parseável — message_id ficará null', { error: (e as Error).message, status: res.status }) }
 
           await supabase.from('poll_messages').insert({
             conversation_id: conversationId,

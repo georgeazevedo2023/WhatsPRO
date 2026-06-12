@@ -21,6 +21,7 @@
  */
 
 import { callLLM } from '../llmProvider.ts'
+import { DEFAULT_ROUTER_MODEL } from '../constants.ts'
 import type { Logger } from './context.ts'
 
 // =============================================================================
@@ -180,7 +181,7 @@ export async function classifyIntent(ctx: RouterCtx): Promise<RouterResult> {
   // Fix Bug 1 (2026-05-23 v7.43.1): gpt-5-nano (reasoning) falha 100% no parse JSON
   // em prod — gera narrativa antes do JSON. Trocado pra gpt-4.1-mini (non-reasoning,
   // latência ~500ms, JSON output confiável). Caller pode override via ctx.routerModel.
-  const model = ctx.routerModel || 'gpt-4.1-mini'
+  const model = ctx.routerModel || DEFAULT_ROUTER_MODEL
 
   const userMsg = buildRouterUserMessage(ctx)
 

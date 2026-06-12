@@ -21,6 +21,7 @@
 import { mergeTags } from '../agentHelpers.ts'
 import { isOutsideBusinessHours, personalizeHandoffMessage } from '../businessHours.ts'
 import { STATUS_IA } from '../constants.ts'
+import { HANDOFF_CREATED_KEY, HUMAN_ASSIGNED_KEY } from '../constants.ts'
 import type { Logger } from './context.ts'
 import type {
   PendingExitActionHandoff,
@@ -147,9 +148,9 @@ export async function dispatchExitActionHandoff(
     status_ia: STATUS_IA.SHADOW,
     tags: mergeTags(ctx.conversation.tags || [], {
       ia: STATUS_IA.SHADOW,
-      handoff_created: 'true',
+      [HANDOFF_CREATED_KEY]: 'true',
       agent_status: 'inactive',
-      human_assigned: 'true',
+      [HUMAN_ASSIGNED_KEY]: 'true',
       seller_notified: 'true',
       followups_paused: 'true',
     }),

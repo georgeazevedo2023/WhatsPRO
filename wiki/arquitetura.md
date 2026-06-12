@@ -20,6 +20,7 @@ audited_at: 2026-05-11
 | Storage | Supabase Storage |
 | WhatsApp API | UAZAPI (proxied via Edge Functions) |
 | IA — Agent (LLM primario) | OpenAI gpt-4.1-mini (function calling, SDR, 9 tools) |
+| IA — Router (classifyIntent, routing_mode=router) | OpenAI gpt-4.1-mini (gpt-5-nano falhava parse JSON; specialists default gpt-4.1) |
 | IA — Agent (fallback) | Gemini 2.5 Flash → Mistral Small → templates estaticos |
 | IA — TTS | Gemini 2.5 Flash Preview TTS (6 vozes) |
 | IA — Transcricao | Groq API (Whisper) |

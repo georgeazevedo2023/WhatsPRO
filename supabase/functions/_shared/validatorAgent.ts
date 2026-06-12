@@ -12,6 +12,7 @@
  */
 
 import { callLLM, type LLMMessage } from './llmProvider.ts'
+import { DEFAULT_VALIDATOR_MODEL } from './constants.ts'
 import { createLogger } from './logger.ts'
 import { createServiceClient } from './supabaseClient.ts'
 
@@ -146,7 +147,7 @@ export async function validateResponse(
       tools: [],
       temperature: 0.1, // deterministic for consistent scoring
       maxTokens: 512,
-      model: config.model || 'gpt-4.1-nano',
+      model: config.model || DEFAULT_VALIDATOR_MODEL,
     })
 
     const parsed = parseValidatorResponse(llmResult.text)
@@ -187,7 +188,7 @@ export async function validateResponse(
       rewritten_text: result.rewritten,
       suggestion: result.suggestion,
       block_action: result.blockAction,
-      model: config.model || 'gpt-4.1-nano',
+      model: config.model || DEFAULT_VALIDATOR_MODEL,
       latency_ms: result.latencyMs,
     }).then(({ error }) => {
       if (error) log.warn('Failed to persist validation', { error: error.message })

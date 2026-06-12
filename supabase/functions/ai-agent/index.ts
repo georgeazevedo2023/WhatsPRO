@@ -2,7 +2,15 @@ import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
 import { fetchWithTimeout, fetchFireAndForget } from '../_shared/fetchWithTimeout.ts'
 import { geminiBreaker, groqBreaker, mistralBreaker, uazapiBreaker } from '../_shared/circuitBreaker.ts'
 import { callLLM, type LLMToolDef } from '../_shared/llmProvider.ts'
-import { STATUS_IA } from '../_shared/constants.ts'
+import {
+  STATUS_IA,
+  DEFAULT_SPECIALIST_MODEL,
+  HANDOFF_CAP_DEFAULTS,
+  DEFAULT_MAX_LEAD_INTERACTIONS,
+  HANDOFF_CREATED_KEY,
+  HUMAN_ASSIGNED_KEY,
+  hasActiveHandoffMarker,
+} from '../_shared/constants.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
 import { unauthorizedResponse, verifyCronOrService } from '../_shared/auth.ts'
@@ -29,7 +37,7 @@ import { buildQualificationSpecialistDef } from '../_shared/agent/qualificationS
 import { evaluateQualificationGate } from '../_shared/agent/qualificationGate.ts'
 import { evaluateProductQualificationFlow, evaluateQualifyReaskGuard, detectSpecificItemRequest, getReaskState } from '../_shared/agent/productQualificationFlow.ts'
 import { inferProductQualificationAnswerTag, readProductQualificationState } from '../_shared/agent/productQualificationState.ts'
-import { extractLeadName, wasNameAsked } from '../_shared/agent/nameCapture.ts'
+import { extractLeadName, sanitizeProfileName, wasNameAsked } from '../_shared/agent/nameCapture.ts'
 import { buildObjectionSpecialistDef } from '../_shared/agent/objectionSpecialist.ts'
 import { buildHandoffSpecialistDef } from '../_shared/agent/handoffSpecialist.ts'
 // Bug 2 Fix (v7.43.1): detector de clique "Eu quero" → hint pro LLM continuar venda
@@ -235,9 +243,7 @@ Deno.serve(async (req) => {
     // IA"/Finalizar+reabrir limpam essas tags (→ IA religa). Self-heal: persiste o
     // shadow de volta pra UI e demais leitores ficarem consistentes.
     const durableTagsEarly = Array.isArray(conversation.tags) ? conversation.tags : []
-    const handoffActiveDurable = durableTagsEarly.some(
-      (t: string) => t === 'handoff_created:true' || t === 'human_assigned:true',
-    )
+    const handoffActiveDurable = hasActiveHandoffMarker(durableTagsEarly)
     if (handoffActiveDurable && conversation.status_ia !== STATUS_IA.SHADOW) {
       log.info('Gate de silêncio: handoff durável ativo → coage status_ia para shadow', {
         conversationId: conversation_id,
@@ -924,6 +930,33 @@ Deno.serve(async (req) => {
     // inicializado. Stack trace capturado em 2026-05-22 23:05:55 UTC após R140
     // identificou esse hoisting bug como causa raiz do crash Sandrielly/Wsmart.
     let carouselSentInThisCall = false
+
+    // ── Onda 1 da auditoria (2026-06-12) — 2 helpers de hot path ─────────────
+    // (1) full_name era re-buscado em até 5 paths de handoff no MESMO turno
+    //     (o load completo do perfil só acontece bem depois). Memoiza a 1ª busca.
+    let _leadFullNameCache: string | null | undefined
+    const getLeadFullName = async (): Promise<string | null> => {
+      if (_leadFullNameCache !== undefined) return _leadFullNameCache
+      const { data } = await supabase
+        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      _leadFullNameCache = (data as { full_name?: string | null } | null)?.full_name || null
+      return _leadFullNameCache
+    }
+    // (2) logs dos 5 detectores determinísticos são observabilidade pura — não
+    //     bloqueiam o turno (eram 5 awaits sequenciais ~50ms). Catch LOGADO
+    //     (fire-and-forget com catch vazio esconde bug fatal — lição v7.70).
+    const logDetectorEvent = (event: string, metadata: Record<string, unknown>) => {
+      supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event,
+        latency_ms: Date.now() - startTime,
+        metadata,
+      }).then(
+        ({ error }: { error: { message: string } | null }) => {
+          if (error) log.warn('detector log insert failed', { event, error: error.message })
+        },
+        (e: unknown) => log.warn('detector log insert rejected', { event, error: (e as Error)?.message }),
+      )
+    }
     {
       const hasVendaTag = (conversation.tags || []).some((t: string) => t.startsWith('venda:'))
       const textForDetection = shadow_only ? (vendor_message || '') : incomingText
@@ -939,11 +972,7 @@ Deno.serve(async (req) => {
             tags: mergeTags(conversation.tags || [], { venda: 'fechada' }),
           }).eq('id', conversation_id)
           conversation.tags = mergeTags(conversation.tags || [], { venda: 'fechada' })
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'sale_closed_detected',
-            latency_ms: Date.now() - startTime,
-            metadata: { detection_type: saleType, source: shadow_only ? 'vendor_message' : 'lead_message', incoming_text: textForDetection.substring(0, 200) },
-          })
+          logDetectorEvent('sale_closed_detected', { detection_type: saleType, source: shadow_only ? 'vendor_message' : 'lead_message', incoming_text: textForDetection.substring(0, 200) })
           log.info('Sale closed detected', { type: saleType, conversation_id })
           // Bug 18 fix: marca handoff automático (executado mais à frente, após load de profile/funnel/runQueueAssignment)
           if (!shadow_only && conversation.status_ia !== STATUS_IA.SHADOW) {
@@ -969,11 +998,7 @@ Deno.serve(async (req) => {
             tags: mergeTags(conversation.tags || [], { objecao: objectionType }),
           }).eq('id', conversation_id)
           conversation.tags = mergeTags(conversation.tags || [], { objecao: objectionType })
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'objection_detected',
-            latency_ms: Date.now() - startTime,
-            metadata: { detection_type: objectionType, incoming_text: textForDetection.substring(0, 200) },
-          })
+          logDetectorEvent('objection_detected', { detection_type: objectionType, incoming_text: textForDetection.substring(0, 200) })
           log.info('Objection detected', { type: objectionType, conversation_id })
         }
       }
@@ -992,11 +1017,7 @@ Deno.serve(async (req) => {
             tags: mergeTags(conversation.tags || [], { pagamento: paymentMethod }),
           }).eq('id', conversation_id)
           conversation.tags = mergeTags(conversation.tags || [], { pagamento: paymentMethod })
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'payment_detected',
-            latency_ms: Date.now() - startTime,
-            metadata: { detection_type: paymentMethod, incoming_text: textForDetection.substring(0, 200) },
-          })
+          logDetectorEvent('payment_detected', { detection_type: paymentMethod, incoming_text: textForDetection.substring(0, 200) })
           log.info('Payment detected', { method: paymentMethod, conversation_id })
         }
       }
@@ -1014,11 +1035,7 @@ Deno.serve(async (req) => {
             tags: mergeTags(conversation.tags || [], { marca_citada: brand }),
           }).eq('id', conversation_id)
           conversation.tags = mergeTags(conversation.tags || [], { marca_citada: brand })
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'brand_mentioned',
-            latency_ms: Date.now() - startTime,
-            metadata: { detection_type: brand, incoming_text: textForDetection.substring(0, 200) },
-          })
+          logDetectorEvent('brand_mentioned', { detection_type: brand, incoming_text: textForDetection.substring(0, 200) })
           log.info('Brand mentioned', { brand, conversation_id })
         }
       }
@@ -1037,11 +1054,7 @@ Deno.serve(async (req) => {
             tags: mergeTags(conversation.tags || [], { tipo_cliente: clientType }),
           }).eq('id', conversation_id)
           conversation.tags = mergeTags(conversation.tags || [], { tipo_cliente: clientType })
-          await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'client_type_detected',
-            latency_ms: Date.now() - startTime,
-            metadata: { detection_type: clientType, incoming_text: textForDetection.substring(0, 200) },
-          })
+          logDetectorEvent('client_type_detected', { detection_type: clientType, incoming_text: textForDetection.substring(0, 200) })
           log.info('Client type detected', { type: clientType, conversation_id })
         }
       }
@@ -1199,8 +1212,7 @@ Deno.serve(async (req) => {
       const outsideHoursSC = notifyOutsideSC && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
       // #4: personaliza citando o nome (este path é pré-leadProfile load → fetch leve).
       // Não há resumo rico aqui (sale_closed é fast-path determinístico), então cita só o nome.
-      const { data: lpForSC } = await supabase
-        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      const lpForSC = { full_name: await getLeadFullName() }
       const handoffMsgSC = personalizeHandoffMessage(
         pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursSC }),
         { leadName: (lpForSC as { full_name?: string | null } | null)?.full_name || null },
@@ -1241,9 +1253,9 @@ Deno.serve(async (req) => {
         status_ia: STATUS_IA.SHADOW,
         tags: mergeTags(conversation.tags || [], {
           ia: STATUS_IA.SHADOW,
-          handoff_created: 'true',
+          [HANDOFF_CREATED_KEY]: 'true',
           agent_status: 'inactive',
-          human_assigned: 'true',
+          [HUMAN_ASSIGNED_KEY]: 'true',
           seller_notified: 'true',
           followups_paused: 'true',
         }),
@@ -1377,7 +1389,7 @@ Deno.serve(async (req) => {
           const empathyAlreadySent = recentOutgoing.some(t => t.includes('peço desculpas') || t.includes('entendo sua frustração'))
 
           // Get lead name from profile (more reliable than contact.name which may be "E2E Test")
-          const { data: lpForName } = await supabase.from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+          const lpForName = { full_name: await getLeadFullName() }
           const leadNameForEmpathy = lpForName?.full_name || contact?.name || null
 
           // #4: personaliza o transbordo citando o nome (trigger não tem resumo rico de item).
@@ -1516,8 +1528,8 @@ Deno.serve(async (req) => {
     const MAX_LEAD_MESSAGES = effectiveHandoffRule === 'nunca'
       ? Infinity
       : effectiveHandoffRule === 'apos_n_msgs'
-        ? (profileData?.handoff_max_messages ?? funnelData?.handoff_max_messages ?? funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? 8)
-        : (funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? 40)
+        ? (profileData?.handoff_max_messages ?? funnelData?.handoff_max_messages ?? funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? HANDOFF_CAP_DEFAULTS.apos_n_msgs)
+        : (funnelData?.max_messages_before_handoff ?? agent.max_lead_messages ?? HANDOFF_CAP_DEFAULTS.so_se_pedir)
 
     // ia_cleared: use message count from sessionStartDt (self-healing — counter may be stale)
     // No ia_cleared: use atomic counter (no race condition)
@@ -1541,7 +1553,7 @@ Deno.serve(async (req) => {
     // max_lead_interactions (default 15; 0 = desligado), transborda + shadow + para.
     // Reusa o mesmo mecanismo do bloco 5.6 (pickHandoffMessage/runQueueAssignment/R86).
     // Avaliado ANTES do gate por handoff_rule pois é um teto menor e de segurança.
-    const MAX_LEAD_INTERACTIONS = Number(agent.max_lead_interactions ?? 15) || 0
+    const MAX_LEAD_INTERACTIONS = Number(agent.max_lead_interactions ?? DEFAULT_MAX_LEAD_INTERACTIONS) || 0
     if (
       MAX_LEAD_INTERACTIONS > 0
       && leadMsgCount >= MAX_LEAD_INTERACTIONS
@@ -1550,8 +1562,7 @@ Deno.serve(async (req) => {
       log.info('Max lead interactions reached — auto handoff (Feature 5b)', { count: leadMsgCount, max: MAX_LEAD_INTERACTIONS })
       const notifyOutsideCap = agent.notify_outside_hours_on_handoff !== false
       const outsideHoursCap = notifyOutsideCap && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      const { data: lpForCap } = await supabase
-        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      const lpForCap = { full_name: await getLeadFullName() }
       const capHandoffMsg = personalizeHandoffMessage(
         pickHandoffMessage({
           agent, profileData, funnelData, outsideHours: outsideHoursCap,
@@ -1615,8 +1626,7 @@ Deno.serve(async (req) => {
     const runAbsoluteCapHandoff = async (reason: string, extraMeta: Record<string, unknown>) => {
       const notifyOutsideC = agent.notify_outside_hours_on_handoff !== false
       const outsideHoursC = notifyOutsideC && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      const { data: lpForC } = await supabase
-        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      const lpForC = { full_name: await getLeadFullName() }
       const leadNameC = (lpForC as { full_name?: string | null } | null)?.full_name || null
       const capMsgC = personalizeHandoffMessage(
         pickHandoffMessage({
@@ -1712,8 +1722,7 @@ Deno.serve(async (req) => {
       // Bug 16b: respeitar horário comercial (antes sempre usava handoff_message)
       const notifyOutsideAuto = agent.notify_outside_hours_on_handoff !== false
       const outsideHoursAuto = notifyOutsideAuto && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-      const { data: lpForAuto } = await supabase
-        .from('lead_profiles').select('full_name').eq('contact_id', contact.id).maybeSingle()
+      const lpForAuto = { full_name: await getLeadFullName() }
       const handoffMsg = personalizeHandoffMessage(
         pickHandoffMessage({
           agent, profileData, funnelData, outsideHours: outsideHoursAuto,
@@ -2010,7 +2019,15 @@ ${contextBlock}`
       if (name === 'update_lead_profile') {
         const updates: Record<string, any> = { last_contact_at: new Date().toISOString() }
         // Protect: never overwrite existing name in shadow mode (prevents "Obrigado Pedro!" from replacing lead name)
-        if (args.full_name && !leadProfile?.full_name) updates.full_name = args.full_name
+        // v7.85 gap (Onda 1): este writer ficou fora do fix do caso "Garagem" —
+        // shadow LLM também pode confundir interesse com nome. Mesma fonte única.
+        if (args.full_name && !leadProfile?.full_name) {
+          const cleanShadowName = sanitizeProfileName(args.full_name, [
+            ...(Array.isArray(args.interests) ? args.interests : []),
+            ...(Array.isArray(leadProfile?.interests) ? leadProfile.interests : []),
+          ])
+          if (cleanShadowName) updates.full_name = cleanShadowName
+        }
         if (args.city) updates.city = args.city
         if (args.interests?.length) updates.interests = args.interests
         if (args.notes) updates.notes = args.notes
@@ -3111,7 +3128,7 @@ ${contextBlock}`
             saudacao: buildGreetingSpecialistDef(),
             fora_escopo: buildGreetingSpecialistDef(), // redireciona educadamente
             qualificacao: buildQualificationSpecialistDef(),
-            produto: buildProductSpecialistDef(agent.specialist_model || 'gpt-4.1'),
+            produto: buildProductSpecialistDef(agent.specialist_model || DEFAULT_SPECIALIST_MODEL),
             objecao: buildObjectionSpecialistDef(),
             pagamento: buildObjectionSpecialistDef(), // objection carrega business_info
             handoff: buildHandoffSpecialistDef(),
@@ -3154,9 +3171,7 @@ ${contextBlock}`
           // O gate de silêncio (após :219) já coage status_ia→shadow nesse caso — mas se
           // qualquer caminho fizer status_ia driftar, esta checagem de tag DURÁVEL impede
           // o re-disparo do MESMO transbordo (feedback_guard_must_check_durable_tags).
-          const handoffAlreadyCreated = (conversation.tags || []).some(
-            (t: string) => t === 'handoff_created:true' || t === 'human_assigned:true',
-          )
+          const handoffAlreadyCreated = hasActiveHandoffMarker(conversation.tags)
           const inNoResultLoop =
             (enrichingNow || legacySellerPending || premiumSearchFailNow)
             && conversation.status_ia !== STATUS_IA.SHADOW
@@ -3663,7 +3678,7 @@ ${contextBlock}`
                     reason: 'premium_pre_search_next_question',
                   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
                 }
-                def = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
+                def = buildQualificationSpecialistDef(agent.specialist_model || DEFAULT_SPECIALIST_MODEL)
                 routerProductPreSearch = null
                 log.info('qualificationGate: qualify-first → qualification_specialist', {
                   router_intent: routerResult.intent, category: gate.categoryId,
@@ -3677,7 +3692,7 @@ ${contextBlock}`
                 // perguntas e transborda ao atingir max_enrichment_questions, com resumo rico.
                 // Substitui o atalho v7.55 (1 pergunta + handoff) que o dono reprovou — agora é
                 // idêntico ao 21.36: o lead NUNCA percebe a ausência e é qualificado a fundo.
-                def = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
+                def = buildQualificationSpecialistDef(agent.specialist_model || DEFAULT_SPECIALIST_MODEL)
                 routerProductPreSearch = null
                 noResultDirective = buildEnrichDirective()
                 if (!(conversation.tags || []).some(
@@ -3719,7 +3734,7 @@ ${contextBlock}`
             // torneiras/torneiras_metais/tintas/...), não uma lista hardcoded que divergia
             // entre a config do agent e o DEFAULT (caso torneiras vs torneiras_metais).
             if (seedVerdict.categoryId && seedVerdict.nextRequiredField && seedVerdict.answeredFieldKeys.length === 0) {
-              def = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
+              def = buildQualificationSpecialistDef(agent.specialist_model || DEFAULT_SPECIALIST_MODEL)
               log.info('saudacao + interesse premium semeado → qualification_specialist (retoma funil pós-nome)', {
                 category: seedVerdict.categoryId, nextField: seedVerdict.nextRequiredField.key,
               })
@@ -3792,7 +3807,7 @@ ${contextBlock}`
                       '[INTERNO] Neste turno, NAO mostre produtos, NAO diga que vai verificar com consultor e NAO faca handoff.',
                       '[INTERNO] Faca somente uma pergunta curta sobre o proximo campo obrigatorio.',
                     ].join('\n')
-                    dispatchDef = buildQualificationSpecialistDef(agent.specialist_model || 'gpt-4.1')
+                    dispatchDef = buildQualificationSpecialistDef(agent.specialist_model || DEFAULT_SPECIALIST_MODEL)
                   }
                   log.info('Product pre-search done (1-round path)', {
                     query: searchParams.query, category: searchParams.category,

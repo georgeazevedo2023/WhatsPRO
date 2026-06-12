@@ -18,6 +18,7 @@
  */
 
 import { STATUS_IA } from '../constants.ts'
+import { HANDOFF_CREATED_KEY, HUMAN_ASSIGNED_KEY } from '../constants.ts'
 import { mergeTags } from '../agentHelpers.ts'
 import { isOutsideBusinessHours, personalizeHandoffMessage, buildDeliveryLine } from '../businessHours.ts'
 import { normalizeCart, formatCartOneLine, formatCartSummary } from './cart.ts'
@@ -301,9 +302,9 @@ export async function dispatchResponse(
       status_ia: STATUS_IA.SHADOW,
       tags: mergeTags(implicitTags, {
         ia: STATUS_IA.SHADOW,
-        handoff_created: 'true',
+        [HANDOFF_CREATED_KEY]: 'true',
         agent_status: 'inactive',
-        human_assigned: 'true',
+        [HUMAN_ASSIGNED_KEY]: 'true',
         seller_notified: 'true',
         followups_paused: 'true',
       }),
@@ -541,9 +542,9 @@ export async function dispatchResponse(
     const objectionTagDeferred = detectObjection(pendingHandoffTriggerMsg)
     const tagsToMergeDeferred: Record<string, string> = {
       ia: STATUS_IA.SHADOW,
-      handoff_created: 'true',
+      [HANDOFF_CREATED_KEY]: 'true',
       agent_status: 'inactive',
-      human_assigned: 'true',
+      [HUMAN_ASSIGNED_KEY]: 'true',
       seller_notified: 'true',
       followups_paused: 'true',
     }
