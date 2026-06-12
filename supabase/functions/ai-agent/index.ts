@@ -50,6 +50,7 @@ import { buildContextDocuments } from '../_shared/agent/contextDocuments.ts'
 import { buildAgentPromptSections, buildLeadContextBlock, buildDynamicContext } from '../_shared/agent/promptSections.ts'
 import { buildQualificationContext } from '../_shared/agent/qualificationContext.ts'
 import { runPreLLMShortCircuits } from '../_shared/agent/preLLMShortCircuits.ts'
+import { tryJobVacancyShortCircuit } from '../_shared/agent/jobVacancy.ts'
 import { runPreLLMAutoExtract } from '../_shared/agent/preLLMAutoExtract.ts'
 import { dispatchExitActionHandoff, runInlineSearchProducts } from '../_shared/agent/exitActionDispatcher.ts'
 import { dispatchMediaTool } from '../_shared/agent/tools/mediaTools.ts'
@@ -2441,6 +2442,18 @@ ${contextBlock}`
     // LLM no proximo turno nao recebe instrucao "AÇÃO handoff", gera texto vazio.
     try {
       if (incomingText.trim()) {
+        // v7.86.0 — Vaga de emprego (determinístico, MODE-AGNOSTIC: roda mesmo sob
+        // routing_mode='router' porque nenhum specialist trata RH — não há caminho
+        // paralelo conflitante). Inerte sem business_info.jobs_email no agente.
+        const jobVacancy = await tryJobVacancyShortCircuit({
+          supabase, conversation, conversation_id, agent_id, agent,
+          incomingText, leadName, queuedMessages, startTime, corsHeaders,
+          sendTextMsg, broadcastEvent,
+        }, log)
+        if (jobVacancy.handled && jobVacancy.response) {
+          return jobVacancy.response
+        }
+
         const cfgPre = getCategoriesOrDefault(agent)
         const interesseTagPre = (conversation.tags || []).find((t: string) => typeof t === 'string' && t.startsWith('interesse:'))
         const interesseValue = interesseTagPre ? (interesseTagPre.split(':')[1] || '') : ''

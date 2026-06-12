@@ -13,6 +13,18 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.86.0 (2026-06-12) — 🟢 Vaga de emprego: resposta determinística pedindo currículo + classificação (pedido do dono) + docs de providers corrigidas
+
+**Pedido:** lead que chega por vaga de emprego → classificar como vaga de emprego, pedir currículo pro `dppeletropiso@hotmail.com` e perguntar se pode ajudar em algo mais.
+
+**Design (mode-agnostic + config-driven):** novo `_shared/agent/jobVacancy.ts` — `detectJobVacancy` (sinais fortes: currículo/emprego/contratando/processo seletivo/trabalhar com vocês; sinal fraco "vaga(s)" bloqueado por contexto físico garagem/estacionamento/demarcação) + `tryJobVacancyShortCircuit` wireado no index.ts **ANTES do gate `routing_mode='router'`** que pula R129/R136 (nenhum specialist trata RH → sem caminho paralelo; os 3 agentes rodam router). Só ativa com `business_info.jobs_email` preenchido (multi-tenant: sem e-mail, inerte). Ao detectar: tag durável `motivo:vaga_emprego` (guard anti-loop — "vou mandar o currículo" não re-dispara) + resposta com o e-mail + "Posso te ajudar em algo mais?". Send falhou → tag persiste e o LLM assume (o e-mail entrou no `buildBusinessSection`, que os specialists herdam via R148). Summarizer já tinha categoria `vaga_emprego` (v7.82) → dashboard Motivos classifica ao resolver.
+
+**Config/UI:** campo "E-mail para Currículos (vagas)" no `BusinessInfoConfig` (JSONB `business_info.jobs_email`, já coberto por ALLOWED_FIELDS — sem migration). E-mail aplicado nos 3 agentes (Eletropiso/EletropisoV2/Sandbox). 11 testes novos (detector + reply + short-circuit com mocks), 57 verdes no total, deno 0. Deploy ai-agent **v264**.
+
+**Docs (auditoria itens 1-2):** `wiki/infraestrutura.md:45` (Cérebro IA dizia "Gemini" → OpenAI gpt-4.1-mini, fallback Gemini) + summarizer Groq→OpenAI/callLLM em `wiki/arquitetura.md`, `AGENTS.md`, `README.md` (separando carousel copy, que segue Groq→Gemini→Mistral).
+
+---
+
 ### v7.85.0 (2026-06-12) — 🟢 Telefone do lead na lista do Helpdesk + IA não grava mais INTERESSE como NOME ("Garagem")
 
 **Contexto (2 prints do dono):** (1) lista de conversas não mostrava o número do WhatsApp do lead; (2) lead aparecia como **"Garagem"** — a IA pegou o interesse ("produtos para garagem") e gravou como `full_name` via `update_lead_profile`. Auditoria no DB: **5 leads** afetados ("Garagem", "Chuveiro" ×2, "Material", "Cozinha"); o caso Garagem tinha pushname real "Juliana Wanderley 👫" sendo escondido pelo nome errado (display name prioriza `lead_profiles.full_name`, v7.78.0).

@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-12 (cont.) — 🟢 v7.86.0 vaga de emprego determinístico + docs de providers corrigidas
+
+Dono: lead de vaga → classificar `vaga_emprego`, pedir currículo pro dppeletropiso@hotmail.com, perguntar se ajuda em algo mais. **Implementação mode-agnostic** (descoberta-chave: R129/R136 são PULADOS sob `routing_mode='router'` — e os 3 agentes rodam router; o wire novo fica ANTES do gate): `_shared/agent/jobVacancy.ts` (detector forte/fraco com blockers de vaga física, reply, short-circuit) + tag `motivo:vaga_emprego` (anti-loop) + e-mail no `buildBusinessSection` (specialists herdam) + campo "E-mail para Currículos" no BusinessInfoConfig (`business_info.jobs_email`, JSONB sem migration, inerte sem e-mail). Summarizer já tinha a categoria (v7.82). Config aplicada nos 3 agentes. 11 testes novos/57 verdes, deno 0, ai-agent v264. **Docs:** itens 1-2 da auditoria corrigidos (infraestrutura.md "Gemini"→OpenAI; summarizer Groq→OpenAI em arquitetura/AGENTS/README). E2E real WhatsApp pendente (sugerido: "vocês estão contratando?" no sandbox).
+
+---
 ## 2026-06-12 — 🟢 v7.85.0 telefone do lead na lista + IA gravava INTERESSE como NOME ("Garagem")
 
 Dono (2 prints): (1) lista do Helpdesk sem o número do WhatsApp do lead; (2) lead "Garagem" — IA atribuiu o interesse como nome. **UI:** `ConversationItem` mostra `formatPhone(contact.phone)` sob o nome (omitido se display name já é o telefone). **Raiz:** `update_lead_profile` aceitava qualquer `full_name` do LLM (única sanitização era doubling) → `sanitizeProfileName` (fonte única em `nameCapture.ts`): estrutura + léxico (NON_NAME_WORDS ampliada com ambientes/papéis/materiais, com/sem acento) + contexto (candidato ⊂ interesses = rejeita); rejeição NÃO grava e avisa o LLM ("NUNCA chame o lead de X"). Caminhos determinísticos (extractLeadName) herdam a blocklist. **DB prod:** 5 leads afetados achados por auditoria SQL ("Garagem"/"Chuveiro"×2/"Material"/"Cozinha") → full_name anulado (volta pro pushname; caso real: "Juliana Wanderley 👫" escondida atrás de "Garagem"). 47 testes ✓ (casos novos: Garagem, Suvinil-em-interesse, Michelly legítimo), deno 0, deploy ai-agent v263. Antes na sessão: auditoria doc+paridade (relatório entregue; correções pendentes de decisão do dono) + dev server localhost:8080.

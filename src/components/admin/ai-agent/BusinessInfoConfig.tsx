@@ -2,7 +2,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Building2, Clock, MapPin, Phone, CreditCard, Truck, Info } from 'lucide-react';
+import { Building2, Clock, MapPin, Phone, CreditCard, Truck, Info, Briefcase } from 'lucide-react';
 
 interface BusinessInfoConfigProps {
   config: Record<string, any>;
@@ -22,6 +22,9 @@ export function BusinessInfoConfig({ config, onChange }: BusinessInfoConfigProps
     { key: 'phone', label: 'Telefone / WhatsApp', icon: Phone, placeholder: '(81) 99999-9999', type: 'input' as const },
     { key: 'payment_methods', label: 'Formas de Pagamento', icon: CreditCard, placeholder: 'PIX, cartão de crédito/débito, boleto, dinheiro', type: 'input' as const },
     { key: 'delivery_info', label: 'Informações de Entrega', icon: Truck, placeholder: 'Entrega própria para Recife e região metropolitana', type: 'input' as const },
+    // v7.86.0: com e-mail preenchido, lead que pergunta sobre vaga/currículo recebe
+    // resposta determinística pedindo o currículo + tag motivo:vaga_emprego
+    { key: 'jobs_email', label: 'E-mail para Currículos (vagas)', icon: Briefcase, placeholder: 'rh@suaempresa.com.br', type: 'input' as const },
     { key: 'extra', label: 'Outras Informações', icon: Info, placeholder: 'Estacionamento gratuito, Wi-Fi disponível, CNPJ...', type: 'textarea' as const },
   ];
 

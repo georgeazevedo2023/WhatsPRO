@@ -38,7 +38,8 @@ Junção de WhatsApp Web profissional + CRM de vendas + IA vendedora + sistema d
 | AI Agent (fallback) | Gemini 2.5 Flash → Mistral Small → templates |
 | TTS | Gemini 2.5 Flash Preview TTS (6 vozes) |
 | Transcrição | Groq (Whisper) |
-| Resumos / Carrossel copy | Groq → Gemini → Mistral |
+| Resumos | OpenAI gpt-4.1-mini, fallback Gemini (v7.82) |
+| Carrossel copy | Groq → Gemini → Mistral |
 | Data Fetching | TanStack React Query 5 |
 
 ---

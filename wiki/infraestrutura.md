@@ -42,7 +42,7 @@ Todas com autenticação (JWT manual, cron/service, ou super_admin):
 | summarize-conversation | JWT + inbox access | Resumir conversa |
 | sync-conversations | JWT + inbox access | Sincronizar conversas |
 | transcribe-audio | JWT | Transcrever áudio |
-| ai-agent | Webhook (interno) | Cérebro IA (Gemini + function calling) |
+| ai-agent | Webhook (interno) | Cérebro IA (OpenAI gpt-4.1-mini + function calling, fallback Gemini) |
 | ai-agent-debounce | Webhook (interno) | Agrupa msgs 10s + typing indicator |
 | ai-agent-playground | super_admin | Chat simulado para testar agente IA |
 | scrape-product | JWT (user) | Importação rápida: scrape URL → dados do produto |

@@ -79,7 +79,7 @@ export interface PreLLMShortCircuitsResult {
 // Helpers internos
 // =============================================================================
 
-function jsonResponse(body: unknown, corsHeaders: Record<string, string>): Response {
+export function jsonResponse(body: unknown, corsHeaders: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
@@ -87,9 +87,9 @@ function jsonResponse(body: unknown, corsHeaders: Record<string, string>): Respo
 
 /**
  * Persiste mensagem outgoing + broadcast + log response_sent. Usado pelos dois
- * short-circuits.
+ * short-circuits daqui + jobVacancy.ts (exportados por isso).
  */
-async function persistAndBroadcastReply(
+export async function persistAndBroadcastReply(
   ctx: PreLLMShortCircuitsCtx,
   text: string,
   source: string,

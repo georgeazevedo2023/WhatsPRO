@@ -41,6 +41,7 @@ export type BusinessInfo = {
   phone?: string | null
   payment_methods?: string | null
   delivery_info?: string | null
+  jobs_email?: string | null
   extra?: string | null
 }
 
@@ -99,6 +100,7 @@ export function buildBusinessSection(agent: AgentForPrompt): string {
   if (bi.phone) parts.push(`- Telefone: ${bi.phone}`)
   if (bi.payment_methods) parts.push(`- Formas de pagamento: ${bi.payment_methods}`)
   if (bi.delivery_info) parts.push(`- Entrega: ${bi.delivery_info}`)
+  if (bi.jobs_email) parts.push(`- Vagas de emprego: interessados em trabalhar na empresa devem enviar o currículo para ${bi.jobs_email} (peça o envio, classifique como vaga de emprego e pergunte se pode ajudar em algo mais — NÃO qualifique como venda)`)
   if (bi.extra) parts.push(`- Outras informações: ${bi.extra}`)
 
   const missing: string[] = []

@@ -15,7 +15,7 @@ WhatsPRO is a multi-tenant WhatsApp helpdesk + CRM + AI Agent + leads + campaign
 - **AI Agent LLM (fallback chain):** Gemini 2.5 Flash → Mistral Small → static templates
 - **TTS:** Gemini 2.5 Flash Preview TTS (6 voices)
 - **Transcription:** Groq (Whisper)
-- **Summaries / carousel copy:** Groq (Llama) → Gemini → Mistral
+- **Summaries:** OpenAI gpt-4.1-mini via callLLM, Gemini fallback (since v7.82). **Carousel copy:** Groq → Gemini → Mistral
 
 ## Architecture
 

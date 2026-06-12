@@ -23,7 +23,7 @@ audited_at: 2026-05-11
 | IA — Agent (fallback) | Gemini 2.5 Flash → Mistral Small → templates estaticos |
 | IA — TTS | Gemini 2.5 Flash Preview TTS (6 vozes) |
 | IA — Transcricao | Groq API (Whisper) |
-| IA — Summarizacao | Groq (Llama), fallback Mistral Small |
+| IA — Summarizacao | OpenAI gpt-4.1-mini via callLLM, fallback Gemini (desde v7.82) |
 | IA — Carrossel | Groq → Gemini → Mistral (chain) |
 | Deploy | Docker Swarm + Traefik + Nginx + SSL |
 | CI/CD | GitHub Actions → ghcr.io |
