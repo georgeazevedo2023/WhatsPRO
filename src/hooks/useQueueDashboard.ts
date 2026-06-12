@@ -83,6 +83,8 @@ export interface AttendantStat {
   cancelled: number;
   active: number;
   avg_response_seconds: number;
+  /** v7.87.0: role gerente/super_admin — gestor aparece nos cards mas NÃO é candidato a reatribuição */
+  is_manager: boolean;
 }
 
 export interface LostLead {

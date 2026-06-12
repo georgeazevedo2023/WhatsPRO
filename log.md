@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-12 (cont. II) — 🟢 v7.87.0 gestores fora do drawer de reatribuição
+
+Dono (print do /dashboard/fila): Josafá e Michelly (gestores) listados como candidatos no "Reatribuir atendimento". Fix por PAPEL: `get_queue_attendant_stats` ganha `is_manager` (user_roles gerente/super_admin, EXISTS multi-role; DROP+CREATE+GRANT) e o `ReassignDrawer` filtra; cards de stats intactos (incluem gestor de propósito). Migration aplicada + arquivo no repo. Validação no DB real: 4 is_manager=true (Josafá, Michelly, George, **Televendas** — tem role gerente; sinalizado ao dono caso deva voltar a ser reatribuível). Achado anotado: fila automática (handoffQueue) NÃO filtra por role — gestor com queue_paused=false pode receber lead do rodízio; pendente decisão do dono.
+
+---
 ## 2026-06-12 (cont.) — 🟢 v7.86.0 vaga de emprego determinístico + docs de providers corrigidas
 
 Dono: lead de vaga → classificar `vaga_emprego`, pedir currículo pro dppeletropiso@hotmail.com, perguntar se ajuda em algo mais. **Implementação mode-agnostic** (descoberta-chave: R129/R136 são PULADOS sob `routing_mode='router'` — e os 3 agentes rodam router; o wire novo fica ANTES do gate): `_shared/agent/jobVacancy.ts` (detector forte/fraco com blockers de vaga física, reply, short-circuit) + tag `motivo:vaga_emprego` (anti-loop) + e-mail no `buildBusinessSection` (specialists herdam) + campo "E-mail para Currículos" no BusinessInfoConfig (`business_info.jobs_email`, JSONB sem migration, inerte sem e-mail). Summarizer já tinha a categoria (v7.82). Config aplicada nos 3 agentes. 11 testes novos/57 verdes, deno 0, ai-agent v264. **Docs:** itens 1-2 da auditoria corrigidos (infraestrutura.md "Gemini"→OpenAI; summarizer Groq→OpenAI em arquitetura/AGENTS/README). E2E real WhatsApp pendente (sugerido: "vocês estão contratando?" no sandbox).

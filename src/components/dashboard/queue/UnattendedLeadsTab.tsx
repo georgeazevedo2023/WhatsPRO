@@ -76,7 +76,9 @@ function ReassignDrawer({
   onClose: () => void;
 }) {
   const reassign = useReassignConversation();
-  const candidates = attendants.filter((a) => a.user_id !== lead?.assigned_to);
+  // v7.87.0: gestores (role gerente/super_admin) não atendem — ficam fora da
+  // lista de reatribuição (mas seguem nos cards de stats do dashboard).
+  const candidates = attendants.filter((a) => a.user_id !== lead?.assigned_to && !a.is_manager);
 
   const handlePick = (a: AttendantStat) => {
     if (!lead) return;

@@ -13,6 +13,14 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.87.0 (2026-06-12) — 🟢 Drawer "Reatribuir atendimento" não lista mais gestores
+
+**Pedido (print):** Josafá e Michelly (gestores) apareciam como candidatos no drawer de reatribuição do dashboard de Fila — gestor não atende.
+
+**Fix por PAPEL (não por nome):** RPC `get_queue_attendant_stats` ganha coluna `is_manager` (EXISTS em `user_roles` com role `gerente`/`super_admin` — cobre multi-role; DROP+CREATE porque RETURNS TABLE não aceita coluna nova, GRANT reaplicado). O `ReassignDrawer` filtra `!is_manager`; os **cards de stats da aba Atendentes continuam mostrando todos** (o RPC inclui gestor de propósito ali). Migration `20260612000000_queue_attendant_stats_is_manager`. Validado no DB real: Josafá/Michelly/George/**Televendas** vêm `is_manager=true` — ⚠️ Televendas tem role `gerente` no sistema e também saiu da lista; se ele deve ser reatribuível, trocar a role pra `user`.
+
+---
+
 ### v7.86.0 (2026-06-12) — 🟢 Vaga de emprego: resposta determinística pedindo currículo + classificação (pedido do dono) + docs de providers corrigidas
 
 **Pedido:** lead que chega por vaga de emprego → classificar como vaga de emprego, pedir currículo pro `dppeletropiso@hotmail.com` e perguntar se pode ajudar em algo mais.
