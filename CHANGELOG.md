@@ -1,7 +1,7 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-06-10
+updated: 2026-06-13
 audited_at: 2026-06-05
 ---
 
@@ -10,6 +10,19 @@ audited_at: 2026-06-05
 > Releases ativas (últimos ~14 dias). Histórico completo em [[wiki/changelog/]].
 >
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
+
+---
+
+### v7.90.0 (2026-06-13) — 🗑️ Descomissionamento do Fluxos v3.0 (orchestrator): runtime morto removido (−10,4k lin)
+
+O runtime "Fluxos v3.0" (M18) foi **descomissionado por completo**. Era feature construída mas **nunca ativada em prod** (`use_orchestrator=false` nas 3 instâncias + global; **0 `flow_states` históricos** — a engine nunca processou 1 mensagem) e **superada pelo router do `ai-agent`** (a arquitetura de produção real). Decisão de produto do dono; auditada por **workflow adversarial (21 agentes, 5 dimensões, 0 blockers)** antes do deploy.
+
+- **Backend removido:** edge fn `orchestrator/` inteira (19 arq, ~5,3k lin: config/services/subagents/templates) + `getOrchestratorFlag()` e os 2 caminhos de roteamento condicional do `whatsapp-webhook` (poll-vote + trigger principal) → todo lead vai sempre pro `ai-agent-debounce`. Comportamento em prod **idêntico** (o flag era sempre false).
+- **Irmãos do M18 (pegos no audit, não na minha 1ª varredura):** `process-flow-followups` (fn + **cron horário jobid 32** disparando 24×/dia sobre `flow_states` vazio = no-op perpétuo) e `guided-flow-builder` (fn órfã, caller deletado) também removidos. Migration `20260613000000` desagenda o cron.
+- **Frontend removido:** UI dos Fluxos (`src/components/flows/`, 5 páginas `Flow*`, hooks `useFlows`/`useFlowSteps`/`useFlowTriggers`/`useInstallTemplate`, `flowTemplates`, `types/flows`), 5 rotas `/flows`, seção "Fluxos" da Sidebar, bloco `flow_states` do clear-context em Leads/LeadDetail.
+- **Deixado inerte (follow-up opcional):** schema do DB (coluna `instances.use_orchestrator` + tabelas `flows`/`flow_states`/`flow_steps`/`flow_triggers`, com 1 flow de teste leftover) — drop exige regen do `types.ts` (HIGH RISK); RPC `install_flow_template` órfã; docs do M18 no vault (a marcar descontinuadas).
+- **Total: −10,4k linhas** em 3 commits atômicos (`6fd1d7d` backend · `e44069e` frontend · `06ded1a` leftovers). Verificação: tsc 0, deno check (webhook) 0, vite build ✓ (sem chunks Flow), vitest 19 fails (todos pré-existentes, 0 novos). **Bônus do audit:** mediu o carrossel em prod (ai_agent_runs 30d) e derrubou a premissa de backlog "~4s serial" — é **1 chamada HTTP**; o delta de ~2,5s/turno é o round do LLM, não o envio → item de latência arquivado como misdiagnose.
+- Deploy: migration de unschedule aplicada, webhook **v17**, 3 edge fns órfãs deletadas de prod, frontend push→CI→Portainer.
 
 ---
 
