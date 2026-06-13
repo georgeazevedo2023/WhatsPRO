@@ -917,6 +917,13 @@ Deno.serve(async (req) => {
     // segue nulo pros demais specialists (set_tags handler não pode religar busca em
     // qualification/greeting/etc). Ver deriveProductSearchParams + bloco de dispatch.
     let routerProductPreSearch: { query: string; category: string } | null = null
+    // Onda 2 item 4 (2026-06-12): sob router, o exit_action=handoff do motor
+    // determinístico (auto-extract atingiu max_score de stage com exit_action=handoff)
+    // era DESCARTADO ("specialist owns handoff decision") — a qualificação completa
+    // se perdia e a conversa fragmentava entre specialists sem transbordar. Agora o
+    // sinal é preservado aqui e o dispatch força o handoff_specialist + injeta a
+    // diretiva no prompt + arma pendingHandoffTrigger (backstop do step 22).
+    let routerExitActionHandoff: PendingExitActionHandoff | null = null
     // R130 (2026-05-21): override pós-LLM — quando set_tags adiciona interesse:NEW e
     // tem próximo field não respondido, forçar essa pergunta exata. LLM tende a
     // improvisar/inventar fields ou usar send_poll com opções erradas.
@@ -2532,8 +2539,13 @@ ${contextBlock}`
     // dono da decisão de handoff (regra 8 do prompt: monta PEDIDO COMPLETO antes de
     // escalar). Desligar aqui evita escalada prematura no meio do fluxo de produto.
     if (pendingExitActionHandoff && agent.routing_mode === 'router') {
-      log.info('exit-action handoff skipped — routing_mode=router (specialist owns handoff decision)', {
-        category: (pendingExitActionHandoff as any)?.category,
+      // Onda 2 item 4 (2026-06-12): NÃO descarta mais — preserva o sinal pro bloco de
+      // dispatch forçar o handoff_specialist (que confirma ao lead + chama a tool com
+      // resumo rico; step 22 executa se o LLM só verbalizar). Antes o sinal era nulado
+      // e a qualificação completa se perdia (conversa fragmentava sem transbordar).
+      routerExitActionHandoff = pendingExitActionHandoff
+      log.info('exit-action handoff deferred — routing_mode=router (handoff_specialist will own it)', {
+        reason: pendingExitActionHandoff.reason,
       })
       pendingExitActionHandoff = null
     }
@@ -3515,7 +3527,10 @@ ${contextBlock}`
           //   - mode='qualify_then_handoff' (offline): product_specialist qualifica
           //     brevemente + handoff (qualification_specialist não tem essa tool).
           //   - mode='no_category': respeita a escolha do router (sem categoria a gatear).
-          if (!inNoResultLoop && (routerResult.intent === 'produto' || routerResult.intent === 'qualificacao')) {
+          // Onda 2 item 4: com exit_action=handoff pendente (qualif COMPLETA), o gate
+          // "buscar vs qualificar" é irrelevante — pular evita que ele devolva mais
+          // uma pergunta determinística e atropele o transbordo (override abaixo).
+          if (!inNoResultLoop && !routerExitActionHandoff && (routerResult.intent === 'produto' || routerResult.intent === 'qualificacao')) {
             const currentPremiumVerdict = evaluateProductQualificationFlow({
               tags: conversation.tags || [],
               agent,
@@ -3745,6 +3760,35 @@ ${contextBlock}`
             }
           }
 
+          // ── Onda 2 item 4 (2026-06-12): exit_action=handoff é AUTORIDADE ──────
+          // O motor determinístico concluiu a qualificação (auto-extract atingiu o
+          // max_score de um stage com exit_action=handoff). Antes esse sinal era
+          // descartado sob router; agora vence QUALQUER classificação do router/gate:
+          // força o handoff_specialist com diretiva explícita no prompt. Defesa em
+          // camadas: (a) o specialist chama handoff_to_human com resumo rico; (b) se
+          // o LLM só verbalizar, pendingHandoffTrigger faz o step 22 do dispatch
+          // EXECUTAR o transbordo real (fila + shadow + msg). Guard de tag DURÁVEL
+          // (handoffAlreadyCreated) impede re-transbordo (feedback_guard_must_check_durable_tags).
+          // Roda DEPOIS do no-result loop (que sempre retorna Response) e dos overrides
+          // do gate — qualificação completa fecha o ciclo, não reabre pergunta.
+          let exitActionDirective: string | null = null
+          if (routerExitActionHandoff && !isShadow && !handoffAlreadyCreated) {
+            def = buildHandoffSpecialistDef()
+            exitActionDirective = [
+              '[QUALIFICAÇÃO COMPLETA — AÇÃO OBRIGATÓRIA NESTE TURNO]',
+              `O sistema determinístico concluiu a qualificação desta categoria (pedido: ${routerExitActionHandoff.reason}).`,
+              'Confirme ao lead, em 1 frase calorosa, que o vendedor vai assumir agora e chame handoff_to_human com o resumo completo (itens + qualificações coletadas + nome/cidade se souber).',
+              'NÃO faça mais perguntas de qualificação e NÃO busque produto.',
+            ].join('\n')
+            if (!pendingHandoffTrigger) {
+              pendingHandoffTrigger = 'exit_action_qualificacao_completa'
+              pendingHandoffTriggerMsg = incomingText
+            }
+            log.info('exit-action handoff honrado sob router → handoff_specialist forçado', {
+              router_intent: routerResult.intent, reason: routerExitActionHandoff.reason,
+            })
+          }
+
           if (isShadow) {
             // Shadow mode (lite): só o ROUTER roda e loga. NÃO rodamos o specialist,
             // porque executeToolSafe tem efeitos colaterais reais (envia carrossel,
@@ -3852,6 +3896,7 @@ ${contextBlock}`
               startTime,
               supabase, log, corsHeaders,
               preSearchContext: (preSearchContext || noResultDirective) || undefined,
+              exitActionDirective: exitActionDirective || undefined,
             }
             const specialistResult = await runSpecialist(specialistCtx, dispatchDef)
 

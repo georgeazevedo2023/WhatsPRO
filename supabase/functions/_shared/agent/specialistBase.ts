@@ -116,6 +116,14 @@ export interface SpecialistCtx {
    * em buscar de novo. Vazio = comportamento anterior (specialist decide buscar).
    */
   preSearchContext?: string
+
+  /**
+   * Onda 2 item 4 (2026-06-12): diretiva por-turno injetada quando o motor
+   * determinístico concluiu a qualificação com exit_action=handoff. Vai pro FIM
+   * do system prompt (recency bias) instruindo o specialist a confirmar ao lead
+   * e chamar handoff_to_human AGORA com resumo completo. Vazio = sem exit action.
+   */
+  exitActionDirective?: string
 }
 
 /**
@@ -245,10 +253,11 @@ export async function runSpecialist(
   // TODO specialist (antes era copiada em 3 prompts e ausente em objection/handoff).
   const humanizationRules = buildHumanizationRules()
   // Ordem: [memória do lead] → [já cumprimentado] → [prompt do specialist] →
-  // [humanização] → [info da empresa] → [uso do nome] → [pré-busca]. A pré-busca vai
-  // por último (mais perto da decisão) pra o product specialist tratá-la como
-  // verdade-base "search já feito" e compor em 1 round.
-  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, humanizationRules, businessSection, nameDirective, ctx.preSearchContext]
+  // [humanização] → [info da empresa] → [uso do nome] → [exit action] → [pré-busca].
+  // A pré-busca vai por último (mais perto da decisão) pra o product specialist
+  // tratá-la como verdade-base "search já feito" e compor em 1 round; a diretiva de
+  // exit action fica logo antes (recency bias — ação obrigatória do turno).
+  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, humanizationRules, businessSection, nameDirective, ctx.exitActionDirective, ctx.preSearchContext]
     .filter(Boolean)
     .join('\n\n')
   const promptChars = systemPrompt.length
