@@ -335,6 +335,26 @@ export function autoFixHumanizationViolations(
   return { text: out, fixed }
 }
 
+/**
+ * Conta mensagens desde o último uso do nome do lead pelo bot.
+ * 0 = última msg usou o nome; 3+ = seguro usar de novo; 99 = nunca/sem nome.
+ * (Onda 2 2026-06-12: movida de validatorAgent.ts pra cá — é pura e o
+ * validatorAgent puxa supabaseClient/llmProvider, que não carregam em teste.)
+ */
+export function countMsgsSinceNameUse(
+  leadName: string | null,
+  recentOutgoingMessages: string[],
+): number {
+  if (!leadName || leadName.length < 2) return 99 // no name = always safe
+  const nameLower = leadName.toLowerCase()
+  for (let i = 0; i < recentOutgoingMessages.length; i++) {
+    if (recentOutgoingMessages[i].toLowerCase().includes(nameLower)) {
+      return i // 0 = last msg had name, 1 = 1 msg ago, etc
+    }
+  }
+  return 99 // name never used = safe
+}
+
 export function validateLLMResponse(
   text: string,
   ctx: ResponseValidatorContext,

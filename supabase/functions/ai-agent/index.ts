@@ -20,7 +20,9 @@ import { detectPayment } from '../_shared/paymentDetection.ts'
 import { detectBrand } from '../_shared/brandDetection.ts'
 import { detectClientType } from '../_shared/clientTypeDetection.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
-import { validateResponse, countMsgsSinceNameUse, type ValidatorConfig } from '../_shared/validatorAgent.ts'
+// Onda 2 (2026-06-12): validator LLM (validatorAgent) aposentado do hot path —
+// o sanitizer determinístico fonte única (mesmo do specialistBase) cobre o fallback.
+import { sanitizeAgentResponse } from '../_shared/agent/responseSanitizer.ts'
 import { ttsWithFallback } from '../_shared/ttsProviders.ts'
 import { isTrivialMessage } from '../_shared/aiRuntime.ts'
 import { runLlmCallLoop } from '../_shared/agent/llmCallLoop.ts'
@@ -44,7 +46,6 @@ import { buildHandoffSpecialistDef } from '../_shared/agent/handoffSpecialist.ts
 import { detectProductChoice, buildProductChoiceHint } from '../_shared/agent/productChoiceDetector.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
 import { buildPromptRulesString, buildHumanizationRules } from '../_shared/promptRules.ts'
-import { validateLLMResponse } from '../_shared/responseValidator.ts'
 import { buildHorizontalHandoffReason } from '../_shared/horizontalQualif.ts'
 // Auditoria paridade (2026-06-02): religa 2 caps que existiam na UI mas eram toggles mortos.
 import { shouldHandoffByConversationMinutes, shouldHandoffByNegativeSentiment } from '../_shared/agent/handoffCaps.ts'
@@ -3909,175 +3910,48 @@ ${contextBlock}`
     const outputTokens = llmLoopResult.outputTokens
     const usedModel = llmLoopResult.usedModel
 
-    // Validator + question mark guard rodam linearmente após o loop (antes da Onda 4
-    // ficavam dentro do while wrapper com `break` no final — Sprint B5 destrincou pra
-    // simplificar fluxo).
+    // ── SANITIZER UNIFICADO (Onda 2 da auditoria, 2026-06-12) ───────────────
+    // Mesmo enforcement determinístico do router (responseSanitizer fonte única):
+    // SAFE_TEXT → ponte propositiva segura; AUTO_FIX → reescrita cirúrgica;
+    // perguntas empilhadas → mantém a última. O validator LLM (validatorAgent)
+    // foi APOSENTADO deste caminho — paridade monolith×router era o crítico #1
+    // da auditoria (mesma resposta passava num caminho e era bloqueada no outro).
+    // Efeitos colaterais da aposentadoria (deliberados):
+    //   - verdict BLOCK→handoff antigo sai: texto nocivo vira ponte segura
+    //     (comportamento do router/prod desde v7.55.0), sem transbordo surpresa;
+    //   - validator_enabled/validator_model/validator_rigor ficam SEM leitor no
+    //     hot path (decisão de UI pendente do dono — remover ou reaproveitar);
+    //   - ai_agent_validations deixa de receber rows novas (telemetria agora é
+    //     o event response_sanitized em ai_agent_logs, igual ao router).
     {
-
-      // ── VALIDATOR AGENT ─────────────────────────────────────────────
-      // Scores response 0-10, rewrites if needed, blocks if critical violation
-      if (agent.validator_enabled !== false && responseText.trim().length >= 15) {
-        const recentOutgoing = contextMessages
+      const sanitized = sanitizeAgentResponse(responseText, {
+        outgoingTexts: contextMessages
           .filter((m: any) => m.direction === 'outgoing' && m.content)
-          .slice(-6)
-          .map((m: any) => m.content)
-        const msgsSinceName = countMsgsSinceNameUse(leadName, recentOutgoing)
-        let deterministicBlock: { rule: string; detail: string }[] = []
-
-        // Sprint B1 (2026-05-21): determ validator (telemetria-only nesta sprint).
-        // Roda antes do validator LLM. Quando dados mostrarem confiança alta, vira enforcement.
+          .map((m: any) => String(m.content)),
+        leadName,
+        toolCallsLog,
+        incomingText,
+        tags: (conversation.tags as string[]) || [],
+        agent,
+        log,
+      })
+      if (sanitized.enforced) {
+        log.warn('monolith: response SANITIZED by validator backstop', {
+          rules: sanitized.rules,
+          original_preview: (responseText || '').substring(0, 160),
+        })
         try {
-          const allOutgoing = contextMessages.filter((m: any) => m.direction === 'outgoing' && m.content)
-          const detResult = validateLLMResponse(responseText, {
-            messageCount: allOutgoing.length,
-            leadName,
-            msgsSinceLastNameUse: msgsSinceName,
-            catalogPrices: toolCallsLog
-              .filter(t => t.name === 'search_products' && t.result)
-              .flatMap(t => (String(t.result).match(/R\$[\d.,]+/g) || [])),
-          })
-          if (!detResult.valid) {
-            if (detResult.blockSend) {
-              deterministicBlock = detResult.violations
-                .filter((v) => v.severity === 'block')
-                .map((v) => ({ rule: v.rule, detail: v.detail }))
-            }
-            log.warn('responseValidator (determ) caught violations', {
-              violations: detResult.violations.map(v => `${v.rule}:${v.severity}`),
-              blockSend: detResult.blockSend,
-              would_suggest: detResult.rewriteSuggestion,
-            })
-          }
-        } catch (e) {
-          log.error('responseValidator determ failed (non-fatal)', { error: (e as Error).message })
-        }
-
-        // Collect lead questions from this turn for validator
-        const leadQuestionsThisTurn = incomingMessages
-          .map((m: any) => (m.content || '').trim())
-          .filter((t: string) => t.length > 3 && (/\?/.test(t) || /^(qual|como|quando|onde|quanto|aceita|faz|tem|voces)/i.test(t)))
-
-        // Collect known catalog prices from tool calls
-        const catalogPrices = toolCallsLog
-          .filter(t => t.name === 'search_products' && t.result)
-          .flatMap(t => {
-            const matches = t.result.match(/R\$[\d.,]+/g)
-            return matches || []
-          })
-
-        const validatorConfig: ValidatorConfig = {
-          enabled: true,
-          model: agent.validator_model || 'gpt-4.1-nano',
-          rigor: agent.validator_rigor || 'moderado',
-          personality: agent.personality || 'Profissional, simpático e objetivo',
-          systemPrompt: agent.system_prompt || '',
-          blockedTopics: agent.blocked_topics || [],
-          blockedPhrases: agent.blocked_phrases || [],
-          maxDiscountPercent: agent.max_discount_percent,
-          businessInfo: agent.business_info || null,
-          leadName,
-          msgsSinceLastNameUse: msgsSinceName,
-          leadQuestions: leadQuestionsThisTurn,
-          catalogPrices,
-        }
-
-        const validation = deterministicBlock.length > 0
-          ? {
-              score: 1,
-              verdict: 'BLOCK' as const,
-              violations: deterministicBlock.map((v) => ({
-                rule: v.rule,
-                severity: 'critico',
-                detail: v.detail,
-                deduction: -9,
-              })),
-              bonuses: [],
-              rewritten: null,
-              suggestion: 'Bloqueado por validador deterministico antes do envio.',
-              block_action: null,
-            }
-          : await validateResponse(responseText, validatorConfig, agent_id, conversation_id)
-        log.info('Validator result', { score: validation.score, verdict: validation.verdict, violations: validation.violations.length })
-
-        if (validation.verdict === 'BLOCK') {
-          // Bug 21+22 (2026-05-17):
-          // - Bug 22: este path era o 4o caminho que ignorava outside_hours (escapou do Bug 16 fix).
-          //   Antes: `agent.handoff_message` direto (sem variante outside). Agora: pickHandoffMessage helper.
-          // - Bug 21: validator BLOCK em qualificacao prematura (lead disse so o produto, faltam fields)
-          //   nao deve transbordar — deve devolver pergunta de qualif. Antes: handoff cego desperdicava lead.
-          //   Guard: se categoria detectada tem PROXIMA PERGUNTA OBRIGATORIA, enviamos a propria qualif msg
-          //   em vez de handoff. Handoff so se nao houver categoria/qualif pendente.
-          const qualifPending = (qualificationContext || '').includes('PRÓXIMA PERGUNTA OBRIGATÓRIA')
-          if (qualifPending) {
-            // Extrair a "FRASE EXATA SUGERIDA" (phrasing do stage) — formato literal do buildQualificationContext.
-            const m = (qualificationContext || '').match(/FRASE EXATA SUGERIDA:\s*"([^"\n]+)"/)
-            const qualifMsg = (m && m[1] && m[1].trim()) || 'Pra te ajudar melhor, me conta um pouco mais sobre o que você precisa?'
-            await sendTextMsg(qualifMsg)
-            await supabase.from('conversation_messages').insert({
-              conversation_id, direction: 'outgoing', content: qualifMsg, media_type: 'text',
-            })
-            broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: qualifMsg, media_type: 'text' })
-            await supabase.from('ai_agent_logs').insert({
-              agent_id, conversation_id, event: 'response_sent',
-              metadata: { source: 'validator_block_qualif_fallback', validation_score: validation.score, violations: validation.violations, response_text: qualifMsg },
-            })
-            return new Response(JSON.stringify({
-              ok: true, response: qualifMsg, handoff: false, reason: 'validator_block_qualif_fallback',
-              validator: { score: validation.score, violations: validation.violations },
-              tokens: { input: inputTokens, output: outputTokens },
-              latency_ms: Date.now() - startTime,
-            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-          }
-          // Sem qualif pendente — handoff real. Aplicar pickHandoffMessage (Bug 22).
-          const notifyOutsideV = agent.notify_outside_hours_on_handoff !== false
-          const outsideHoursV = notifyOutsideV && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
-          const handoffMsg = personalizeHandoffMessage(
-            pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursV }) ||
-              'Só um instante, vou te encaminhar para nosso consultor de vendas.',
-            { leadName },
-          )
-          const { result: queueRes, finalMessage } = await runQueueAssignment(handoffMsg)
-          await sendTextMsg(finalMessage)
-          await supabase.from('conversation_messages').insert({
-            conversation_id, direction: 'outgoing', content: finalMessage, media_type: 'text',
-          })
-          await supabase.from('conversations').update({
-            status_ia: STATUS_IA.SHADOW,
-            tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
-            lead_msg_count: 0,
-          }).eq('id', conversation_id)
-          broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: finalMessage, media_type: 'text' })
           await supabase.from('ai_agent_logs').insert({
-            agent_id, conversation_id, event: 'handoff',
-            metadata: { reason: 'validator_block', validation_score: validation.score, violations: validation.violations, outside_hours: outsideHoursV, queue: queueRes },
+            agent_id, conversation_id, event: 'response_sanitized',
+            metadata: {
+              source: 'monolith',
+              rules: sanitized.rules,
+              original_text: (responseText || '').substring(0, 500),
+              sanitized_text: sanitized.text,
+            },
           })
-          return new Response(JSON.stringify({
-            ok: true, response: finalMessage, handoff: true, reason: 'validator_block',
-            validator: { score: validation.score, violations: validation.violations },
-            queue: queueRes,
-            tokens: { input: inputTokens, output: outputTokens },
-            latency_ms: Date.now() - startTime,
-          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-        }
-
-        if (validation.verdict === 'REWRITE' && validation.rewritten) {
-          log.info('Validator rewrote response', { original: responseText.substring(0, 80), rewritten: validation.rewritten.substring(0, 80) })
-          responseText = validation.rewritten
-        }
-      }
-
-      // HARDCODED GUARD: max 1 question per message — validator LLM often miscounts
-      // Count real question marks (ignore "?" inside quotes or rhetorical)
-      const questionMarks = (responseText.match(/\?/g) || []).length
-      if (questionMarks > 1) {
-        // Split into sentences and keep only up to the first question
-        const sentences = responseText.split(/(?<=[.!?])\s+/)
-        const firstQuestionIdx = sentences.findIndex(s => s.includes('?'))
-        if (firstQuestionIdx >= 0 && firstQuestionIdx < sentences.length - 1) {
-          const trimmed = sentences.slice(0, firstQuestionIdx + 1).join(' ')
-          log.info('Hardcoded guard: removed extra questions', { original: responseText.substring(0, 120), trimmed: trimmed.substring(0, 120), questionMarks })
-          responseText = trimmed
-        }
+        } catch { /* observability — non-fatal */ }
+        responseText = sanitized.text
       }
     }
 

@@ -234,20 +234,6 @@ function parseValidatorResponse(text: string): Omit<ValidatorResult, 'latencyMs'
   }
 }
 
-/**
- * Count messages since the agent last used the lead's name.
- * Returns a number: 0 = used in last message, 3+ = safe to use again.
- */
-export function countMsgsSinceNameUse(
-  leadName: string | null,
-  recentOutgoingMessages: string[],
-): number {
-  if (!leadName || leadName.length < 2) return 99 // no name = always safe
-  const nameLower = leadName.toLowerCase()
-  for (let i = 0; i < recentOutgoingMessages.length; i++) {
-    if (recentOutgoingMessages[i].toLowerCase().includes(nameLower)) {
-      return i // 0 = last msg had name, 1 = 1 msg ago, etc
-    }
-  }
-  return 99 // name never used = safe
-}
+// Onda 2 (2026-06-12): countMsgsSinceNameUse vive em responseValidator.ts (pura);
+// re-export aqui pra compat com imports antigos.
+export { countMsgsSinceNameUse } from './responseValidator.ts'
