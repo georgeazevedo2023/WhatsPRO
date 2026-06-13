@@ -246,23 +246,23 @@ describe('personalizeHandoffMessage', () => {
       leadName: 'George',
       itemSummary: 'Pedido de 50 telhas Brasilit 244x110',
     })
-    expect(out).toBe(`George, anotei seu pedido: 50 telhas Brasilit 244x110. ${base}`)
+    expect(out).toBe(`George, seu pedido de 50 telhas Brasilit 244x110. ${base}`)
   })
 
   it('usa só o primeiro nome', () => {
     const out = personalizeHandoffMessage(base, { leadName: 'Maria Silva', itemSummary: 'tinta acrílica branca' })
-    expect(out.startsWith('Maria, anotei seu pedido: tinta acrílica branca.')).toBe(true)
+    expect(out.startsWith('Maria, seu pedido de tinta acrílica branca.')).toBe(true)
     expect(out).not.toContain('Silva')
   })
 
-  it('só nome (sem item) → "anotei tudo aqui"', () => {
+  it('só nome (sem item) → só prefixa o nome (handoff_message já diz o resto)', () => {
     const out = personalizeHandoffMessage(base, { leadName: 'Carlos', itemSummary: null })
-    expect(out).toBe(`Carlos, anotei tudo aqui. ${base}`)
+    expect(out).toBe(`Carlos, ${base}`)
   })
 
-  it('só item (sem nome) → capitaliza Anotei', () => {
+  it('só item (sem nome) → "Seu pedido de" capitalizado', () => {
     const out = personalizeHandoffMessage(base, { leadName: null, itemSummary: '10 lâmpadas LED 9W' })
-    expect(out).toBe(`Anotei seu pedido: 10 lâmpadas LED 9W. ${base}`)
+    expect(out).toBe(`Seu pedido de 10 lâmpadas LED 9W. ${base}`)
   })
 
   it('no-op quando não há nome nem item', () => {
@@ -272,7 +272,7 @@ describe('personalizeHandoffMessage', () => {
 
   it('descarta código interno de reason (telha_fora_hora)', () => {
     const out = personalizeHandoffMessage(base, { leadName: 'João', itemSummary: 'telha_fora_hora' })
-    expect(out).toBe(`João, anotei tudo aqui. ${base}`) // item ignorado, nome mantido
+    expect(out).toBe(`João, ${base}`) // item (código interno) ignorado, nome mantido
   })
 
   it('strip do sufixo de código COLADO na frase (caso E2E "interna_fora_hora")', () => {
@@ -281,12 +281,12 @@ describe('personalizeHandoffMessage', () => {
     expect(out).not.toContain('_fora_hora')
     expect(out).toContain('parede interna')
     expect(out).toContain('manta líquida')
-    expect(out.startsWith('Maria, anotei seu pedido:')).toBe(true)
+    expect(out.startsWith('Maria, seu pedido de')).toBe(true)
   })
 
   it('strip de prefixo redundante "Pedido de"/"interesse em"', () => {
     expect(personalizeHandoffMessage(base, { itemSummary: 'interesse em porcelanato 60x60' }))
-      .toBe(`Anotei seu pedido: porcelanato 60x60. ${base}`)
+      .toBe(`Seu pedido de porcelanato 60x60. ${base}`)
   })
 
   it('não duplica nome se a msg já começa com ele', () => {
@@ -304,7 +304,7 @@ describe('personalizeHandoffMessage', () => {
     const longItem = 'a'.repeat(220)
     const out = personalizeHandoffMessage(base, { itemSummary: longItem })
     expect(out).toContain('…')
-    expect(out.length).toBeLessThan(base.length + 185) // 160 do item + "Anotei seu pedido: …. "
+    expect(out.length).toBeLessThan(base.length + 185) // 160 do item + "Seu pedido de …. "
   })
 
   // (2026-05-26) anti-vazamento: reason em 3ª pessoa/instrução é PRO VENDEDOR, nunca
@@ -314,14 +314,14 @@ describe('personalizeHandoffMessage', () => {
     const out = personalizeHandoffMessage(base, { leadName: 'Pedro', itemSummary: reason })
     expect(out).not.toContain('Lead quer')
     expect(out).not.toMatch(/anotei seu pedido:/i) // não inventa pedido a partir de narração interna
-    expect(out).toBe(`Pedro, anotei tudo aqui. ${base}`)
+    expect(out).toBe(`Pedro, ${base}`)
   })
 
   it('NÃO vaza instrução pro vendedor ("Pedido para o vendedor indicar…")', () => {
     const reason = 'Pedido para o vendedor indicar a opção mais barata de revestimento'
     const out = personalizeHandoffMessage(base, { leadName: 'Ana', itemSummary: reason })
     expect(out).not.toMatch(/indicar/i)
-    expect(out).toBe(`Ana, anotei tudo aqui. ${base}`)
+    expect(out).toBe(`Ana, ${base}`)
   })
 
   it('strip "Pedido completo:" + descarta meta-nota pro vendedor (caso E2E multi-item)', () => {
@@ -334,6 +334,6 @@ describe('personalizeHandoffMessage', () => {
     // sem "Pedido completo:" duplicado e sem a meta-nota do vendedor
     expect(out).not.toContain('Pedido completo:')
     expect(out).not.toContain('Lead já confirmou')
-    expect(out.startsWith('Carlos, anotei seu pedido: 1 tinta acrílica')).toBe(true)
+    expect(out.startsWith('Carlos, seu pedido de 1 tinta acrílica')).toBe(true)
   })
 })

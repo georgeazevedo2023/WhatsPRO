@@ -100,21 +100,22 @@ describe('matchExcludedProduct', () => {
     const r = matchExcludedProduct('quero jardinagem', SAMPLE_NO_MESSAGE)
     expect(r?.product.id).toBe('jardinagem')
     expect(r?.matchedKeyword).toBe('jardinagem')
-    expect(r?.message).toBe('Não trabalhamos com jardinagem, posso te ajudar com outro produto?')
+    expect(r?.message).toBe('Esse não é o nosso forte aqui, mas trabalhamos com outros materiais relacionados. Quer dar uma olhada em algo nessa linha?')
   })
 
   it('usa fallback quando message vazia', () => {
     const r = matchExcludedProduct('preciso de planejado', SAMPLE_NO_MESSAGE)
     expect(r?.product.id).toBe('mobilia')
     expect(r?.matchedKeyword).toBe('planejado')
-    expect(r?.message).toBe('Não trabalhamos com planejado, posso te ajudar com outro produto?')
+    expect(r?.message).toBe('Esse não é o nosso forte aqui, mas trabalhamos com outros materiais relacionados. Quer dar uma olhada em algo nessa linha?')
   })
 
-  it('fallback usa keyword ORIGINAL (com case/acento do admin)', () => {
+  it('matchedKeyword preserva case/acento do admin (mesmo com fallback humanizado)', () => {
     const items = [{ id: 'x', keywords: ['Mármore Carrara'], message: '' }]
     const r = matchExcludedProduct('vocês têm marmore carrara?', items)
     expect(r?.matchedKeyword).toBe('Mármore Carrara')
-    expect(r?.message).toBe('Não trabalhamos com Mármore Carrara, posso te ajudar com outro produto?')
+    // sem suggested_categories → fallback genérico humanizado (v7.57.3); a keyword vai pra tag/log, não pro lead
+    expect(r?.message).toBe('Esse não é o nosso forte aqui, mas trabalhamos com outros materiais relacionados. Quer dar uma olhada em algo nessa linha?')
   })
 
   it('respeita message customizada quando preenchida', () => {
@@ -131,9 +132,15 @@ describe('matchExcludedProduct', () => {
 })
 
 describe('buildFallbackMessage', () => {
-  it('formata frase padrão com a keyword', () => {
+  it('sem suggested_categories → "outros materiais relacionados" (tom humanizado v7.57.3)', () => {
     expect(buildFallbackMessage('caixa de correio')).toBe(
-      'Não trabalhamos com caixa de correio, posso te ajudar com outro produto?',
+      'Esse não é o nosso forte aqui, mas trabalhamos com outros materiais relacionados. Quer dar uma olhada em algo nessa linha?',
+    )
+  })
+
+  it('com suggested_categories → lista as alternativas', () => {
+    expect(buildFallbackMessage('climatizador', undefined, ['cabos', 'disjuntores'])).toBe(
+      'Esse não é o nosso forte aqui, mas trabalhamos com cabos e disjuntores. Quer dar uma olhada em algo nessa linha?',
     )
   })
 })

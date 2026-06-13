@@ -159,7 +159,7 @@ export function enrichOutsideHoursMessage(
  *
  * Ex.: msg base "No momento estamos fora do horário..." + leadName "George" +
  *   itemSummary "Pedido de 50 telhas Brasilit 244x110" →
- *   "George, anotei seu pedido: 50 telhas Brasilit 244x110. No momento estamos fora..."
+ *   "George, seu pedido de 50 telhas Brasilit 244x110. No momento estamos fora..."
  *
  * No-op gracioso quando não há nem nome nem item legível. Códigos internos de
  * reason (ex.: "telha_fora_hora") são ignorados — nunca viram texto pro lead.
