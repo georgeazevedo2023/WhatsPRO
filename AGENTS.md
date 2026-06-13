@@ -37,7 +37,7 @@ React Frontend → Supabase Client (DB, Auth, Realtime, Storage)
 
 **Communication:** M1 WhatsApp Instances, M2 Helpdesk, M3 Broadcast, M12 WhatsApp Forms
 
-**Intelligence:** M10 AI Agent (9 tools), M17 F1 Automation Engine, M17 F3 Agent Profiles, M17 F4 Polls, M17 F5 NPS, M18 Fluxos v3.0 (orchestrator)
+**Intelligence:** M10 AI Agent (9 tools), M17 F1 Automation Engine, M17 F3 Agent Profiles, M17 F4 Polls, M17 F5 NPS, M18 Fluxos v3.0 (runtime descontinuado v7.90.0 — superado pelo router do ai-agent)
 
 **CRM & Leads:** M11 Leads Database, M5 CRM Kanban, M6 Catalog (with URL scraping + fuzzy search)
 
@@ -65,7 +65,7 @@ React Frontend → Supabase Client (DB, Auth, Realtime, Storage)
 
 **Shadow mode:** after handoff, `status_ia='shadow'` — extracts data without responding to lead. NEVER overwrites `full_name`.
 
-## Edge Functions (39 total)
+## Edge Functions (36 total)
 
 Located in `supabase/functions/`. Deno runtime.
 
@@ -78,7 +78,6 @@ Located in `supabase/functions/`. Deno runtime.
 - `ai-agent-debounce` — atomic 10s grouping (no-retry on 500)
 - `whatsapp-webhook` — receives msgs, parallel I/O, broadcast Realtime
 - `uazapi-proxy` — proxies to UAZAPI (send-chat, send-media, send-poll, etc.)
-- `orchestrator` — Fluxos v3.0 conversational orchestrator (M18)
 - `form-bot` / `form-public` — WhatsApp forms + landing forms
 - `bio-public` — Bio Link page + lead capture
 - `go` — UTM redirect with countdown landing

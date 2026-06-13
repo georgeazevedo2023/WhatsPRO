@@ -66,7 +66,7 @@ Supabase (PostgreSQL 17) — projeto ATUAL ref `prfcbfumyrrycsrcrvms` (conta `el
 - `poll_messages` (com `is_nps` flag), `poll_responses`
 - `notifications` (alertas para gerentes — nota ruim NPS, DB size)
 
-### Fluxos v3.0 (M18)
+### Fluxos v3.0 (M18) — runtime DESCONTINUADO (v7.90.0); tabelas mantidas inertes no schema (drop = follow-up HIGH RISK por regen de types.ts)
 - `flow_definitions`, `flow_steps`, `flow_triggers`, `flow_states`, `flow_events`
 - `flow_step_executions`, `flow_followups` (cron-driven)
 - `guided_sessions` (Conversa Guiada via gpt-4.1-mini)
@@ -115,7 +115,6 @@ Supabase (PostgreSQL 17) — projeto ATUAL ref `prfcbfumyrrycsrcrvms` (conta `el
 - `db-cleanup-weekly` — dom 04:13 UTC (M19 S8 Camada 3)
 - `db-cleanup-with-backup-weekly` — dom 05:23 UTC (M19 S8.1)
 - `db-backup-retention-monthly` — dia 1 03:17 UTC (M19 S8.1)
-- `process-flow-followups` — hourly (M18 S10)
 - `e2e-scheduled` — configurável via system_settings (M2 F4)
 
 ## Migrations
