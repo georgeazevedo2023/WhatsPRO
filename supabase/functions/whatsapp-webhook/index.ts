@@ -25,33 +25,10 @@ function normalizeMediaType(raw: string): string {
 
 const webhookModuleLog = createLogger('whatsapp-webhook')
 
-// ── USE_ORCHESTRATOR feature flag (S2 → S12) ─────────────────────────────────
-// S2:  flag global (system_settings.USE_ORCHESTRATOR) — padrão false em produção.
-// S12: per-instance flag (instances.use_orchestrator) com fallback global.
-// Prioridade: instância específica primeiro; global apenas se instância não ativou.
-async function getOrchestratorFlag(instanceId?: string): Promise<boolean> {
-  try {
-    // 1. Verifica flag da instância específica (mais granular)
-    if (instanceId) {
-      const { data: inst } = await supabase
-        .from('instances')
-        .select('use_orchestrator')
-        .eq('id', instanceId)
-        .maybeSingle()
-      if (inst?.use_orchestrator === true) return true
-      // use_orchestrator=false → não bloqueia, verifica global abaixo
-    }
-    // 2. Fallback: flag global (dev/emergência — padrão false em produção)
-    const { data } = await supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'USE_ORCHESTRATOR')
-      .maybeSingle()
-    return data?.value === 'true'
-  } catch {
-    return false // fallback seguro: usa debounce
-  }
-}
+// NOTA (2026-06-13): o runtime Fluxos v3.0 (edge fn `orchestrator`) foi
+// descomissionado — nunca foi ativado em prod (use_orchestrator=false em todas as
+// instâncias + global; 0 flow_states históricos) e foi superado pelo router do
+// `ai-agent`. Todo lead vai sempre pro `ai-agent-debounce` → `ai-agent`.
 
 async function getMediaLink(messageId: string, instanceToken: string, isAudio: boolean = false): Promise<{ url: string; mimetype?: string } | null> {
   try {
@@ -472,28 +449,16 @@ Deno.serve(async (req) => {
               .single()
 
             if (conv && (conv.status_ia === 'ligada' || conv.status_ia === 'shadow')) {
-              const useOrchestrator = await getOrchestratorFlag(conv.instance_id)
               const baseUrl = Deno.env.get('SUPABASE_URL')!
               const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
-              const targetUrl = useOrchestrator
-                ? `${baseUrl}/functions/v1/orchestrator`
-                : `${baseUrl}/functions/v1/ai-agent-debounce`
-              const targetPayload = useOrchestrator
-                ? {
-                    conversation_id: pollMsg.conversation_id,
-                    instance_id: conv.instance_id,
-                    message_text: selectedOptions.join(', '),
-                    message_type: 'poll_response',
-                  }
-                : {
-                    conversation_id: pollMsg.conversation_id,
-                    instance_id: conv.instance_id,
-                    message_text: selectedOptions.join(', '),
-                  }
-              fetchWithTimeout(targetUrl, {
+              fetchWithTimeout(`${baseUrl}/functions/v1/ai-agent-debounce`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
-                body: JSON.stringify(targetPayload),
+                body: JSON.stringify({
+                  conversation_id: pollMsg.conversation_id,
+                  instance_id: conv.instance_id,
+                  message_text: selectedOptions.join(', '),
+                }),
               }).catch(() => {}) // fire-and-forget
             }
           } catch { /* non-critical */ }
@@ -1438,47 +1403,25 @@ Deno.serve(async (req) => {
         .maybeSingle()
 
       if (aiAgent) {
-        const useOrchestrator = await getOrchestratorFlag(instance.id)
-
-        if (useOrchestrator) {
-          // S2+: Orchestrator skeleton (não envia mensagem ao lead ainda)
-          log.info('AI Agent active, triggering orchestrator', { conversationId: conversation.id })
-          backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/orchestrator`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${ANON_KEY}`,
-            },
-            body: JSON.stringify({
-              conversation_id: conversation.id,
-              instance_id: instance.id,
-              message_text: content ?? '',
-              message_type: mediaType || 'text',
+        log.info('AI Agent active, triggering debounce', { conversationId: conversation.id })
+        backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            conversation_id: conversation.id,
+            instance_id: instance.id,
+            contact_jid: contactJid,
+            message: {
+              content,
+              media_type: mediaType,
               media_url: mediaUrl || null,
-            }),
-          }).catch(err => log.error('Orchestrator call failed', { error: (err as Error).message })))
-        } else {
-          // Default: ai-agent-debounce (produção atual)
-          log.info('AI Agent active, triggering debounce', { conversationId: conversation.id })
-          backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/ai-agent-debounce`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${ANON_KEY}`,
+              direction: 'incoming',
             },
-            body: JSON.stringify({
-              conversation_id: conversation.id,
-              instance_id: instance.id,
-              contact_jid: contactJid,
-              message: {
-                content,
-                media_type: mediaType,
-                media_url: mediaUrl || null,
-                direction: 'incoming',
-              },
-            }),
-          }).catch(err => log.error('AI Agent debounce call failed', { error: (err as Error).message })))
-        }
+          }),
+        }).catch(err => log.error('AI Agent debounce call failed', { error: (err as Error).message })))
       }
     }
 
