@@ -27,6 +27,7 @@ import { dispatchResponse, type SendTextMsgFn, type SendTtsFn, type BroadcastEve
 import { buildLeadMemoryBlock, consolidateLeadMemory } from './leadMemory.ts'
 import { buildNameUsageDirective } from './greetingPolicy.ts'
 import { buildBusinessSection, type AgentForPrompt } from './promptSections.ts'
+import { buildHumanizationRules } from '../promptRules.ts'
 import { validateLLMResponse, autoFixHumanizationViolations } from '../responseValidator.ts'
 import { countMsgsSinceNameUse } from '../validatorAgent.ts'
 import { evaluateProductQualificationFlow } from './productQualificationFlow.ts'
@@ -443,11 +444,14 @@ export async function runSpecialist(
   // "sim", quando a loja é em Garanhuns). O monolito (index.ts) já injetava via
   // buildBusinessSection; os specialists não recebiam — gap fechado aqui.
   const businessSection = buildBusinessSection(ctx.agent as AgentForPrompt)
+  // Onda 2 (2026-06-12): DIRETRIZ DE HUMANIZAÇÃO fonte única — injetada aqui pra
+  // TODO specialist (antes era copiada em 3 prompts e ausente em objection/handoff).
+  const humanizationRules = buildHumanizationRules()
   // Ordem: [memória do lead] → [já cumprimentado] → [prompt do specialist] →
-  // [info da empresa] → [uso do nome] → [pré-busca]. A pré-busca vai por último (mais
-  // perto da decisão) pra o product specialist tratá-la como verdade-base "search já
-  // feito" e compor em 1 round.
-  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, businessSection, nameDirective, ctx.preSearchContext]
+  // [humanização] → [info da empresa] → [uso do nome] → [pré-busca]. A pré-busca vai
+  // por último (mais perto da decisão) pra o product specialist tratá-la como
+  // verdade-base "search já feito" e compor em 1 round.
+  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, humanizationRules, businessSection, nameDirective, ctx.preSearchContext]
     .filter(Boolean)
     .join('\n\n')
   const promptChars = systemPrompt.length

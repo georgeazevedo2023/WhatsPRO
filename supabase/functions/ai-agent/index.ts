@@ -43,7 +43,7 @@ import { buildHandoffSpecialistDef } from '../_shared/agent/handoffSpecialist.ts
 // Bug 2 Fix (v7.43.1): detector de clique "Eu quero" → hint pro LLM continuar venda
 import { detectProductChoice, buildProductChoiceHint } from '../_shared/agent/productChoiceDetector.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
-import { buildPromptRulesString } from '../_shared/promptRules.ts'
+import { buildPromptRulesString, buildHumanizationRules } from '../_shared/promptRules.ts'
 import { validateLLMResponse } from '../_shared/responseValidator.ts'
 import { buildHorizontalHandoffReason } from '../_shared/horizontalQualif.ts'
 // Auditoria paridade (2026-06-02): religa 2 caps que existiam na UI mas eram toggles mortos.
@@ -2621,6 +2621,9 @@ ${contextBlock}`
       tagsSection,
       absoluteSection,
       buildPromptRulesString(),
+      // Onda 2 (2026-06-12): humanização fonte única — mesmo bloco que o
+      // specialistBase injeta em todo specialist (paridade monolith×router).
+      buildHumanizationRules(),
       objectionsSection,
       extractionInstruction,
       knowledgeInstruction,

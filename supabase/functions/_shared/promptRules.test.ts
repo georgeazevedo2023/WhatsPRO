@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPromptRulesString } from './promptRules';
+import { buildPromptRulesString, buildHumanizationRules } from './promptRules';
 
 describe('buildPromptRulesString', () => {
   it('exists and returns a non-empty string', () => {
@@ -21,5 +21,26 @@ describe('buildPromptRulesString', () => {
     const out = buildPromptRulesString();
     expect(out.length).toBeGreaterThanOrEqual(600);
     expect(out.length).toBeLessThanOrEqual(1500);
+  });
+});
+
+describe('buildHumanizationRules (Onda 2 — fonte única nos 6 prompts)', () => {
+  it('contém as regras comuns que antes viviam copiadas nos specialists', () => {
+    const out = buildHumanizationRules();
+    expect(out).toContain('DIRETRIZ DE HUMANIZAÇÃO');
+    expect(out).toContain('Vou seguir coletando');          // clichês de IA
+    expect(out).toContain('anotei');                        // anti-narração
+    expect(out).toContain('parênteses estilo formulário');  // anti-formulário
+    expect(out).toContain('function-calling');              // anti-vazamento de tool
+    expect(out).toContain('resumo interno pro vendedor');   // anti-resumo no texto
+    expect(out).toContain('PARCIMÔNIA');                    // nome do lead
+    expect(out).toContain('Máximo 1 pergunta');             // 1 pergunta/msg
+    expect(out).toContain('Emoji');                         // emoji no fim, máx 1
+  });
+
+  it('é um bloco enxuto (não infla o prompt dos specialists)', () => {
+    const out = buildHumanizationRules();
+    expect(out.length).toBeGreaterThanOrEqual(800);
+    expect(out.length).toBeLessThanOrEqual(2400);
   });
 });
