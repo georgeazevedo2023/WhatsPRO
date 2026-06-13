@@ -2,7 +2,7 @@
 // Usa as funções REAIS (buildInteresseRegex + matchCategoryBySearchText) com um
 // recorte do config real das instâncias Eletropiso. Prova: motor → motores,
 // sem colisão com portas/tintas/fechaduras.
-import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
+import { describe, it, expect } from 'vitest'
 import { matchCategoryBySearchText } from './serviceCategories.ts'
 
 // Ordem espelha o array real (tintas antes de portas; motores no fim).
@@ -18,24 +18,26 @@ const cfg = {
 // deno-lint-ignore no-explicit-any
 const cat = (t: string) => matchCategoryBySearchText(t, cfg as any)?.id ?? null
 
-Deno.test('motor → motores (caso Cleber)', () => {
-  assertEquals(cat('motor para portão'), 'motores')
-  assertEquals(cat('motor de portão'), 'motores')
-  assertEquals(cat('vocês tem motor de portao?'), 'motores')
-  assertEquals(cat('quero automatizar meu portão'), 'motores')
-  assertEquals(cat('preciso de um automatizador'), 'motores')
-})
+describe('serviceCategories', () => {
+  it('motor → motores (caso Cleber)', () => {
+    expect(cat('motor para portão')).toEqual('motores')
+    expect(cat('motor de portão')).toEqual('motores')
+    expect(cat('vocês tem motor de portao?')).toEqual('motores')
+    expect(cat('quero automatizar meu portão')).toEqual('motores')
+    expect(cat('preciso de um automatizador')).toEqual('motores')
+  })
 
-Deno.test('motor NÃO rouba porta de alumínio (porta ≠ portão)', () => {
-  assertEquals(cat('tem porta de alumínio?'), 'portas')
-})
+  it('motor NÃO rouba porta de alumínio (porta ≠ portão)', () => {
+    expect(cat('tem porta de alumínio?')).toEqual('portas')
+  })
 
-Deno.test('motor não cria falso-positivo (motorista/motora)', () => {
-  // "motor" é palavra inteira; não casa dentro de "motorista"
-  assertEquals(cat('sou motorista, queria uma porta'), 'portas')
-})
+  it('motor não cria falso-positivo (motorista/motora)', () => {
+    // "motor" é palavra inteira; não casa dentro de "motorista"
+    expect(cat('sou motorista, queria uma porta')).toEqual('portas')
+  })
 
-Deno.test('tinta para porta segue indo pra tintas (ordem preservada)', () => {
-  assertEquals(cat('tinta para porta'), 'tintas')
-  assertEquals(cat('verniz para porta'), 'tintas')
+  it('tinta para porta segue indo pra tintas (ordem preservada)', () => {
+    expect(cat('tinta para porta')).toEqual('tintas')
+    expect(cat('verniz para porta')).toEqual('tintas')
+  })
 })

@@ -1,52 +1,54 @@
-import { assertEquals } from 'https://deno.land/std@0.190.0/testing/asserts.ts'
+import { describe, it, expect } from 'vitest'
 import { detectClientType } from './clientTypeDetection.ts'
 
-Deno.test('detectClientType — auto-identificação direta', () => {
-  assertEquals(detectClientType('sou pintor'), 'pintor')
-  assertEquals(detectClientType('Sou eletricista'), 'eletricista')
-  assertEquals(detectClientType('sou um arquiteto'), 'arquiteto')
-  assertEquals(detectClientType('sou pedreiro mesmo'), 'pedreiro')
-})
+describe('clientTypeDetection', () => {
+  it('detectClientType — auto-identificação direta', () => {
+    expect(detectClientType('sou pintor')).toEqual('pintor')
+    expect(detectClientType('Sou eletricista')).toEqual('eletricista')
+    expect(detectClientType('sou um arquiteto')).toEqual('arquiteto')
+    expect(detectClientType('sou pedreiro mesmo')).toEqual('pedreiro')
+  })
 
-Deno.test('detectClientType — variações verbais', () => {
-  assertEquals(detectClientType('trabalho como pintor'), 'pintor')
-  assertEquals(detectClientType('tô de eletricista numa obra'), 'eletricista')
-  assertEquals(detectClientType('me chamo João e sou marceneiro'), 'marceneiro')
-  // Nota: "tenho empresa de pintura" não é capturado pelo regex (pintura ≠ pintor).
-  // LLM via set_tags pode capturar como fallback.
-})
+  it('detectClientType — variações verbais', () => {
+    expect(detectClientType('trabalho como pintor')).toEqual('pintor')
+    expect(detectClientType('tô de eletricista numa obra')).toEqual('eletricista')
+    expect(detectClientType('me chamo João e sou marceneiro')).toEqual('marceneiro')
+    // Nota: "tenho empresa de pintura" não é capturado pelo regex (pintura ≠ pintor).
+    // LLM via set_tags pode capturar como fallback.
+  })
 
-Deno.test('detectClientType — multi-word professions', () => {
-  assertEquals(detectClientType('sou mestre de obras'), 'mestre_de_obras')
-  assertEquals(detectClientType('trabalho como designer de interiores'), 'designer')
-  assertEquals(detectClientType('sou engenheiro civil'), 'engenheiro')
-})
+  it('detectClientType — multi-word professions', () => {
+    expect(detectClientType('sou mestre de obras')).toEqual('mestre_de_obras')
+    expect(detectClientType('trabalho como designer de interiores')).toEqual('designer')
+    expect(detectClientType('sou engenheiro civil')).toEqual('engenheiro')
+  })
 
-Deno.test('detectClientType — short standalone reply (single-word answer)', () => {
-  // Lead respondendo "qual sua profissao?" com 1 palavra
-  assertEquals(detectClientType('Pintor'), 'pintor')
-  assertEquals(detectClientType('eletricista'), 'eletricista')
-  assertEquals(detectClientType('arquiteto'), 'arquiteto')
-})
+  it('detectClientType — short standalone reply (single-word answer)', () => {
+    // Lead respondendo "qual sua profissao?" com 1 palavra
+    expect(detectClientType('Pintor')).toEqual('pintor')
+    expect(detectClientType('eletricista')).toEqual('eletricista')
+    expect(detectClientType('arquiteto')).toEqual('arquiteto')
+  })
 
-Deno.test('detectClientType — IGNORA menção sem identificação', () => {
-  // Lead falando sobre profissional, não identificando-se
-  assertEquals(detectClientType('preciso de um pintor pra obra'), null)
-  assertEquals(detectClientType('o eletricista da minha casa pediu'), null)
-  assertEquals(detectClientType('o arquiteto que está cuidando da reforma'), null)
-})
+  it('detectClientType — IGNORA menção sem identificação', () => {
+    // Lead falando sobre profissional, não identificando-se
+    expect(detectClientType('preciso de um pintor pra obra')).toEqual(null)
+    expect(detectClientType('o eletricista da minha casa pediu')).toEqual(null)
+    expect(detectClientType('o arquiteto que está cuidando da reforma')).toEqual(null)
+  })
 
-Deno.test('detectClientType — diferentes profissões', () => {
-  assertEquals(detectClientType('sou decorador'), 'decorador')
-  assertEquals(detectClientType('sou marceneira'), 'marceneiro')
-  assertEquals(detectClientType('trabalho como encanador'), 'encanador')
-  assertEquals(detectClientType('sou gesseiro'), 'gesseiro')
-  assertEquals(detectClientType('sou empreiteira'), 'empreiteiro')
-  assertEquals(detectClientType('sou projetista'), 'projetista')
-})
+  it('detectClientType — diferentes profissões', () => {
+    expect(detectClientType('sou decorador')).toEqual('decorador')
+    expect(detectClientType('sou marceneira')).toEqual('marceneiro')
+    expect(detectClientType('trabalho como encanador')).toEqual('encanador')
+    expect(detectClientType('sou gesseiro')).toEqual('gesseiro')
+    expect(detectClientType('sou empreiteira')).toEqual('empreiteiro')
+    expect(detectClientType('sou projetista')).toEqual('projetista')
+  })
 
-Deno.test('detectClientType — null em texto sem profissão', () => {
-  assertEquals(detectClientType('oi tudo bem'), null)
-  assertEquals(detectClientType('quero tinta acrílica branca'), null)
-  assertEquals(detectClientType(''), null)
+  it('detectClientType — null em texto sem profissão', () => {
+    expect(detectClientType('oi tudo bem')).toEqual(null)
+    expect(detectClientType('quero tinta acrílica branca')).toEqual(null)
+    expect(detectClientType('')).toEqual(null)
+  })
 })

@@ -1,53 +1,55 @@
-import { assertEquals } from 'https://deno.land/std@0.190.0/testing/asserts.ts'
+import { describe, it, expect } from 'vitest'
 import { detectObjection } from './objectionDetection.ts'
 
-Deno.test('detectObjection — preco variations', () => {
-  assertEquals(detectObjection('Achei muito caro'), 'preco')
-  assertEquals(detectObjection('Tá caro demais'), 'preco')
-  assertEquals(detectObjection('Não tenho como pagar isso agora'), 'preco')
-  assertEquals(detectObjection('Tô sem grana'), 'preco')
-  assertEquals(detectObjection('O preço ficou alto'), 'preco')
-  assertEquals(detectObjection('Saiu caro pra mim'), 'preco')
-})
+describe('objectionDetection', () => {
+  it('detectObjection — preco variations', () => {
+    expect(detectObjection('Achei muito caro')).toEqual('preco')
+    expect(detectObjection('Tá caro demais')).toEqual('preco')
+    expect(detectObjection('Não tenho como pagar isso agora')).toEqual('preco')
+    expect(detectObjection('Tô sem grana')).toEqual('preco')
+    expect(detectObjection('O preço ficou alto')).toEqual('preco')
+    expect(detectObjection('Saiu caro pra mim')).toEqual('preco')
+  })
 
-Deno.test('detectObjection — prazo', () => {
-  assertEquals(detectObjection('Tá muito demorado'), 'prazo')
-  assertEquals(detectObjection('Preciso urgente, é pra hoje'), 'prazo')
-  assertEquals(detectObjection('A entrega é muito demorada?'), 'prazo')
-})
+  it('detectObjection — prazo', () => {
+    expect(detectObjection('Tá muito demorado')).toEqual('prazo')
+    expect(detectObjection('Preciso urgente, é pra hoje')).toEqual('prazo')
+    expect(detectObjection('A entrega é muito demorada?')).toEqual('prazo')
+  })
 
-Deno.test('detectObjection — frete', () => {
-  assertEquals(detectObjection('O frete tá muito caro'), 'frete')
-  assertEquals(detectObjection('Entrega muito cara'), 'frete')
-})
+  it('detectObjection — frete', () => {
+    expect(detectObjection('O frete tá muito caro')).toEqual('frete')
+    expect(detectObjection('Entrega muito cara')).toEqual('frete')
+  })
 
-Deno.test('detectObjection — concorrencia', () => {
-  assertEquals(detectObjection('Vi mais barato em outra loja'), 'concorrencia')
-  assertEquals(detectObjection('Achei mais barato no concorrente'), 'concorrencia')
-  assertEquals(detectObjection('Tô vendo em outro lugar'), 'concorrencia')
-})
+  it('detectObjection — concorrencia', () => {
+    expect(detectObjection('Vi mais barato em outra loja')).toEqual('concorrencia')
+    expect(detectObjection('Achei mais barato no concorrente')).toEqual('concorrencia')
+    expect(detectObjection('Tô vendo em outro lugar')).toEqual('concorrencia')
+  })
 
-Deno.test('detectObjection — indecisao', () => {
-  assertEquals(detectObjection('Vou pensar'), 'indecisao')
-  assertEquals(detectObjection('Te respondo depois'), 'indecisao')
-  assertEquals(detectObjection('Preciso conversar com minha esposa'), 'indecisao')
-  assertEquals(detectObjection('Deixa eu pensar'), 'indecisao')
-})
+  it('detectObjection — indecisao', () => {
+    expect(detectObjection('Vou pensar')).toEqual('indecisao')
+    expect(detectObjection('Te respondo depois')).toEqual('indecisao')
+    expect(detectObjection('Preciso conversar com minha esposa')).toEqual('indecisao')
+    expect(detectObjection('Deixa eu pensar')).toEqual('indecisao')
+  })
 
-Deno.test('detectObjection — qualidade', () => {
-  assertEquals(detectObjection('Qualidade ruim'), 'qualidade')
-  assertEquals(detectObjection('Não confio nessa marca'), 'qualidade')
-  assertEquals(detectObjection('Isso é original?'), 'qualidade')
-})
+  it('detectObjection — qualidade', () => {
+    expect(detectObjection('Qualidade ruim')).toEqual('qualidade')
+    expect(detectObjection('Não confio nessa marca')).toEqual('qualidade')
+    expect(detectObjection('Isso é original?')).toEqual('qualidade')
+  })
 
-Deno.test('detectObjection — no match returns null', () => {
-  assertEquals(detectObjection('Olá, quero comprar'), null)
-  assertEquals(detectObjection(''), null)
-  assertEquals(detectObjection('Tem tinta acrílica?'), null)
-  assertEquals(detectObjection('Só uma curiosidade'), null)
-})
+  it('detectObjection — no match returns null', () => {
+    expect(detectObjection('Olá, quero comprar')).toEqual(null)
+    expect(detectObjection('')).toEqual(null)
+    expect(detectObjection('Tem tinta acrílica?')).toEqual(null)
+    expect(detectObjection('Só uma curiosidade')).toEqual(null)
+  })
 
-Deno.test('detectObjection — preco wins over indecisao when both present (first match)', () => {
-  // "achei caro vou pensar" — preco aparece primeiro na ordem do objeto
-  assertEquals(detectObjection('Achei caro, vou pensar'), 'preco')
+  it('detectObjection — preco wins over indecisao when both present (first match)', () => {
+    // "achei caro vou pensar" — preco aparece primeiro na ordem do objeto
+    expect(detectObjection('Achei caro, vou pensar')).toEqual('preco')
+  })
 })

@@ -1,52 +1,54 @@
-import { assertEquals } from 'https://deno.land/std@0.190.0/testing/asserts.ts'
+import { describe, it, expect } from 'vitest'
 import { detectBrand } from './brandDetection.ts'
 
-Deno.test('detectBrand — match exato simples', () => {
-  assertEquals(detectBrand('quero tinta Coral branca'), 'coral')
-  assertEquals(detectBrand('tem da Suvinil?'), 'suvinil')
-  assertEquals(detectBrand('Tigre tem em estoque?'), 'tigre')
-  assertEquals(detectBrand('manta da quartzolit'), 'quartzolit')
-})
+describe('brandDetection', () => {
+  it('detectBrand — match exato simples', () => {
+    expect(detectBrand('quero tinta Coral branca')).toEqual('coral')
+    expect(detectBrand('tem da Suvinil?')).toEqual('suvinil')
+    expect(detectBrand('Tigre tem em estoque?')).toEqual('tigre')
+    expect(detectBrand('manta da quartzolit')).toEqual('quartzolit')
+  })
 
-Deno.test('detectBrand — case-insensitive', () => {
-  assertEquals(detectBrand('CORAL'), 'coral')
-  assertEquals(detectBrand('cORaL'), 'coral')
-})
+  it('detectBrand — case-insensitive', () => {
+    expect(detectBrand('CORAL')).toEqual('coral')
+    expect(detectBrand('cORaL')).toEqual('coral')
+  })
 
-Deno.test('detectBrand — accent insensitive', () => {
-  assertEquals(detectBrand('aliança ferro'), 'alianca')
-  assertEquals(detectBrand('Aliança Ferro'), 'alianca')
-})
+  it('detectBrand — accent insensitive', () => {
+    expect(detectBrand('aliança ferro')).toEqual('alianca')
+    expect(detectBrand('Aliança Ferro')).toEqual('alianca')
+  })
 
-Deno.test('detectBrand — multi-word brands', () => {
-  assertEquals(detectBrand('quero da Sherwin Williams'), 'sherwin_williams')
-  assertEquals(detectBrand('La Fonte fechadura'), 'la_fonte')
-  assertEquals(detectBrand('otto baumgart impermeabilizante'), 'otto_baumgart')
-})
+  it('detectBrand — multi-word brands', () => {
+    expect(detectBrand('quero da Sherwin Williams')).toEqual('sherwin_williams')
+    expect(detectBrand('La Fonte fechadura')).toEqual('la_fonte')
+    expect(detectBrand('otto baumgart impermeabilizante')).toEqual('otto_baumgart')
+  })
 
-Deno.test('detectBrand — não casa substring de outra palavra', () => {
-  // "coralina" não deve virar "coral"
-  assertEquals(detectBrand('quero tinta coralina'), null)
-  // "tigrebr" não deve casar tigre
-  assertEquals(detectBrand('marca tigrebr'), null)
-})
+  it('detectBrand — não casa substring de outra palavra', () => {
+    // "coralina" não deve virar "coral"
+    expect(detectBrand('quero tinta coralina')).toEqual(null)
+    // "tigrebr" não deve casar tigre
+    expect(detectBrand('marca tigrebr')).toEqual(null)
+  })
 
-Deno.test('detectBrand — null em texto sem marca', () => {
-  assertEquals(detectBrand('oi tudo bem'), null)
-  assertEquals(detectBrand('tem tinta acrílica branca?'), null)
-  assertEquals(detectBrand(''), null)
-})
+  it('detectBrand — null em texto sem marca', () => {
+    expect(detectBrand('oi tudo bem')).toEqual(null)
+    expect(detectBrand('tem tinta acrílica branca?')).toEqual(null)
+    expect(detectBrand('')).toEqual(null)
+  })
 
-Deno.test('detectBrand — lista customizada via segundo parâmetro', () => {
-  const customBrands = ['Acme Tintas', 'Globex']
-  assertEquals(detectBrand('quero da acme tintas', customBrands), 'acme_tintas')
-  assertEquals(detectBrand('Globex disponível?', customBrands), 'globex')
-  // Coral não está na lista custom
-  assertEquals(detectBrand('coral', customBrands), null)
-})
+  it('detectBrand — lista customizada via segundo parâmetro', () => {
+    const customBrands = ['Acme Tintas', 'Globex']
+    expect(detectBrand('quero da acme tintas', customBrands)).toEqual('acme_tintas')
+    expect(detectBrand('Globex disponível?', customBrands)).toEqual('globex')
+    // Coral não está na lista custom
+    expect(detectBrand('coral', customBrands)).toEqual(null)
+  })
 
-Deno.test('detectBrand — primeira marca encontrada vence', () => {
-  // Texto com 2 marcas — retorna a primeira na ordem da lista
-  // Coral aparece antes de Suvinil em DEFAULT_BRANDS
-  assertEquals(detectBrand('comparando Suvinil com Coral'), 'coral')
+  it('detectBrand — primeira marca encontrada vence', () => {
+    // Texto com 2 marcas — retorna a primeira na ordem da lista
+    // Coral aparece antes de Suvinil em DEFAULT_BRANDS
+    expect(detectBrand('comparando Suvinil com Coral')).toEqual('coral')
+  })
 })

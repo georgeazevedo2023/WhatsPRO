@@ -1,59 +1,61 @@
-import { assertEquals } from 'https://deno.land/std@0.190.0/testing/asserts.ts'
+import { describe, it, expect } from 'vitest'
 import { detectPayment } from './paymentDetection.ts'
 
-Deno.test('detectPayment — pix intent', () => {
-  assertEquals(detectPayment('pode mandar o pix'), 'pix')
-  assertEquals(detectPayment('me passa o pix'), 'pix')
-  assertEquals(detectPayment('vou pagar de pix'), 'pix')
-  assertEquals(detectPayment('prefiro com pix'), 'pix')
-  assertEquals(detectPayment('quero a chave pix'), 'pix')
-  assertEquals(detectPayment('passa o pix'), 'pix')
-  assertEquals(detectPayment('pix entao'), 'pix')
-  assertEquals(detectPayment('pix então'), 'pix')
-  assertEquals(detectPayment('Será no pix'), 'pix')
-})
+describe('paymentDetection', () => {
+  it('detectPayment — pix intent', () => {
+    expect(detectPayment('pode mandar o pix')).toEqual('pix')
+    expect(detectPayment('me passa o pix')).toEqual('pix')
+    expect(detectPayment('vou pagar de pix')).toEqual('pix')
+    expect(detectPayment('prefiro com pix')).toEqual('pix')
+    expect(detectPayment('quero a chave pix')).toEqual('pix')
+    expect(detectPayment('passa o pix')).toEqual('pix')
+    expect(detectPayment('pix entao')).toEqual('pix')
+    expect(detectPayment('pix então')).toEqual('pix')
+    expect(detectPayment('Será no pix')).toEqual('pix')
+  })
 
-Deno.test('detectPayment — cartao intent', () => {
-  assertEquals(detectPayment('vou pagar de cartão'), 'cartao')
-  assertEquals(detectPayment('prefiro cartão de crédito'), 'cartao')
-  assertEquals(detectPayment('vai ser no cartão'), 'cartao')
-  assertEquals(detectPayment('cartão de débito'), 'cartao')
-  assertEquals(detectPayment('débito então'), 'cartao')
-})
+  it('detectPayment — cartao intent', () => {
+    expect(detectPayment('vou pagar de cartão')).toEqual('cartao')
+    expect(detectPayment('prefiro cartão de crédito')).toEqual('cartao')
+    expect(detectPayment('vai ser no cartão')).toEqual('cartao')
+    expect(detectPayment('cartão de débito')).toEqual('cartao')
+    expect(detectPayment('débito então')).toEqual('cartao')
+  })
 
-Deno.test('detectPayment — parcelado prevalece', () => {
-  assertEquals(detectPayment('em 12x no cartão'), 'parcelado')
-  assertEquals(detectPayment('parcelado em 6 vezes'), 'parcelado')
-  assertEquals(detectPayment('quero dividir em 3x'), 'parcelado')
-  assertEquals(detectPayment('em 5 parcelas'), 'parcelado')
-})
+  it('detectPayment — parcelado prevalece', () => {
+    expect(detectPayment('em 12x no cartão')).toEqual('parcelado')
+    expect(detectPayment('parcelado em 6 vezes')).toEqual('parcelado')
+    expect(detectPayment('quero dividir em 3x')).toEqual('parcelado')
+    expect(detectPayment('em 5 parcelas')).toEqual('parcelado')
+  })
 
-Deno.test('detectPayment — boleto intent', () => {
-  assertEquals(detectPayment('vou pagar de boleto'), 'boleto')
-  assertEquals(detectPayment('me manda o boleto'), 'boleto')
-  assertEquals(detectPayment('gera o boleto pra mim'), 'boleto')
-  assertEquals(detectPayment('boleto por favor'), 'boleto')
-})
+  it('detectPayment — boleto intent', () => {
+    expect(detectPayment('vou pagar de boleto')).toEqual('boleto')
+    expect(detectPayment('me manda o boleto')).toEqual('boleto')
+    expect(detectPayment('gera o boleto pra mim')).toEqual('boleto')
+    expect(detectPayment('boleto por favor')).toEqual('boleto')
+  })
 
-Deno.test('detectPayment — dinheiro/à vista', () => {
-  assertEquals(detectPayment('vou pagar à vista'), 'dinheiro')
-  assertEquals(detectPayment('à vista em dinheiro'), 'dinheiro')
-  assertEquals(detectPayment('vou pagar em dinheiro'), 'dinheiro')
-  assertEquals(detectPayment('dinheiro vivo'), 'dinheiro')
-})
+  it('detectPayment — dinheiro/à vista', () => {
+    expect(detectPayment('vou pagar à vista')).toEqual('dinheiro')
+    expect(detectPayment('à vista em dinheiro')).toEqual('dinheiro')
+    expect(detectPayment('vou pagar em dinheiro')).toEqual('dinheiro')
+    expect(detectPayment('dinheiro vivo')).toEqual('dinheiro')
+  })
 
-Deno.test('detectPayment — IGNORA consultas', () => {
-  // Cliente perguntando, não escolhendo. Não deve tagear.
-  assertEquals(detectPayment('aceita pix?'), null)
-  assertEquals(detectPayment('vocês aceitam cartão?'), null)
-  assertEquals(detectPayment('qual a forma de pagamento?'), null)
-  assertEquals(detectPayment('quais formas vocês têm?'), null)
-  assertEquals(detectPayment('como eu pago?'), null)
-  assertEquals(detectPayment('aceitam boleto?'), null)
-})
+  it('detectPayment — IGNORA consultas', () => {
+    // Cliente perguntando, não escolhendo. Não deve tagear.
+    expect(detectPayment('aceita pix?')).toEqual(null)
+    expect(detectPayment('vocês aceitam cartão?')).toEqual(null)
+    expect(detectPayment('qual a forma de pagamento?')).toEqual(null)
+    expect(detectPayment('quais formas vocês têm?')).toEqual(null)
+    expect(detectPayment('como eu pago?')).toEqual(null)
+    expect(detectPayment('aceitam boleto?')).toEqual(null)
+  })
 
-Deno.test('detectPayment — null em texto sem pagamento', () => {
-  assertEquals(detectPayment('oi tudo bem'), null)
-  assertEquals(detectPayment('quero tinta acrílica branca'), null)
-  assertEquals(detectPayment(''), null)
+  it('detectPayment — null em texto sem pagamento', () => {
+    expect(detectPayment('oi tudo bem')).toEqual(null)
+    expect(detectPayment('quero tinta acrílica branca')).toEqual(null)
+    expect(detectPayment('')).toEqual(null)
+  })
 })
