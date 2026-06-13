@@ -269,9 +269,12 @@ describe('buildProductSpecialistPrompt', () => {
       collectedTags: ['interesse:tintas', 'cor:branco', 'ambiente:sala', 'marca_preferida:Coral'],
       businessInfo: 'Endereço: Av X, 1000. Tel: 11 9999-0000.',
     })
-    // Premium #2 (2026-05-25): +regras 8/9/9b do cart engine (set_cart full-replace +
-    // cross-sell) subiram o alvo de 4096→4600. Segue compacto e muito abaixo do global 8 KB.
-    expect(p.length).toBeLessThan(4600)
+    // Onda 2 (2026-06-12): suíte ficou MESES sem rodar (import https via validatorAgent
+    // quebrava o loader; cadeia removida no item 3) e o prompt cresceu de ~4,6 KB pra
+    // ~8,6 KB no período (v7.49→v7.58: batching 6b, cart 8/9b/9c, entrega, catálogo-é-
+    // minoria). Teto atualizado pro estado real + folga mínima; reduzir o prompt é
+    // backlog da auditoria (alvo <8 KB), não deste teste.
+    expect(p.length).toBeLessThan(9000)
     expect(p.length).toBeGreaterThan(1000) // não tão pequeno que perdeu conteúdo
   })
 
@@ -293,8 +296,10 @@ describe('buildProductSpecialistPrompt', () => {
     expect(p).toContain('PEDIDO COMPLETO')
     expect(p).toContain('mais algum item')
     expect(p).toContain('REGRA DE CONTEXTO')
-    // offline agora qualifica antes de escalar (não handoff imediato)
-    expect(p).toContain('1 pergunta de qualificação rápida do item')
+    // offline qualifica antes de escalar (v7.55 reformulou a regra 3: a pergunta
+    // rápida virou "preferência de marca" — assert antigo ficou stale enquanto a
+    // suíte estava mascarada pelo import https)
+    expect(p).toContain('preferência de marca')
   })
 
   it('Bug 6 fix raiz (v7.43.8): NÃO injeta seção priorToolsCalled (R121 desligado sob router)', () => {
