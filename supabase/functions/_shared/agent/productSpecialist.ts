@@ -23,6 +23,7 @@ import { runSpecialist, type SpecialistCtx, type SpecialistDef } from './special
 import { updateLeadProfileToolDef, setCartToolDef } from './specialistTools.ts'
 import { cleanSearchQuery } from './tools/searchProducts.ts'
 import { getCategoriesOrDefault, matchCategory, matchCategoryBySearchText } from '../serviceCategories.ts'
+import { INTERNAL_TAG_KEYS } from '../constants.ts'
 import type { LLMToolDef } from '../llmProvider.ts'
 
 // =============================================================================
@@ -82,8 +83,8 @@ export function buildProductSpecialistPrompt(args: {
     })
     .join('\n') || '(sem categorias configuradas)'
 
-  // Tags humanizadas: tira tags internas (ia:*, lead_score:*, multi_interesse_pending) e formata por tipo
-  const internalKeys = new Set(['ia', 'lead_score', 'multi_interesse_pending', 'qualif_horizontal', 'search_fail', 'ia_cleared'])
+  // Tags humanizadas: tira tags internas (INTERNAL_TAG_KEYS, fonte única) e formata por tipo
+  const internalKeys = new Set<string>(INTERNAL_TAG_KEYS)
   const factsCollected = (collectedTags || [])
     .filter((t) => {
       const [key] = t.split(':')

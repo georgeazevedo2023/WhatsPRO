@@ -16,6 +16,8 @@
  * nunca aqui. Uso pra RETOMAR a conversa, não pra recitar tudo (evita "creepiness").
  */
 
+import { INTERNAL_TAG_KEYS } from '../constants.ts'
+
 type LeadProfileLike = {
   full_name?: string | null
   interests?: string[] | null
@@ -149,7 +151,9 @@ function extractProductsSeen(toolCallsLog: Array<{ name: string; args?: any; res
  * Barato e determinístico — não precisa de LLM. Ex.: "tintas (ambiente, cor)".
  */
 function deriveQualificationStage(tags: string[]): string | null {
-  const internal = new Set(['ia', 'lead_score', 'multi_interesse_pending', 'qualif_horizontal', 'search_fail', 'ia_cleared', 'marca_citada', 'tipo_cliente'])
+  // INTERNAL_TAG_KEYS (fonte única) + exclusões próprias da memória: marca_citada e
+  // tipo_cliente são fatos, mas não descrevem o ESTÁGIO de qualificação da categoria.
+  const internal = new Set<string>([...INTERNAL_TAG_KEYS, 'marca_citada', 'tipo_cliente'])
   const interesse = tags.find((t) => t.startsWith('interesse:'))?.slice('interesse:'.length)
   if (!interesse) return null
   const fields = tags

@@ -28,6 +28,21 @@ export const DEFAULT_MAX_LEAD_INTERACTIONS = 15
 // ── AI Agent: markers duráveis de handoff ativo ────────────────────────────
 // Escritos via mergeTags({ [KEY]: 'true' }) e lidos pelo gate de silêncio
 // (v7.76). Typo entre escritor e leitor desliga o gate — daí a fonte única.
+// ── AI Agent: tags internas de fluxo (Onda 2 da auditoria 2026-06-12) ──────
+// Chaves de tag que são estado de máquina (nunca FATO do lead) e por isso não
+// devem aparecer em prompt/memória "humanizados". Fonte única — antes 4 cópias
+// (productSpecialist, handoffSpecialist, leadMemory, promptSections) divergiam
+// silenciosamente: tag interna nova exigia lembrar de todos os sites. Cada site
+// pode COMPOR com exclusões próprias (ex.: leadMemory soma marca_citada).
+export const INTERNAL_TAG_KEYS = [
+  'ia',
+  'lead_score',
+  'multi_interesse_pending',
+  'qualif_horizontal',
+  'search_fail',
+  'ia_cleared',
+] as const
+
 export const HANDOFF_CREATED_KEY = 'handoff_created'
 export const HUMAN_ASSIGNED_KEY = 'human_assigned'
 export const HANDOFF_CREATED_TAG = `${HANDOFF_CREATED_KEY}:true`

@@ -9,12 +9,17 @@
  * legível, evita reperguntar o que já foi dito.
  */
 
-const META_KEYS_FACTS = new Set([
-  'ia',
-  'ia_cleared',
-  'lead_score',
+import { INTERNAL_TAG_KEYS } from '../constants.ts'
+
+// INTERNAL_TAG_KEYS (fonte única) + exclusões próprias do facts block: enrich_count/
+// aguardando_upsell são estado de fluxo; produto/motivo já aparecem em outras seções
+// do prompt do monolith (evita duplicar). Nota Onda 2 (2026-06-12): a unificação
+// passou a esconder também multi_interesse_pending e qualif_horizontal — tags de
+// máquina que antes vazavam como "fato" ("Multi interesse pending = portas,janelas");
+// o qualificationContext já as trata com instrução dedicada.
+const META_KEYS_FACTS = new Set<string>([
+  ...INTERNAL_TAG_KEYS,
   'enrich_count',
-  'search_fail',
   'aguardando_upsell',
   'produto',
   'motivo',

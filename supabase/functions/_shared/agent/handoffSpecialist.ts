@@ -21,11 +21,12 @@
  */
 
 import { handoffToHumanToolDef, sendPollToolDef } from './specialistTools.ts'
+import { INTERNAL_TAG_KEYS } from '../constants.ts'
 import type { SpecialistCtx, SpecialistDef } from './specialistBase.ts'
 
-/** Tags "humanizadas" (tira internas) pra lembrar o LLM do que já foi coletado. */
+/** Tags "humanizadas" (tira internas — INTERNAL_TAG_KEYS fonte única) pra lembrar o LLM do que já foi coletado. */
 function collectedFacts(ctx: SpecialistCtx): string {
-  const internal = new Set(['ia', 'lead_score', 'multi_interesse_pending', 'qualif_horizontal', 'search_fail', 'ia_cleared'])
+  const internal = new Set<string>(INTERNAL_TAG_KEYS)
   const tags = ((ctx.conversation.tags as string[]) || []).filter((t) => {
     const [k] = t.split(':')
     return !internal.has(k)
