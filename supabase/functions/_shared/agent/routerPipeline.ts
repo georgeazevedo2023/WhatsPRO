@@ -145,14 +145,20 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
           // { name, intent, model, buildPrompt, toolDefs } — pipeline em runSpecialist.
           const catConfig = getCategoriesOrDefault(agent)
           const serviceCategories = (catConfig?.categories as any[]) || []
+          // v7.91.0: modelo dos specialists consultivos, configurável por agente (decisão #4).
+          // greeting fica de propósito no default barato (gpt-4.1-mini, definido no próprio
+          // builder) — saudação é tarefa trivial e não vale o modelo premium. Hoje todos os
+          // defaults dos demais = 'gpt-4.1' = DEFAULT_SPECIALIST_MODEL, então threadar é
+          // behavior-preserving; só diverge quando o dono troca o modelo na UI.
+          const specialistModel = agent.specialist_model || DEFAULT_SPECIALIST_MODEL
           const DISPATCH: Record<Intent, SpecialistDef> = {
             saudacao: buildGreetingSpecialistDef(),
             fora_escopo: buildGreetingSpecialistDef(), // redireciona educadamente
-            qualificacao: buildQualificationSpecialistDef(),
-            produto: buildProductSpecialistDef(agent.specialist_model || DEFAULT_SPECIALIST_MODEL),
-            objecao: buildObjectionSpecialistDef(),
-            pagamento: buildObjectionSpecialistDef(), // objection carrega business_info
-            handoff: buildHandoffSpecialistDef(),
+            qualificacao: buildQualificationSpecialistDef(specialistModel),
+            produto: buildProductSpecialistDef(specialistModel),
+            objecao: buildObjectionSpecialistDef(specialistModel),
+            pagamento: buildObjectionSpecialistDef(specialistModel), // objection carrega business_info
+            handoff: buildHandoffSpecialistDef(specialistModel),
           }
           let def = DISPATCH[routerResult.intent]
 

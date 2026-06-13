@@ -536,6 +536,7 @@ export type Database = {
           returning_greeting_message: string | null
           routing_mode: string
           service_categories: Json
+          specialist_model: string
           sub_agents: Json | null
           system_prompt: string | null
           temperature: number
@@ -608,6 +609,7 @@ export type Database = {
           returning_greeting_message?: string | null
           routing_mode?: string
           service_categories?: Json
+          specialist_model?: string
           sub_agents?: Json | null
           system_prompt?: string | null
           temperature?: number
@@ -680,6 +682,7 @@ export type Database = {
           returning_greeting_message?: string | null
           routing_mode?: string
           service_categories?: Json
+          specialist_model?: string
           sub_agents?: Json | null
           system_prompt?: string | null
           temperature?: number

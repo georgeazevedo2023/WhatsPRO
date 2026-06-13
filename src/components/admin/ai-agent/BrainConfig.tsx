@@ -99,6 +99,27 @@ Informações da empresa:
             </div>
           </div>
 
+          <div className="space-y-1.5">
+            <Label className="text-xs">Modelo dos Specialists (router)</Label>
+            <Select value={config.specialist_model || 'gpt-4.1'} onValueChange={(v) => onChange({ specialist_model: v })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="gpt-4.1">GPT-4.1 (recomendado — não vaza tool call como texto)</SelectItem>
+                <SelectItem value="gpt-5-mini">GPT-5 Mini (rápido)</SelectItem>
+                <SelectItem value="gpt-4.1-mini">GPT-4.1 Mini (mais barato — pode vazar tool call)</SelectItem>
+                <SelectItem value="gpt-4.1-nano">GPT-4.1 Nano (legado)</SelectItem>
+                <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
+                <SelectItem value="gemini-2.5-pro">Gemini 2.5 Pro</SelectItem>
+              </SelectContent>
+            </Select>
+            {fieldErrors?.specialist_model && <p className="text-destructive text-xs mt-1">{fieldErrors.specialist_model}</p>}
+            <p className="text-[11px] text-muted-foreground">
+              Modelo usado pelos specialists (produto, qualificação, objeção, handoff) quando o agente está em <span className="font-medium">Modo de roteamento = router</span>. Sem efeito no modo monolito.
+            </p>
+          </div>
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs">Temperatura: {(config.temperature || 0.7).toFixed(1)}</Label>

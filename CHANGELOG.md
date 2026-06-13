@@ -13,6 +13,17 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.91.0 (2026-06-13) — 🎛️ `specialist_model` configurável por agente (decisão de config #4 do dono)
+
+Fecha a decisão #4 do dono. O backend (`routerPipeline`) lia `agent.specialist_model || DEFAULT_SPECIALIST_MODEL` ('gpt-4.1') em **só 1 ponto** (product specialist), mas a **coluna nunca existiu no DB** — `select('*')` nunca a trazia, todo agente caía no default fixo. O handoff anterior dizia "backend já lê, só falta a UI"; na real faltava a coluna inteira + a fiação dos demais specialists.
+
+- **DB:** migration `20260613010000` cria `ai_agents.specialist_model text NOT NULL DEFAULT 'gpt-4.1'` (= fallback atual → **zero mudança de comportamento**; os 3 agentes em prod ficaram `gpt-4.1`).
+- **Fiação completa (`routerPipeline` DISPATCH):** `const specialistModel = agent.specialist_model || DEFAULT_SPECIALIST_MODEL` agora alimenta **qualificação, produto, objeção, handoff**. `greeting` fica de propósito no default barato (`gpt-4.1-mini`). Antes só `produto` recebia o config — objeção/handoff/qualif usavam o hardcoded. Todos os defaults = `'gpt-4.1'` = `DEFAULT_SPECIALIST_MODEL`, então threadar é behavior-preserving; só diverge quando o dono troca o modelo na UI.
+- **UI:** seletor "Modelo dos Specialists (router)" na `BrainConfig` (6 modelos; default gpt-4.1) + `specialist_model` no `ALLOWED_FIELDS` + 3 blocos do `types.ts`.
+- **Verificação:** deno check 0 · `tsc` 0 · 1900 testes (5 fails pré-existentes FormBuilder/useForms, 0 novos) · DB round-trip de save OK · **E2E real prod** (ai-agent **v268**): qualification specialist rodou pós-deploy com qualify-first coerente, `model=gpt-4.1`, zero erro. Deploy: migration aplicada + `ai-agent` v267→**v268** (binário scoop). Frontend push→CI→Portainer.
+
+---
+
 ### v7.90.0 (2026-06-13) — 🗑️ Descomissionamento do Fluxos v3.0 (orchestrator): runtime morto removido (−10,4k lin)
 
 O runtime "Fluxos v3.0" (M18) foi **descomissionado por completo**. Era feature construída mas **nunca ativada em prod** (`use_orchestrator=false` nas 3 instâncias + global; **0 `flow_states` históricos** — a engine nunca processou 1 mensagem) e **superada pelo router do `ai-agent`** (a arquitetura de produção real). Decisão de produto do dono; auditada por **workflow adversarial (21 agentes, 5 dimensões, 0 blockers)** antes do deploy.

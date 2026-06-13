@@ -95,6 +95,8 @@ const ALLOWED_FIELDS = [
   'notify_outside_hours_on_handoff',
   // Sprint C (2026-05-23): feature flag router LLM vs monolito
   'routing_mode',
+  // v7.91.0 (2026-06-13): modelo dos specialists do router, configurável por agente (decisão #4)
+  'specialist_model',
   // Sprint E.2 (2026-05-26): handoff por abandono (cutucada + transbordo automático)
   'abandon_handoff_enabled',
   'abandon_nudge_after_min',
