@@ -13,6 +13,20 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.89.0 (2026-06-12) — 🧠 Onda 2 da auditoria do AI Agent: validação unificada + exit_action honrado + router pipeline extraído
+
+Fecha o backlog Onda 2 da auditoria 2026-06-12 (5 itens, commits atômicos `f58297e`→`7beedda`):
+
+- **Validação unificada monolith×router (crítico #1):** lógica de enforcement extraída do `specialistBase` pra **`_shared/agent/responseSanitizer.ts`** (contrato neutro `SanitizerCtx`, 14 testes novos); o monolith fallback adota o MESMO sanitizer determinístico e o **validator LLM (`validatorAgent`) foi aposentado do hot path** — o verdict BLOCK→handoff antigo sai (texto nocivo vira ponte propositiva, comportamento do router/prod desde v7.55.0). ⚠️ Decisão pendente do dono: `validator_enabled`/`validator_model`/`validator_rigor` ficaram sem leitor (remover da UI ou reaproveitar); `ai_agent_validations` para de receber rows (telemetria agora = event `response_sanitized`).
+- **exit_action=handoff honrado sob router:** o sinal do motor determinístico (auto-extract atingiu max_score de stage com exit_action=handoff) era DESCARTADO ("specialist owns handoff") e a qualificação completa se perdia. Agora força o handoff_specialist com diretiva no prompt (`SpecialistCtx.exitActionDirective`) + `pendingHandoffTrigger` armado (step 22 executa se o LLM só verbalizar; guard `!hadExplicitHandoff` evita duplo); `qualificationGate` é pulado com o sinal pendente; guard de tag durável impede re-transbordo.
+- **Router pipeline extraído do index.ts:** bloco de ~830 linhas (hop guard, classifyIntent, dispatch, no-result loop, gate, overrides, pré-busca, runSpecialist) virou **`_shared/agent/routerPipeline.ts`** — move-only verificado por diff byte-a-byte; index.ts 4152→3344 linhas. Passo do D6 (aposentar monolith).
+- **HUMANIZATION_RULES fonte única:** `buildHumanizationRules()` em `promptRules.ts`, injetada pelo `specialistBase` em TODO specialist (objection/handoff ganharam as regras que não tinham) + monolith; cópias divergentes removidas de greeting/qualification/product (regras específicas preservadas).
+- **INTERNAL_TAG_KEYS fonte única** em `constants.ts` (4 cópias → base + extras por site; facts block do monolith passa a esconder também `multi_interesse_pending`/`qualif_horizontal`).
+- **Bônus:** suíte `productSpecialist.test` estava MASCARADA há meses (import `https:` via validatorAgent quebrava o loader; cadeia removida) — reativada com 2 asserts stale corrigidos (prompt cresceu 4,6→8,6 KB v7.49→v7.58 sem ninguém ver; reduzir é backlog).
+- Verificação: deno check 0 em TODAS as fns, vitest 1260 verdes (14 fails pré-existentes), tsc 0. Deploy ai-agent **v267** + **smoke E2E real no sandbox**: turno determinístico (qualify-first tintas) ✓ e turno LLM (router→objection/handoff specialist gpt-4.1, handoff com reason rico, fila D-β reusada, msg fora-de-horário personalizada) ✓. Nota do smoke: handoff duplicado observado foi artefato do teste (curl direto bypassa o debounce que serializa turnos por conversa em prod).
+
+---
+
 ### v7.88.0 (2026-06-12) — 🧹 Onda 1 da auditoria do AI Agent: constantes únicas + hot path + observabilidade
 
 Quick wins da auditoria de inconsistências (4 agentes + verificação manual), comportamento preservado:
