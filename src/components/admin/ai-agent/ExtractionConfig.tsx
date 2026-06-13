@@ -58,8 +58,6 @@ export function ExtractionConfig({ config, onChange }: ExtractionConfigProps) {
   const [newLabel, setNewLabel] = useState('');
   const [keyError, setKeyError] = useState('');
 
-  const addressEnabled = config.extraction_address_enabled ?? false;
-
   const updateFields = (updated: ExtractionField[]) => {
     onChange({ extraction_fields: updated });
   };
@@ -159,17 +157,10 @@ export function ExtractionConfig({ config, onChange }: ExtractionConfigProps) {
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-primary" />
                   Endereço
-                  <div className="flex items-center gap-1.5 ml-2" onClick={(e) => e.stopPropagation()}>
-                    <Switch
-                      checked={addressEnabled}
-                      onCheckedChange={(v) => onChange({ extraction_address_enabled: v })}
-                      className="scale-75"
-                    />
-                    <span className="text-[10px] text-muted-foreground font-normal">{addressEnabled ? 'Ativo' : 'Desativado'}</span>
-                  </div>
+                  <span className="text-[10px] text-muted-foreground font-normal">({addressFields.filter(f => f.enabled).length} ativos)</span>
                 </div>
               </AccordionTrigger>
-              <AccordionContent className={`space-y-2 pt-2 ${!addressEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
+              <AccordionContent className="space-y-2 pt-2">
                 {addressFields.map((f) => renderFieldRow(f, fields.indexOf(f)))}
               </AccordionContent>
             </AccordionItem>

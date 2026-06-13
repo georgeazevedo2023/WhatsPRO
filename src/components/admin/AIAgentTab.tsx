@@ -67,7 +67,7 @@ const ALLOWED_FIELDS = [
   // A coluna existe no DB pra backward-compat mas não é mais escrita pela UI nem lida pelo backend.
   // Mensagem de transbordo fora do horário: `handoff_message_outside_hours`.
   'business_hours', 'extraction_fields', 'blocked_numbers',
-  'extraction_address_enabled', 'handoff_message',
+  'handoff_message',
   'follow_up_enabled', 'follow_up_rules', 'business_info',
   'returning_greeting_message',
   'max_lead_messages',
@@ -81,9 +81,6 @@ const ALLOWED_FIELDS = [
   'carousel_button_2',
   'handoff_message_outside_hours',
   'max_pre_search_questions',
-  'validator_enabled',
-  'validator_model',
-  'validator_rigor',
   'tts_fallback_providers',
   // M17 F5: NPS
   'poll_nps_enabled', 'poll_nps_delay_minutes', 'poll_nps_question',
