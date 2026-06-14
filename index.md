@@ -144,6 +144,7 @@ audited_at: 2026-05-11
 |--------|----------|
 | [[wiki/plano-orquestrador-subagentes]] | **Plano Orquestrador parte 1** — visão monolito→router + Sprint B (B1-B5, pré-requisitos) |
 | [[wiki/plano-orquestrador-subagentes-part2]] | **Plano Orquestrador parte 2** — Sprint C (Router + product POC) + Sprint D + métricas 90d |
+| [[wiki/auditoria-estrutura-2026-06-14]] | **Auditoria de estruturação 6.4/10** (workflow 26 agentes, 8 dimensões, verif. adversarial) — núcleo sólido, bordas frágeis; top riscos: CI sem gate, escalate sem auth, SECURITY DEFINER anon |
 | [[wiki/auditoria-2026-05-21-veredito]] | **Veredito 5.9/10** — síntese 5 ondas, notas oficiais nos 5 pontos pedidos, top-20 findings |
 | [[wiki/auditoria-2026-05-21-melhorias]] | **30 melhorias gerais + 20 de inteligência** priorizadas P0-P3, 3 sprints recomendados |
 | [[wiki/auditoria-2026-05-21-db]] | DB 6.5/10 — 4 P0s (constraints rivais, sem EXCLUDE gist, purge_notifications missing, drift D34/D35) |
