@@ -7,6 +7,9 @@ audited_at: 2026-06-14
 
 # Auditoria de Estruturação — WhatsPRO (2026-06-14)
 
+> ✅ **STATUS 2026-06-14: os 3 maiores riscos foram RESOLVIDOS e verificados (v7.92.0).**
+> (1) Gate de CI — job `quality-gate` (tsc+vitest duros, lint informativo) com `needs:` no build; bloqueio provado. (2) `escalate-stale-handoffs` — `verifyCronOrService` add (cron 200 / bogus 401). (3) SECURITY DEFINER — `REVOKE PUBLIC` cirúrgico, advisor anon **65→16**. Detalhe: memória `project_audit_3_risks_fixed_v792`. Demais itens (lint debt, schema órfão, docs stale, god files) seguem no backlog abaixo.
+
 ## Sumário Executivo
 
 **Nota geral: 6.4/10** (média ponderada). Pesos: ai-agent 22%, backend 18%, database 18% (núcleo de risco — sustentam o produto e os incidentes); frontend 12%, testes 12%, qualidade 8%, docs 6%, tooling 4%. Cálculo: 7·0.22 + 7·0.18 + 6.5·0.18 + 6·0.12 + 5.5·0.12 + 6.5·0.08 + 7·0.06 + 6.5·0.04 ≈ **6.43**.

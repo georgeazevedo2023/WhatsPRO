@@ -13,6 +13,18 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.92.0 (2026-06-14) — 🔒 Auditoria 2026-06-14: fecha os 3 riscos críticos (CI gate · escalate auth · SECURITY DEFINER anon)
+
+Resolve os 3 maiores riscos da auditoria de estruturação ([[wiki/auditoria-estrutura-2026-06-14]]), cada um verificado end-to-end:
+
+- **#1 Gate de qualidade no CI** — `deploy.yml` só fazia docker build + Portainer (zero tsc/lint/test; o `vite build` não typecheck). Novo job `quality-gate` com `needs:` no build: **tsc + vitest DUROS** (barra do RULES.md "0 erros TS + 100% testes"), lint informativo (`continue-on-error` — 218 erros src/ pré-existentes = dívida separada). Corrigidos **5 testes stale** (useForms sem mock de `auth.getSession`; FormBuilder `getByText('Campos')` ambíguo pós-refactor pill) → suíte 1905✓/0. `eslint` passa a ignorar `supabase/functions` (Deno≠browser). 2 envs `VITE_*` públicas injetadas no job. **Verificado:** run verde→build roda; runs com falha→build **skipped** (bloqueio provado).
+- **#2 `escalate-stale-handoffs` sem auth** — `verify_jwt=false` + zero verificação → endpoint público disparava WhatsApp a vendedores/gerentes. Add `verifyCronOrService` (padrão do `handoff-abandoned-leads`). **Verificado em prod (v3):** cron autorizado→200, call bogus→401.
+- **#3 65 SECURITY DEFINER executáveis por anon** — RPCs `dash_*` vazavam métricas com a anon key (pública). Migration cirúrgica `REVOKE EXECUTE FROM PUBLIC` (DO-block, `regprocedure`): grupo A (40 dash/fila/dashboard/agente, mantém auth+service) + grupo B (9 cron/backup, só service); **intocados** helpers de RLS, triggers, `increment_bio_*`. **Verificado:** advisor anon **65→16** (restantes = KEEP legítimo) + `has_function_privilege` (anon→dash FALSE, auth/service→TRUE, bio/RLS→TRUE). Achado: `apply_retention_policy` é chamada pela UI → ficou no grupo A.
+
+Deploy: ai-agent `escalate` v3 (scoop) · migration aplicada · frontend `9ff922b`→`266310b` → CI (gate verde) → Portainer.
+
+---
+
 ### v7.91.0 (2026-06-13) — 🎛️ `specialist_model` configurável por agente (decisão de config #4 do dono)
 
 Fecha a decisão #4 do dono. O backend (`routerPipeline`) lia `agent.specialist_model || DEFAULT_SPECIALIST_MODEL` ('gpt-4.1') em **só 1 ponto** (product specialist), mas a **coluna nunca existiu no DB** — `select('*')` nunca a trazia, todo agente caía no default fixo. O handoff anterior dizia "backend já lê, só falta a UI"; na real faltava a coluna inteira + a fiação dos demais specialists.
@@ -254,22 +266,9 @@ Quick wins da auditoria de inconsistências (4 agentes + verificação manual), 
 
 ---
 
-### v7.75.0 (2026-06-09) — 🟢 Helpdesk: foto de iPhone/Android (HEIC) finalmente envia — conversão p/ JPEG + UX de erro
+### v7.75.0 (2026-06-09)
 
-**Reclamação do dono:** atendentes não conseguem enviar FOTO ao cliente; suspeita em "arquivos grandes".
-
-**Diagnóstico (auditoria multi-agente + teste empírico ao vivo no proxy DEPLOYADO, instância Sandbox):** "arquivos grandes" é **falso culpado** — JPEG/PNG/WEBP de até **17,6MB** enviam e são entregues (200+messageid, ~5s, sem timeout; o limite de 10MB da doc UAZAPI NÃO é imposto via URL). A causa real é **FORMATO**: esta instância UAZAPI transcodifica toda imagem p/ JPEG e **não decodifica HEIC/HEIF** (padrão de foto do iPhone e do Android em "alta eficiência"/HEIF) → HTTP 500 `unsupported image format` (mesmo erro do base64 da v7.71.4). Pós-v7.71.4 esse 500 virou toast → atendente vê falhar.
-
-**Fix de raiz (frontend, helper único compartilhado):**
-- `normalizeOutboundImage.ts` (novo): detecta formato por **magic bytes** (não confia em `file.type`, vazio no mobile); JPEG/PNG/WEBP/GIF passam direto; **HEIC/HEIF → JPEG** via `heic2any` (import dinâmico, chunk lazy — wasm só baixa quando há HEIC); desconhecido decodificável → canvas→JPEG; senão erro amigável. Também conserta o caso "foto vira documento" quando `file.type` vem vazio.
-- `useSendFile` + `uploadOutboundMedia` chamam a normalização (Helpdesk, Grupo, Lead). `ChatInput` `accept="image/*,.heic,.heif"`.
-- **UX de erro** (`sendErrors.ts` `humanizeSendError`): traduz o erro cru ("unsupported image format", "timed out after 30000ms") em PT acionável; rótulo imagem/documento correto. **Bolha de "Falha ao enviar" persistente** no `ChatPanel` (vermelha, com "Tentar de novo"/"Dispensar") — fim do toast efêmero.
-- **Disparador/Carrossel base64→URL** (mesma raiz): `BroadcastMessageForm`, `sendCarouselToNumber` (carrossel/lead) e imagem da enquete agora sobem ao Storage e mandam **URL** (não base64).
-- **Edge `uazapi-proxy`**: `send-media` timeout **30s→60s** + erro de timeout em PT (504).
-
-**Verificação:** E2E real no navegador (Chromium) — `sample.heic` 718KB → módulo do app + heic2any → **JPEG válido** (`FF D8 FF`, 465KB). 23 unit tests novos. tsc 0 · deno check 0 · ESLint 0 (arquivos novos) · suíte 1696✓ (19 fails pré-existentes, 0 regressão). Dep nova: `heic2any` (lazy). Detalhe: memória `project_heic_photo_send_v775`.
-
----
+Helpdesk: foto HEIC (iPhone/Android) finalmente envia — `normalizeOutboundImage` (magic bytes + `heic2any`→JPEG, lazy) + base64→URL no Disparador + UX de erro persistente. Detalhe: memória `project_heic_photo_send_v775`.
 
 ### v7.74.x → v7.73.0 (2026-06-04/05)
 
