@@ -4,7 +4,7 @@
  */
 import type { ReactElement } from 'react'
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -93,10 +93,13 @@ describe('FormBuilder', () => {
   it('aba "Campos" está ativa por padrão', () => {
     const onClose = vi.fn()
     renderWithQuery(React.createElement(FormBuilder, { form: makeForm(), onClose }))
-    const camposTab = screen.getByText('Campos')
+    // Escopa à nav de abas principais (âncora "Configurações" é única ali) — evita
+    // colidir com o toggle de sub-painel "Campos"/"Editor" da view mobile (sm:hidden).
+    const tabsNav = screen.getByText('Configurações').parentElement!
+    const camposTab = within(tabsNav).getByText('Campos')
     expect(camposTab).toBeInTheDocument()
-    // A aba ativa tem text-foreground (não text-muted-foreground)
-    expect(camposTab.className).toContain('text-foreground')
+    // Aba ativa = pill primário (bg-primary text-primary-foreground); inativa = text-muted-foreground
+    expect(camposTab.className).toContain('bg-primary')
   })
 
   it('exibe aba "Configurações"', () => {

@@ -9,7 +9,31 @@ env:
   IMAGE_NAME: georgeazevedo2023/whatspro
 
 jobs:
+  # ── Gate de qualidade (auditoria 2026-06-14) ──────────────────────────────
+  # Bloqueia o deploy a produção se tsc, eslint ou os testes falharem. Antes deste
+  # job o push ia direto a crm.wsmart.com.br sem barreira (o `vite build` do
+  # Dockerfile não faz typecheck). Node 20 = paridade com o Dockerfile.
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install deps
+        run: npm ci
+      - name: Typecheck (tsc --noEmit)
+        run: npx tsc --noEmit
+      - name: Lint (eslint)
+        run: npm run lint
+      - name: Tests (vitest)
+        run: npm run test
+
   build-and-push:
+    needs: quality-gate
     runs-on: ubuntu-latest
     permissions:
       contents: read

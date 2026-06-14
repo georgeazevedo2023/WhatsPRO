@@ -39,6 +39,12 @@ const mockFrom = vi.fn()
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: {
     from: (...args: unknown[]) => mockFrom(...args),
+    // useCreateForm chama getSession() para gravar created_by — função plana
+    // (imune a clearAllMocks; os testes não asseguram chamadas a ela).
+    auth: {
+      getSession: () =>
+        Promise.resolve({ data: { session: { user: { id: 'user-test' } } } }),
+    },
   },
 }))
 
