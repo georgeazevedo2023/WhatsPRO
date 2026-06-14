@@ -19,6 +19,7 @@ import { getDynamicCorsHeaders } from '../_shared/cors.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { sendUazapiText } from '../_shared/sendWhatsApp.ts'
+import { verifyCronOrService } from '../_shared/auth.ts'
 
 // @ts-ignore -- Deno
 const supabase = createServiceClient()
@@ -152,6 +153,13 @@ async function alertManagers(row: NotifRow, log: ReturnType<typeof createLogger>
 Deno.serve(async (req: Request) => {
   const corsHeaders = getDynamicCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
+  // Auth: verify_jwt=false (cron) → exige CRON_AUTH_KEY/service via verifyCronOrService.
+  // Sem isto o endpoint era público e disparava WhatsApp a vendedores/gerentes (auditoria 2026-06-14).
+  if (!verifyCronOrService(req)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
 
   const log = createLogger('escalate-stale-handoffs')
   const startedAt = Date.now()
