@@ -71,18 +71,30 @@ function makeSupabase(handlers: {
         return makeBuilder({ single: handlers.insertEvent || { data: { id: 'evt-1' }, error: null } })
       }
       if (table === 'conversations') {
-        // .update().eq() — e o caller faz await disso. Implementamos eq
-        // como funcao que retorna um thenable.
+        // conversations suporta DOIS padrões no mesmo client:
+        //   • lock-select: .select().eq().maybeSingle()  (v7.94.0)
+        //   • update final: await .update().eq()          (terminal, sem single)
+        // Por isso `eq` devolve um HÍBRIDO: thenable (await direto) + chainable
+        // (.maybeSingle()/.single()/.eq()). Sem isso, .eq().maybeSingle() quebrava.
         const result = handlers.updateConv || { data: null, error: null }
-        const b: Partial<FromMock> & { eq: (col: string, val: unknown) => Promise<QueryResult> } = {
+        const hybrid: Record<string, unknown> = {}
+        const b: Partial<FromMock> = {
           select: vi.fn(() => b as FromMock),
           insert: vi.fn(() => b as FromMock),
           update: vi.fn(() => b as FromMock),
-          eq: vi.fn(async () => result),
           in: vi.fn(() => b as FromMock),
           maybeSingle: vi.fn(async () => result),
           single: vi.fn(async () => result),
         }
+        Object.assign(hybrid, {
+          eq: vi.fn(() => hybrid),
+          is: vi.fn(() => hybrid),
+          select: vi.fn(() => hybrid),
+          maybeSingle: vi.fn(async () => result),
+          single: vi.fn(async () => result),
+          then: (resolve: (v: QueryResult) => unknown) => resolve(result),
+        })
+        ;(b as Record<string, unknown>).eq = vi.fn(() => hybrid)
         return b as unknown as FromMock
       }
       return makeBuilder({})
@@ -125,6 +137,51 @@ describe('assignHandoff — guards iniciais', () => {
       department_id: 'dept-x',
     })
     expect(r.reason).toBe('no_dept')
+  })
+})
+
+describe('assignHandoff — RULE 1 (lock de atendimento humano, v7.94.0)', () => {
+  it('conversa travada (human_handling_at) -> human_handling, NÃO atribui nem chama RPC/dept', async () => {
+    const supabase = makeSupabase({
+      // o builder de `conversations` devolve updateConv tanto no select do lock
+      // quanto no update final; aqui o lock-select retorna o timestamp.
+      updateConv: { data: { human_handling_at: '2026-06-17T15:00:00Z' }, error: null },
+      departments: {
+        data: { id: 'd1', queue_mode_enabled: true, queue_mode_timeout_minutes: 10, default_assignee_id: null },
+        error: null,
+      },
+      rpcResult: { data: 'user-rr', error: null },
+    })
+    const r = await assignHandoff({
+      supabase,
+      conversation_id: 'conv-locked',
+      department_id: 'd1',
+    })
+    expect(r.reason).toBe('human_handling')
+    expect(r.assigned_user_id).toBeNull()
+    expect(r.queue_event_id).toBeNull()
+    expect(supabase.rpc).not.toHaveBeenCalled()
+    // não chegou a consultar departments (early-return antes)
+    expect(supabase._fromCalls).not.toContain('departments')
+  })
+
+  it('conversa LIVRE (human_handling_at null) -> segue o fluxo normal', async () => {
+    const supabase = makeSupabase({
+      updateConv: { data: { human_handling_at: null }, error: null },
+      departments: {
+        data: { id: 'd1', queue_mode_enabled: true, queue_mode_timeout_minutes: 10, default_assignee_id: null },
+        error: null,
+      },
+      rpcResult: { data: 'user-rr', error: null },
+      authUser: { user: { email: 'rr@example.com' } },
+    })
+    const r = await assignHandoff({
+      supabase,
+      conversation_id: 'conv-free',
+      department_id: 'd1',
+    })
+    expect(r.reason).toBe('queue_on_picked')
+    expect(r.assigned_user_id).toBe('user-rr')
   })
 })
 

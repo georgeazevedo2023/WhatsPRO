@@ -8,6 +8,7 @@ import {
   shouldTriggerAiAgentFromWebhook,
   shouldTriggerShadowFromWebhook,
   shouldPauseAiForHumanTakeover,
+  shouldLockHumanHandling,
   type QueuedMessage,
   type WebhookShadowTriggerInput,
 } from './aiRuntime.ts'
@@ -357,6 +358,25 @@ describe('shouldPauseAiForHumanTakeover', () => {
       wasSentByApi: false,
       statusIa: null,
     })).toBe(false)
+  })
+})
+
+describe('shouldLockHumanHandling (v7.94.0 — trava de atendimento humano)', () => {
+  it('locks when vendor replies from the phone (fromMe + !wasSentByApi)', () => {
+    expect(shouldLockHumanHandling({ fromMe: true, wasSentByApi: false })).toBe(true)
+  })
+
+  it('locks regardless of prior status_ia (signal independe do estado)', () => {
+    // diferente de shouldPauseAiForHumanTakeover: aqui não há condição de status_ia
+    expect(shouldLockHumanHandling({ fromMe: true, wasSentByApi: false })).toBe(true)
+  })
+
+  it('does NOT lock on our own API echo (IA/Helpdesk/cron, wasSentByApi=true)', () => {
+    expect(shouldLockHumanHandling({ fromMe: true, wasSentByApi: true })).toBe(false)
+  })
+
+  it('does NOT lock on incoming lead messages (fromMe=false)', () => {
+    expect(shouldLockHumanHandling({ fromMe: false, wasSentByApi: false })).toBe(false)
   })
 })
 

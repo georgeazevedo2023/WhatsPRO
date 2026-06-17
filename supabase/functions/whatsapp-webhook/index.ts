@@ -1,5 +1,5 @@
 import { webhookCorsHeaders as corsHeaders } from '../_shared/cors.ts'
-import { shouldTriggerAiAgentFromWebhook, shouldTriggerShadowFromWebhook, shouldPauseAiForHumanTakeover } from '../_shared/aiRuntime.ts'
+import { shouldTriggerAiAgentFromWebhook, shouldTriggerShadowFromWebhook, shouldPauseAiForHumanTakeover, shouldLockHumanHandling } from '../_shared/aiRuntime.ts'
 import { STATUS_IA } from '../_shared/constants.ts'
 import { shouldReopenConversation } from '../_shared/conversationReopen.ts'
 import { fetchWithTimeout } from '../_shared/fetchWithTimeout.ts'
@@ -1136,6 +1136,31 @@ Deno.serve(async (req) => {
       conversation.status_ia = STATUS_IA.SHADOW
       humanTakeoverPaused = true
       log.info('Human takeover detected — AI paused to shadow', { conversationId: conversation.id })
+    }
+
+    // ── Trava de atendimento humano (v7.94.0 — RULE 1 + RULE 2) ───────────────
+    // O vendedor respondeu pelo CELULAR (fromMe && !wasSentByApi = mão humana, não
+    // eco da nossa API). Grava o lock durável (só na 1ª vez) e SELA o evento ativo
+    // da fila → a rotação para na hora (não joga o lead Jussara→Djavan→…) e a IA
+    // fica muda (o gate do ai-agent lê human_handling_at). Usa o MESMO sinal
+    // confiável do takeover (wasSentByApi), independente de status_ia: cobre também
+    // a conversa já em shadow/handoff. Só "Finalizar"/"Ativar IA" limpam o lock.
+    if (shouldLockHumanHandling({ fromMe, wasSentByApi }) && conversation?.id) {
+      const { data: lockedNow } = await supabase
+        .from('conversations')
+        .update({ human_handling_at: msgTimestamp })
+        .eq('id', conversation.id)
+        .is('human_handling_at', null)
+        .select('id')
+        .maybeSingle()
+      if (lockedNow) {
+        await supabase
+          .from('handoff_queue_events')
+          .update({ status: 'responded', resolved_at: new Date().toISOString(), resolved_reason: 'human_handling' })
+          .eq('conversation_id', conversation.id)
+          .eq('status', 'active')
+        log.info('Atendimento humano travado (reply do vendedor pelo celular)', { conversationId: conversation.id })
+      }
     }
 
     // ── UTM Campaign Attribution ──────────────────────────────────────

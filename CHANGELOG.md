@@ -13,6 +13,22 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.94.0 (2026-06-17) — 🔒 Trava de atendimento humano: fila não rotaciona + IA muda até "Finalizar"
+
+Auditoria (workflow 10 agentes, verificação adversarial contra a prod) de 2 queixas do dono: lead atendido pela Jussara foi pra Djavan (e por 8 atendentes), e a IA continuava respondendo durante atendimento humano. **3 causas-raiz confirmadas:**
+- **Rotação cega à resposta no celular** — `requeue-conversations` Case C (`detectResponded`) só conta resposta com `sender_id` (Helpdesk). Vendedor responde pelo CELULAR (`sender_id` NULL) → invisível → rotaciona a cada 10min pela lista toda até o teto 22 (filtro do R116). Caso real Laryssa: `Thiago→Lucas→Jussara→Djavan→Alvaro→Alberto→…` apesar do vendedor ter respondido.
+- **Sem estado "em atendimento / finalizar"** — `assigned_to`/`status_ia`/tags são voláteis (reabertura e handoff de fila/abandono regravam 'ligada' e apagam marcadores). Nada prende o lead a quem assumiu.
+- **IA re-arma sozinha** — ~150 msgs `ai_agent` + ~65 `ai_greeting` em 3d saíram com humano atribuído e IA em shadow (reabertura stripa `handoff_created`/`human_assigned` + religa 'ligada').
+
+**Solução (decisão do dono): 1 fonte de verdade durável `conversations.human_handling_at`** — setada no **1º reply do vendedor** (celular via webhook `fromMe && !wasSentByApi`; Helpdesk já põe `desligada`). Enquanto NOT NULL: **RULE 1** a fila não rotaciona (sela o evento); **RULE 2** a IA fica em shadow (gate novo no `ai-agent`, antes do tag-gate). **Só "Finalizar"/"Ativar IA"/limpar-contexto** limpam o lock (congela indefinidamente, sem rede de segurança — decisão explícita). Não usa trigger por `external_id` (eco de API UAZAPI também é hex → falso-positivo); usa o sinal confiável `wasSentByApi`. Reabertura intocada (só age em `resolvida`; lock já limpo no Finalizar → retorno genuíno religa a IA, preserva janela 60d). Manager reassign manual (`manager_reassign_conversation` RPC) **bypassa** o lock (override deliberado).
+
+- **Arquivos:** migration `20260617120000` (coluna + índice parcial + belt na RPC `find_abandoned_handoff_candidates`); `_shared/handoffQueue.ts` (early-return `human_handling`); `requeue-conversations` (sela+pula travada); `escalate-stale-handoffs` (pula travada); `whatsapp-webhook` (lock + sela evento no takeover, `shouldLockHumanHandling`); `ai-agent/index.ts` (gate durável); `TicketResolutionDrawer`/`ChatPanel`/`Leads`/`LeadDetail` (limpam o lock); `types.ts` (SYNC).
+- **Verificação:** tsc 0 · vitest **1926/0** (+6) · `deno check` 6 fns 0. Backfill prod: 11 leads em rotação travados + eventos selados (0 ativos depois). Caso Laryssa fechado.
+
+Deploy: migration aplicada (`prfcbfumyrrycsrcrvms`) · 6 edge fns scoop (`ai-agent` v269, `whatsapp-webhook` v18, `requeue-conversations` v11, `assign-handoff` v8, `escalate-stale-handoffs` v4, `handoff-abandoned-leads` v7) · frontend → CI → Portainer.
+
+---
+
 ### v7.93.0 (2026-06-17) — 🎚️ Gestor pausa/despausa atendentes + esconde gestores da lista (aba "Atendentes")
 
 Pedido do dono na aba **Atendentes** do `/dashboard/fila`: pausar/despausar cada atendente E tirar os gestores da lista ("são gestores, não atendentes").
@@ -247,16 +263,7 @@ Quick wins da auditoria de inconsistências (4 agentes + verificação manual), 
 
 **Causas-raiz (auditoria multi-agente 5 traces + verificação adversarial):** (1) **CONFIRMADO** — o fix HEIC da v7.75.0 só ficou vivo HOJE (08:04 UTC; deploy anterior era de 06-05) e celular mantém a aba viva por DIAS sem recarregar + `index.html` sem `Cache-Control` (cache heurístico) → vendedores rodavam código **pré-fix**, onde foto de câmera Android (HEIC) toma 500 do UAZAPI. (2) **CONFIRMADO** — cada redeploy **apaga os chunks do build anterior** (flagrado ao vivo: 404 + Bad Gateway); aba antiga que lazy-loada o chunk do heic2any (1,35MB, só baixa no 1º envio de HEIC) toma 404, o Chromium **cacheia a falha do módulo** e todo retry falha até F5 — bolha genérica. (3) **PARCIAL** — upload ao Storage era o único passo de rede sem proteção anti-sessão-zumbi (spinner infinito). (4) **PARCIAL** — heic2any 0.0.4: worker sem error-handler (OOM = promise eterna), asm.js 16MB, zero cap de dimensão; erros reais (`ERR_LIBHEIF`, `Cannot enlarge memory`) não casavam o `humanizeSendError`. (5) Bugs menores: `userId:''` → UAZAPI entrega + INSERT falha + retry **duplica a foto no lead**; cap 20MB pré-conversão; foto cloud-only (0 bytes) sem mensagem.
 
-**Fix de raiz (8 frentes):**
-- `nginx.conf`: `Cache-Control: no-cache` no index.html + version.json (assets seguem immutable).
-- `main.tsx`: listener global `vite:preloadError` → **reload automático 1x** (guarda anti-loop) — chunk 404 pós-deploy se auto-recupera.
-- `vite.config.ts`: `__APP_BUILD__` + `version.json` por build; `useTabFocusRefresh` checa no tab-resume e mostra **toast "Nova versão — Recarregar"** (passivo, lição v7.61.0: nunca reload forçado).
-- `normalizeOutboundImage.ts`: HEIC blindado — retry do import + erro tipado `CHUNK_LOAD_FAILED`, **teto 60s** na conversão (worker morto não pendura mais), normaliza rejeições-objeto do heic2any, fallback canvas (Safari decodifica HEIC nativo), **cap 4096px** no canvas (anti-OOM).
-- `sendErrors.ts`: mapeia ChunkLoadError→"recarregue a página", ERR_LIBHEIF/memória→dica de print, sessão expirada, "mídia" com acento, arquivo 0 bytes→dica Google Fotos.
-- `useSendFile`/`uploadOutboundMedia`: upload com **teto 120s + recoverStuckSession** (fim do spinner infinito); cap 20MB movido pra DEPOIS da conversão; teto duro 50MB pré; `uazapiClient` AbortController 90s.
-- `ChatInput`: guard `!user` ANTES de enviar (mata a foto duplicada no lead).
-- **Telemetria** (`media_send_telemetry` + edge fn `log-send-failure` verify_jwt=false + `sendTelemetry.ts` fire-and-forget text/plain keepalive): toda falha grava estágio/erro/build/UA — falha client-side deixou de ser invisível. Smoke E2E ok.
-- `deploy.yml`: **CI chama o webhook do Portainer** (secret `PORTAINER_WEBHOOK_URL`) — mata o deploy-fantasma de vez (2 ocorrências registradas; a de hoje detectada e corrigida nesta sessão).
+**Fix de raiz (8 frentes, detalhe na memória `project_vendor_photo_send_audit_v777`):** nginx `no-cache` no index.html + auto-reload em `vite:preloadError` + version.json/toast de nova versão (recuperação de aba velha pós-deploy); HEIC blindado (`normalizeOutboundImage` teto 60s, cap 4096px, fallback canvas); upload com teto 120s+`recoverStuckSession`; guard `!user` no `ChatInput` (mata foto duplicada); telemetria `media_send_telemetry`+`log-send-failure`; `deploy.yml` chama o webhook do Portainer (mata deploy-fantasma).
 
 **Verificação:** 32/32 testes novos+existentes dos módulos; suite 545✓ (5 fails pré-existentes forms); tsc/deno 0 novos; build emite version.json com id idêntico ao bundle; telemetria smoke E2E (beacon→DB). Detalhe: [[project_vendor_photo_send_audit_v777]].
 

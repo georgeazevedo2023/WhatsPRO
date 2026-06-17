@@ -342,9 +342,11 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         const cleanedTags = (((cur?.tags as string[] | null) || [])).filter(
           (t) => typeof t === 'string' && !CLEAR_KEYS.has(t.split(':')[0]),
         );
+        // v7.94.0: "Ativar IA" também libera a trava de atendimento humano
+        // (human_handling_at) — senão o novo gate por lock manteria a IA em shadow.
         await supabase
           .from('conversations')
-          .update({ status_ia: newStatus, tags: cleanedTags })
+          .update({ status_ia: newStatus, tags: cleanedTags, human_handling_at: null })
           .eq('id', conversation.id);
       } else {
         await supabase.from('conversations').update({ status_ia: newStatus }).eq('id', conversation.id);

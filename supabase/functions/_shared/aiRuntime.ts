@@ -178,6 +178,23 @@ export function shouldPauseAiForHumanTakeover(input: HumanTakeoverInput): boolea
 }
 
 /**
+ * v7.94.0 — Trava de atendimento humano (lock durável `human_handling_at`).
+ *
+ * O vendedor respondeu o lead pelo CELULAR (não pela nossa API). Sinal exato:
+ * fromMe=true + wasSentByApi=false — mesmíssimo sinal do takeover, mas SEM a
+ * condição de status_ia: a trava deve valer mesmo se a conversa já está em
+ * shadow/desligada (handoff anterior), pra a fila parar de rotacionar e a IA
+ * ficar muda até "Finalizar"/"Ativar IA". O eco da nossa própria API
+ * (wasSentByApi=true: IA, Helpdesk, crons) NUNCA trava.
+ *
+ * Respostas pelo Helpdesk não passam por aqui (já põem status_ia=desligada e o
+ * detectResponded da fila as enxerga via sender_id).
+ */
+export function shouldLockHumanHandling(input: { fromMe: boolean; wasSentByApi: boolean }): boolean {
+  return input.fromMe === true && input.wasSentByApi === false
+}
+
+/**
  * Returns true if the message is too trivial to warrant an LLM extraction call.
  * Used as pre-filter in shadow mode to save tokens.
  */

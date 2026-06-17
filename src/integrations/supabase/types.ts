@@ -1352,6 +1352,7 @@ export type Database = {
           contact_id: string
           created_at: string
           department_id: string | null
+          human_handling_at: string | null
           id: string
           inbox_id: string
           is_read: boolean
@@ -1374,6 +1375,7 @@ export type Database = {
           contact_id: string
           created_at?: string
           department_id?: string | null
+          human_handling_at?: string | null
           id?: string
           inbox_id: string
           is_read?: boolean
@@ -1396,6 +1398,7 @@ export type Database = {
           contact_id?: string
           created_at?: string
           department_id?: string | null
+          human_handling_at?: string | null
           id?: string
           inbox_id?: string
           is_read?: boolean

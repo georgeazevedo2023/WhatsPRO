@@ -52,6 +52,7 @@ export type AssignHandoffResult = {
     | 'queue_off_default'    // Modo OFF → default_assignee_id
     | 'queue_off_no_default' // Modo OFF mas sem default_assignee_id (fallback no_eligible)
     | 'queue_on_picked'      // Modo ON → RPC escolheu próximo
+    | 'human_handling'       // v7.94.0: conversa travada num atendente humano — não (re)atribui
     | 'error'                // exceção interna — caller faz fallback
 }
 
@@ -134,6 +135,22 @@ export async function assignHandoff(
   }
 
   try {
+    // v7.94.0 (RULE 1): se um humano já assumiu (lock durável), NÃO (re)atribui.
+    // Bloqueia o cron de rotação, o handoff por abandono e o handoff da IA de
+    // jogar um lead que já está sendo atendido pra outro atendente. Só "Finalizar"
+    // / "Ativar IA" limpam o lock (conversations.human_handling_at).
+    const { data: lockRow } = await supabase
+      .from('conversations')
+      .select('human_handling_at')
+      .eq('id', conversation_id)
+      .maybeSingle()
+    if (lockRow?.human_handling_at) {
+      log.info('handoffQueue: conversa travada em atendimento humano — não reatribui', {
+        conversation_id, human_handling_at: lockRow.human_handling_at,
+      })
+      return { ...baseResult, assigned_user_id: null, reason: 'human_handling' }
+    }
+
     const { data: dept, error: deptErr } = await supabase
       .from('departments')
       .select('id, queue_mode_enabled, queue_mode_timeout_minutes, default_assignee_id')

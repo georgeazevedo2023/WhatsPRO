@@ -106,7 +106,7 @@ async function loadAgentForConversation(supabase: SupabaseClient, conversationId
   // lead nunca era avisado que estava fora do horário.
   const { data: conv } = await supabase
     .from('conversations')
-    .select('id, inbox_id, contact_id, assigned_to')
+    .select('id, inbox_id, contact_id, assigned_to, human_handling_at')
     .eq('id', conversationId)
     .maybeSingle()
   if (!conv) return { conv: null, inbox: null, agent: null, instance: null }
@@ -247,6 +247,22 @@ Deno.serve(async (req: Request) => {
         await supabase.from('handoff_queue_events').update({
           status: 'cancelled', resolved_at: new Date().toISOString(), resolved_reason: 'conversation_deleted',
         }).eq('id', ev.id)
+        continue
+      }
+
+      // ─── RULE 1 (v7.94.0): humano assumiu → NÃO rotaciona ────────────────
+      // Lock durável em conversations.human_handling_at (setado no 1º reply do
+      // vendedor, Helpdesk OU celular). Sela o evento e congela: a conversa fica
+      // no atendente até "Finalizar"/"Ativar IA". Fecha o bouncing Jussara→Djavan→…
+      // mesmo quando o vendedor respondeu pelo celular (sender_id NULL, invisível
+      // ao detectResponded). Defense-in-depth: o webhook já sela o evento ativo no
+      // takeover; aqui cobrimos eventos criados por corrida (abandono/IA).
+      if (conv.human_handling_at) {
+        await supabase.from('handoff_queue_events').update({
+          status: 'responded', resolved_at: new Date().toISOString(), resolved_reason: 'human_handling',
+        }).eq('id', ev.id)
+        broadcastQueueUpdate({ event_id: ev.id, conversation_id: ev.conversation_id, kind: 'human_handling' })
+        stats.case_c_responded++
         continue
       }
 

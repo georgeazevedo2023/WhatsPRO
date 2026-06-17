@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
     // 1-2. Load agent + conversation + instance in parallel (~300ms saved)
     const [agentResult, conversationResult, instanceResult] = await Promise.all([
       supabase.from('ai_agents').select('*').eq('id', agent_id).maybeSingle(),
-      supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at, shown_product_ids, cart_items').eq('id', conversation_id).maybeSingle(),
+      supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at, shown_product_ids, cart_items, human_handling_at').eq('id', conversation_id).maybeSingle(),
       supabase.from('instances').select('token').eq('id', instance_id).maybeSingle(),
     ])
 
@@ -219,6 +219,26 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: 'ia_disabled' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    // ── GATE DE SILÊNCIO DURÁVEL — atendimento humano travado (v7.94.0) ───────
+    // human_handling_at é a fonte de verdade DURÁVEL de "humano atendendo": setada
+    // no 1º reply do vendedor (webhook celular / Helpdesk) e — diferente das tags
+    // handoff_created/human_assigned — NÃO é apagada pela reabertura nem pelos
+    // handoffs de fila/abandono. Coage status_ia→shadow (cai no SHADOW MODE:
+    // extrai, nunca responde) até "Finalizar"/"Ativar IA" limparem o lock. Fecha o
+    // vazamento de ~150 msgs ai_agent/3d que saíam durante atendimento humano (RULE 2).
+    if (conversation.human_handling_at && conversation.status_ia !== STATUS_IA.SHADOW) {
+      log.info('Gate de silêncio: atendimento humano travado → coage status_ia para shadow', {
+        conversationId: conversation_id,
+        previousStatusIa: conversation.status_ia,
+        humanHandlingAt: conversation.human_handling_at,
+      })
+      conversation.status_ia = STATUS_IA.SHADOW
+      await supabase
+        .from('conversations')
+        .update({ status_ia: STATUS_IA.SHADOW })
+        .eq('id', conversation_id)
     }
 
     // ── GATE DE SILÊNCIO DURÁVEL — humano no controle (2026-06-09) ───────────

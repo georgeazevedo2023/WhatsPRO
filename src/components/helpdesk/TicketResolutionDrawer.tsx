@@ -151,10 +151,19 @@ export function TicketResolutionDrawer({ conversation, onResolved, trigger }: Ti
       // 2. Update conversation: status + tags + resolved_at
       // resolved_at marca o ponto de Finalizar — usado por whatsapp-webhook pra
       // decidir reabrir conv dentro de janela 60d quando lead voltar a falar.
+      // v7.94.0: limpa human_handling_at (lead volta a ficar LIVRE — a fila pode
+      // reatribuir e a IA religa no retorno genuíno, conforme decisão do dono).
       await supabase
         .from('conversations')
-        .update({ status: 'resolvida', tags: mergedTags, resolved_at: new Date().toISOString() })
+        .update({ status: 'resolvida', tags: mergedTags, resolved_at: new Date().toISOString(), human_handling_at: null })
         .eq('id', conversation.id);
+
+      // v7.94.0: sela qualquer evento de fila ativo (Finalizar encerra a rotação).
+      await supabase
+        .from('handoff_queue_events')
+        .update({ status: 'cancelled', resolved_reason: 'conversation_resolved' })
+        .eq('conversation_id', conversation.id)
+        .eq('status', 'active');
 
       // 3. Move kanban card (if exists)
       const targetColumnName = KANBAN_COLUMN_MAP[category];

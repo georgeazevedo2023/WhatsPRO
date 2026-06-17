@@ -187,6 +187,17 @@ Deno.serve(async (req: Request) => {
     let alerted = 0
 
     for (const row of candidates as NotifRow[]) {
+      // v7.94.0 (RULE 1): conversa travada em atendimento humano → não escala.
+      // vendorResponded() é cego à resposta do vendedor pelo CELULAR (sender_id
+      // NULL ≠ assigned_to_id), então sem isto o cron seguiria cutucando/alertando
+      // um vendedor que já assumiu. O lock durável (human_handling_at) é a verdade.
+      const { data: lockRow } = await supabase
+        .from('conversations')
+        .select('human_handling_at')
+        .eq('id', row.conversation_id)
+        .maybeSingle()
+      if (lockRow?.human_handling_at) continue
+
       // Vendor já respondeu? Skipa tudo.
       const responded = await vendorResponded(row.conversation_id, row.assigned_to_id, row.sent_at)
       if (responded) continue
