@@ -83,8 +83,17 @@ export interface AttendantStat {
   cancelled: number;
   active: number;
   avg_response_seconds: number;
-  /** v7.87.0: role gerente/super_admin — gestor aparece nos cards mas NÃO é candidato a reatribuição */
+  /** v7.87.0: role gerente/super_admin — gestor NÃO é atendente (some dos cards + da reatribuição) */
   is_manager: boolean;
+}
+
+/**
+ * Atendentes visíveis nos cards/contagens da aba "Atendentes": exclui gestores
+ * (role gerente/super_admin). Gestor não atende — já fica fora da rotação
+ * (pick_next_assignee) e da reatribuição; aqui some também da lista de stats.
+ */
+export function visibleAttendants(stats: AttendantStat[]): AttendantStat[] {
+  return stats.filter((s) => !s.is_manager);
 }
 
 export interface LostLead {
@@ -299,6 +308,45 @@ export function useReassignConversation() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['unattended-leads'] });
+      void qc.invalidateQueries({ queryKey: ['queue-stats'] });
+      void qc.invalidateQueries({ queryKey: ['queue-live'] });
+    },
+  });
+}
+
+/**
+ * Gestor pausa/despausa um atendente direto do painel (aba "Atendentes").
+ * Chama a RPC role-gated set_queue_paused_for_user (gêmea do toggle pessoal do
+ * helpdesk, mas mira outro user). É ESCOPADA POR INSTÂNCIA: pausa só os
+ * department_members do alvo que pertencem à instância informada (multi-tenant —
+ * um gestor não mexe na fila de outra instância). Após sucesso, invalida os cards
+ * (stats) e o header (live) pra refletir na hora pro gestor; outros painéis
+ * convergem pelo polling (10s/30s), igual ao toggle pessoal do helpdesk.
+ */
+export function useSetAttendantPaused() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      { userId, instanceId, paused }: { userId: string; instanceId: string; paused: boolean },
+    ): Promise<{ paused: boolean }> => {
+      const { data, error } = await supabase.rpc(
+        'set_queue_paused_for_user' as never,
+        {
+          p_user_id: userId,
+          p_instance_id: instanceId,
+          p_paused: paused,
+          p_reason: paused ? 'Pausado pelo gestor no painel' : null,
+        } as never,
+      );
+      if (error) throw error;
+      const result = data as { rows_affected?: number; error?: string } | null;
+      if (result?.error) throw new Error(result.error);
+      if (!result?.rows_affected || result.rows_affected === 0) {
+        throw new Error('Nenhum departamento atualizado — o atendente ainda está na fila desta instância?');
+      }
+      return { paused };
+    },
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['queue-stats'] });
       void qc.invalidateQueries({ queryKey: ['queue-live'] });
     },

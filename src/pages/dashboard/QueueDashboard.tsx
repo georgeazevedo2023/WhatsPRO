@@ -20,6 +20,7 @@ import {
   useQueueStats,
   useQueueLostLeads,
   useUnattendedLeads,
+  visibleAttendants,
   resolveQueuePeriod,
   formatDuration,
   type QueuePeriod,
@@ -27,6 +28,7 @@ import {
   type UnattendedWindow,
 } from '@/hooks/useQueueDashboard';
 import UnattendedLeadsTab from '@/components/dashboard/queue/UnattendedLeadsTab';
+import AttendantPauseButton from '@/components/dashboard/queue/AttendantPauseButton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -100,9 +102,11 @@ function LiveHeader({ instanceId }: { instanceId: string | null }) {
 
 function AttendantCard({
   stat,
+  instanceId,
   onOpenLost,
 }: {
   stat: AttendantStat;
+  instanceId: string | null;
   onOpenLost: (userId: string, name: string) => void;
 }) {
   const lost = stat.timed_out + stat.manual_override + stat.cancelled;
@@ -118,6 +122,7 @@ function AttendantCard({
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate font-semibold">{stat.full_name}</h3>
             <StatusBadge paused={stat.queue_paused} />
+            <AttendantPauseButton stat={stat} instanceId={instanceId} />
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             <div className="rounded-lg bg-muted/50 p-2 text-center">
@@ -299,9 +304,14 @@ export default function QueueDashboard() {
   const { data: unattended = [], isLoading: unattendedLoading } = useUnattendedLeads(instanceId, unattendedWin);
   const range = resolveQueuePeriod(period);
 
-  const totalReceived = stats.reduce((s, a) => s + a.received, 0);
-  const totalResponded = stats.reduce((s, a) => s + a.responded, 0);
-  const totalLost = stats.reduce((s, a) => s + a.timed_out + a.manual_override + a.cancelled, 0);
+  // Gestores que não atendem a fila (role gerente/super_admin sem gestor_in_queue)
+  // não são atendentes — fora dos cards, dos totais e da lista de reatribuição.
+  const attendants = visibleAttendants(stats);
+  const onlyManagers = !statsLoading && stats.length > 0 && attendants.length === 0;
+
+  const totalReceived = attendants.reduce((s, a) => s + a.received, 0);
+  const totalResponded = attendants.reduce((s, a) => s + a.responded, 0);
+  const totalLost = attendants.reduce((s, a) => s + a.timed_out + a.manual_override + a.cancelled, 0);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-3 sm:p-6">
@@ -339,7 +349,7 @@ export default function QueueDashboard() {
             isLoading={unattendedLoading}
             win={unattendedWin}
             onWinChange={setUnattendedWin}
-            attendants={stats}
+            attendants={attendants}
           />
         </TabsContent>
 
@@ -383,18 +393,21 @@ export default function QueueDashboard() {
         <TabsContent value="attendants" className="mt-4 space-y-3">
           <PeriodChips period={period} onChange={setPeriod} />
           {statsLoading && [0, 1, 2].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
-          {!statsLoading && stats.length === 0 && (
+          {!statsLoading && attendants.length === 0 && (
             <Card className="p-8 text-center">
               <Users className="mx-auto mb-2 h-10 w-10 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">
-                Sem atendentes cadastrados no departamento de fila desta instância.
+                {onlyManagers
+                  ? 'Nenhum atendente na fila — os membros deste departamento são gestores.'
+                  : 'Sem atendentes cadastrados no departamento de fila desta instância.'}
               </p>
             </Card>
           )}
-          {!statsLoading && stats.length > 0 && stats.map((stat) => (
+          {!statsLoading && attendants.length > 0 && attendants.map((stat) => (
             <AttendantCard
               key={stat.user_id}
               stat={stat}
+              instanceId={instanceId}
               onOpenLost={(uid, name) => { setDrillUserId(uid); setDrillName(name); }}
             />
           ))}
