@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-06-13
-audited_at: 2026-06-05
+updated: 2026-06-17
+audited_at: 2026-06-17
 ---
 
 # Changelog
@@ -269,15 +269,9 @@ Quick wins da auditoria de inconsistências (4 agentes + verificação manual), 
 
 ---
 
-### v7.76.0 (2026-06-09)
+### v7.76.0 → v7.75.0 (2026-06-09)
 
-AI Agent: handoff repetia + IA falava após transbordo. Fix de raiz (7 arq): gate de silêncio durável (coage `status_ia→shadow` por `handoff_created`/`human_assigned`), handoff idempotente (cooldown REAL + limpa tags de loop), defesa em profundidade no loop guard, religar (`Ativar IA`/reabrir) limpa markers, webhook não rebaixa `shadow→ligada`. Deploy ai-agent v260 / webhook v15 + cleanup de 128 conversas. Detalhe: memória `project_handoff_repeat_silence_v776`.
-
----
-
-### v7.75.0 (2026-06-09)
-
-Helpdesk: foto HEIC (iPhone/Android) finalmente envia — `normalizeOutboundImage` (magic bytes + `heic2any`→JPEG, lazy) + base64→URL no Disparador + UX de erro persistente. Detalhe: memória `project_heic_photo_send_v775`.
+AI Agent: handoff repetia + IA falava após transbordo — gate de silêncio durável (`status_ia→shadow` por `handoff_created`/`human_assigned`), handoff idempotente, webhook não rebaixa `shadow→ligada` (ai-agent v260/webhook v15). Helpdesk: foto HEIC envia (`normalizeOutboundImage` magic bytes + `heic2any`→JPEG). Detalhe: memórias `project_handoff_repeat_silence_v776` · `project_heic_photo_send_v775`.
 
 ### v7.74.x → v7.73.0 (2026-06-04/05)
 

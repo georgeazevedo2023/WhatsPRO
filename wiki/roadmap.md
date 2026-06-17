@@ -2,13 +2,13 @@
 title: Roadmap
 tags: [roadmap, milestones, fases, status, m19-s10, eletropiso, d28-excluded-products, helpdesk-escopo-tabs, plano-orquestrador]
 sources: [.planning/ROADMAP.md (deprecated), .planning/STATE.md (deprecated), CLAUDE.md, PRD.md]
-updated: 2026-05-31
-audited_at: 2026-05-23
+updated: 2026-06-17
+audited_at: 2026-06-17
 ---
 
 # Roadmap
 
-> Para o detalhe do **Plano Orquestrador (Sprints A→E, 68% concluído)**, ver tabela em `CLAUDE.md`. Para mapa de R# (regras preventivas), ver [[wiki/erros/familias-r-codes]]. Esta página guarda os milestones do PRODUTO (M1-M18 + correlatos).
+> Para o detalhe do **Plano Orquestrador (Sprints A→E, ~98% concluído — router + 5 specialists 100% em PROD; falta só D6 aposentar o monolito, gate ~23/06)**, ver tabela em `CLAUDE.md`. Para mapa de R# (regras preventivas), ver [[wiki/erros/familias-r-codes]]. Esta página guarda os milestones do PRODUTO (M1-M18 + correlatos). Releases recentes (v7.64→v7.94) detalhadas no `CHANGELOG.md`; o que falta no produto/dívida: [[wiki/auditoria-pendencias-2026-06-17]].
 
 ## Milestones
 

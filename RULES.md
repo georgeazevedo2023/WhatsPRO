@@ -37,7 +37,7 @@ Detalhes completos em [[wiki/protocolo-subagentes]] (4 passos, regras de conflit
 Quando um teste E2E detectar erro no comportamento do agente, corrigir NESTA ORDEM:
 
 1. **Codigo + Prompt hardcoded** — bug no fluxo, logica errada, guard faltando. Fix no index.ts ou _shared/
-2. **Instrucao no Validator Agent** — validator nao detectou o erro? Adicionar regra no validatorAgent.ts (leadQuestions, catalogPrices, nome exato). Validator REWRITE corrige antes de enviar
+2. **Sanitizacao deterministica da resposta** — o validador LLM foi APOSENTADO (v7.89.0). Fonte unica = `_shared/agent/responseSanitizer.ts` (negacao indevida, leak de tool call, jargao interno, contagem exposta). Adicionar/ajustar a regra LA, nao em `validatorAgent.ts` (codigo legado, fora do hot path)
 3. **FAQ/Q&A na Knowledge Base** — textos genericos, perguntas cotidianas, respostas que o LLM erra repetidamente. Inserir na ai_agent_knowledge como FAQ
 4. **Fallback: Mensagem de transbordo + Handoff** — ULTIMO recurso. Lead NUNCA fica sem resposta
 
