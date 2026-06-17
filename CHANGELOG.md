@@ -13,6 +13,19 @@ audited_at: 2026-06-05
 
 ---
 
+### v7.93.0 (2026-06-17) — 🎚️ Gestor pausa/despausa atendentes + esconde gestores da lista (aba "Atendentes")
+
+Pedido do dono na aba **Atendentes** do `/dashboard/fila`: pausar/despausar cada atendente E tirar os gestores da lista ("são gestores, não atendentes").
+
+- **Pausar/Reativar por atendente** (`AttendantPauseButton`, estado otimista) via RPC nova `set_queue_paused_for_user` — role-gated (`super_admin||gerente`) e **ESCOPADA POR INSTÂNCIA** (`p_instance_id` + `UPDATE` só nas departments daquele tenant; um gestor não mexe na fila de outra instância). Espelha `set_my_queue_paused`.
+- **Gestores somem** dos cards, totais, contagens do header e da reatribuição. `is_manager` refinado: gestor que **não atende** a fila (`gestor_in_queue=false`) é gestor; quem tem `gestor_in_queue=true` (atende de fato) continua aparecendo. Hoje some **Josafá, Michelly e Televendas** (3 gerentes). Fonte única no front: `visibleAttendants()`.
+- **Migration `20260617000000`** (3 fns: `set_queue_paused_for_user` nova + `get_queue_attendant_stats`/`get_queue_live_status` passam a respeitar `gestor_in_queue`); behavior-preserving pros dados atuais.
+- **Revisão adversarial** (workflow 5 dimensões, 33 findings→12 confirmados) pegou um **🔴 blocker multi-tenant** (RPC sem `p_instance_id` pausava cross-tenant) — fechado mirando `manager_reassign_conversation`. **E2E real prod** (rolled back, JWT do Josafá): pausa atendente da instância→`rows_affected:1`; instância errada→`not_a_queue_member:0` ✅. tsc 0 · vitest **1920/0** (+15 testes).
+
+Deploy: migration aplicada (`prfcbfumyrrycsrcrvms`) · frontend `87f0c67` → CI (gate) → Portainer.
+
+---
+
 ### v7.92.0 (2026-06-14) — 🔒 Auditoria 2026-06-14: fecha os 3 riscos críticos (CI gate · escalate auth · SECURITY DEFINER anon)
 
 Resolve os 3 maiores riscos da auditoria de estruturação ([[wiki/auditoria-estrutura-2026-06-14]]), cada um verificado end-to-end:
@@ -249,20 +262,9 @@ Quick wins da auditoria de inconsistências (4 agentes + verificação manual), 
 
 ---
 
-### v7.76.0 (2026-06-09) — 🔴→🟢 AI Agent: handoff repetia + IA falava depois do transbordo — gate de silêncio durável + handoff idempotente
+### v7.76.0 (2026-06-09)
 
-**Bug do dono** (print MARMOBOX ALMOXARIFADO / lead Guedes — na verdade **EletropisoV2**, "MARMOBOX" é só o nome de perfil do contato): após o transbordo a IA **reenviou a MESMA mensagem de handoff** ("Guedes, seu pedido de cabos. Já passei tudo pro nosso vendedor…") a cada nova mensagem do lead. No DB de prod: **3 transbordos idênticos** (11:00/14:58/15:04) + filas/notas/vendedores novos a cada um. Regra violada: **depois do handoff a IA deve ficar MUDA pro lead até o atendente Finalizar ou clicar "Ativar IA"**.
-
-**Causa-raiz (auditoria multi-agente 6 traces + verificação adversarial, ancorada no DB real):** dois defeitos compostos. **(1) não-silenciado:** "humano no controle" estava codificado SÓ em `status_ia` (volátil) — o gate de entrada só barra `desligada`, `assigned_to` nunca era lido, e `dispatchResponse:417`/`webhook:1124`/reabertura regravavam `ligada` por cima do `shadow` do handoff. **(2) repetição:** o handoff não era idempotente — `handoffToHuman` gravava `handoff_created:true` mas **nunca o lia**, o `handoff_cooldown_minutes=30` **só era logado** (nunca enforçado), e as **tags do loop sem-resultado** (`enriching/enrich_count/catalog_result/flow_mode`) **nunca eram limpas** → assim que `status_ia` voltava a ≠shadow, o loop re-detectava "pronto pra handoff" e re-disparava o MESMO transbordo.
-
-**Fix de raiz (zero gambiarra, 7 arquivos):**
-- **Gate de silêncio durável** (`ai-agent/index.ts` após :219): se `handoff_created`/`human_assigned` presente e `status_ia≠shadow` → coage `status_ia→shadow` (+self-heal no DB). Cai no SHADOW MODE → **detecção interna viva, zero texto pro lead** (decisão do dono). Neutraliza TODOS os resets de uma vez.
-- **Handoff idempotente** (`setTagsAndHandoff.ts`): suprime reenvio se `handoff_created`/`handoff_at:<ms>` dentro do cooldown; grava `handoff_at` (cooldown agora REAL); **remove as tags de loop** no transbordo.
-- **Defesa em profundidade** (loop guard :3093): checa a tag durável `handoff_created` ([[feedback_guard_must_check_durable_tags]]).
-- **Religar de fato** (`ChatPanel` "Ativar IA" + `conversationReopen`): limpam `handoff_created/human_assigned/handoff_at` + tags de loop (decisão: *Ativar IA OU Finalizar/reabrir* religam).
-- **Webhook** (`whatsapp-webhook:1124`): não deixa o payload do n8n rebaixar `shadow→ligada` com handoff ativo.
-
-**Verificação:** `deno check` 0 · `tsc` (ChatPanel) 0 · **+4 testes novos** (idempotência ×3 + reopen-strip), suíte 0 regressão (14 fails pré-existentes não-relacionados). **Deploy PROD** (ai-agent v260, whatsapp-webhook v15). **Cleanup:** UPDATE limpou as tags de loop de **128 conversas órfãs** (preservou handoff markers + tags de negócio). Detalhe: [[project_handoff_repeat_silence_v776]].
+AI Agent: handoff repetia + IA falava após transbordo. Fix de raiz (7 arq): gate de silêncio durável (coage `status_ia→shadow` por `handoff_created`/`human_assigned`), handoff idempotente (cooldown REAL + limpa tags de loop), defesa em profundidade no loop guard, religar (`Ativar IA`/reabrir) limpa markers, webhook não rebaixa `shadow→ligada`. Deploy ai-agent v260 / webhook v15 + cleanup de 128 conversas. Detalhe: memória `project_handoff_repeat_silence_v776`.
 
 ---
 

@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-06-17 — 🎚️ Gestor pausa/despausa atendentes + esconde gestores (v7.93.0)
+
+Sessão ultracode + workflow. Pedido do dono (print da aba "Atendentes" do `/dashboard/fila`): pausar/despausar atendentes + tirar Josafá/Michelly da lista ("são gestores"). **Scout achou que `pick_next_assignee` JÁ exclui gestores da rotação** (`gestor_in_queue=false`) → era resíduo de UI; e que havia um **3º gestor, Televendas** (também `gerente`, já confirmado pelo dono na v7.91.0 como gestor de verdade). Entreguei: (1) RPC nova `set_queue_paused_for_user` role-gated + **escopada por instância**; (2) `AttendantPauseButton` (estado otimista) por card; (3) `is_manager` refinado (role gerente/super_admin **E** `gestor_in_queue=false`) em `get_queue_attendant_stats`/`get_queue_live_status` + `visibleAttendants()` no front. **Workflow adversarial 5 dimensões** (33 findings→12 confirmados) pegou um **🔴 blocker multi-tenant** (RPC sem `p_instance_id` pausava cross-tenant) — fechado mirando `manager_reassign_conversation`. **E2E real prod (rolled back, JWT Josafá):** pausa atendente da mesma instância→`rows_affected:1`; instância errada→`not_a_queue_member` ✅. tsc 0 · vitest **1920/0** (+15). Migration aplicada · commit `87f0c67` → push. Detalhe: memória `project_manager_pause_attendant_v793`.
+
+---
 ## 2026-06-14 — 🔍 Auditoria de estruturação (workflow 26 agentes) + 🔒 fecha os 3 riscos críticos (v7.92.0)
 
 Sessão ultracode. **(A) Auditoria de estruturação** via workflow multi-agente (26 agentes, 8 dimensões em paralelo → verificação adversarial → síntese; ~2M tokens): nota geral **6.4/10** ("núcleo sólido, bordas frágeis"). Relatório em [[wiki/auditoria-estrutura-2026-06-14]] (194 lin). A verificação adversarial rebaixou várias findings de "alta"→"média" (nota calibrada, não inflada). Commit `b8881bb`.
