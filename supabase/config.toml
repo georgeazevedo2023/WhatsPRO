@@ -65,8 +65,6 @@ verify_jwt = true
 [functions.scrape-products-batch]
 verify_jwt = true
 
-[functions.group-reasons]
-verify_jwt = true
 
 [functions.refresh-avatar]
 verify_jwt = true
@@ -104,8 +102,6 @@ verify_jwt = false
 [functions.ai-agent-debounce]
 verify_jwt = false
 
-[functions.process-jobs]
-verify_jwt = true
 
 [functions.health-check]
 verify_jwt = false

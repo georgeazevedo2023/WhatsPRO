@@ -12,7 +12,19 @@ audited_at: 2026-06-17
 
 ## Resumo
 
-**Código são, documentação desalinhada.** Build verde (vitest 1926/0, 0 erros TS, vault ≤300 lin), v7.94.0 (trava `human_handling_at`) viva em prod com **0 regressão** (RULE 1/RULE 2 = 0 vazamentos). O que falta: (a) **doc-drift** (números de progresso divergentes, RULES.md aponta Validator aposentado); (b) **dívida schema/segurança** (S9 RLS Helpdesk, RLS `USING(true) TO public`, schema órfão Fluxos v3.0); (c) **1 bug novo** (BioLinksPage hooks). **Nenhum P0 de prod.** Doc-drift do orquestrador/roadmap/RULES e o particionamento do CHANGELOG **já corrigidos nesta sessão**.
+**Código são, documentação desalinhada.** Build verde (vitest 1926/0, 0 erros TS, vault ≤300 lin), v7.94.0 (trava `human_handling_at`) viva em prod com **0 regressão** (RULE 1/RULE 2 = 0 vazamentos). O que falta: (a) **doc-drift** (números de progresso divergentes, RULES.md aponta Validator aposentado); (b) **dívida schema/segurança** (RLS `USING(true) TO public`, schema órfão Fluxos v3.0); (c) **1 bug novo** (BioLinksPage hooks). **Nenhum P0 de prod.**
+
+## ✅ Fechado na sessão 2026-06-17 (noite) — v7.95.0
+
+- **Bug Rules-of-Hooks `BioLinksPage`** — early-return movido p/ depois dos hooks.
+- **RLS `USING(true) TO public`** — `ai_debounce_queue` + `scrape_jobs` → `service_role` (as 2 que o frontend NÃO lê). `ai_agent_validations`/`follow_up_executions` ficam (lidas pela UI; precisam policy tenant-scoped, não flip cego).
+- **search_path** fixado em `get_previous_e2e_batch` (os outros eram extensão/dropados).
+- **Edge fns mortas `process-jobs` + `group-reasons`** deletadas de prod + source + config.toml + ref na UI.
+- **S9 RLS Helpdesk** — **REQUALIFICADO**: o backend JÁ enforça (`can_view_conversation`: inbox+dept+can_view_all). NÃO era vetor multi-tenant; falta só o refino dos toggles granulares (P2, rebaixado).
+- **Doc-drift** (CLAUDE.md/roadmap/RULES.md) + **CHANGELOG particionado** + **migrations registradas** + `.gitignore` imagens.
+- Migrations: `20260617120000` (v7.94.0) e `20260617140000` (hardening) aplicadas e registradas.
+
+**Ainda aberto (abaixo):** schema órfão Fluxos v3.0 (drop dedicado), `ai_agent_validations`/`follow_up_executions` policy tenant-scoped, D6 monolito (gate), e os épicos (lint, god files, wikis, front data layer, testes edge fns).
 
 ## Tabela priorizada
 

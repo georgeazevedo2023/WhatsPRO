@@ -31,12 +31,10 @@ import { BioLinkEditor } from '@/components/bio/BioLinkEditor'
 import type { BioPage } from '@/types/bio'
 
 export default function BioLinksPage() {
+  // Rules-of-Hooks: NÃO retornar antes dos hooks abaixo (o gate de superadmin
+  // fica depois de todos os hooks, junto com o `authLoading`). Early-return aqui
+  // crashava ("rendered fewer hooks") pra qualquer não-superadmin.
   const { isSuperAdmin, loading: authLoading } = useAuth()
-
-  if (!authLoading && !isSuperAdmin) {
-    return <Navigate to="/dashboard" replace />
-  }
-
   const { toast } = useToast()
   const { instances, loading: instancesLoading } = useInstances()
 
@@ -97,6 +95,7 @@ export default function BioLinksPage() {
   )
 
   if (authLoading) return null
+  if (!isSuperAdmin) return <Navigate to="/dashboard" replace />
 
   return (
     <div className="space-y-6">

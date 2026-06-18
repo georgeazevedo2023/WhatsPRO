@@ -56,5 +56,9 @@ __pycache__/
 /prod_helpdesk_initial.yml
 # Screenshots ad-hoc na raiz (movam pra wiki/testes/ se forem documentar incidente)
 /*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.gif
 e2e/.auth/
 playwright-report/

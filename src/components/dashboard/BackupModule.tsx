@@ -644,7 +644,6 @@ const BackupModule = () => {
             { name: 'fire-outgoing-webhook', desc: 'Dispara webhooks de saída' },
             { name: 'activate-ia', desc: 'Ativa/desativa IA na conversa' },
             { name: 'admin-update-user', desc: 'Atualização de usuários (admin)' },
-            { name: 'group-reasons', desc: 'Agrupamento de motivos com IA' },
             { name: 'cleanup-old-media', desc: 'Limpeza de mídias antigas' },
             { name: 'database-backup', desc: 'Este módulo de backup' },
           ].map(fn => (

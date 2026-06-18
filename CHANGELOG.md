@@ -13,6 +13,12 @@ audited_at: 2026-06-17
 
 ---
 
+### v7.95.0 (2026-06-17) — 🧹 Hardening + limpeza (auditoria de pendências)
+
+Achados SEGUROS da [[wiki/auditoria-pendencias-2026-06-17]] (varredura doc+código+backlog pós-v7.94.0): (1) **bug Rules-of-Hooks `BioLinksPage`** (return antes de 14 hooks → crash p/ não-superadmin) → early-returns após os hooks (eslint 12→0); (2) **RLS `USING(true) TO public`** → `service_role` em `ai_debounce_queue`+`scrape_jobs` (não lidas pelo front) + `search_path` em `get_previous_e2e_batch` (migration `20260617140000`); (3) **edge fns mortas `process-jobs`+`group-reasons`** deletadas (prod+source+config+UI); (4) **S9 requalificado** — backend JÁ enforça via `can_view_conversation` (não era vetor multi-tenant); (5) doc-sync (CLAUDE.md/roadmap ~98%, RULES.md→responseSanitizer, migrations registradas, MEMORY.md sob limite). tsc 0 · vitest 1926/0. Sem mudança de comportamento.
+
+---
+
 ### v7.94.0 (2026-06-17) — 🔒 Trava de atendimento humano: fila não rotaciona + IA muda até "Finalizar"
 
 Auditoria (workflow 10 agentes, verificação adversarial contra a prod) de 2 queixas do dono: lead atendido pela Jussara foi pra Djavan (e por 8 atendentes), e a IA continuava respondendo durante atendimento humano. **3 causas-raiz confirmadas:**
