@@ -1,6 +1,6 @@
 # WhatsPRO — Quick Brief for External Agents
 
-> Concise English overview for AI agents (Claude Code, Cursor, Copilot Workspace) onboarding to the codebase. Updated 2026-05-04.
+> Concise English overview for AI agents (Claude Code, Cursor, Copilot Workspace) onboarding to the codebase. Updated 2026-06-18.
 
 ## Overview
 
@@ -61,20 +61,22 @@ React Frontend → Supabase Client (DB, Auth, Realtime, Storage)
 
 **SDR flow:** generic terms → qualify first; specific terms → search immediately. Search fail → enrichment → handoff with qualification chain. Max lead messages → auto-handoff.
 
+**Architecture (2026):** a tiny **router LLM** (gpt-4.1-mini) classifies intent → dispatches to one of **5 dedicated specialists** (greeting/qualification/product/objection/handoff); the monolith is the error fallback. `routing_mode='router'` is live on all 3 prod agents. Deterministic layer (`qualificationGate`, `greetingPolicy`, `responseSanitizer`) decides search-vs-qualify and sanitizes output.
+
 **Handoff priority:** profileData > funnelData > agent.handoff_message (D10).
 
 **Shadow mode:** after handoff, `status_ia='shadow'` — extracts data without responding to lead. NEVER overwrites `full_name`.
 
-## Edge Functions (36 total)
+## Edge Functions (43 in `supabase/functions/`; 44 ACTIVE in prod — `env-diag` is deploy-only)
 
 Located in `supabase/functions/`. Deno runtime.
 
-- **JWT:** `verify_jwt = true` for most. `false` for: webhooks (`whatsapp-webhook`, `fire-outgoing-webhook`), public (`form-public`, `bio-public`, `go`, `health-check`), and internal (`ai-agent`, `ai-agent-debounce`, `transcribe-audio`)
+- **JWT:** `verify_jwt = true` for most. `false` for webhooks, public functions (`form-public`, `bio-public`, `go`, `health-check`), internal (`ai-agent`, `ai-agent-debounce`, `transcribe-audio`) and internal crons — source of truth: each function's `config.toml`
 - **CORS:** `getDynamicCorsHeaders(req)` for browser-facing. `ALLOWED_ORIGIN` secret mandatory.
-- **Shared modules (17):** `cors`, `fetchWithTimeout` (30s), `circuitBreaker` (Gemini/Groq/Mistral), `llmProvider`, `constants`, `logger`, `agentHelpers`, `auth`, `supabaseClient`, `carousel`, `rateLimit`, `validatorAgent`, `ttsProviders`, `response`, `aiRuntime`, `leadHelper`, `automationEngine`
+- **Shared modules (~46 in `_shared/` + `_shared/agent/`):** key ones — `cors`, `fetchWithTimeout` (30s), `circuitBreaker` (Gemini/Groq/Mistral), `llmProvider`, `constants`, `logger`, `agentHelpers`, `auth`, `supabaseClient`, `carousel`, `rateLimit`, `ttsProviders`, `response`, `aiRuntime`, `leadHelper`, `automationEngine`, `responseSanitizer`, `routerPipeline`, `specialistBase`, `qualificationGate`, `greetingPolicy`. ⚠️ `validatorAgent` retired from the hot path in v7.89.0 (deterministic validation moved to `responseSanitizer`)
 
 **Key functions:**
-- `ai-agent` (~2600 lines, HIGH RISK) — brain, SDR + handoff + shadow + circuit breaker
+- `ai-agent` (~3349 lines, HIGH RISK) — brain (router + 5 specialists, monolith fallback), SDR + handoff + shadow + circuit breaker
 - `ai-agent-debounce` — atomic 10s grouping (no-retry on 500)
 - `whatsapp-webhook` — receives msgs, parallel I/O, broadcast Realtime
 - `uazapi-proxy` — proxies to UAZAPI (send-chat, send-media, send-poll, etc.)
@@ -99,7 +101,7 @@ Located in `supabase/functions/`. Deno runtime.
 
 ## High-Risk Files (DO NOT modify without explicit approval)
 
-- `supabase/functions/ai-agent/index.ts` (~2600 lines)
+- `supabase/functions/ai-agent/index.ts` (~3349 lines)
 - `supabase/functions/ai-agent-playground/index.ts`
 - `supabase/functions/e2e-test/index.ts`
 - `src/integrations/supabase/types.ts` (only via `supabase gen types` — binário scoop, NÃO npx)

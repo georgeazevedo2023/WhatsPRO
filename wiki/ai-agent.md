@@ -180,7 +180,7 @@ Cada agente tem `ai_agents.service_categories JSONB` com **categorias de atendim
 ## Sequencia de Correcao de Erros (OBRIGATORIA)
 
 1. **Codigo + Prompt hardcoded** — bug no fluxo, logica errada
-2. **Validator Agent** — adicionar regra no validatorAgent.ts
+2. **Validator Agent** — ⚠️ APOSENTADO (v7.89.0): validação determinística migrou pra `_shared/agent/responseSanitizer.ts`
 3. **FAQ/Knowledge Base** — inserir na ai_agent_knowledge
 4. **Fallback: Handoff** — ultimo recurso
 
@@ -188,7 +188,7 @@ NUNCA pular etapas.
 
 ## Arquivos Criticos (HIGH RISK)
 
-- `supabase/functions/ai-agent/index.ts` (~2600 linhas)
+- `supabase/functions/ai-agent/index.ts` (~3349 linhas)
 - `supabase/functions/ai-agent-playground/index.ts`
 - `supabase/functions/e2e-test/index.ts`
 - `src/integrations/supabase/types.ts` (so via `supabase gen types` — binario scoop, NAO npx)

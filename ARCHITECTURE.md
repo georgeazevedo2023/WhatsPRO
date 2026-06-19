@@ -7,7 +7,7 @@
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui
 - **Backend**: Supabase (PostgreSQL, Auth, Storage, Realtime, Edge Functions)
 - **WhatsApp API**: UAZAPI (proxied through Edge Functions)
-- **AI**: OpenAI gpt-4.1-mini (primary), Gemini 2.5 Flash (fallback), Mistral Small (fallback), Groq (Whisper transcription, Llama summarization)
+- **AI**: OpenAI gpt-4.1-mini (primary), Gemini 2.5 Flash (fallback), Mistral Small (fallback), Groq (Whisper transcription). Resumos: OpenAI gpt-4.1-mini via `callLLM` + Gemini fallback (desde v7.82)
 - **Data Fetching**: TanStack React Query 5
 
 ## Architecture
@@ -27,17 +27,17 @@ React Frontend -> Supabase Client (DB, Auth, Realtime, Storage)
 | `gerente` | Gerencia equipe dentro dos inboxes atribuidos, CRM, leads |
 | `user` | Atende conversas nos inboxes atribuidos |
 
-## Edge Functions (36 total)
+## Edge Functions (43 no `supabase/functions/`; 44 ACTIVE em prod — `env-diag` é deploy-only)
 
 Located in `supabase/functions/`. Deno runtime.
 
 **Config:**
-- `verify_jwt = true` na maioria. `false` em: whatsapp-webhook, fire-outgoing-webhook, go, health-check, form-public, ai-agent, ai-agent-debounce, transcribe-audio
+- `verify_jwt = true` na maioria. `false` nos webhooks, funções públicas (form-public, bio-public, go, health-check), internas (ai-agent, ai-agent-debounce, transcribe-audio) e crons internos — fonte da verdade: o `config.toml` de cada função
 - CORS: `getDynamicCorsHeaders(req)` para browser-facing. `ALLOWED_ORIGIN` secret obrigatorio.
 - Shared: `_shared/cors.ts`, `fetchWithTimeout.ts` (30s), `rateLimit.ts`, `circuitBreaker.ts`, `logger.ts`, `response.ts`
 
 **Principais:**
-- `ai-agent` — cerebro IA (~2600 linhas), SDR+handoff+shadow, circuit breaker, 9 tools
+- `ai-agent` — cerebro IA (~3349 linhas), **router LLM + 5 specialists** (greeting/qualif/produto/objeção/handoff) com monolito de fallback, SDR+handoff+shadow, circuit breaker, 9 tools
 - `ai-agent-debounce` — agrupamento 10s atomico
 - `ai-agent-playground` — testing sandbox
 - `whatsapp-webhook` — entrada das msgs (chamado pelo **n8n**, NÃO direto do UAZAPI — ver "Fluxo de entrada"), parallel I/O, broadcast Realtime
@@ -49,14 +49,13 @@ Located in `supabase/functions/`. Deno runtime.
 - `go` — redirect UTM com landing page
 - `summarize-conversation` — resumo IA da conversa
 - `transcribe-audio` — Whisper via Groq
-- `process-jobs` — worker SKIP LOCKED (lead_auto_add, profile_pic, NPS)
 - `health-check` — DB + MV + env → 200/503
 - `e2e-test` — testes E2E do AI Agent
 - `automationEngine.ts` — motor de automacao (7 gatilhos, 4 condicoes, 6 acoes)
 
 **Fluxo de entrada de mensagens (ingestão) — IMPORTANTE:** o UAZAPI **NÃO** chama a edge function direto. A instância UAZAPI aponta o webhook pro **n8n** (`https://fluxwebhook.wsmart.com.br/webhook/<path>`); o n8n (Webhook node → Set → **HTTP Request** POST, body = `$json.body` cru) é quem chama a edge fn `whatsapp-webhook` (`.../functions/v1/whatsapp-webhook`). Cadeia completa: **UAZAPI → n8n → HTTP Request → `whatsapp-webhook` → DB → ai-agent-debounce**. **Consequência:** atrasos/lotes de entrega podem vir do **n8n** (fila/retry/restart) — a edge fn só roda quando o n8n entrega; ela NÃO é o endpoint que o WhatsApp/UAZAPI atinge. Setup por instância: [[wiki/migracao-eletropiso-558781592373]] ("Próximos passos").
 
-**Shared Modules (17):** cors.ts, fetchWithTimeout.ts, circuitBreaker.ts, llmProvider.ts, constants.ts, logger.ts, agentHelpers.ts, auth.ts, supabaseClient.ts, carousel.ts, rateLimit.ts, validatorAgent.ts, ttsProviders.ts, response.ts, aiRuntime.ts, leadHelper.ts, automationEngine.ts
+**Shared Modules (~46 em `_shared/` + subpasta `_shared/agent/`):** principais — cors.ts, fetchWithTimeout.ts, circuitBreaker.ts, llmProvider.ts, constants.ts, logger.ts, agentHelpers.ts, auth.ts, supabaseClient.ts, carousel.ts, rateLimit.ts, ttsProviders.ts, response.ts, aiRuntime.ts, leadHelper.ts, automationEngine.ts, responseSanitizer.ts, routerPipeline.ts, specialistBase.ts, qualificationGate.ts, greetingPolicy.ts. ⚠️ `validatorAgent.ts` aposentado do hot path na v7.89.0 (validação determinística migrou pra `responseSanitizer.ts`)
 
 ## Deployment
 

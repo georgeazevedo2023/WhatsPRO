@@ -8,6 +8,8 @@ parent: [[wiki/casos-de-uso/ai-agent-detalhado]]
 
 # AI Agent — Qualidade (Validator + TTS + Prompt Studio)
 
+> ⚠️ **DESATUALIZADO + descreve recurso REMOVIDO (snapshot 2026-04-30).** O **Validator Agent (LLM supervisor) foi APOSENTADO** na v7.89.0 — a validação virou determinística em `_shared/agent/responseSanitizer.ts`; não há mais um "agente validador" no hot path nem leitores de `validator_enabled/model/rigor`. As seções de Validator abaixo são **históricas**. TTS e Prompt Studio seguem válidos. Arquitetura atual: `CLAUDE.md` + [[wiki/auditoria-pendencias-2026-06-17]].
+
 > Sub-wiki extraído de `ai-agent-detalhado.md` em 2026-04-30. Cobre as camadas de qualidade do agente: supervisor de respostas, voz sintetizada, e personalização de comportamento.
 
 ## 2.5 Validator Agent — Supervisor de Qualidade das Respostas

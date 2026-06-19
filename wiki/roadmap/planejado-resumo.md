@@ -8,7 +8,7 @@ audited_at: 2026-05-11
 # Roadmap — Itens Planejados (resumo)
 
 > Listas resumidas dos itens planejados. Para detalhe veja:
-> - [[wiki/roadmap/novos-modulos-detalhe]] (M10-M22 detalhados)
+> - novos-modulos-detalhe — M10-M22 detalhados (detalhe arquivado/removido)
 > - [[wiki/roadmap/melhorias-existentes]] (R18-R30 detalhadas)
 > - [[wiki/roadmap]] (milestones top-level, shipped)
 

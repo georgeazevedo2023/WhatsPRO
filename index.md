@@ -1,8 +1,8 @@
 ---
 title: WhatsPRO — Master Index
 type: index
-updated: 2026-05-11
-audited_at: 2026-05-11
+updated: 2026-06-18
+audited_at: 2026-06-18
 ---
 
 # WhatsPRO — Master Index
@@ -47,7 +47,7 @@ audited_at: 2026-05-11
 | [[wiki/visao-geral-modulos]] | Os 19 módulos em 5 grupos |
 | [[wiki/visao-geral-arquitetura]] | Stack, 59 tabelas, fluxo dados ponta-a-ponta |
 | [[wiki/visao-geral-jornadas-numeros]] | Jornada do lead, números, milestones futuros |
-| [[wiki/ai-agent]] | AI Agent: tools, SDR, handoff, shadow, validator |
+| [[wiki/ai-agent]] | AI Agent: tools, SDR, handoff, shadow, **router+specialists** (validator aposentado v7.89.0) |
 | [[wiki/arquitetura]] | Stack, estrutura de pastas, edge fns |
 | [[wiki/banco-de-dados]] | Tabelas Supabase, RLS, materialized views |
 
@@ -112,7 +112,7 @@ audited_at: 2026-05-11
 | [[wiki/casos-de-uso/ai-agent-detalhado]] (índice) | AI Agent — 4 sub-páginas abaixo |
 | ↳ [[wiki/casos-de-uso/ai-agent-cerebro-tools-detalhado]] | LLM gpt-4.1-mini + 9 ferramentas |
 | ↳ [[wiki/casos-de-uso/ai-agent-sdr-shadow-detalhado]] | Fluxo SDR + Shadow Mode |
-| ↳ [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] | Validator + TTS + Prompt Studio |
+| ↳ [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] | ⚠️ stale — Validator aposentado (v7.89.0); TTS + Prompt Studio |
 | ↳ [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] | Perfis, NPS, KB, Debounce, Memória |
 | [[wiki/casos-de-uso/handoff-fila-detalhado]] | D30 — Fila Inteligente completa |
 | [[wiki/casos-de-uso/excluded-products-detalhado]] | D28 — Produtos NÃO vendidos |

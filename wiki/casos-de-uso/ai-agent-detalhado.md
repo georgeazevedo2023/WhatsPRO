@@ -7,6 +7,8 @@ updated: 2026-04-30
 
 # AI Agent — Vendedor Robô Inteligente (15 Sub-Funcionalidades)
 
+> ⚠️ **DESATUALIZADO (snapshot 2026-04-30).** Descreve a arquitetura ANTIGA (monolito + Validator LLM). Hoje em prod: **router LLM + 5 specialists** (greeting/qualif/produto/objeção/handoff) com monolito de fallback; o **Validator LLM foi APOSENTADO** (v7.89.0 — validação determinística em `_shared/agent/responseSanitizer.ts`). Fontes atuais: `CLAUDE.md` + [[wiki/auditoria-pendencias-2026-06-17]] + `_shared/agent/routerPipeline.ts`. (Refazer estes 5 wikis `ai-agent-*` é um épico de doc no backlog.)
+
 > O AI Agent e um **vendedor robô** que atende os clientes pelo WhatsApp automaticamente, 24 horas por dia, 7 dias por semana. Não é um chatbot burro com respostas fixas — é um agente inteligente que **pensa**, **decide** e **age**: lê o que o cliente mandou, entende a intenção, busca produtos no catálogo, envia fotos, monta carrosséis, qualifica o lead, extrai dados, e quando não consegue resolver, transfere para um humano.
 >
 > Pense nele como um funcionário júnior que trabalha sem parar: recebe o cliente, pergunta o que precisa, mostra os produtos, responde preço, e quando o assunto fica complexo ("quero desconto", "quero falar com o gerente"), chama o vendedor sênior.
@@ -48,7 +50,7 @@ A divisão segue grupos lógicos:
 - [[wiki/casos-de-uso/helpdesk-detalhado]] — Central de atendimento (5 sub-páginas)
 - [[wiki/modulos]] — Todos os 18 módulos do sistema (M1-M19)
 - [[wiki/casos-de-uso/guia-funcionalidades-completo]] — Guia rápido de funcionalidades
-- [[wiki/historico-planos/plano-enquetes-polls]] — Plano histórico de enquetes (M17)
+- plano-enquetes-polls (arquivado/removido) — Plano histórico de enquetes (M17)
 - [[wiki/decisoes-chave]] — D10 (Agent Profiles), D26 (Service Categories), D28 (Excluded Products)
 - [[wiki/erros-e-licoes]] — Regras preventivas R1-R89
 

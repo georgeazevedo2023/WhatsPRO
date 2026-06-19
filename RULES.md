@@ -81,7 +81,7 @@ Se QUALQUER um dos 8 itens nao estiver sincronizado, a feature esta INCOMPLETA.
 
 ## Arquivos HIGH RISK — Nunca Tocar Sem Aprovacao
 
-- `supabase/functions/ai-agent/index.ts` (~2600 linhas)
+- `supabase/functions/ai-agent/index.ts` (~3349 linhas)
 - `supabase/functions/ai-agent-playground/index.ts`
 - `supabase/functions/e2e-test/index.ts`
 - `src/integrations/supabase/types.ts` (so via `supabase gen types` — binario scoop, NAO npx; nunca editar manual)

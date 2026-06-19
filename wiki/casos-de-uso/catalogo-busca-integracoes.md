@@ -65,7 +65,7 @@ updated: 2026-05-04
 - [[wiki/casos-de-uso/catalogo-crud-ui]] — Tabela, formulario, imagens, categorias, descricao IA
 - [[wiki/casos-de-uso/catalogo-importacao]] — Importacao por URL, CSV e Batch
 - [[wiki/casos-de-uso/ai-agent-detalhado]] — Como a IA usa o catalogo (tools search_products, send_carousel, send_media)
-- [[wiki/casos-de-uso/m14-bio-link-detalhado]] — Bio Link em profundidade
+- [[wiki/casos-de-uso/bio-link-detalhado]] — Bio Link em profundidade
 
 ---
 

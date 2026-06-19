@@ -168,7 +168,7 @@ LLM acerta subtipo em frases unívocas (G2 indecisão, M6 venda) mas erra quando
 
 - [[wiki/relatorio-testes-sandbox-sessao1]] — A1+A2+B1+D1+G1+D3+H1+F1+C2 (R107/R108/R109)
 - [[wiki/relatorio-testes-sandbox-sessao2]] — N1/N2/N4/N5/N6 + M1/M2/M3/M7 + B2/B3/B4 + F2/F3 (R110/R111/R112)
-- [[wiki/relatorio-testes-sandbox-sessao3-handoff]] — R113/R113.1/R113.2 (cron 401, ai-agent auth, G1+H1 helpers)
+- relatorio-testes-sandbox-sessao3-handoff (arquivado) — R113/R113.1/R113.2 (cron 401, ai-agent auth, G1+H1 helpers)
 - [[wiki/erros-e-licoes]] — R114 documentado
 - [[wiki/sandbox-ia-instancia]] — refs técnicas
 - [[wiki/plano-testes-sandbox-v2]], [[wiki/plano-testes-sandbox-v3-bloco-n]] — planos

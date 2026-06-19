@@ -8,6 +8,8 @@ parent: [[wiki/casos-de-uso/ai-agent-detalhado]]
 
 # AI Agent — Cérebro (LLM) e 9 Ferramentas
 
+> ⚠️ **DESATUALIZADO (snapshot 2026-04-30).** Hoje em prod: **router LLM + 5 specialists** com monolito de fallback; **Validator LLM APOSENTADO** (v7.89.0 → `_shared/agent/responseSanitizer.ts`). As 9 tools seguem válidas. Arquitetura atual: `CLAUDE.md` + `_shared/agent/routerPipeline.ts` + [[wiki/auditoria-pendencias-2026-06-17]].
+
 > Sub-wiki extraído de `ai-agent-detalhado.md` em 2026-04-30 (particionamento — débito de 3 sessões resolvido). Cobre o "como pensa" e "como age" do agente.
 
 ## 2.1 Cerebro — O Modelo de Inteligencia Artificial (LLM)

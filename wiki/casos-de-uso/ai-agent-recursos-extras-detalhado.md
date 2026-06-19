@@ -8,6 +8,8 @@ parent: [[wiki/casos-de-uso/ai-agent-detalhado]]
 
 # AI Agent — Recursos Extras
 
+> ⚠️ **DESATUALIZADO (snapshot 2026-04-30).** Hoje em prod: **router LLM + 5 specialists**; **Validator LLM APOSENTADO** (v7.89.0). Os recursos auxiliares abaixo seguem majoritariamente válidos; a **Memória do Lead** evoluiu (Sprint E.1, v7.46.0 — structured-facts por lead). Arquitetura atual: `CLAUDE.md` + [[wiki/auditoria-pendencias-2026-06-17]].
+
 > Sub-wiki extraído de `ai-agent-detalhado.md` em 2026-04-30. Cobre 7 recursos auxiliares: Perfis de Atendimento, NPS, Knowledge Base, Debounce, Greeting, Memória do Lead, Contexto de Canal.
 
 ## 2.8 Perfis de Atendimento (Agent Profiles)

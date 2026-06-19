@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Bun lockfiles — project uses npm (package-lock.json); untracked 2026-06-18
+bun.lock
+bun.lockb
+
 # Environment secrets
 .env
 .env.*

@@ -8,6 +8,8 @@ parent: [[wiki/casos-de-uso/ai-agent-detalhado]]
 
 # AI Agent — Fluxo SDR e Shadow Mode
 
+> ⚠️ **DESATUALIZADO (snapshot 2026-04-30).** O fluxo SDR/Shadow segue válido em conceito, mas hoje roda sob **router LLM + 5 specialists** + camada determinística (`qualificationGate`, `greetingPolicy`) — não mais pelo monolito. Arquitetura atual: `CLAUDE.md` + [[wiki/auditoria-pendencias-2026-06-17]].
+
 > Sub-wiki extraído de `ai-agent-detalhado.md` em 2026-04-30. Cobre como o agente qualifica leads (SDR) e como continua extraindo dados após o handoff (Shadow).
 
 ## 2.3 Fluxo SDR (Pre-Vendedor — Qualificacao Inteligente)
