@@ -12,7 +12,7 @@ audited_at: 2026-06-17
 
 ## Resumo
 
-**Código são, documentação desalinhada.** Build verde (vitest 1926/0, 0 erros TS, vault ≤300 lin), v7.94.0 (trava `human_handling_at`) viva em prod com **0 regressão** (RULE 1/RULE 2 = 0 vazamentos). O que falta: (a) **doc-drift** (números de progresso divergentes, RULES.md aponta Validator aposentado); (b) **dívida schema/segurança** (RLS `USING(true) TO public`; schema órfão Fluxos v3.0 **dropado 06-19**); (c) **1 bug novo** (BioLinksPage hooks). **Nenhum P0 de prod.**
+**Código são, documentação desalinhada.** Build verde (vitest 1926/0, 0 erros TS, vault ≤300 lin), v7.94.0 (trava `human_handling_at`) viva em prod com **0 regressão** (RULE 1/RULE 2 = 0 vazamentos). O que falta: (a) **doc-drift** (números de progresso divergentes, RULES.md aponta Validator aposentado); (b) **dívida schema/segurança** (RLS anon-read **fechado 06-19**; schema órfão Fluxos v3.0 **dropado 06-19**); (c) **1 bug novo** (BioLinksPage hooks). **Nenhum P0 de prod.**
 
 ## ✅ Fechado na sessão 2026-06-17 (noite) — v7.95.0
 
@@ -24,7 +24,7 @@ audited_at: 2026-06-17
 - **Doc-drift** (CLAUDE.md/roadmap/RULES.md) + **CHANGELOG particionado** + **migrations registradas** + `.gitignore` imagens.
 - Migrations: `20260617120000` (v7.94.0) e `20260617140000` (hardening) aplicadas e registradas.
 
-**Ainda aberto (abaixo):** `ai_agent_validations`/`follow_up_executions` policy tenant-scoped, D6 monolito (gate), e os épicos (lint, god files, wikis, front data layer, testes edge fns).
+**Ainda aberto (abaixo):** `ai_agent_validations`/`follow_up_executions` tenant-scoping entre autenticados (anon já fechado 06-19), D6 monolito (gate), e os épicos (lint, god files, wikis, front data layer, testes edge fns).
 
 ## ✅ Fechado 2026-06-18 (hardening seguro + docs)
 
@@ -36,6 +36,7 @@ audited_at: 2026-06-17
 - **types.ts drift** auditado: **BENIGNO** (frontend não usa `media_send_telemetry`/`e2e_control_inbox`; grep src/=0) → regen ADIADO (arquivo HIGH RISK, diff grande p/ tabelas não consumidas); recomendado guard `gen types`+diff no CI.
 - **Auditoria de crons (06-19):** 25 jobs ativos, **0 falhas/24h**, todos sub-segundo no DB. Aplicado (migration `20260619102336`): cron MORTO jobid 13 (`cleanup-guided-sessions` → Fluxos v3.0) **desagendado**; cadência de escalação (34) + abandono (38) **1min→2min** (−2.880 invocações de edge fn/dia, SLA aprovado pelo dono); `net._http_response` truncado (**35MB→32kB** de tuplas mortas do pg_net). `requeue` (29) mantém 1min. **Ainda aberto:** truncate semanal do pg_net (jobid 42) pode virar diário se o espaço apertar.
 - **Schema órfão Fluxos v3.0 DROPADO (06-19):** 10 tabelas (`flows`/`flow_steps`/`flow_triggers`/`flow_states`/`flow_events`/`flow_followups`/`flow_report_shares`/`flow_security_events`/`guided_sessions`/`validator_logs`) + 2 RPCs + col `instances.use_orchestrator` (migration `20260619110935`). Verificado antes: `flow_states`=0, `use_orchestrator`=0 em tudo, 0 FK externa/view/código (só comentários stale, 1 corrigido em Leads.tsx). `types.ts` regenerado pelo binário scoop (−769/+321, também fechou o drift benigno). tsc 0 · vitest 1926/0.
+- **RLS anon-read FECHADO (06-19):** auditei a superfície anon completa — 18 policies `qual='true'`, mas **só 2 eram `TO public`** (`ai_agent_validations`/`follow_up_executions`; policies mal-nomeadas "Service role full access" mas escopadas pra public); as **outras 16 são corretamente `TO service_role`** (não expostas). As 2 tinham GRANT a `anon` → leitura sem login via REST. Fix SEGURO **REVOKE anon** (migration `20260619225438`) — não dropei (UI lê via `ValidatorMetrics`/`useAgentDetail`/`useAgentScore` autenticados) nem flipei a policy (quebraria a UI). Verificado: anon=false, authenticated/service_role=true. **Resíduo deferido:** tenant-scoping entre usuários autenticados (USING(true) deixa ler cross-tenant; requer login, severidade média).
 
 ## Tabela priorizada
 
@@ -43,7 +44,7 @@ audited_at: 2026-06-17
 |---|---|---|---|---|---|
 | **P1** | **BUG Rules-of-Hooks**: `BioLinksPage.tsx` early-return ANTES de 14 hooks → crash ("rendered fewer hooks") p/ não-superadmin | code | quick | `BioLinksPage.tsx:36-59` (tb `KnowledgeConfig.tsx:217`, `AnyFeatureRoute.tsx:26`) | Mover return p/ depois dos hooks. Único lint que é bug real. |
 | ~~P1~~ → **P2** | **S9 — RLS Helpdesk (R73) — REQUALIFICADO** (06-17): o backend JÁ enforça via `can_view_conversation` (inbox+dept+can_view_all). **NÃO era vetor multi-tenant**; sobra só o refino dos toggles granulares | security | medium | ver "✅ Fechado 06-17" + handoff | Refinar toggles granulares quando houver demanda. |
-| **P1** | **RLS `USING(true) TO public`** em 4 tabelas (`ai_agent_validations`, `ai_debounce_queue`, `follow_up_executions`, `scrape_jobs`) | security | quick | advisor 8× rls_policy_always_true; `pg_policies` qual='true'+public | Migration `TO service_role`; checar GRANT a anon. |
+| ~~P1~~ → **P3** | **RLS `USING(true) TO public`** — vetor ANON FECHADO: `ai_debounce_queue`+`scrape_jobs`→service_role (v7.95.0); `ai_agent_validations`+`follow_up_executions`→**REVOKE anon 06-19** (`20260619225438`). Auditoria: só essas 2 eram `TO public`; as outras 16 always-true são `TO service_role` | security | quick | has_table_privilege anon=false; auth/svc=true | ✅ anon fechado. **Resta (P3):** tenant-scoping entre autenticados (cross-tenant via USING(true)) — policy por instância, testar contra a UI antes. |
 | **P1** | **MEMORY.md acima do limite** (26.6KB vs 24.4KB, piorando) → índice truncado no load | doc | quick | `wc -c`; ~42 entradas >200 char | Encurtar entradas; condensar handoffs `SUPERADO`. |
 | ~~P1~~ | ~~CLAUDE.md header 88% vs tabela 98%; roadmap 68%; RULES.md passo 2 = Validator morto~~ | doc | — | — | ✅ **FEITO 2026-06-17** (header→~98%, roadmap→~98%, RULES.md→responseSanitizer) |
 | ~~P2~~ | ~~CHANGELOG.md em 300 (bloqueia próximo commit)~~ | doc | — | — | ✅ **FEITO** (condensado v7.75/76/77 → headroom; frontmatter bump) |
@@ -71,7 +72,7 @@ audited_at: 2026-06-17
 ## Riscos abertos (podem morder em prod)
 
 1. ~~S9 / RLS Helpdesk só frontend~~ — **REQUALIFICADO** (06-17): o backend enforça via `can_view_conversation`; NÃO é vetor multi-tenant. Sobra só refino de toggles granulares (P2).
-2. **RLS `USING(true) TO public` (P1)** — se houver GRANT a `anon`, vira leitura via REST sem auth.
+2. ~~RLS `USING(true) TO public` — anon read~~ — **FECHADO 06-19** (REVOKE anon em `ai_agent_validations`/`follow_up_executions`; as outras 16 always-true são `TO service_role`). **Resíduo menor:** usuário AUTENTICADO ainda lê essas 2 cross-tenant (precisa tenant-scoping; requer login, severidade média).
 3. **BioLinksPage hooks (P1)** — crash de render p/ qualquer não-superadmin em `/bio-links`.
 4. **Falso-lock por broadcast (P2)** — se UAZAPI omitir `wasSentByApi` num eco de Disparador, disparo em massa travaria a fila. 0 incidentes hoje, premissa não amostrada.
 5. **"Congela indefinidamente" sem rede [DONO] (P2)** — conversa esquecida fica shadow+fora-da-fila pra sempre.
