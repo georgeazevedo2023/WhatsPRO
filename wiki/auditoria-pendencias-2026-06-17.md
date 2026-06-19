@@ -12,7 +12,7 @@ audited_at: 2026-06-17
 
 ## Resumo
 
-**Código são, documentação desalinhada.** Build verde (vitest 1926/0, 0 erros TS, vault ≤300 lin), v7.94.0 (trava `human_handling_at`) viva em prod com **0 regressão** (RULE 1/RULE 2 = 0 vazamentos). O que falta: (a) **doc-drift** (números de progresso divergentes, RULES.md aponta Validator aposentado); (b) **dívida schema/segurança** (RLS `USING(true) TO public`, schema órfão Fluxos v3.0); (c) **1 bug novo** (BioLinksPage hooks). **Nenhum P0 de prod.**
+**Código são, documentação desalinhada.** Build verde (vitest 1926/0, 0 erros TS, vault ≤300 lin), v7.94.0 (trava `human_handling_at`) viva em prod com **0 regressão** (RULE 1/RULE 2 = 0 vazamentos). O que falta: (a) **doc-drift** (números de progresso divergentes, RULES.md aponta Validator aposentado); (b) **dívida schema/segurança** (RLS `USING(true) TO public`; schema órfão Fluxos v3.0 **dropado 06-19**); (c) **1 bug novo** (BioLinksPage hooks). **Nenhum P0 de prod.**
 
 ## ✅ Fechado na sessão 2026-06-17 (noite) — v7.95.0
 
@@ -24,7 +24,7 @@ audited_at: 2026-06-17
 - **Doc-drift** (CLAUDE.md/roadmap/RULES.md) + **CHANGELOG particionado** + **migrations registradas** + `.gitignore` imagens.
 - Migrations: `20260617120000` (v7.94.0) e `20260617140000` (hardening) aplicadas e registradas.
 
-**Ainda aberto (abaixo):** schema órfão Fluxos v3.0 (drop dedicado), `ai_agent_validations`/`follow_up_executions` policy tenant-scoped, D6 monolito (gate), e os épicos (lint, god files, wikis, front data layer, testes edge fns).
+**Ainda aberto (abaixo):** `ai_agent_validations`/`follow_up_executions` policy tenant-scoped, D6 monolito (gate), e os épicos (lint, god files, wikis, front data layer, testes edge fns).
 
 ## ✅ Fechado 2026-06-18 (hardening seguro + docs)
 
@@ -34,7 +34,8 @@ audited_at: 2026-06-17
 - **4 wikilinks quebrados** corrigidos (`m14-bio-link-detalhado` → `bio-link-detalhado`; 3 de-linkados); **5 wikis 2º nível `ai-agent-*`** ganharam banner de staleness.
 - **`bun.lock*` destrackado** (npm é o gerenciador; `package-lock.json` presente) + `.gitignore`.
 - **types.ts drift** auditado: **BENIGNO** (frontend não usa `media_send_telemetry`/`e2e_control_inbox`; grep src/=0) → regen ADIADO (arquivo HIGH RISK, diff grande p/ tabelas não consumidas); recomendado guard `gen types`+diff no CI.
-- **Auditoria de crons (06-19):** 25 jobs ativos, **0 falhas/24h**, todos sub-segundo no DB. Aplicado (migration `20260619102336`): cron MORTO jobid 13 (`cleanup-guided-sessions` → Fluxos v3.0) **desagendado**; cadência de escalação (34) + abandono (38) **1min→2min** (−2.880 invocações de edge fn/dia, SLA aprovado pelo dono); `net._http_response` truncado (**35MB→32kB** de tuplas mortas do pg_net). `requeue` (29) mantém 1min. **Ainda aberto:** cadência ainda em 1min só na fila (proposital); truncate semanal do pg_net (jobid 42) pode virar diário se o espaço apertar.
+- **Auditoria de crons (06-19):** 25 jobs ativos, **0 falhas/24h**, todos sub-segundo no DB. Aplicado (migration `20260619102336`): cron MORTO jobid 13 (`cleanup-guided-sessions` → Fluxos v3.0) **desagendado**; cadência de escalação (34) + abandono (38) **1min→2min** (−2.880 invocações de edge fn/dia, SLA aprovado pelo dono); `net._http_response` truncado (**35MB→32kB** de tuplas mortas do pg_net). `requeue` (29) mantém 1min. **Ainda aberto:** truncate semanal do pg_net (jobid 42) pode virar diário se o espaço apertar.
+- **Schema órfão Fluxos v3.0 DROPADO (06-19):** 10 tabelas (`flows`/`flow_steps`/`flow_triggers`/`flow_states`/`flow_events`/`flow_followups`/`flow_report_shares`/`flow_security_events`/`guided_sessions`/`validator_logs`) + 2 RPCs + col `instances.use_orchestrator` (migration `20260619110935`). Verificado antes: `flow_states`=0, `use_orchestrator`=0 em tudo, 0 FK externa/view/código (só comentários stale, 1 corrigido em Leads.tsx). `types.ts` regenerado pelo binário scoop (−769/+321, também fechou o drift benigno). tsc 0 · vitest 1926/0.
 
 ## Tabela priorizada
 
@@ -46,10 +47,10 @@ audited_at: 2026-06-17
 | **P1** | **MEMORY.md acima do limite** (26.6KB vs 24.4KB, piorando) → índice truncado no load | doc | quick | `wc -c`; ~42 entradas >200 char | Encurtar entradas; condensar handoffs `SUPERADO`. |
 | ~~P1~~ | ~~CLAUDE.md header 88% vs tabela 98%; roadmap 68%; RULES.md passo 2 = Validator morto~~ | doc | — | — | ✅ **FEITO 2026-06-17** (header→~98%, roadmap→~98%, RULES.md→responseSanitizer) |
 | ~~P2~~ | ~~CHANGELOG.md em 300 (bloqueia próximo commit)~~ | doc | — | — | ✅ **FEITO** (condensado v7.75/76/77 → headroom; frontmatter bump) |
-| **P2** | **Schema órfão Fluxos v3.0 no DB** (v7.90.0 só removeu runtime): 8-9 tabelas `flow_*`+`guided_sessions`+RPC+col `instances.use_orchestrator`. **Cron jobid 13 já DESAGENDADO** (06-19, migration `20260619102336`) | db | medium | `to_regclass` flow_*≠null; 0 rows | Resta o DROP das tabelas (+RPC+col). Regen `types.ts` = HIGH RISK, com OK. |
+| ~~P2~~ | ~~Schema órfão Fluxos v3.0 no DB~~ | db | — | — | ✅ **FEITO 06-19** — 10 tabelas + 2 RPCs (`install_flow_template`/`create_flow_report_share`) + col `instances.use_orchestrator` DROPADAS (migration `20260619110935`); `types.ts` regenerado. Verificado: tsc 0, vitest 1926/0. |
 | ~~P2~~ | ~~Edge fn `process-jobs` morta+quebrada~~ | code | — | — | ✅ **FEITO v7.95.0** — deletada de prod+source (junto com `group-reasons`). |
 | **P2** | **migration 20260617120000 (v7.94.0) viva mas NÃO registrada** em `schema_migrations` (aplicada via execute_sql) | db | quick | última registrada = 20260617121601 (v7.93) | Registrar (INSERT/repair). Baixo risco. |
-| **P2** | **types.ts drift**: `media_send_telemetry`, `e2e_control_inbox` no DB, ausentes do types.ts — **drift BENIGNO** (frontend não usa nenhuma; grep src/=0, verificado 06-18) | db | quick | grep src/=0 | Regen ADIADO (types.ts é HIGH RISK, diff grande p/ tabelas não consumidas); add `gen types`+diff ao CI como guard. |
+| ~~P2~~ | ~~types.ts drift~~ | db | — | — | ✅ **FEITO 06-19** — `types.ts` regenerado no drop do Fluxos v3.0: adicionou `e2e_control_inbox`/`media_send_telemetry` + colunas faltantes (+321 lin) e removeu o cluster órfão (−769). tsc 0. **Resta** só o guard `gen types`+diff no CI. |
 | **P2** | **Docs 2º nível com contagens stale**: ARCHITECTURE/AGENTS "36 edge fns" (real 45), ai-agent "~2600 lin" (real 3349); listam Validator vivo | doc | medium | `ls` functions=45; `wc -l` index.ts=3349 | Pass de coerência; idealmente gerar contagens no healthcheck. |
 | **P2** | **Wikis 2º nível AI Agent stale** (5 arq, 2026-04-30): router+specialists+qualificationGate+memória shipados depois; `ai-agent-validator-prompt` descreve Validator vivo | doc | large | `casos-de-uso/ai-agent-*` updated 04-30 | Refazer p/ refletir router. Priorizar o validator-prompt. |
 | **P2** | **`handoff-fila-detalhado.md` stale (05-05)**: anterior a runaway/abandono/inatividade/pausa/trava → regra de rotação provavelmente errada | doc | medium | wiki anterior a v7.56/58/65/93/94 | Atualizar seção rotação/handoff. |

@@ -66,12 +66,10 @@ Supabase (PostgreSQL 17) — projeto ATUAL ref `prfcbfumyrrycsrcrvms` (conta `el
 - `poll_messages` (com `is_nps` flag), `poll_responses`
 - `notifications` (alertas para gerentes — nota ruim NPS, DB size)
 
-### Fluxos v3.0 (M18) — runtime DESCONTINUADO (v7.90.0); tabelas mantidas inertes no schema (drop = follow-up HIGH RISK por regen de types.ts)
-- `flow_definitions`, `flow_steps`, `flow_triggers`, `flow_states`, `flow_events`
-- `flow_step_executions`, `flow_followups` (cron-driven)
-- `guided_sessions` (Conversa Guiada via gpt-4.1-mini)
-- `flow_report_shares` (links públicos com token 30d)
-- `instances.use_orchestrator` flag (migração gradual por instância)
+### Fluxos v3.0 (M18) — runtime DESCONTINUADO (v7.90.0); **schema DROPADO 2026-06-19** (migration `20260619110935`)
+- ~~`flows`, `flow_steps`, `flow_triggers`, `flow_states`, `flow_events`, `flow_followups`, `flow_report_shares`, `flow_security_events`, `guided_sessions`, `validator_logs`~~ — **DROPADAS** (todas órfãs: `flow_states`=0 provou que o runtime nunca rodou; seed `flows`/`flow_steps`/`flow_triggers` recuperável do migration `20260411190906_fluxos_v3_seed.sql`)
+- ~~`instances.use_orchestrator`~~ — coluna removida (0 instâncias usavam)
+- RPCs `install_flow_template` / `create_flow_report_share` removidas. Verificado antes: 0 FK externa, 0 view, 0 código (só comentários stale)
 
 ### Métricas & Gestor (M19)
 - `instance_goals` (metas configuráveis por período + métrica)
@@ -106,7 +104,7 @@ Supabase (PostgreSQL 17) — projeto ATUAL ref `prfcbfumyrrycsrcrvms` (conta `el
 - `get_db_size_summary(threshold_mb)` — super_admin only (D22)
 - `apply_retention_policy(_policy_id)` — dry-run + delete + log
 - `apply_retention_after_backup(_policy_id, _path)` — DELETE + log + UPDATE last_backup_path
-- `install_flow_template(...)` — RPC atômica com rollback (M18 S10)
+- ~~`install_flow_template(...)`~~ — removida no drop do schema Fluxos v3.0 (2026-06-19)
 
 ## Cron Jobs (pg_cron)
 

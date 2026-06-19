@@ -482,10 +482,6 @@ export type Database = {
           abandon_handoff_enabled: boolean
           abandon_nudge_after_min: number
           abandon_nudge_message: string | null
-          inactivity_handoff_after_min: number
-          inactivity_handoff_enabled: boolean
-          inactivity_nudge_after_min: number
-          continue_outside_hours_until_done: boolean
           blocked_numbers: string[] | null
           blocked_phrases: string[] | null
           blocked_topics: string[] | null
@@ -496,6 +492,7 @@ export type Database = {
           carousel_text: string | null
           context_long_enabled: boolean
           context_short_messages: number
+          continue_outside_hours_until_done: boolean
           created_at: string
           debounce_seconds: number
           enabled: boolean
@@ -513,13 +510,16 @@ export type Database = {
           handoff_negative_sentiment: boolean
           handoff_triggers: string[] | null
           id: string
+          inactivity_handoff_after_min: number
+          inactivity_handoff_enabled: boolean
+          inactivity_nudge_after_min: number
           instance_id: string
           max_discount_percent: number | null
           max_enrichment_questions: number
-          max_pre_search_questions: number
           max_lead_interactions: number
+          max_lead_messages: number | null
+          max_pre_search_questions: number
           max_qualification_retries: number
-          refine_results_threshold: number
           max_tokens: number
           model: string
           name: string
@@ -533,6 +533,7 @@ export type Database = {
           poll_nps_options: Json | null
           poll_nps_question: string | null
           prompt_sections: Json | null
+          refine_results_threshold: number
           returning_greeting_message: string | null
           routing_mode: string
           service_categories: Json
@@ -555,10 +556,6 @@ export type Database = {
           abandon_handoff_enabled?: boolean
           abandon_nudge_after_min?: number
           abandon_nudge_message?: string | null
-          inactivity_handoff_after_min?: number
-          inactivity_handoff_enabled?: boolean
-          inactivity_nudge_after_min?: number
-          continue_outside_hours_until_done?: boolean
           blocked_numbers?: string[] | null
           blocked_phrases?: string[] | null
           blocked_topics?: string[] | null
@@ -569,6 +566,7 @@ export type Database = {
           carousel_text?: string | null
           context_long_enabled?: boolean
           context_short_messages?: number
+          continue_outside_hours_until_done?: boolean
           created_at?: string
           debounce_seconds?: number
           enabled?: boolean
@@ -586,13 +584,16 @@ export type Database = {
           handoff_negative_sentiment?: boolean
           handoff_triggers?: string[] | null
           id?: string
+          inactivity_handoff_after_min?: number
+          inactivity_handoff_enabled?: boolean
+          inactivity_nudge_after_min?: number
           instance_id: string
           max_discount_percent?: number | null
           max_enrichment_questions?: number
-          max_pre_search_questions?: number
           max_lead_interactions?: number
+          max_lead_messages?: number | null
+          max_pre_search_questions?: number
           max_qualification_retries?: number
-          refine_results_threshold?: number
           max_tokens?: number
           model?: string
           name?: string
@@ -606,6 +607,7 @@ export type Database = {
           poll_nps_options?: Json | null
           poll_nps_question?: string | null
           prompt_sections?: Json | null
+          refine_results_threshold?: number
           returning_greeting_message?: string | null
           routing_mode?: string
           service_categories?: Json
@@ -628,10 +630,6 @@ export type Database = {
           abandon_handoff_enabled?: boolean
           abandon_nudge_after_min?: number
           abandon_nudge_message?: string | null
-          inactivity_handoff_after_min?: number
-          inactivity_handoff_enabled?: boolean
-          inactivity_nudge_after_min?: number
-          continue_outside_hours_until_done?: boolean
           blocked_numbers?: string[] | null
           blocked_phrases?: string[] | null
           blocked_topics?: string[] | null
@@ -642,6 +640,7 @@ export type Database = {
           carousel_text?: string | null
           context_long_enabled?: boolean
           context_short_messages?: number
+          continue_outside_hours_until_done?: boolean
           created_at?: string
           debounce_seconds?: number
           enabled?: boolean
@@ -659,13 +658,16 @@ export type Database = {
           handoff_negative_sentiment?: boolean
           handoff_triggers?: string[] | null
           id?: string
+          inactivity_handoff_after_min?: number
+          inactivity_handoff_enabled?: boolean
+          inactivity_nudge_after_min?: number
           instance_id?: string
           max_discount_percent?: number | null
           max_enrichment_questions?: number
-          max_pre_search_questions?: number
           max_lead_interactions?: number
+          max_lead_messages?: number | null
+          max_pre_search_questions?: number
           max_qualification_retries?: number
-          refine_results_threshold?: number
           max_tokens?: number
           model?: string
           name?: string
@@ -679,6 +681,7 @@ export type Database = {
           poll_nps_options?: Json | null
           poll_nps_question?: string | null
           prompt_sections?: Json | null
+          refine_results_threshold?: number
           returning_greeting_message?: string | null
           routing_mode?: string
           service_categories?: Json
@@ -1349,6 +1352,7 @@ export type Database = {
           archived: boolean
           assigned_at: string | null
           assigned_to: string | null
+          cart_items: Json | null
           contact_id: string
           created_at: string
           department_id: string | null
@@ -1361,6 +1365,7 @@ export type Database = {
           lead_msg_count: number
           priority: string
           resolved_at: string | null
+          shown_product_ids: string[] | null
           status: string
           status_ia: string | null
           tags: string[] | null
@@ -1372,6 +1377,7 @@ export type Database = {
           archived?: boolean
           assigned_at?: string | null
           assigned_to?: string | null
+          cart_items?: Json | null
           contact_id: string
           created_at?: string
           department_id?: string | null
@@ -1384,6 +1390,7 @@ export type Database = {
           lead_msg_count?: number
           priority?: string
           resolved_at?: string | null
+          shown_product_ids?: string[] | null
           status?: string
           status_ia?: string | null
           tags?: string[] | null
@@ -1395,6 +1402,7 @@ export type Database = {
           archived?: boolean
           assigned_at?: string | null
           assigned_to?: string | null
+          cart_items?: Json | null
           contact_id?: string
           created_at?: string
           department_id?: string | null
@@ -1407,6 +1415,7 @@ export type Database = {
           lead_msg_count?: number
           priority?: string
           resolved_at?: string | null
+          shown_product_ids?: string[] | null
           status?: string
           status_ia?: string | null
           tags?: string[] | null
@@ -1714,6 +1723,33 @@ export type Database = {
           },
         ]
       }
+      e2e_control_inbox: {
+        Row: {
+          body: string | null
+          created_at: string
+          from_number: string | null
+          id: string
+          processed: boolean
+          raw: Json | null
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          from_number?: string | null
+          id?: string
+          processed?: boolean
+          raw?: Json | null
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          from_number?: string | null
+          id?: string
+          processed?: boolean
+          raw?: Json | null
+        }
+        Relationships: []
+      }
       e2e_test_batches: {
         Row: {
           agent_id: string | null
@@ -1889,595 +1925,6 @@ export type Database = {
             columns: ["batch_uuid"]
             isOneToOne: false
             referencedRelation: "e2e_test_batches"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      flow_events: {
-        Row: {
-          cost_breakdown: Json | null
-          created_at: string
-          error: string | null
-          event_type: string
-          flow_id: string
-          flow_state_id: string
-          id: string
-          input: Json | null
-          instance_id: string
-          lead_id: string
-          output: Json | null
-          step_id: string | null
-          subagent_type: string | null
-          timing_breakdown: Json | null
-        }
-        Insert: {
-          cost_breakdown?: Json | null
-          created_at?: string
-          error?: string | null
-          event_type: string
-          flow_id: string
-          flow_state_id: string
-          id?: string
-          input?: Json | null
-          instance_id: string
-          lead_id: string
-          output?: Json | null
-          step_id?: string | null
-          subagent_type?: string | null
-          timing_breakdown?: Json | null
-        }
-        Update: {
-          cost_breakdown?: Json | null
-          created_at?: string
-          error?: string | null
-          event_type?: string
-          flow_id?: string
-          flow_state_id?: string
-          id?: string
-          input?: Json | null
-          instance_id?: string
-          lead_id?: string
-          output?: Json | null
-          step_id?: string | null
-          subagent_type?: string | null
-          timing_breakdown?: Json | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "flow_events_flow_id_fkey"
-            columns: ["flow_id"]
-            isOneToOne: false
-            referencedRelation: "flows"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_events_flow_state_id_fkey"
-            columns: ["flow_state_id"]
-            isOneToOne: false
-            referencedRelation: "flow_states"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_events_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: false
-            referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_events_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "lead_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_events_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "v_lead_metrics"
-            referencedColumns: ["lead_id"]
-          },
-          {
-            foreignKeyName: "flow_events_step_id_fkey"
-            columns: ["step_id"]
-            isOneToOne: false
-            referencedRelation: "flow_steps"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      flow_followups: {
-        Row: {
-          conversation_id: string
-          created_at: string
-          detected_phrase: string | null
-          detection_type: string
-          done_at: string | null
-          escalation_level: number
-          id: string
-          instance_id: string
-          lead_id: string
-          score_decay_rate: number
-          seller_id: string | null
-          status: string
-          suggested_date: string | null
-          suggested_message: string | null
-          updated_at: string
-        }
-        Insert: {
-          conversation_id: string
-          created_at?: string
-          detected_phrase?: string | null
-          detection_type: string
-          done_at?: string | null
-          escalation_level?: number
-          id?: string
-          instance_id: string
-          lead_id: string
-          score_decay_rate?: number
-          seller_id?: string | null
-          status?: string
-          suggested_date?: string | null
-          suggested_message?: string | null
-          updated_at?: string
-        }
-        Update: {
-          conversation_id?: string
-          created_at?: string
-          detected_phrase?: string | null
-          detection_type?: string
-          done_at?: string | null
-          escalation_level?: number
-          id?: string
-          instance_id?: string
-          lead_id?: string
-          score_decay_rate?: number
-          seller_id?: string | null
-          status?: string
-          suggested_date?: string | null
-          suggested_message?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "flow_followups_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: false
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_followups_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: false
-            referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_followups_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "lead_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_followups_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "v_lead_metrics"
-            referencedColumns: ["lead_id"]
-          },
-          {
-            foreignKeyName: "flow_followups_seller_id_fkey"
-            columns: ["seller_id"]
-            isOneToOne: false
-            referencedRelation: "contacts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      flow_report_shares: {
-        Row: {
-          created_at: string
-          expires_at: string
-          flow_id: string
-          id: string
-          is_active: boolean
-          token: string
-        }
-        Insert: {
-          created_at?: string
-          expires_at?: string
-          flow_id: string
-          id?: string
-          is_active?: boolean
-          token?: string
-        }
-        Update: {
-          created_at?: string
-          expires_at?: string
-          flow_id?: string
-          id?: string
-          is_active?: boolean
-          token?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "flow_report_shares_flow_id_fkey"
-            columns: ["flow_id"]
-            isOneToOne: false
-            referencedRelation: "flows"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      flow_security_events: {
-        Row: {
-          action_taken: string
-          auto_resolved: boolean | null
-          conversation_id: string
-          created_at: string
-          details: Json
-          event_type: string
-          id: string
-          instance_id: string
-          lead_id: string
-          resolved_at: string | null
-          resolved_by: string | null
-          severity: string
-        }
-        Insert: {
-          action_taken: string
-          auto_resolved?: boolean | null
-          conversation_id: string
-          created_at?: string
-          details?: Json
-          event_type: string
-          id?: string
-          instance_id: string
-          lead_id: string
-          resolved_at?: string | null
-          resolved_by?: string | null
-          severity?: string
-        }
-        Update: {
-          action_taken?: string
-          auto_resolved?: boolean | null
-          conversation_id?: string
-          created_at?: string
-          details?: Json
-          event_type?: string
-          id?: string
-          instance_id?: string
-          lead_id?: string
-          resolved_at?: string | null
-          resolved_by?: string | null
-          severity?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "flow_security_events_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: false
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_security_events_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: false
-            referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_security_events_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "lead_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_security_events_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "v_lead_metrics"
-            referencedColumns: ["lead_id"]
-          },
-        ]
-      }
-      flow_states: {
-        Row: {
-          completed_at: string | null
-          completed_steps: string[]
-          conversation_id: string | null
-          created_at: string
-          flow_id: string
-          flow_step_id: string | null
-          flow_version: number
-          id: string
-          instance_id: string
-          last_activity_at: string
-          lead_id: string
-          started_at: string
-          status: string
-          step_data: Json
-          updated_at: string
-        }
-        Insert: {
-          completed_at?: string | null
-          completed_steps?: string[]
-          conversation_id?: string | null
-          created_at?: string
-          flow_id: string
-          flow_step_id?: string | null
-          flow_version?: number
-          id?: string
-          instance_id: string
-          last_activity_at?: string
-          lead_id: string
-          started_at?: string
-          status?: string
-          step_data?: Json
-          updated_at?: string
-        }
-        Update: {
-          completed_at?: string | null
-          completed_steps?: string[]
-          conversation_id?: string | null
-          created_at?: string
-          flow_id?: string
-          flow_step_id?: string | null
-          flow_version?: number
-          id?: string
-          instance_id?: string
-          last_activity_at?: string
-          lead_id?: string
-          started_at?: string
-          status?: string
-          step_data?: Json
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "flow_states_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: false
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_states_flow_id_fkey"
-            columns: ["flow_id"]
-            isOneToOne: false
-            referencedRelation: "flows"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_states_flow_step_id_fkey"
-            columns: ["flow_step_id"]
-            isOneToOne: false
-            referencedRelation: "flow_steps"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_states_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: false
-            referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_states_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "lead_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_states_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "v_lead_metrics"
-            referencedColumns: ["lead_id"]
-          },
-        ]
-      }
-      flow_steps: {
-        Row: {
-          created_at: string
-          exit_rules: Json
-          flow_id: string
-          id: string
-          is_active: boolean
-          name: string
-          position: number
-          step_config: Json
-          subagent_type: string
-          updated_at: string
-          version: number
-        }
-        Insert: {
-          created_at?: string
-          exit_rules?: Json
-          flow_id: string
-          id?: string
-          is_active?: boolean
-          name: string
-          position?: number
-          step_config?: Json
-          subagent_type: string
-          updated_at?: string
-          version?: number
-        }
-        Update: {
-          created_at?: string
-          exit_rules?: Json
-          flow_id?: string
-          id?: string
-          is_active?: boolean
-          name?: string
-          position?: number
-          step_config?: Json
-          subagent_type?: string
-          updated_at?: string
-          version?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "flow_steps_flow_id_fkey"
-            columns: ["flow_id"]
-            isOneToOne: false
-            referencedRelation: "flows"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      flow_triggers: {
-        Row: {
-          activation: string
-          cooldown_minutes: number
-          created_at: string
-          fallback_flow_id: string | null
-          flow_id: string
-          id: string
-          instance_id: string
-          is_active: boolean
-          priority: number
-          trigger_config: Json
-          trigger_type: string
-          updated_at: string
-        }
-        Insert: {
-          activation?: string
-          cooldown_minutes?: number
-          created_at?: string
-          fallback_flow_id?: string | null
-          flow_id: string
-          id?: string
-          instance_id: string
-          is_active?: boolean
-          priority?: number
-          trigger_config?: Json
-          trigger_type: string
-          updated_at?: string
-        }
-        Update: {
-          activation?: string
-          cooldown_minutes?: number
-          created_at?: string
-          fallback_flow_id?: string | null
-          flow_id?: string
-          id?: string
-          instance_id?: string
-          is_active?: boolean
-          priority?: number
-          trigger_config?: Json
-          trigger_type?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "flow_triggers_fallback_flow_id_fkey"
-            columns: ["fallback_flow_id"]
-            isOneToOne: false
-            referencedRelation: "flows"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_triggers_flow_id_fkey"
-            columns: ["flow_id"]
-            isOneToOne: false
-            referencedRelation: "flows"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flow_triggers_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: false
-            referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      flows: {
-        Row: {
-          config: Json
-          created_at: string
-          created_by: string | null
-          description: string | null
-          funnel_id: string | null
-          id: string
-          inbox_id: string | null
-          instance_id: string
-          is_default: boolean
-          mode: string
-          name: string
-          published_at: string | null
-          slug: string
-          status: string
-          template_id: string | null
-          updated_at: string
-          version: number
-        }
-        Insert: {
-          config?: Json
-          created_at?: string
-          created_by?: string | null
-          description?: string | null
-          funnel_id?: string | null
-          id?: string
-          inbox_id?: string | null
-          instance_id: string
-          is_default?: boolean
-          mode?: string
-          name: string
-          published_at?: string | null
-          slug: string
-          status?: string
-          template_id?: string | null
-          updated_at?: string
-          version?: number
-        }
-        Update: {
-          config?: Json
-          created_at?: string
-          created_by?: string | null
-          description?: string | null
-          funnel_id?: string | null
-          id?: string
-          inbox_id?: string | null
-          instance_id?: string
-          is_default?: boolean
-          mode?: string
-          name?: string
-          published_at?: string | null
-          slug?: string
-          status?: string
-          template_id?: string | null
-          updated_at?: string
-          version?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "flows_funnel_id_fkey"
-            columns: ["funnel_id"]
-            isOneToOne: false
-            referencedRelation: "funnels"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flows_inbox_id_fkey"
-            columns: ["inbox_id"]
-            isOneToOne: false
-            referencedRelation: "inboxes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "flows_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: false
-            referencedRelation: "instances"
             referencedColumns: ["id"]
           },
         ]
@@ -2852,33 +2299,6 @@ export type Database = {
           },
         ]
       }
-      guided_sessions: {
-        Row: {
-          created_at: string
-          draft_flow: Json | null
-          expires_at: string
-          id: string
-          instance_id: string
-          messages: Json
-        }
-        Insert: {
-          created_at?: string
-          draft_flow?: Json | null
-          expires_at?: string
-          id?: string
-          instance_id: string
-          messages?: Json
-        }
-        Update: {
-          created_at?: string
-          draft_flow?: Json | null
-          expires_at?: string
-          id?: string
-          instance_id?: string
-          messages?: Json
-        }
-        Relationships: []
-      }
       handoff_queue_events: {
         Row: {
           assigned_user_id: string | null
@@ -3156,11 +2576,12 @@ export type Database = {
           is_sandbox: boolean
           name: string
           owner_jid: string | null
+          profile_pic_storage_path: string | null
+          profile_pic_synced_at: string | null
           profile_pic_url: string | null
           status: string
           token: string
           updated_at: string
-          use_orchestrator: boolean
           user_id: string
         }
         Insert: {
@@ -3170,11 +2591,12 @@ export type Database = {
           is_sandbox?: boolean
           name: string
           owner_jid?: string | null
+          profile_pic_storage_path?: string | null
+          profile_pic_synced_at?: string | null
           profile_pic_url?: string | null
           status?: string
           token: string
           updated_at?: string
-          use_orchestrator?: boolean
           user_id: string
         }
         Update: {
@@ -3184,11 +2606,12 @@ export type Database = {
           is_sandbox?: boolean
           name?: string
           owner_jid?: string | null
+          profile_pic_storage_path?: string | null
+          profile_pic_synced_at?: string | null
           profile_pic_url?: string | null
           status?: string
           token?: string
           updated_at?: string
-          use_orchestrator?: boolean
           user_id?: string
         }
         Relationships: []
@@ -3881,10 +3304,13 @@ export type Database = {
           interests: string[] | null
           last_contact_at: string | null
           last_purchase: string | null
+          memory_updated_at: string | null
           metadata: Json | null
           notes: string | null
           objections: string[] | null
           origin: string | null
+          products_seen: Json | null
+          qualification_stage: string | null
           reason: string | null
           role: string | null
           sentiment_history: Json | null
@@ -3913,10 +3339,13 @@ export type Database = {
           interests?: string[] | null
           last_contact_at?: string | null
           last_purchase?: string | null
+          memory_updated_at?: string | null
           metadata?: Json | null
           notes?: string | null
           objections?: string[] | null
           origin?: string | null
+          products_seen?: Json | null
+          qualification_stage?: string | null
           reason?: string | null
           role?: string | null
           sentiment_history?: Json | null
@@ -3945,10 +3374,13 @@ export type Database = {
           interests?: string[] | null
           last_contact_at?: string | null
           last_purchase?: string | null
+          memory_updated_at?: string | null
           metadata?: Json | null
           notes?: string | null
           objections?: string[] | null
           origin?: string | null
+          products_seen?: Json | null
+          qualification_stage?: string | null
           reason?: string | null
           role?: string | null
           sentiment_history?: Json | null
@@ -4095,6 +3527,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      media_send_telemetry: {
+        Row: {
+          app_build: string | null
+          conversation_id: string | null
+          created_at: string
+          detected_kind: string | null
+          file_size: number | null
+          file_type: string | null
+          id: string
+          instance_id: string | null
+          outcome: string
+          raw_error: string | null
+          stage: string
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          app_build?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          detected_kind?: string | null
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          instance_id?: string | null
+          outcome: string
+          raw_error?: string | null
+          stage: string
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          app_build?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          detected_kind?: string | null
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          instance_id?: string | null
+          outcome?: string
+          raw_error?: string | null
+          stage?: string
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
       }
       message_templates: {
         Row: {
@@ -4645,6 +4125,7 @@ export type Database = {
       }
       scheduled_messages: {
         Row: {
+          attempts: number
           content: string | null
           created_at: string
           exclude_admins: boolean | null
@@ -4657,6 +4138,7 @@ export type Database = {
           is_recurring: boolean | null
           last_error: string | null
           last_executed_at: string | null
+          max_retries: number
           media_url: string | null
           message_type: string
           next_run_at: string
@@ -4673,6 +4155,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          attempts?: number
           content?: string | null
           created_at?: string
           exclude_admins?: boolean | null
@@ -4685,6 +4168,7 @@ export type Database = {
           is_recurring?: boolean | null
           last_error?: string | null
           last_executed_at?: string | null
+          max_retries?: number
           media_url?: string | null
           message_type: string
           next_run_at: string
@@ -4701,6 +4185,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          attempts?: number
           content?: string | null
           created_at?: string
           exclude_admins?: boolean | null
@@ -4713,6 +4198,7 @@ export type Database = {
           is_recurring?: boolean | null
           last_error?: string | null
           last_executed_at?: string | null
+          max_retries?: number
           media_url?: string | null
           message_type?: string
           next_run_at?: string
@@ -5336,79 +4822,6 @@ export type Database = {
           },
         ]
       }
-      validator_logs: {
-        Row: {
-          auto_checks: Json
-          brand_voice_check: Json | null
-          changes_made: string | null
-          conversation_id: string
-          created_at: string
-          factcheck_catalog: Json | null
-          final_action: string
-          flow_state_id: string
-          id: string
-          instance_id: string
-          llm_score: number | null
-          llm_used: boolean
-          processing_time_ms: number
-          response_text: string | null
-        }
-        Insert: {
-          auto_checks?: Json
-          brand_voice_check?: Json | null
-          changes_made?: string | null
-          conversation_id: string
-          created_at?: string
-          factcheck_catalog?: Json | null
-          final_action: string
-          flow_state_id: string
-          id?: string
-          instance_id: string
-          llm_score?: number | null
-          llm_used?: boolean
-          processing_time_ms?: number
-          response_text?: string | null
-        }
-        Update: {
-          auto_checks?: Json
-          brand_voice_check?: Json | null
-          changes_made?: string | null
-          conversation_id?: string
-          created_at?: string
-          factcheck_catalog?: Json | null
-          final_action?: string
-          flow_state_id?: string
-          id?: string
-          instance_id?: string
-          llm_score?: number | null
-          llm_used?: boolean
-          processing_time_ms?: number
-          response_text?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "validator_logs_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: false
-            referencedRelation: "conversations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "validator_logs_flow_state_id_fkey"
-            columns: ["flow_state_id"]
-            isOneToOne: false
-            referencedRelation: "flow_states"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "validator_logs_instance_id_fkey"
-            columns: ["instance_id"]
-            isOneToOne: false
-            referencedRelation: "instances"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       whatsapp_forms: {
         Row: {
           agent_id: string
@@ -5633,6 +5046,10 @@ export type Database = {
         }
         Returns: string
       }
+      admin_find_auth_user_by_email: {
+        Args: { p_email: string }
+        Returns: string
+      }
       append_ai_debounce_message: {
         Args: {
           p_conversation_id: string
@@ -5674,9 +5091,9 @@ export type Database = {
         Args: { threshold_mb?: number }
         Returns: Json
       }
+      claim_scheduled_messages: { Args: { p_limit?: number }; Returns: Json }
       cleanup_expired_lead_memory: { Args: never; Returns: number }
       cleanup_old_e2e_runs: { Args: never; Returns: undefined }
-      create_flow_report_share: { Args: { p_flow_id: string }; Returns: string }
       dash_conversao_orcamento_venda: {
         Args: { p_instance_id: string; p_since: string; p_until?: string }
         Returns: {
@@ -5825,6 +5242,49 @@ export type Database = {
         Args: { p_conversation_id: string }
         Returns: undefined
       }
+      enroll_lead_in_instance_database: {
+        Args: {
+          p_instance_id: string
+          p_jid: string
+          p_name?: string
+          p_phone: string
+        }
+        Returns: undefined
+      }
+      find_abandoned_handoff_candidates: {
+        Args: { p_limit?: number }
+        Returns: {
+          abandon_handoff_after_min: number
+          abandon_handoff_enabled: boolean
+          abandon_nudge_after_min: number
+          abandon_nudge_message: string
+          agent_id: string
+          business_hours: Json
+          cart_items: Json
+          contact_id: string
+          contact_jid: string
+          conversation_id: string
+          department_id: string
+          extended_hours_until: string
+          handoff_message: string
+          handoff_message_outside_hours: string
+          has_pending_handoff: boolean
+          inactivity_handoff_after_min: number
+          inactivity_handoff_enabled: boolean
+          inbox_default_department_id: string
+          inbox_id: string
+          instance_token: string
+          last_message_at: string
+          notify_outside_hours_on_handoff: boolean
+          tags: string[]
+        }[]
+      }
+      find_summarize_candidates: {
+        Args: { _limit?: number }
+        Returns: {
+          id: string
+        }[]
+      }
       get_abandoned_conversations: {
         Args: { p_hours_threshold?: number; p_instance_id: string }
         Returns: {
@@ -5930,6 +5390,51 @@ export type Database = {
           total: number
         }[]
       }
+      get_queue_attendant_stats: {
+        Args: { p_from: string; p_instance_id: string; p_to: string }
+        Returns: {
+          active: number
+          avatar_url: string
+          avg_response_seconds: number
+          cancelled: number
+          full_name: string
+          is_manager: boolean
+          manual_override: number
+          queue_paused: boolean
+          queue_position: number
+          received: number
+          responded: number
+          timed_out: number
+          user_id: string
+        }[]
+      }
+      get_queue_live_status: {
+        Args: { p_instance_id: string }
+        Returns: {
+          active_count: number
+          available_count: number
+          avg_wait_seconds: number
+          paused_count: number
+        }[]
+      }
+      get_queue_lost_leads: {
+        Args: {
+          p_from: string
+          p_instance_id: string
+          p_to: string
+          p_user_id: string
+        }
+        Returns: {
+          contact_name: string
+          contact_phone: string
+          conversation_id: string
+          created_at: string
+          lost_reason: string
+          next_assignee_name: string
+          resolved_at: string
+          status: string
+        }[]
+      }
       get_response_time_percentiles: {
         Args: { p_end: string; p_instance_id: string; p_start: string }
         Returns: {
@@ -5937,6 +5442,10 @@ export type Database = {
           p95_seconds: number
           sample_size: number
         }[]
+      }
+      get_router_dashboard: {
+        Args: { _agent_id?: string; _days?: number }
+        Returns: Json
       }
       get_unanswered_first_messages: {
         Args: { p_days_lookback?: number; p_instance_id: string }
@@ -5947,6 +5456,29 @@ export type Database = {
           conversation_id: string
           first_incoming_at: string
           hours_waiting: number
+        }[]
+      }
+      get_unattended_handoff_leads: {
+        Args: {
+          p_instance_id: string
+          p_max_age_hours?: number
+          p_min_minutes_waiting?: number
+        }
+        Returns: {
+          assigned_at: string
+          assigned_to: string
+          assignee_avatar_url: string
+          assignee_name: string
+          contact_avatar_url: string
+          contact_name: string
+          contact_phone: string
+          conversation_id: string
+          department_id: string
+          inbox_id: string
+          last_message: string
+          last_message_at: string
+          queue_event_active: boolean
+          seconds_waiting: number
         }[]
       }
       global_search_conversations: {
@@ -5994,20 +5526,6 @@ export type Database = {
           lead_msg_count: number
         }[]
       }
-      install_flow_template: {
-        Args: {
-          p_config?: Json
-          p_description?: string
-          p_instance_id: string
-          p_name: string
-          p_publish?: boolean
-          p_slug: string
-          p_steps?: Json
-          p_template_id?: string
-          p_triggers?: Json
-        }
-        Returns: string
-      }
       is_gerente: { Args: { _user_id: string }; Returns: boolean }
       is_inbox_member: {
         Args: { _inbox_id: string; _user_id: string }
@@ -6017,6 +5535,24 @@ export type Database = {
       is_table_protected: { Args: { _table_name: string }; Returns: boolean }
       kpi_avg_first_response_minutes: {
         Args: { _days?: number }
+        Returns: Json
+      }
+      manager_reassign_conversation: {
+        Args: { p_assignee_id: string; p_conversation_id: string }
+        Returns: {
+          assignee_name: string
+        }[]
+      }
+      merge_lead_databases: {
+        Args: {
+          p_delete_sources?: boolean
+          p_source_ids: string[]
+          p_target_db: string
+        }
+        Returns: Json
+      }
+      move_lead_entries: {
+        Args: { p_copy?: boolean; p_entry_ids: string[]; p_target_db: string }
         Returns: Json
       }
       normalize_external_id: { Args: { ext_id: string }; Returns: string }
@@ -6029,7 +5565,14 @@ export type Database = {
         Returns: string
       }
       purge_notifications_older: { Args: never; Returns: Json }
+      purge_scheduled_message_logs: { Args: never; Returns: number }
       purge_system_logs_older_than_24h: { Args: never; Returns: Json }
+      recalc_lead_database_count: { Args: { p_db: string }; Returns: undefined }
+      reconcile_broadcast_enrollments: {
+        Args: { p_lookback?: string }
+        Returns: number
+      }
+      requeue_stuck_scheduled_messages: { Args: never; Returns: number }
       restore_conversation_to_dashboard: {
         Args: { p_conversation_id: string }
         Returns: undefined
@@ -6059,6 +5602,15 @@ export type Database = {
       }
       set_my_queue_paused: {
         Args: { _paused: boolean; _reason?: string }
+        Returns: Json
+      }
+      set_queue_paused_for_user: {
+        Args: {
+          p_instance_id: string
+          p_paused: boolean
+          p_reason?: string
+          p_user_id: string
+        }
         Returns: Json
       }
       show_limit: { Args: never; Returns: number }

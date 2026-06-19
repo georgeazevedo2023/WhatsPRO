@@ -224,7 +224,7 @@ const Leads = () => {
     toggleIaMutation.mutate({ contactId: lead.contact_id, updatedBlocked });
   }, [selectedInstanceId, toggleIaMutation]);
 
-  // useMutation — clear context for a lead (tags, summary, profile, ia_blocked, ai_agent_logs, flow_states)
+  // useMutation — clear context for a lead (tags, summary, profile, ia_blocked, ai_agent_logs)
   const clearContextMutation = useMutation({
     mutationFn: async ({ lead }: { lead: LeadData }) => {
       const convIds = lead.conversations.map((c: { id: string }) => c.id);
