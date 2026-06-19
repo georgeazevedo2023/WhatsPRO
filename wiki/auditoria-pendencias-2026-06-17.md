@@ -34,6 +34,7 @@ audited_at: 2026-06-17
 - **4 wikilinks quebrados** corrigidos (`m14-bio-link-detalhado` → `bio-link-detalhado`; 3 de-linkados); **5 wikis 2º nível `ai-agent-*`** ganharam banner de staleness.
 - **`bun.lock*` destrackado** (npm é o gerenciador; `package-lock.json` presente) + `.gitignore`.
 - **types.ts drift** auditado: **BENIGNO** (frontend não usa `media_send_telemetry`/`e2e_control_inbox`; grep src/=0) → regen ADIADO (arquivo HIGH RISK, diff grande p/ tabelas não consumidas); recomendado guard `gen types`+diff no CI.
+- **Auditoria de crons (06-19):** 25 jobs ativos, **0 falhas/24h**, todos sub-segundo no DB. Aplicado (migration `20260619102336`): cron MORTO jobid 13 (`cleanup-guided-sessions` → Fluxos v3.0) **desagendado**; cadência de escalação (34) + abandono (38) **1min→2min** (−2.880 invocações de edge fn/dia, SLA aprovado pelo dono); `net._http_response` truncado (**35MB→32kB** de tuplas mortas do pg_net). `requeue` (29) mantém 1min. **Ainda aberto:** cadência ainda em 1min só na fila (proposital); truncate semanal do pg_net (jobid 42) pode virar diário se o espaço apertar.
 
 ## Tabela priorizada
 
@@ -45,7 +46,7 @@ audited_at: 2026-06-17
 | **P1** | **MEMORY.md acima do limite** (26.6KB vs 24.4KB, piorando) → índice truncado no load | doc | quick | `wc -c`; ~42 entradas >200 char | Encurtar entradas; condensar handoffs `SUPERADO`. |
 | ~~P1~~ | ~~CLAUDE.md header 88% vs tabela 98%; roadmap 68%; RULES.md passo 2 = Validator morto~~ | doc | — | — | ✅ **FEITO 2026-06-17** (header→~98%, roadmap→~98%, RULES.md→responseSanitizer) |
 | ~~P2~~ | ~~CHANGELOG.md em 300 (bloqueia próximo commit)~~ | doc | — | — | ✅ **FEITO** (condensado v7.75/76/77 → headroom; frontmatter bump) |
-| **P2** | **Schema órfão Fluxos v3.0 no DB** (v7.90.0 só removeu runtime): 8-9 tabelas `flow_*`+`guided_sessions`+RPC+col `instances.use_orchestrator`; **cron jobid 13 morto-vivo** | db | medium | `to_regclass` flow_*≠null; cron jobid 13 ativo; 0 rows | Migration DROP + unschedule. Regen `types.ts` = HIGH RISK, com OK. |
+| **P2** | **Schema órfão Fluxos v3.0 no DB** (v7.90.0 só removeu runtime): 8-9 tabelas `flow_*`+`guided_sessions`+RPC+col `instances.use_orchestrator`. **Cron jobid 13 já DESAGENDADO** (06-19, migration `20260619102336`) | db | medium | `to_regclass` flow_*≠null; 0 rows | Resta o DROP das tabelas (+RPC+col). Regen `types.ts` = HIGH RISK, com OK. |
 | ~~P2~~ | ~~Edge fn `process-jobs` morta+quebrada~~ | code | — | — | ✅ **FEITO v7.95.0** — deletada de prod+source (junto com `group-reasons`). |
 | **P2** | **migration 20260617120000 (v7.94.0) viva mas NÃO registrada** em `schema_migrations` (aplicada via execute_sql) | db | quick | última registrada = 20260617121601 (v7.93) | Registrar (INSERT/repair). Baixo risco. |
 | **P2** | **types.ts drift**: `media_send_telemetry`, `e2e_control_inbox` no DB, ausentes do types.ts — **drift BENIGNO** (frontend não usa nenhuma; grep src/=0, verificado 06-18) | db | quick | grep src/=0 | Regen ADIADO (types.ts é HIGH RISK, diff grande p/ tabelas não consumidas); add `gen types`+diff ao CI como guard. |
