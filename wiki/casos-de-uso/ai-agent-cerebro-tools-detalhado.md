@@ -1,187 +1,176 @@
 ---
-title: AI Agent — Cérebro (LLM) e 9 Ferramentas
-tags: [ai-agent, llm, openai, gpt-4-mini, tools, search, carousel, handoff, kanban, polls]
-sources: [supabase/functions/ai-agent/, supabase/functions/_shared/]
-updated: 2026-04-30
+title: AI Agent — O Cérebro (Router + 5 Specialists) e as 9 Ferramentas
+tags: [ai-agent, router, specialists, llm, tools, qualification-gate, greeting-policy, handoff, monolith-fallback]
+sources:
+  - supabase/functions/_shared/agent/router.ts
+  - supabase/functions/_shared/agent/routerPipeline.ts
+  - supabase/functions/_shared/agent/hopGuard.ts
+  - supabase/functions/_shared/agent/specialistBase.ts
+  - supabase/functions/_shared/agent/specialistTools.ts
+  - supabase/functions/_shared/agent/qualificationGate.ts
+  - supabase/functions/_shared/agent/greetingPolicy.ts
+  - supabase/functions/_shared/agent/responseSanitizer.ts
+  - supabase/functions/_shared/constants.ts
+  - supabase/functions/ai-agent/index.ts
 parent: [[wiki/casos-de-uso/ai-agent-detalhado]]
+updated: 2026-06-20
+audited_at: 2026-06-20
 ---
 
-# AI Agent — Cérebro (LLM) e 9 Ferramentas
+# AI Agent — O Cérebro (Router + 5 Specialists) e as 9 Ferramentas
 
-> ⚠️ **DESATUALIZADO (snapshot 2026-04-30).** Hoje em prod: **router LLM + 5 specialists** com monolito de fallback; **Validator LLM APOSENTADO** (v7.89.0 → `_shared/agent/responseSanitizer.ts`). As 9 tools seguem válidas. Arquitetura atual: `CLAUDE.md` + `_shared/agent/routerPipeline.ts` + [[wiki/auditoria-pendencias-2026-06-17]].
+> Sub-wiki extraído de `ai-agent-detalhado.md`. Cobre o "como pensa" (router que classifica) e "como age" (specialists + ferramentas) do agente.
 
-> Sub-wiki extraído de `ai-agent-detalhado.md` em 2026-04-30 (particionamento — débito de 3 sessões resolvido). Cobre o "como pensa" e "como age" do agente.
+## 1. Visão geral — porteiro + 5 especialistas
 
-## 2.1 Cerebro — O Modelo de Inteligencia Artificial (LLM)
+**Didático:** imagine uma loja com um **recepcionista** na porta. Ele não vende nada — só ouve a primeira frase do cliente e decide para qual **balcão** mandar: "quer só dar oi", "ainda está pesquisando", "quer um produto específico", "está reclamando do preço", ou "quer falar com um vendedor de verdade". Cada balcão tem um especialista treinado só para aquele momento. Esse recepcionista é o **router**; os balcões são os **5 specialists**.
 
-**O que e:** O "cerebro" do agente e um modelo de IA da OpenAI chamado **gpt-4.1-mini**. E ele que le as mensagens do lead, entende o que a pessoa quer, e decide como responder — se vai mandar texto, buscar um produto, enviar fotos ou transferir para um humano.
-
-**Como funciona:** O agente recebe um conjunto de **instrucoes de comportamento** (chamadas de "prompt de sistema") + o **historico da conversa** + os **dados do lead** + o **catalogo de produtos**. O modelo de IA processa tudo isso em milissegundos e decide a melhor acao.
-
-**Protecao contra falhas — cadeia de provedores substitutos:**
-
-Se o provedor principal sair do ar, o sistema automaticamente muda para o proximo. O lead nunca percebe.
-
-1. **OpenAI gpt-4.1-mini** (provedor principal — mais inteligente)
-2. **Gemini 2.5 Flash** (substituto 1 — Google)
-3. **Mistral Small** (substituto 2 — europeu)
-4. **Templates estaticos** (ultimo recurso — respostas pre-prontas)
-
-**Limites de seguranca:**
-- **8.192 tokens** = tamanho maximo de contexto. Se a conversa fica muito longa, o sistema corta as mensagens mais antigas e mantem so as ultimas 6 mensagens (para nao estourar o limite e nem perder o contexto recente).
-- **Circuit breaker** = se um provedor falhar 5 vezes seguidas, o sistema para de tentar e ja vai direto pro proximo.
-
-> **Tecnico:** Modulo `_shared/llmProvider.ts`, `callLLM()` com cadeia OpenAI → Gemini → Mistral → templates. Circuit breaker em `_shared/circuitBreaker.ts` por provedor (geminiBreaker, groqBreaker, mistralBreaker, uazapiBreaker). Token ceiling: `MAX_ACCUMULATED_INPUT_TOKENS=8192` com trimming (mantem ultimas 6 mensagens). Native function calling no OpenAI; Gemini usa fallback de tools custom.
+**Técnico:** o agente roda em pipeline de **2 saltos (hops)** — `routerPipeline.ts` chama `classifyIntent` (router LLM, hop 0) e despacha para um **specialist** (hop 1). O pipeline só roda quando `agent.routing_mode === 'router'` ou `'shadow'` (`index.ts:3107`); o **default é `monolith`** (router pulado, o mega-prompt responde). Em prod o agente ativo (EletropisoV2) está em `router`.
 
 ---
 
-## 2.2 As 9 Ferramentas (Tools) do Agente
+## 2. O router LLM — o recepcionista
 
-**O que e:** O agente nao so conversa — ele tem **9 ferramentas** que pode usar a qualquer momento durante a conversa, como um vendedor que tem acesso ao estoque, ao sistema de etiquetas, ao CRM, etc. O modelo de IA decide sozinho qual ferramenta usar e quando.
+**Didático:** o recepcionista é rápido e barato — ele não escreve a resposta, só decide o destino numa palavra. Se ele ficar em dúvida ou travar, ele tem uma regra de ouro: **na dúvida, manda qualificar** (o balcão que faz perguntas), porque qualificar nunca estraga a conversa.
 
----
+**Técnico:** `classifyIntent` (router.ts) usa `ctx.routerModel || DEFAULT_ROUTER_MODEL`. O pipeline NÃO passa `routerModel`, então o modelo vivo é **`gpt-4.1-mini`** (`constants.ts:20`). O comentário no código confirma a troca: `gpt-5-nano` (reasoning) falhava o parse de JSON 100% em prod → trocado por gpt-4.1-mini (não-reasoning). Parâmetros: `temperature: 0.1`, `maxTokens: 150`, `tools: []`, prompt `ROUTER_SYSTEM_PROMPT` (~936 chars).
 
-### Ferramenta 1: `search_products` — Buscar Produtos no Catalogo
+**As 7 intents** (`VALID_INTENTS`, router.ts:40-48): `saudacao`, `qualificacao`, `produto`, `handoff`, `objecao`, `pagamento`, `fora_escopo`. Quando há mais de uma, a prioridade do prompt é: **handoff > produto > pagamento > objecao > qualificacao > saudacao > fora_escopo**.
 
-**O que faz:** Quando o lead pede um produto ("tem tinta branca?"), o agente busca no catalogo da empresa.
+**Defesa em níveis** — todos caem em `qualificacao` (confidence 0.5, `fallback: true`):
+1. JSON do LLM não parseia → `qualificacao`.
+2. Intent fora de `VALID_INTENTS` → `qualificacao`.
+3. `confidence < 0.6` E intent ≠ qualificacao → forçado a `qualificacao` (no código, não só no prompt).
+4. A chamada LLM lança exceção → `qualificacao`.
 
-**O diferencial — busca inteligente que corrige erros de digitacao:**
-
-O sistema usa uma tecnologia chamada busca "fuzzy" (difusa) que entende o que a pessoa quis dizer mesmo quando erra a grafia. Funciona em 4 etapas:
-
-1. **Busca exata** — procura a frase inteira ("tinta coral branca 18L")
-2. **Busca palavra por palavra** — se nao achou exata, busca cada palavra separadamente ("tinta" E "coral" E "branca" E "18L")
-3. **Busca por semelhanca** — se ainda nao achou, busca palavras parecidas ("cooral" → "coral", com 78% de semelhanca)
-4. **Filtro final** — dos resultados, mantem so os que batem com TODAS as palavras importantes. Se o lead pediu "tinta Suvinil branca", nao vai aparecer "tinta Coral branca" (marca errada)
-
-**Cenarios reais:**
-1. Lead digita "cooral fosco brnco 18l" (cheio de erros) → sistema encontra "Coral Fosco Branco 18L" (78% de semelhanca) → envia foto e preco.
-2. Lead pede "tinta iquine branco" → sistema busca e filtra: so mostra produtos da Iquine, nunca Coral ou Suvinil.
-3. Lead pede "verniz para madeira" → sistema identifica a categoria "seladores e vernizes" automaticamente.
-
-> **Tecnico:** RPC `search_products_fuzzy()` com extensao pg_trgm (word-level similarity, threshold 0.3). Pipeline: (1) ILIKE exact phrase, (2) word-by-word AND, (3) fuzzy pg_trgm, (4) post-filter AND em ALL results. Post-filter: remove produtos que nao matcham TODAS as palavras-chave (evita "tinta iquine branco" retornar Coral). Tabela `ai_agent_products` (agent_id, name, price, description, images JSONB, category). Tool return inclui resultText com precos para LLM citar valores exatos.
+**Hop guard** (`hopGuard.ts`): hop 0 = router, hop 1 = specialist, **máximo 2 hops** por `turn_id`. Consulta `ai_agent_runs`; se já há ≥2 linhas → bloqueia, loga `loop_detected` e cai no monolito. Erro de DB → defensivo `allow: true`.
 
 ---
 
-### Ferramenta 2: `send_carousel` — Enviar Carrossel de Produtos
+## 3. Dispatch — qual balcão atende qual intent
 
-**O que faz:** Envia ate 5 produtos num formato de "cartoes deslizaveis" pelo WhatsApp. Cada cartao tem foto, titulo, preco e botoes clicaveis.
+**Didático:** sete tipos de pedido, mas só **cinco balcões** — alguns balcões atendem dois tipos. Pagamento, por exemplo, é atendido pelo mesmo especialista de objeção (ele já carrega os preços e condições). E "fora do escopo" vai pro mesmo que cuida da saudação, que redireciona educadamente.
 
-**Como funciona:**
-- O agente busca os produtos e monta o carrossel automaticamente
-- Cada cartao tem: **foto do produto** + **texto de vendas** (gerado pela IA com linguagem persuasiva) + **2 botoes** (ex: "Ver detalhes" e "Comprar")
-- O texto de vendas do primeiro cartao e simples (titulo + preco). Os demais recebem textos criativos escritos pela IA
-- Se o envio do carrossel falhar por problema tecnico, o sistema faz fallback: envia ate 3 fotos individuais, e se isso tambem falhar, envia so texto
+**Técnico** (`routerPipeline.ts:154-162):
 
-**Cenario real:** Lead: "Mostra as tintas brancas que voces tem" → Agente busca → encontra 4 tintas brancas → monta carrossel com 4 cartoes → cada um com foto, nome, preco e botao "Ver mais" → lead desliza e escolhe.
+| Intent | Builder do specialist |
+|---|---|
+| `saudacao` | `buildGreetingSpecialistDef()` |
+| `fora_escopo` | `buildGreetingSpecialistDef()` (redireciona; não há specialist dedicado) |
+| `qualificacao` | `buildQualificationSpecialistDef(specialistModel)` |
+| `produto` | `buildProductSpecialistDef(specialistModel)` |
+| `objecao` | `buildObjectionSpecialistDef(specialistModel)` |
+| `pagamento` | `buildObjectionSpecialistDef(specialistModel)` (reusa objeção) |
+| `handoff` | `buildHandoffSpecialistDef(specialistModel)` |
 
-> **Tecnico:** Envio via UAZAPI (4 variantes de payload tentadas). Copy IA: `generateCarouselCopies()` com chain Groq (Llama 3.3) → Gemini 2.5 Flash → Mistral Small, 3s AbortController timeout por provedor. Card 1 = code-generated (cleanProductTitle + price). Cards 2-5 = AI copy. Config: `ai_agents.carousel_text` + `carousel_button_1` + `carousel_button_2` (segundo botao opcional). Fallback: ate 3 send_media individuais → texto. Modulo: `_shared/carousel.ts`. Apos INSERT de carousel em conversation_messages, DEVE chamar `broadcastEvent()` — sem isso helpdesk Realtime nao exibe.
+`specialistModel = agent.specialist_model || DEFAULT_SPECIALIST_MODEL` (= `gpt-4.1`). O **greeting** fica deliberadamente no barato `gpt-4.1-mini` (definido dentro do próprio builder, NÃO recebe `specialistModel`).
 
----
-
-### Ferramenta 3: `send_media` — Enviar Foto, Video ou Documento
-
-**O que faz:** Envia um unico arquivo de midia — foto, video, audio ou documento (PDF, etc.).
-
-**Regra importante:** Quando o lead pede **1 produto**, o agente envia uma **foto individual** (send_media). Quando pede **2 ou mais**, envia um **carrossel** (send_carousel). Isso garante que 1 produto nao vem num carrossel sozinho (ficaria estranho).
-
-**Cenario real:** Lead: "Manda a foto da tinta Coral Branco 18L" → Agente envia foto individual com nome e preco no texto.
-
----
-
-### Ferramenta 4: `handoff_to_human` — Transferir para Atendente Humano
-
-**O que faz:** Quando o agente nao consegue resolver ou o lead pede explicitamente, transfere a conversa para um atendente humano.
-
-**Quando a IA transfere (faz handoff):**
-- Lead pede explicitamente: "quero falar com vendedor", "chama atendente", "quero o gerente"
-- Lead esta frustrado e persistente: "isso e um absurdo!", "que demora!", "pessimo atendimento"
-- A IA nao consegue responder (pergunta que nao esta no catalogo nem nas informacoes da empresa)
-- Atingiu o limite de mensagens sem resolver (padrao: 8 mensagens)
-- Buscas no catalogo falharam varias vezes seguidas (padrao: 2 falhas)
-
-**Quando a IA NAO transfere (responde ela mesma):**
-- Perguntas sobre preco, desconto, pagamento, frete, parcela — a IA responde com dados reais
-- Perguntas sobre horario, endereco, formas de pagamento — a IA responde
-- Lead perguntando "Faz desconto no PIX?" ou "Qual o horario?" NAO e motivo de handoff
-
-**Regra especial de frustracao:** Se o lead manda varias mensagens rapidas e uma delas contem frustracao ("absurdo", "demora") E outra pede handoff ("gerente", "atendente"), o sistema faz handoff **direto** — nao tenta responder com empatia + produto. Transfere imediatamente.
-
-**O que acontece apos o handoff:**
-1. Lead recebe uma mensagem configuravel (ex: "Um atendente vai te atender em instantes!")
-2. O texto que a IA ia mandar e **descartado** — lead recebe so a mensagem de handoff
-3. A IA entra em **modo Shadow** (sombra) — continua extraindo dados sem responder
-4. Se for fora do horario comercial, envia mensagem diferente (ex: "Nosso horario e de 8h as 18h. Um atendente vai te responder amanha!")
-5. Se o lead estava frustrado, envia mensagem de **empatia** ANTES da mensagem de handoff ("Entendo sua frustracao e lamento pelo inconveniente...")
-
-**Cenario real:** Lead: "Esse preco ta absurdo, quero falar com o gerente agora!" → Agente detecta frustracao + pedido de gerente → envia "Entendo sua frustracao, vou transferir voce para nosso gerente." → conversa transferida para departamento de vendas → atendente humano assume → enquanto isso, Shadow extrai: `sentimento:negativo`, `objecoes:preco`, `motivo:reclamacao`.
-
-> **Tecnico:** Tool `handoff_to_human` envia 1 msg + breaks Gemini function calling loop (no duplicate text). Texto LLM descartado quando handoff executado. Todos os tipos (tool, trigger, implicit, max_lead_messages) setam `status_ia='shadow'` (nao 'desligada'). Reset `lead_msg_count: 0` em todos os 5 paths SHADOW (R86, 2026-04-30). Auto-handoff por message limit pula se ja em SHADOW (R85). Final conversation update SKIPS status_ia quando handoff happened. Empatia: `sendTextMsg()` com mensagem empatica ANTES do handoff msg quando sentiment negativo. Question-aware triggers: INFO_TERMS (horario, preco, endereco, desconto, parcelar, frete) NAO matcham como handoff quando lead perguntando ("Qual o horario?"). Pure triggers ("atendente", "humano", "gerente") SEMPRE matcham. Batch rule: frustracao + handoff trigger no mesmo batch = handoff direto (skip LLM). Prioridade handoff_message: `profileData > funnelData > agent`. Business hours: weekly JSONB format `{"mon":{"open":true,"start":"08:00","end":"18:00"}}`. Outside hours: `handoff_message_outside_hours`.
+**A intent do router NEM SEMPRE é honrada** — overrides determinísticos rodam antes de `runSpecialist`:
+- **Loop de no-result/enriquecimento** (offline ou 0 resultado no catálogo): força produto/handoff ou devolve um `Response` determinístico (próxima pergunta de qualificação / "quer mais?" offline / handoff forçado).
+- **qualificationGate** (para `produto`/`qualificacao`): fonte única "buscar vs qualificar" (ver §6).
+- **Pós-nome com interesse premium semeado**: `saudacao` + nome conhecido + funil intocado → força qualification specialist.
+- **exit_action=handoff** (Onda 2): se o motor determinístico concluiu a qualificação, força handoff specialist e arma `pendingHandoffTrigger`.
 
 ---
 
-### Ferramenta 5: `assign_label` — Aplicar Etiqueta na Conversa
+## 4. O contrato compartilhado — `specialistBase`
 
-**O que faz:** O agente aplica automaticamente uma etiqueta visual na conversa (as mesmas etiquetas coloridas do Helpdesk — ver [[wiki/casos-de-uso/helpdesk-detalhado]] secao 1.2).
+**Didático:** todo balcão segue o mesmo roteiro de bastidores: cumprimentar (se ainda não cumprimentou), lembrar do cliente, falar como gente (humanização), conhecer a loja (endereço/horário/pagamento), não repetir o nome toda hora. Cada especialista só escreve a parte que é "a cara dele"; o resto o sistema cola automaticamente em volta.
 
-**Cenario:** Lead concluiu agendamento → agente aplica etiqueta "Agendado" (verde). Atendente ve na lista e sabe que nao precisa responder.
+**Técnico:** cada specialist é só `{ name, intent, model, buildPrompt, toolDefs, disableHandoffGuard }` (`SpecialistDef`); `runSpecialist(ctx, def, hopN)` faz o resto. O system prompt é montado nesta ordem exata (specialistBase.ts:260-262):
+1. `buildLeadMemoryBlock(leadProfile)` — memória longa do lead (topo).
+2. `greetingDoneDirective` — anti double-ask se já saudou neste turno.
+3. o `buildPrompt` do próprio specialist.
+4. `buildHumanizationRules()` — **humanização é injetada pela base**, não em cada prompt (Onda 2).
+5. `buildBusinessSection(agent)` — endereço/horário/pagamento/entrega + regra anti-alucinação.
+6. `buildNameUsageDirective` — anti-repetição de nome determinística.
+7. `ctx.exitActionDirective` — quando o motor concluiu qualif com `exit_action=handoff`.
+8. `ctx.preSearchContext` — pré-busca determinística (último, fix de latência 1-round do produto).
 
----
-
-### Ferramenta 6: `set_tags` — Aplicar Tags Automaticas
-
-**O que faz:** Aplica tags estruturadas (no formato `chave:valor`) na conversa, automaticamente, conforme entende o que o lead quer.
-
-**Os 3 niveis de tags:**
-1. **Motivo** (intencao) — `motivo:compra`, `motivo:suporte`, `motivo:orcamento`, `motivo:informacao`
-2. **Interesse** (categoria) — `interesse:tintas`, `interesse:ferramentas`, `interesse:eletrica`
-3. **Produto** (especifico) — `produto:coral-branco-18L`, `produto:furadeira-bosch-650w`
-
-**Tags extras que o agente coleta:** `cidade:recife`, `quantidade:4`, `orcamento:alto`, `acabamento:fosco`, `marca_preferida:coral`
-
-**Cenario real:** Lead diz "Quero comprar 4 galoes de tinta coral branca pra minha casa em Recife, acabamento fosco" → Tags aplicadas automaticamente: `motivo:compra`, `interesse:tintas`, `produto:coral-branco`, `cidade:recife`, `quantidade:4`, `acabamento:fosco`, `marca_preferida:coral`. Tudo sem o atendente fazer nada.
-
-> **Tecnico:** Tool `set_tags` usa `mergeTags()` de `_shared/agentHelpers.ts`. Tags = TEXT[] em `conversations.tags` formato "key:value". Enforcement: `VALID_KEYS` whitelist (60+ keys após Sprint Eletropiso 2026-04-29), `VALID_MOTIVOS` set, `VALID_OBJECOES` set no ai-agent/index.ts. Aliasing automático (R83): se categoria ativa tem keys sufixadas (ex: `material_porta`), handler aceita key genérica (`material:`) e remapeia. Exit action enforcement (R83): atinge max_score → injeta instrução [INTERNO] obrigatória pro LLM. Auto-interesse: categoria detectada de keywords (tinta→tintas, verniz→seladores_e_vernizes, manta→impermeabilizantes) mesmo com 0 resultados de busca. Brand tracking: `marca_indisponivel:X` auto-set quando marca nao esta no catalogo.
+**Pipeline:** `buildPrompt` → `runLlmCallLoop` (loop de function-calling com retry/backoff) → insere linha de hop em `ai_agent_runs` → sanitização (§5) → dispatch. Pós-dispatch: `consolidateLeadMemory` fire-and-forget. Erro 3× LLM → `errorResponse` propagado (caller cai no monolito; não mata o turno). Modelo default no `SpecialistDef`: `gpt-4.1` (full, não-reasoning).
 
 ---
 
-### Ferramenta 7: `move_kanban` — Mover Card no CRM
+## 5. Os 5 specialists
 
-**O que faz:** Move o cartao do lead de uma coluna para outra no quadro Kanban (painel visual de vendas).
+**Didático:** cada balcão sabe fazer uma coisa muito bem e tem ordem de **não invadir** o balcão do vizinho. O de saudação nunca busca produto; o de qualificação nunca transfere; o de objeção nunca dá desconto sozinho.
 
-**Cenario:** Lead qualificado → agente move card de "Novo" para "Qualificado". Lead fechou compra → move para "Fechado Ganho". Tudo automatico.
+**Técnico:**
+
+| Specialist | intent(s) | Modelo default | Ferramentas | `disableHandoffGuard` |
+|---|---|---|---|---|
+| greeting | `saudacao`, `fora_escopo` | **`gpt-4.1-mini`** | `set_tags`, `update_lead_profile` | false |
+| qualification | `qualificacao` | `gpt-4.1` | `set_tags`, `update_lead_profile` | false |
+| product | `produto` | `gpt-4.1` | `search_products`, `send_carousel`, `send_media`, `set_tags`, `update_lead_profile`, `set_cart`, `handoff_to_human` | **true** |
+| objection | `objecao`, `pagamento` | `gpt-4.1` | `set_tags`, `update_lead_profile`, `handoff_to_human` | **true** |
+| handoff | `handoff` | `gpt-4.1` | `handoff_to_human`, `send_poll` | **true** |
+
+- **greeting** — abre a conversa: cumprimenta, captura nome, reconhece lead que volta, redireciona off-scope. Gate `hasResumableInterest` (só diz "você estava vendo X" se há interesse/produtos vistos reais — corrige a alucinação de tratar o nome de lead novo como recorrente). Espelha o cumprimento ("Bom dia!"→"Bom dia!").
+- **qualification** — descoberta estilo SPIN, UMA pergunta por turno. Reusa `buildQualificationContext` ("PRÓXIMA PERGUNTA OBRIGATÓRIA": R131/R135/R134) + bloco do contrato premium de `evaluateProductQualificationFlow`/`readProductQualificationState`. Nunca busca/objeta/transfere.
+- **product** — o specialist original (Sprint C4), prompt mais rico (~3 KB, 10+ regras numeradas). Monta o pedido multi-item completo e então transfere. Tem `getProductSpecialistToolDefs` próprio. Regra dura: **NUNCA negar existência de produto** ("catálogo é minoria, maioria é estoque físico"). Re-batching de carrossel no "mais opções". Pré-busca própria (`cleanProductQuery`, `deriveProductSearchParams`).
+- **objection** — Feel-Felt-Found / ancoragem de valor. Também atende `pagamento` (carrega `business_info`). Nunca dá desconto sozinho; `priorObjectionCount` 2+ → handoff.
+- **handoff** — fecha o ciclo da IA: UMA frase de confirmação + `handoff_to_human` com motivo COMPLETO. `send_poll` NPS opcional quando a conversa claramente terminou. Lógica de fila/departamento/fora-de-horário fica no handler `executeToolSafe`, não aqui.
+
+> O handoff specialist **era** `gpt-4.1-mini`, mas foi promovido a `gpt-4.1` porque o mini vazava a chamada como texto puro (`functions.handoff_to_human({...})`) em vez de invocá-la — e o transbordo nunca acontecia.
 
 ---
 
-### Ferramenta 8: `update_lead_profile` — Atualizar Dados do Lead
+## 6. A camada determinística (qualificationGate + greetingPolicy + sanitizer)
 
-**O que faz:** Salva informacoes que o agente descobriu durante a conversa no perfil permanente do lead.
+**Didático:** antes e depois do LLM existem **regras fixas, sem IA**, que protegem o lead. Elas decidem "agora é hora de buscar ou de perguntar?", como abrir a conversa, e limpam respostas perigosas (ex: a IA dizendo "não temos esse produto"). Detalhe completo em [[wiki/casos-de-uso/ai-agent-sdr-shadow-detalhado]].
 
-**Campos que pode atualizar:** nome completo, cidade, interesses, motivo do contato, ticket medio (valor medio de compras), objecoes (o que o lead achou ruim), e notas livres.
-
-**Cenario:** Lead diz "Meu nome e Pedro, sou de Recife, to reformando a casa toda" → Agente salva: nome="Pedro", cidade="Recife", interesses="reforma completa". Na proxima conversa (mesmo meses depois), o agente ja sabe tudo isso.
+**Técnico (alto nível):**
+- `qualificationGate.ts` — fonte única "search vs qualify". `evaluateQualificationGate` devolve `mode`: `search` (força product specialist), `qualify` (força qualification, muitas vezes devolvendo a próxima pergunta determinística sem chamar o LLM), `qualify_then_handoff` (catálogo offline → qualifica breve e transfere), `no_category`. **Nunca lança**: em qualquer erro retorna `readyToSearch=true` para o lead não ficar preso em loop. Substituiu 4 decisores rivais que divergiam na migração monolito→router.
+- `greetingPolicy.ts` — `classifyLeadRecency` → `novo`/`recorrente`/`ativo`; `buildOpeningDirective` injeta a diretiva de abertura no topo do prompt (ou só a P5 de registro de nome, se a saudação já foi feita deterministicamente no index.ts). `buildNameUsageDirective` suprime o nome se usado nas últimas 2 mensagens do bot.
+- `responseSanitizer.ts` — **fonte única de validação para router E monolito**. O **Validator LLM (`validatorAgent.validateResponse`) foi APOSENTADO do hot path** (Onda 2, 2026-06-12); `validatorAgent.ts` sobrevive só para `countMsgsSinceNameUse` e auditoria offline. O sanitizer roda o motor **determinístico** `validateLLMResponse` (regras/regex, apesar do "LLM" no nome). `sanitizeAgentResponse` nunca lança; aplica `SAFE_TEXT_RULES` (substitui texto inteiro: negação de produto / vazamento de erro / leak interno), `AUTO_FIX_RULES` (reescrita cirúrgica) e regras cosméticas (só telemetria).
+- Short-circuits pré-LLM (`preLLMShortCircuits.ts` R136/R129) e pré-busca inline (R121, `preLLMAutoExtract.ts`) são **pulados sob router** (`skipShortCircuits`/`skipR121`); o handoff por exit-action é deferido ao handoff specialist.
 
 ---
 
-### Ferramenta 9: `send_poll` — Enviar Enquete no WhatsApp
+## 7. O monolito — hoje é fallback (ainda NÃO aposentado)
 
-**O que faz:** Envia uma enquete nativa do WhatsApp — aquelas com botoes clicaveis onde o lead escolhe uma opcao. O agente decide sozinho quando faz sentido enviar uma enquete em vez de perguntar por texto.
+**Didático:** antes do recepcionista existir, **um único cérebro gigante** lidava com tudo sozinho (um prompt de ~17 KB). Ele ainda está lá como **rede de segurança**: se o recepcionista ou um balcão der pau, o cérebro velho assume e responde, para o cliente nunca ficar no vácuo.
 
-**Regras:**
-- De 2 a 12 opcoes por enquete
-- Maximo 255 caracteres na pergunta
-- Maximo 100 caracteres por opcao
-- NUNCA envia opcoes numeradas ("1-Casa, 2-Apartamento") — sempre nomes limpos ("Casa", "Apartamento")
+**Técnico:** o caminho monolito (`runLlmCallLoop`, index.ts:3131) roda quando:
+- `routing_mode = monolith` (default — pipeline pulado inteiro), OU
+- `routing_mode = router`/`shadow` e `runRouterPipeline` retorna `response === null` (shadow mode, hop-guard trip, intent sem specialist, falha catastrófica do specialist, ou qualquer exceção do pipeline).
 
-**Cenario real:** Agente quer saber o tipo de ambiente → envia enquete: "Para qual ambiente e a tinta?" com opcoes clicaveis: "Quarto", "Sala", "Cozinha", "Banheiro", "Fachada", "Garagem". Lead clica em "Fachada" → agente ja sabe e busca tintas para area externa.
+Então o monolito é hoje **(a)** o respondente ativo de qualquer agente ainda em `monolith` e **(b)** a rede de segurança dos agentes router/shadow. Ele compartilha o **mesmo sanitizer** (`sanitizeAgentResponse`, index.ts:3170) dos specialists. **D6** (aposentar o monolito) segue STAGED (gate ~23/06).
+
+**Os 3 valores de `routing_mode`:**
+- `monolith` — default; pipeline pulado; mega-prompt responde.
+- `router` — router classifica + despacha; specialist responde (com overrides); cai no monolito em falha.
+- `shadow` — router só classifica e loga em `ai_agent_runs` (mede acurácia); NÃO roda o specialist; o monolito responde ao lead.
+
+---
+
+## 8. As 9 ferramentas (tools)
+
+**Didático:** o agente não só conversa — ele tem **9 ferramentas** que pode acionar a qualquer momento, como um vendedor com acesso ao estoque, ao sistema de etiquetas e ao CRM. O próprio LLM decide qual usar e quando.
+
+**Técnico:** as 9 defs canônicas vivem no monolito (`ai-agent/index.ts:2721-2810`), todas `strict: true` (toda key em `required[]`, opcionais como união `["TYPE","null"]`).
+
+1. **`search_products`** — busca no catálogo. Se acha produtos com foto, **envia o carrossel automaticamente** (a descrição manda NÃO chamar `send_carousel` depois). Args: `query, category, subcategory, min_price, max_price` (nullable).
+2. **`send_carousel`** — carrossel de produtos com imagens + botões; usar com 2+ produtos COM imagem. Args: `product_ids` (títulos exatos, máx 10), `message` (nullable).
+3. **`send_media`** — uma imagem/documento (foto de um produto específico). Args: `media_url`, `media_type` (image/video/document), `caption` (nullable).
+4. **`assign_label`** — etiqueta a conversa para rastrear etapa do funil; os labels disponíveis são interpolados na descrição. Arg: `label_name`.
+5. **`set_tags`** — adiciona tags cumulativas `"chave:valor"` (ex: `motivo:compra`, `interesse:tinta`). Arg: `tags` (array).
+6. **`move_kanban`** — move o card do CRM Kanban de coluna. Arg: `column_name`.
+7. **`update_lead_profile`** — salva dados do lead. Args: `full_name, city, interests, notes, reason, average_ticket, objections` (todos nullable e required).
+8. **`handoff_to_human`** — transfere para humano (lead pede vendedor, mostra intenção de compra, ou frustração). Arg: `reason` (com resumo dos dados coletados).
+9. **`send_poll`** — enquete nativa do WhatsApp com opções clicáveis; **NUNCA numerar opções**. Args: `question` (máx 255), `options` (2-12), `selectable_count` (1=única, 0=múltipla, null=1).
+
+### Onde as defs vivem (nuance importante)
+
+- `specialistTools.ts` **NÃO** guarda as 9. Exclui as tools de produto (`search_products`/`send_carousel`/`send_media`, que vivem em `productSpecialist.ts` via `getProductSpecialistToolDefs`) e também `assign_label`/`move_kanban`. Define **5**: `setTagsToolDef`, `updateLeadProfileToolDef`, `handoffToHumanToolDef`, `sendPollToolDef`, **e `setCartToolDef`** — uma 6ª tool fora da lista.
+- **`set_cart`** é a tool do cart engine: define o pedido COMPLETO (substitui o pedido inteiro, idempotente — não duplica). Item = `{name, qty, product_id, unit_price}`; cada item declara `additionalProperties:false` (o llmProvider só injeta isso no root → senão OpenAI 400 → 502).
+- Todas as defs compartilhadas são `strict: true`, cópias 1:1 dos schemas do monolito para evitar drift entre o que o LLM vê e o que `executeToolSafe` espera. `updateLeadProfileToolDef` exige TODOS os campos (null quando desconhecido). Specialists escolhem um SUBSET mínimo (princípio strict: "tool overload é sobre sobreposição, não quantidade").
 
 ---
 
 ## Links
 
-- [[wiki/casos-de-uso/ai-agent-detalhado]] — Índice geral (visão de todas as 15 sub-funcionalidades)
-- [[wiki/casos-de-uso/ai-agent-sdr-shadow-detalhado]] — Fluxo SDR + Shadow Mode
-- [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] — Validator + TTS + Prompt Studio
-- [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] — Profiles, NPS, Knowledge Base, Greeting, Memória
-- [[wiki/casos-de-uso/excluded-products-detalhado]] — D28 (produtos NÃO vendidos)
+- [[wiki/casos-de-uso/ai-agent-detalhado]] — Índice geral (visão das sub-funcionalidades)
+- [[wiki/casos-de-uso/ai-agent-sdr-shadow-detalhado]] — Camada determinística, SDR, Shadow Mode, handoff e fila
+- [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] — Profiles, NPS, Knowledge Base, Voz, Prompt Studio, memória
 - [[wiki/ai-agent]] — Referência técnica do AI Agent

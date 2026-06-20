@@ -110,9 +110,9 @@ audited_at: 2026-06-18
 | ↳ [[wiki/casos-de-uso/helpdesk-ux]] | Layout 3 paineis, typing, espera, busca Ctrl+K, filtros |
 | ↳ [[wiki/casos-de-uso/helpdesk-permissoes]] | Permissões granulares de inbox (D21, R73) |
 | [[wiki/casos-de-uso/ai-agent-detalhado]] (índice) | AI Agent — 4 sub-páginas abaixo |
-| ↳ [[wiki/casos-de-uso/ai-agent-cerebro-tools-detalhado]] | LLM gpt-4.1-mini + 9 ferramentas |
-| ↳ [[wiki/casos-de-uso/ai-agent-sdr-shadow-detalhado]] | Fluxo SDR + Shadow Mode |
-| ↳ [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] | ⚠️ stale — Validator aposentado (v7.89.0); TTS + Prompt Studio |
+| ↳ [[wiki/casos-de-uso/ai-agent-cerebro-tools-detalhado]] | Router + 5 specialists + 9 ferramentas |
+| ↳ [[wiki/casos-de-uso/ai-agent-sdr-shadow-detalhado]] | qualificationGate + greetingPolicy + Shadow Mode |
+| ↳ [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] | Sanitização determinística (substituiu o Validator LLM) + TTS + Prompt Studio |
 | ↳ [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] | Perfis, NPS, KB, Debounce, Memória |
 | [[wiki/casos-de-uso/handoff-fila-detalhado]] | D30 — Fila Inteligente completa |
 | [[wiki/casos-de-uso/excluded-products-detalhado]] | D28 — Produtos NÃO vendidos |

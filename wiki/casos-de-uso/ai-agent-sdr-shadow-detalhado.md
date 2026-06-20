@@ -1,89 +1,137 @@
 ---
 title: AI Agent — Fluxo SDR e Modo Sombra (Shadow)
-tags: [ai-agent, sdr, qualificacao, service-categories, shadow-mode, stages, score]
-sources: [supabase/functions/ai-agent/, supabase/functions/_shared/serviceCategories.ts]
-updated: 2026-04-30
+tags: [ai-agent, sdr, qualificacao, qualification-gate, greeting-policy, shadow-mode, human-handling-lock, stages, score]
+sources:
+  - supabase/functions/_shared/agent/qualificationGate.ts
+  - supabase/functions/_shared/agent/greetingPolicy.ts
+  - supabase/functions/_shared/agent/qualificationSpecialist.ts
+  - supabase/functions/_shared/agent/greetingSpecialist.ts
+  - supabase/functions/_shared/agent/specialistBase.ts
+  - supabase/functions/_shared/agent/responseSanitizer.ts
+  - supabase/functions/ai-agent/index.ts
+  - supabase/functions/whatsapp-webhook/index.ts
+  - supabase/functions/_shared/handoffQueue.ts
+updated: 2026-06-20
+audited_at: 2026-06-20
 parent: [[wiki/casos-de-uso/ai-agent-detalhado]]
 ---
 
 # AI Agent — Fluxo SDR e Shadow Mode
 
-> ⚠️ **DESATUALIZADO (snapshot 2026-04-30).** O fluxo SDR/Shadow segue válido em conceito, mas hoje roda sob **router LLM + 5 specialists** + camada determinística (`qualificationGate`, `greetingPolicy`) — não mais pelo monolito. Arquitetura atual: `CLAUDE.md` + [[wiki/auditoria-pendencias-2026-06-17]].
-
-> Sub-wiki extraído de `ai-agent-detalhado.md` em 2026-04-30. Cobre como o agente qualifica leads (SDR) e como continua extraindo dados após o handoff (Shadow).
-
-## 2.3 Fluxo SDR (Pre-Vendedor — Qualificacao Inteligente)
-
-**O que e:** SDR significa "Sales Development Representative" — e o pre-vendedor que qualifica o lead antes de passar para o vendedor. O agente segue um fluxo inteligente em 4 etapas:
-
-**Etapa 1 — Lead fala algo generico ("quero tinta")**
-O agente faz perguntas de qualificacao primeiro: "Para qual ambiente?" → "Qual cor?" → "Prefere alguma marca?" — ate o limite configuravel (padrao: 3 perguntas antes de buscar).
-
-**Etapa 2 — Lead fala algo especifico ("quero tinta coral branco 18L")**
-O agente busca imediatamente no catalogo, sem perguntar nada. O lead ja disse tudo que precisa.
-
-**Etapa 3 — Busca falhou (nao encontrou o produto)**
-O agente entra em fase de "enriquecimento": faz perguntas contextuais como "Qual o tipo de acabamento?" ou "Para que area voce precisa?" (ate 2 perguntas extras). Depois, transfere para humano com todo o contexto coletado.
-
-**Etapa 4 — Limite de mensagens atingido (padrao: 8)**
-Se apos 8 mensagens a conversa nao foi resolvida, o agente transfere automaticamente para humano. Evita loops infinitos.
-
-**Service Categories — funil de qualificação por nicho com stages + score (M19-S10 v2):** Em vez de regras hardcoded, cada agente tem categorias com **etapas (stages)** e **score progressivo** em `ai_agents.service_categories JSONB`. Editáveis pelo admin via tab dedicada **"Qualificação"** (4ª tab). Cada categoria tem regex de match, fields com `score_value` (pontos), e stages com `min_score`/`max_score`/`exit_action` (`search_products` | `enrichment` | `handoff` | `continue`). Conforme o lead responde, soma score → progride entre stages → ao atingir o teto do stage, dispara `exit_action`.
-
-**4 cenários multi-tenant — mesmo agente, funis diferentes:**
-
-- **Home Center (tintas, 3 stages):**
-  - Stage 1 — *Identificação* (0→30, `search_products`): `ambiente` (15pt) + `cor` (15pt). Atingiu 30 → busca produtos.
-  - Stage 2 — *Detalhamento* (30→70, `enrichment`): `acabamento` (20pt) + `marca` (20pt). Atingiu 70 → continua perguntando.
-  - Stage 3 — *Pronto para Handoff* (70→100, `handoff`): `quantidade` (15pt) + `area` (15pt). Atingiu 100 → handoff com contexto rico.
-- **Clínica médica (consultas, 2 stages):**
-  - Stage 1 — *Triagem* (0→50, `enrichment`): `especialidade` (cardiologia, ortopedia — 30pt) + `urgencia` (urgente, eletivo — 20pt).
-  - Stage 2 — *Agendamento* (50→100, `handoff`): `preferencia_dia` (30pt) + `convenio` (20pt).
-- **Imobiliária (3 stages):**
-  - Stage 1 — *Briefing* (0→30, `search_products`): `tipo_imovel` + `bairro`.
-  - Stage 2 — *Refinamento* (30→70, `enrichment`): `quartos` + `faixa_preco`.
-  - Stage 3 — *Visita* (70→100, `handoff`): `disponibilidade` + `urgencia`.
-- **Lead frio (default, 1 stage):**
-  - *Qualificação básica* (0→100, `handoff`): `especificacao` (25pt) + `marca_preferida` (25pt) + `quantidade` (25pt). Sem categoria match → fallback para handoff direto.
-
-**Cenário completo Home Center com score:** Lead: "Oi, quero tinta" → Agente identifica categoria `tintas` (regex match) → score 0 → Stage Identificação. Pergunta `ambiente` (phrasing: "Para encontrar a melhor opção, qual ambiente? interno ou externo") → Lead: "Externo" → set_tags `['ambiente:externo']` → score +15 = 15. Pergunta `cor` → Lead: "Branca" → score +15 = 30 → atinge `max_score` → `exit_action: search_products` dispara. Encontra produtos → envia carrossel. Score persistido na tag `lead_score:30` + row em `lead_score_history`.
-
-**Produtos NÃO vendidos (D28, 2026-04-30):** complementa o SDR — quando lead pergunta sobre produto fora do portfólio (ex: caixa de correio em home center), o agente responde polidamente sem nem entrar no fluxo de qualificação. Ver [[wiki/casos-de-uso/excluded-products-detalhado]].
-
-> **Tecnico:** Config: `max_pre_search_questions` (default 3), `max_enrichment_questions` (default 2), `max_lead_messages` (default 8), `max_qualification_retries` (default 2). Contador atomico: `increment_lead_msg_count` RPC. Service Categories v2: `ai_agents.service_categories JSONB` carregado via `getCategoriesOrDefault()` em `_shared/serviceCategories.ts`. Tipos: `Stage`, `ExitAction`, `QualificationField` (com `score_value`). Match: `matchCategory(interesse, config)` testa regex. Stage atual: `getCurrentStage(score, category)` lê `min_score`/`max_score`. Próxima pergunta: `getNextField(stage, currentTags)` ordena por `priority` e exclui fields já respondidos. Score helpers: `getScoreFromTags(tags)` lê `lead_score:N`; `calculateScoreDelta(beforeTags, afterTags, stages)` soma `score_value` dos fields recém-respondidos. Persistência: handler de `set_tags` em `ai-agent/index.ts` chama RPC `add_lead_score_event` que insere em `lead_score_history` (M19 S2). Score reseta apenas em `ia_cleared:` (R79). **Tab dedicada:** `src/components/admin/ai-agent/ServiceCategoriesConfig.tsx`. **Backward compat:** migration v2 remapeia agentes em produção do schema plano para 3 stages padrão automaticamente.
+> Como o agente decide **qualificar vs buscar** (qualificationGate), como abre a conversa e reconhece o lead que volta (greetingPolicy), como o **qualification specialist** conduz a descoberta consultiva, e como ele continua extraindo dados em silêncio depois do handoff (Shadow Mode + trava de atendimento humano v7.94.0).
 
 ---
 
-## 2.4 Modo Sombra (Shadow Mode) — IA Ouvindo em Silencio
+## 1. Quem decide "qualificar vs buscar" — qualificationGate
 
-**O que e:** Apos a IA transferir a conversa para um atendente humano (handoff), ela nao desliga completamente — entra em **modo sombra**. Nesse modo, a IA le TODAS as mensagens da conversa (do lead e do atendente) e **extrai dados automaticamente**, mas **nao envia nenhuma mensagem** ao lead. E como um assistente invisivel tomando notas.
+**Didático.** Pense num bom vendedor de loja de tintas. Quando o cliente diz só "quero tinta", ele NÃO sai correndo pro estoque — pergunta pra qual ambiente, qual cor, antes de mostrar caixas. Mas se o cliente já chega dizendo "quero Coral branca 18L acabamento fosco", ele vai direto buscar. Antes, no WhatsPRO, quatro pedaços de código brigavam pra tomar essa decisão e se contradiziam. Hoje existe **um único juiz**: o `qualificationGate`.
 
-**O que a IA extrai em modo sombra:**
-- Nome completo do lead
-- Cidade
-- Interesses (produtos, categorias)
-- Motivo do contato
-- Valor medio de compra (ticket medio)
-- Objecoes (o que o lead nao gostou)
-- Notas livres (resumo da conversa)
-- Tags: `cidade:campinas`, `quantidade:10`, `orcamento:alto`
+**Técnico.** `_shared/agent/qualificationGate.ts` exporta `evaluateQualificationGate(input)`, fonte única de verdade pra "search vs qualify". Devolve um veredito `{ readyToSearch, mode, reason, category, categoryId, score, searchReadyScore, catalogStatus }` com `mode ∈ 'search' | 'qualify' | 'qualify_then_handoff' | 'no_category'`. Lê a MESMA engine de stages (`serviceCategories`) que governa o score; resolve a categoria via `matchCategory(interesse-tag)` e cai pra `matchCategoryBySearchText(incomingText)`.
 
-**Protecao de nome:** Se o lead ja tem nome registrado, a IA em Shadow NUNCA sobrescreve. Isso evita o problema de o vendedor dizer "Obrigado, Pedro!" e a IA achar que "Pedro" e o nome do lead (quando Pedro e o nome do vendedor).
+Tabela de decisão determinística:
 
-**Cenario real:** IA faz handoff apos 6 mensagens. Vendedor assume e conversa por 20 minutos: negocia preco, fala de parcelamento, descobre que o lead e de Campinas e quer reformar 3 quartos. Enquanto isso, o Shadow extrai silenciosamente: `cidade:campinas`, `quantidade:grande`, `orcamento:medio`, `interesse:tintas+ferramentas`. Quando o vendedor abre o perfil do lead, todas essas informacoes ja estao la — sem ter digitado nada.
+- **Sem categoria resolvida** → `readyToSearch=true`, `mode='no_category'` (nada a qualificar; deixa LLM/busca decidir).
+- **`catalog_status !== 'digital'`** (offline/none) → `readyToSearch=false`, `mode='qualify_then_handoff'` — NUNCA busca; qualifica breve e transborda com contexto rico.
+- **Categoria digital** — o limiar de busca = o `max_score` do PRIMEIRO stage (ordenado por `min_score`) cujo `exit_action === 'search_products'`. Se `score >= searchReadyScore` → `search`; senão → `qualify`.
+- **Categoria digital SEM stage `search_products`** (config rara) → `qualify_then_handoff`.
 
-**Bug histórico R85+R86 (2026-04-30):** antes do fix, conversa em SHADOW continuava recebendo `lead_msg_count` increment a cada nova msg do lead, e o auto-handoff por message limit re-disparava enviando "Vou te encaminhar..." múltiplas vezes. Fix: guard `status_ia !== SHADOW` antes do auto-handoff (R85) + reset `lead_msg_count: 0` em todos os 5 paths SHADOW (R86).
+Degradação graciosa explícita: **nunca lança exceção**; em qualquer erro devolve `readyToSearch=true` (`mode='no_category'`, reason `'erro na avaliação do gate — fallback ready'`) — um lead jamais fica preso em loop de qualificação.
 
-> **Tecnico:** Ativacao: todos os handoff types setam `status_ia = STATUS_IA.SHADOW`. Prompt shadow: instrui LLM a extrair via `update_lead_profile` (full_name, city, interests, reason, average_ticket, objections, notes) + `set_tags` (cidade:X, quantidade:Y, orcamento:Z). Protecao nome: shadow prompt diz "ignore non-lead names quando full_name ja existe" — previne "Obrigado Pedro!" (vendedor) sobrescrever nome do lead. Shadow NUNCA envia mensagem ao lead (return silencioso). Debounce continua ativo em shadow (agrupa msgs).
+Por que existe: substituiu 4 decisores rivais (engine de stages, `detectIncomingSearchSignal`/R121, `deriveProductSearchParams` e o LLM do product specialist) que divergiam na migração monolith→router. Consumidores: o dispatch do router em `index.ts` (intent=`produto` não-pronto → redireciona ao qualification specialist e suprime a pré-busca) e o próprio `deriveProductSearchParams` (defesa: retorna null se não estiver pronto).
+
+---
+
+## 2. Abertura e reconhecimento — greetingPolicy
+
+**Didático.** O cliente que aparece pela primeira vez merece um "Oi, aqui é da Eletropiso! Com quem eu falo?". Já quem voltou ontem não quer ouvir tudo de novo — quer "Oi de novo! Você estava vendo porcelanatos, quer continuar?". E o pior pecado é repetir o nome em TODA frase ("Sim, João... claro, João... certo, João"), o que soa robótico. O `greetingPolicy` resolve os três casos de forma determinística, sem depender do LLM "lembrar a regra".
+
+**Técnico.** `_shared/agent/greetingPolicy.ts`:
+
+- `classifyLeadRecency({hasInteracted, hasEverInteracted, fullName})` → `'novo' | 'recorrente' | 'ativo'`:
+  - **`recorrente`** — tem nome confirmado + já interagiu + NÃO nas últimas 24h.
+  - **`ativo`** — interagiu nas últimas 24h.
+  - **`novo`** — primeiro contato, OU voltou SEM nome conhecido (P9 trata nome-desconhecido como novo).
+- `buildOpeningDirective(input)` → string injetada no topo do system prompt do specialist, ou `null` quando não há nada a injetar. Se `greetingHandledExternally=true`, emite SÓ a diretiva de registro de nome (P5) e NENHUMA saudação (evita saudação dupla — a saudação de primeiro contato é feita deterministicamente no `index.ts`, "Decisão A").
+  - `novo` → mensagem única obrigatória: saúda citando o nome da loja + pede o nome + então faz o trabalho (mesmo que o lead já tenha aberto com um produto).
+  - `recorrente` → reconhece o lead, não repergunta o nome, referencia UM fato de memória pra retomar.
+  - Sempre acrescenta a diretiva P5 de registro de nome quando `leadName` é desconhecido.
+- `buildNameUsageDirective(geminiContents, fullName)` — anti-repetição DETERMINÍSTICO: varre as 2 últimas mensagens `role==='model'` (do bot) buscando o primeiro nome (regex com word-boundary); se usado recentemente, devolve diretiva de supressão, senão `null`. É deliberadamente determinístico porque a regra de prompt "máx 1x por mensagem" era insuficiente (o LLM repetia o nome em TODA mensagem).
+
+---
+
+## 3. O greeting specialist (intent `saudacao` / `fora_escopo`)
+
+**Didático.** É o "recepcionista" da conversa: cumprimenta, captura o nome, reconhece quem volta e redireciona educadamente quem pede algo fora do escopo (uma vaga de emprego, p.ex.). Ele NUNCA qualifica, busca catálogo ou transborda — só abre a porta.
+
+**Técnico.** `_shared/agent/greetingSpecialist.ts` (`buildGreetingSpecialistDef()`). É o único specialist no modelo barato **`gpt-4.1-mini`** (tarefa leve, baixa latência) — deliberadamente NÃO recebe `specialistModel`. Tools: `set_tags`, `update_lead_profile`. Atende `saudacao` e também `fora_escopo` (não há specialist dedicado pra fora-de-escopo; ele redireciona com cordialidade). Tem o gate `hasResumableInterest` (só diz "você estava vendo X" se existirem interests/products_seen reais — corrige a alucinação "Erick", onde o nome de um lead novo era tratado como retorno). Espelha a forma da saudação ("Bom dia!"→"Bom dia!") e persiste o nome via `update_lead_profile` a cada menção.
+
+---
+
+## 4. O qualification specialist (qualify-first consultivo)
+
+**Didático.** É o pré-vendedor (SDR) que faz **uma pergunta por vez** até saber o suficiente. "Pra qual ambiente?" → "Qual cor?" → "Tem alguma marca preferida?". Não despeja três perguntas juntas nem inventa argumentos técnicos que o lead não pediu.
+
+**Técnico.** `_shared/agent/qualificationSpecialist.ts` (`buildQualificationSpecialistDef(specialistModel)`), default `gpt-4.1`. Tools: `set_tags`, `update_lead_profile`. Descoberta estilo SPIN, UMA pergunta por turno. Reusa o contexto determinístico `buildQualificationContext` ("PRÓXIMA PERGUNTA OBRIGATÓRIA": frasing R131, anti-loop R135, idempotência R134) + um bloco de "contrato premium" de `evaluateProductQualificationFlow`/`readProductQualificationState` (category_id, flow_mode, score, next_required_field, search_enabled, etc.). NUNCA busca catálogo / trata objeção / transborda. Escape hatch anti-invenção-de-argumento mata o Bug 12.
+
+**Quando o gate força este specialist:** sob router, para os intents `produto`/`qualificacao` o `qualificationGate` é a autoridade — `mode='qualify'` força o qualification specialist (frequentemente devolvendo uma Response de pergunta determinística, sem nem chamar o LLM); `mode='qualify_then_handoff'` (offline) força este specialist com diretiva de enriquecimento. Há ainda o override pós-nome: `saudacao` + nome conhecido + funil intocado → força qualificação (interesse premium semeado).
+
+---
+
+## 5. Service Categories, stages e score
+
+**Didático.** Cada nicho tem um "funil" próprio. Numa home center, tinta passa por Identificação → Detalhamento → Pronto-pra-handoff; numa clínica, consulta passa por Triagem → Agendamento. Conforme o lead responde, ele "ganha pontos" (score) e avança de etapa; ao bater o teto da etapa, dispara uma ação.
+
+**Técnico.** Cada categoria tem campos com `score_value` e stages com `min_score`/`max_score`/`exit_action` (`search_products` | `enrichment` | `handoff` | `continue`). O score progressivo é mantido na tag `lead_score:<n>` (cap 100), via o mesmo `calculateScoreDelta` que o handler de `set_tags` usa. O gate (seção 1) lê o `max_score` do primeiro stage `search_products` como limiar de busca.
+
+A pré-extração determinística cuida disso ANTES do LLM (`_shared/agent/preLLMAutoExtract.ts`, `runPreLLMAutoExtract`): resolve categoria, auto-extrai campos do texto de entrada (`autoExtractFields` em `flattenCategoryFields`, pulando chaves já presentes), semeia `interesse:<categoryId>` quando detecta categoria sem tag prévia (R143, pra o LLM não inventar interesse), soma o score e — ao bater o `max_score` do stage — arma `pendingExitActionHandoff` (`exit_action='handoff'`) ou `pendingExitActionSearch` (`exit_action='search_products'`, digital). Faz só updates de tag + um log estruturado; sem I/O de mensagem. `shouldQualifyPremiumBeforeSearch` é um gate hardcoded pras categorias `revestimentos`/`porcelanatos_revestimentos`/`torneiras`: qualifica antes de buscar se algum campo obrigatório ainda falta.
+
+Short-circuits multi-item rodam ainda antes (`preLLMShortCircuits.ts`): R136 (lista mista categoria+órfão → uma pergunta horizontal) vence R129 (≥2 categorias → "Posso te ajudar com X e Y. Por qual prefere começar?").
+
+---
+
+## 6. Sanitização determinística da resposta (sem validador LLM)
+
+**Didático.** Depois que o specialist redige a resposta, um "revisor automático" passa o olho antes de enviar ao lead: corta negação de produto ("não temos essa caixa-d'água"), vazamento de erro interno e tool-call vazada como texto. Esse revisor NÃO é mais um segundo LLM (custo/latência) — é uma régua determinística.
+
+**Técnico.** `_shared/agent/responseSanitizer.ts` → `sanitizeAgentResponse(text, ctx)` é a fonte única compartilhada por router (via `sanitizeSpecialistResponse` no specialistBase) e pelo fallback monolith (`index.ts`). O validador LLM (`validatorAgent.validateResponse`) foi **APOSENTADO do hot path** (auditoria Onda 2, 2026-06-12): `validatorAgent.ts` permanece no repo só pra `countMsgsSinceNameUse` e auditoria offline; nenhum turno de produção paga sua latência. A engine que de fato roda é a determinística `validateLLMResponse` (de `responseValidator.ts`) — regras/regex, não chamada de LLM, apesar do "LLM" no nome. Três tiers: `SAFE_TEXT_RULES` (substitui o texto inteiro por ponte segura), `AUTO_FIX_RULES` (reescrita cirúrgica via `autoFixHumanizationViolations`) e regras cosméticas (só telemetria). Nunca lança; em erro interno devolve o texto original.
+
+---
+
+## 7. Shadow Mode — IA ouvindo em silêncio
+
+**Didático.** Depois que a IA transfere a conversa pro vendedor (handoff), ela não desliga: entra em **modo sombra**. Lê TODAS as mensagens (do lead e do vendedor) e **extrai dados automaticamente**, mas **não envia nada** ao lead. É o assistente invisível tomando notas. Quando o vendedor abre o perfil, cidade, interesses e objeções já estão lá — sem ninguém digitar.
+
+**Técnico.** Shadow é acionado quando `conversation.status_ia === STATUS_IA.SHADOW`. O bloco SHADOW MODE do `ai-agent/index.ts` (linhas ~1853-2010) roda extração via LLM e **retorna sem enviar resposta** (`reason: 'shadow_mode'` / `'shadow_vendor'`). É bilateral: lado do lead (`status_ia='shadow'`) OU lado do vendedor (`shadow_only=true` do webhook → `isShadowVendor`). Mensagens triviais são pré-filtradas (`isTrivialMessage`) e pulam o LLM (`shadow_skipped_trivial`).
+
+Dois prompts distintos: o de vendedor analisa o comportamento do vendedor (`set_tags` como `vendedor_tom`, `venda_status`, `pagamento` + `extract_shadow_data`); o de lead extrai dados do lead (`set_tags`, `update_lead_profile`, `extract_shadow_data`). O executor de tools em shadow trata só `set_tags`, `update_lead_profile`, `extract_shadow_data`.
+
+**Nunca sobrescreve `full_name`** (duas camadas): o prompt de lead é instruído a `NÃO atualize full_name` quando já existe nome; e o executor só grava `full_name` se `args.full_name && !leadProfile?.full_name`, ainda passando por `sanitizeProfileName` (pra não confundir um interesse como "Garagem" com o nome). Isso evita que o vendedor dizer "Obrigado, Pedro!" sobrescreva o nome do lead.
+
+**Atenção — Shadow NÃO libera follow-ups automaticamente** (`followUpPause.ts`): handoffs premium podem setar `followups_paused:true`; `areFollowUpsPaused` checa a tag e `shouldProcessFollowUpCandidate` exclui esses candidatos mesmo estando em shadow.
+
+Em `index.ts` todo caminho de handoff/cap guarda `status_ia !== STATUS_IA.SHADOW` (R85) pra evitar handoff duplicado, e ao transbordar seta `status_ia: STATUS_IA.SHADOW` + tag `ia:shadow` + `broadcastEvent`.
+
+---
+
+## 8. Trava de atendimento humano (`human_handling_at`, v7.94.0)
+
+**Didático.** O problema real: o vendedor responde pelo CELULAR, e antes o sistema não enxergava isso direito — a fila rotacionava o lead entre vários atendentes e a IA voltava a responder por cima do humano (~150 mensagens vazadas em 3 dias). A solução é uma **fonte de verdade durável**: assim que o vendedor manda a primeira resposta pelo celular, a conversa fica "travada" — a fila para de rodar e a IA cala (vira shadow) até alguém Finalizar ou Ativar IA.
+
+**Técnico.** `conversations.human_handling_at` é a verdade durável de "humano atendendo", ao contrário do volátil `status_ia` e das tags `handoff_created`/`human_assigned` (que reabertura/abandono podem limpar).
+
+- **Set** no `whatsapp-webhook/index.ts` (~1148-1163) quando `shouldLockHumanHandling({fromMe, wasSentByApi})` é true — i.e. `fromMe === true && wasSentByApi === false` (vendedor respondeu pelo celular, não eco de API/IA/Helpdesk). Sinal confiável, SEM condição de `status_ia` (trava mesmo já estando shadow/desligada). Grava só uma vez (`.is('human_handling_at', null)`) e, no primeiro lock, sela o evento de fila ativo (`status='responded', resolved_reason='human_handling'`). Respostas pelo Helpdesk NÃO passam por aqui (setam `status_ia=desligada`; o `detectResponded` da fila as vê via `sender_id`).
+- **Gate no ai-agent** (`index.ts` ~224-242): se `human_handling_at` setado e ainda não shadow, COAGE `status_ia → shadow` (e persiste) — a IA cai no Shadow Mode (extrai, nunca responde).
+- **Fila não rotaciona enquanto travada** (RULE 1), em três pontos (defesa em profundidade): `assignHandoff` (`handoffQueue.ts` ~138-152) early-return `{ assigned_user_id: null, reason: 'human_handling' }`; `requeue-conversations` sela o evento; `escalate-stale-handoffs` faz `continue` (pula a escalação).
+- Só **Finalizar / Ativar IA** (e limpar contexto) liberam a trava; senão congela indefinidamente (decisão do dono). Reassign manual do gestor faz bypass.
+
+Existe ainda um gate durável mais antigo (2026-06-09, `index.ts` ~244-268): `hasActiveHandoffMarker(tags)` (handoff_created/human_assigned) também coage `status_ia → shadow`. É distinto da trava v7.94.0 justamente porque essas tags SÃO limpas na reabertura — razão pela qual `human_handling_at` foi criada.
 
 ---
 
 ## Links
 
 - [[wiki/casos-de-uso/ai-agent-detalhado]] — Índice geral
-- [[wiki/casos-de-uso/ai-agent-cerebro-tools-detalhado]] — LLM + 9 ferramentas
-- [[wiki/casos-de-uso/ai-agent-validator-prompt-detalhado]] — Validator + TTS + Prompt Studio
-- [[wiki/casos-de-uso/ai-agent-recursos-extras-detalhado]] — Profiles, NPS, etc.
-- [[wiki/casos-de-uso/excluded-products-detalhado]] — D28 (produtos NÃO vendidos)
-- [[wiki/decisoes-chave]] — D26 v2 (Service Categories), D28 (Excluded Products)
-- [[wiki/erros-e-licoes]] — R79 (score reset), R85, R86, R87
+- [[wiki/casos-de-uso/ai-agent-cerebro-tools-detalhado]] — Router + specialists + tools
+- [[wiki/casos-de-uso/excluded-products-detalhado]] — produtos NÃO vendidos
+- [[wiki/decisoes-chave]] — Service Categories, qualificationGate, trava humana
+- [[wiki/erros-e-licoes]] — R79 (score reset), R85/R86 (shadow), R143
