@@ -76,7 +76,6 @@ import {
   Plus,
   Trash2,
   Copy,
-  ChevronDown,
   GripVertical,
   RotateCcw,
   HelpCircle,

@@ -21,7 +21,7 @@ import {
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Search, Plus, Trash2, Pencil, Copy, Star, Users, Inbox, Loader2, Building2, Server, Hash, UserCircle, Check, ListOrdered } from 'lucide-react';
+import { Search, Plus, Trash2, Pencil, Copy, Star, Users, Inbox, Loader2, Building2, Server, Hash, UserCircle, ListOrdered } from 'lucide-react';
 import { toast } from 'sonner';
 import { Textarea } from '@/components/ui/textarea';
 import QueueConfig from '@/components/admin/queue/QueueConfig';

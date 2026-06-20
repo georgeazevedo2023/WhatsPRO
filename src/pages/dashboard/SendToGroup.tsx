@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { ArrowLeft, Users, MessageSquare, Image } from 'lucide-react';
 import { useInstanceGroups } from '@/hooks/useInstanceGroups';
-import type { Instance, Group, Participant } from '@/types';
+import type { Instance, Participant } from '@/types';
 import SendMessageForm from '@/components/group/SendMessageForm';
 import SendMediaForm from '@/components/group/SendMediaForm';
 

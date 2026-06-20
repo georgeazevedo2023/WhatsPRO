@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ContactAvatar } from '@/components/helpdesk/ContactAvatar';
-import { User, ShieldBan, Calendar, Phone, MapPin, Globe, Link2, FileText, Megaphone, Target, Flame } from 'lucide-react';
+import { User, ShieldBan, Calendar, Phone, Globe, Link2, FileText, Megaphone, Target, Flame } from 'lucide-react';
 import { ORIGIN_OPTIONS } from './types';
 import type { ExtractionField, InstanceOption } from './types';
 

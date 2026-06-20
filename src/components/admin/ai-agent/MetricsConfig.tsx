@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { BarChart3, Zap, Clock, ArrowRightLeft, Wrench, RefreshCw, Loader2, MessageSquare, Bot, Eye, Tag, Bookmark, TrendingUp, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Zap, Clock, ArrowRightLeft, Wrench, RefreshCw, Loader2, MessageSquare, Bot, Eye, Tag, Bookmark, TrendingUp, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { handleError } from '@/lib/errorUtils';
 
 interface MetricsConfigProps {

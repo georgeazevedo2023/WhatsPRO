@@ -11,8 +11,6 @@ import {
   normalizePhoneForMatch,
   formatPhone,
   formatPhoneSimple,
-  formatPhoneForDisplay,
-  formatPhoneDisplay,
   parsePhoneToJid,
 } from '../phoneUtils';
 

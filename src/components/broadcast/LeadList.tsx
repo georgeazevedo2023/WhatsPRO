@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo, CSSProperties } from 'react';
+import { useState, useMemo, useCallback, CSSProperties } from 'react';
 import { List } from 'react-window';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';

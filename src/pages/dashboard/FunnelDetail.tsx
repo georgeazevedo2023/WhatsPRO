@@ -43,7 +43,7 @@ import {
   useUpdateAutomationRule,
   type AutomationRule,
 } from '@/hooks/useAutomationRules';
-import { useAgentProfilesByInstance, type AgentProfile } from '@/hooks/useAgentProfiles';
+import { useAgentProfilesByInstance } from '@/hooks/useAgentProfiles';
 
 const TRIGGER_LABELS: Record<string, string> = {
   card_moved: 'Card movido',

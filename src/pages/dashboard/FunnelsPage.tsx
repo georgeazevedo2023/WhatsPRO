@@ -39,7 +39,6 @@ import {
   FileText,
   Users,
   TrendingUp,
-  BarChart3,
 } from 'lucide-react';
 
 export default function FunnelsPage() {

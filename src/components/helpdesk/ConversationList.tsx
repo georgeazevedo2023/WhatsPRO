@@ -1,8 +1,7 @@
-import { useState, useCallback, useRef, useEffect, useMemo, CSSProperties, ComponentType } from 'react';
+import { useState, useCallback, useEffect, useMemo, CSSProperties, ComponentType } from 'react';
 import { List, useListRef } from 'react-window';
 import { Search, Inbox, AlertCircle, Building2, SlidersHorizontal, Tag, X, ArrowUpDown, ChevronDown, Eye, CheckCircle2, Archive, CheckSquare, Activity } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';

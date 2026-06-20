@@ -1,7 +1,7 @@
 // M19 S8 Camada 3: Admin UI para retention policies
 // Lista, toggle, dry-run, log
 import { useEffect, useState, useCallback } from 'react';
-import { Database, Play, AlertTriangle, ShieldCheck, Lock, RefreshCw, Archive } from 'lucide-react';
+import { Database, Play, ShieldCheck, Lock, RefreshCw, Archive } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { useAuth } from '@/contexts/AuthContext';

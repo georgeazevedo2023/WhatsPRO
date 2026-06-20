@@ -2,7 +2,7 @@
  * Tests for Audit v3 fixes — covers Sprint A-E improvements
  * to the AI Agent module.
  */
-import { buildLegacyQueueUpdate, createQueuedMessage, type QueuedMessage } from '../../../../../supabase/functions/_shared/aiRuntime.ts'
+import { buildLegacyQueueUpdate, type QueuedMessage } from '../../../../../supabase/functions/_shared/aiRuntime.ts'
 
 // ─── Test 1: Debounce fallback properly appends messages (fix #4) ─────────
 describe('Debounce fallback merge (#4)', () => {

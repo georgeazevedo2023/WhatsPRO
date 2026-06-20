@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Inbox, Download, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { Inbox, Download, ChevronDown, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'

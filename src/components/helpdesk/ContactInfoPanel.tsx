@@ -13,7 +13,7 @@ import { ConversationLabels } from './ConversationLabels';
 import { LabelPicker } from './LabelPicker';
 import { ManageLabelsDialog } from './ManageLabelsDialog';
 import { supabase } from '@/integrations/supabase/client';
-import { edgeFunctionFetch, type EdgeFunctionError } from '@/lib/edgeFunctionClient';
+import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { toast } from 'sonner';
 import { formatBR } from '@/lib/dateUtils';
 import { handleError } from '@/lib/errorUtils';

@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { BookOpen, Plus, Pencil, Trash2, HelpCircle, FileText, Loader2, Upload, ExternalLink, Lightbulb, ShieldAlert } from 'lucide-react';
+import { Plus, Pencil, Trash2, HelpCircle, FileText, Loader2, Upload, ExternalLink, Lightbulb, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
 

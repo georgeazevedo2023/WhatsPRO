@@ -1,4 +1,4 @@
-import { type ScenarioRun, CATEGORY_META, TOOL_META } from '@/types/playground';
+import { type ScenarioRun, CATEGORY_META } from '@/types/playground';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';

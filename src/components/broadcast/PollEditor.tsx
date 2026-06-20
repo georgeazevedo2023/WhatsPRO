@@ -1,5 +1,4 @@
 // M17 F4: Editor de Enquete para Broadcast
-import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
