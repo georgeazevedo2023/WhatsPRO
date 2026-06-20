@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   ShieldCheck, RefreshCw, Loader2, CheckCircle2, Pencil, Ban,
-  AlertTriangle, TrendingUp, Lightbulb, Clock,
+  AlertTriangle, Lightbulb, Clock,
 } from 'lucide-react';
 import { handleError } from '@/lib/errorUtils';
 

@@ -7,7 +7,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import {
   MonitorSmartphone, Headphones, Send, Kanban, ShieldCheck, BrainCircuit, FileText,
   Clock, Database, CheckCircle2, Circle, Zap, HardDrive, Lock, TrendingUp, Copy,
-  CheckCheck, Server, Lightbulb, AlertTriangle, Rocket, Contact2, Loader2,
+  CheckCheck, Server, Lightbulb, Rocket, Contact2, Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';

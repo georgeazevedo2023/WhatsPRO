@@ -1,6 +1,6 @@
 // M19 S4-P4: BarChart horizontal dos motivos de transbordo
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   BarChart,
   Bar,

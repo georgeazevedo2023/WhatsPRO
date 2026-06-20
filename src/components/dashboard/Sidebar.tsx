@@ -23,8 +23,6 @@ import {
   Kanban,
   Building2,
   Bot,
-  Package,
-  BookOpen,
   Play,
   Users,
   Briefcase,
