@@ -52,7 +52,10 @@ async function sendPoll(
     let messageId: string | null = null
     try {
       const j = await res.json()
-      messageId = j.messageId || j.MessageId || j.id || null
+      // UAZAPI devolve `messageid` (key.id curto) e `id` ("sender:keyid" composto).
+      // O webhook poll_update referencia o key.id CURTO — extrai sempre ele.
+      const raw = j.messageid || j.messageId || j.MessageId || j.id || null
+      messageId = raw ? (String(raw).includes(':') ? String(raw).split(':').pop()! : String(raw)) : null
     } catch { /* sem JSON parseável — message_id fica null */ }
     return { ok: true, messageId }
   } catch (e) {
@@ -77,12 +80,13 @@ Deno.serve(async (req: Request) => {
   try {
     const { data: conv } = await supabase
       .from('conversations')
-      .select('id, instance_id, tags, nps_sent_at, contact_id, contacts(jid, phone)')
+      .select('id, inbox_id, tags, nps_sent_at, contact_id, contacts(jid, phone), inboxes(instance_id)')
       .eq('id', conversationId)
       .maybeSingle()
     if (!conv) return json({ ok: false, skipped: 'conversation_not_found' }, 200, cors)
 
-    const instanceId = (conv as { instance_id?: string }).instance_id || body.instance_id
+    // conversations não tem instance_id direto — vem via inbox → inboxes.instance_id.
+    const instanceId = (conv as { inboxes?: { instance_id?: string } }).inboxes?.instance_id || body.instance_id
     if (!instanceId) return json({ ok: false, skipped: 'no_instance' }, 200, cors)
 
     const { data: agent } = await supabase
