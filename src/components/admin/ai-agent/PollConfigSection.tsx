@@ -15,17 +15,22 @@ const DEFAULT_OPTIONS = ['Excelente', 'Bom', 'Regular', 'Ruim', 'Pessimo'];
 
 export function PollConfigSection({ config, onChange }: PollConfigSectionProps) {
   const npsEnabled = config.poll_nps_enabled ?? false;
-  const delay = config.poll_nps_delay_minutes ?? 5;
-  const question = config.poll_nps_question ?? 'Como voce avalia nosso atendimento?';
+  const question = config.poll_nps_question ?? 'Sua opinião é muito importante 🙏 De 0 a 10, como foi seu atendimento?';
   const options: string[] = config.poll_nps_options ?? DEFAULT_OPTIONS;
   const notifyBad = config.poll_nps_notify_on_bad ?? true;
+  // NPS-on-finalize (2026-06-25)
+  const scale: string = config.poll_nps_scale ?? 'categorical';
+  const isNumeric = scale === 'numeric_0_10';
+  const threshold = config.poll_nps_low_score_threshold ?? 5;
+  const askFound = config.poll_nps_ask_found_product ?? false;
+  const alertWhatsapp = config.poll_nps_manager_alert_whatsapp ?? false;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-2">
         <BarChart3 className="w-4 h-4 text-primary" />
-        <span className="text-sm font-medium">NPS Automatico</span>
-        <span className="text-xs text-muted-foreground">— Enquete de satisfacao apos atendimento</span>
+        <span className="text-sm font-medium">NPS ao finalizar</span>
+        <span className="text-xs text-muted-foreground">— Enquete de satisfação quando o atendente finaliza a conversa</span>
       </div>
 
       <Card>
@@ -41,25 +46,21 @@ export function PollConfigSection({ config, onChange }: PollConfigSectionProps) 
             />
           </div>
           <CardDescription className="text-xs">
-            Envia enquete de satisfacao automaticamente apos resolver conversa
+            Enviada na hora em que o atendente clica "Finalizar". Não envia se a conversa teve transbordo por frustração (tag sentimento:negativo).
           </CardDescription>
         </CardHeader>
         {npsEnabled && (
           <CardContent className="space-y-4">
-            {/* Delay */}
-            <div className="space-y-1">
-              <Label className="text-xs">Delay (minutos apos resolver)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={60}
-                value={delay}
-                onChange={(e) => onChange({ poll_nps_delay_minutes: Number(e.target.value) || 5 })}
-                className="w-24 text-sm"
+            {/* Escala */}
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={isNumeric}
+                onCheckedChange={(v) => onChange({ poll_nps_scale: v ? 'numeric_0_10' : 'categorical' })}
+                id="nps-scale"
               />
-              <p className="text-[10px] text-muted-foreground">
-                D6: NAO envia se conversa teve transbordo por frustracao (tag sentimento:negativo)
-              </p>
+              <Label htmlFor="nps-scale" className="text-xs">
+                Escala 0 a 10 (numérica) {isNumeric ? '' : '— hoje: categórica (Excelente→Péssimo)'}
+              </Label>
             </div>
 
             {/* Pergunta */}
@@ -74,29 +75,62 @@ export function PollConfigSection({ config, onChange }: PollConfigSectionProps) 
               />
             </div>
 
-            {/* Opcoes */}
-            <div className="space-y-1">
-              <Label className="text-xs">Opcoes (escala de satisfacao)</Label>
+            {/* Opções (só no modo categórico; no 0-10 são fixas) */}
+            {isNumeric ? (
+              <p className="text-[11px] text-muted-foreground rounded-md bg-muted/40 p-2">
+                Enquete com 11 botões (0 a 10). Nota <strong>abaixo de {threshold}</strong> dispara alerta ao gestor.
+              </p>
+            ) : (
               <div className="space-y-1">
-                {options.map((opt: string, idx: number) => (
-                  <Input
-                    key={idx}
-                    value={opt}
-                    onChange={(e) => {
-                      const newOpts = [...options];
-                      newOpts[idx] = e.target.value;
-                      onChange({ poll_nps_options: newOpts });
-                    }}
-                    placeholder={DEFAULT_OPTIONS[idx] || `Opcao ${idx + 1}`}
-                    className="text-sm"
-                    maxLength={100}
-                  />
-                ))}
+                <Label className="text-xs">Opções (escala de satisfação)</Label>
+                <div className="space-y-1">
+                  {options.map((opt: string, idx: number) => (
+                    <Input
+                      key={idx}
+                      value={opt}
+                      onChange={(e) => {
+                        const newOpts = [...options];
+                        newOpts[idx] = e.target.value;
+                        onChange({ poll_nps_options: newOpts });
+                      }}
+                      placeholder={DEFAULT_OPTIONS[idx] || `Opção ${idx + 1}`}
+                      className="text-sm"
+                      maxLength={100}
+                    />
+                  ))}
+                </div>
               </div>
+            )}
+
+            {/* Threshold (só no modo numérico) */}
+            {isNumeric && (
+              <div className="space-y-1">
+                <Label className="text-xs">Alertar o gestor quando a nota for abaixo de</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={threshold}
+                  onChange={(e) => onChange({ poll_nps_low_score_threshold: Number(e.target.value) || 5 })}
+                  className="w-24 text-sm"
+                />
+              </div>
+            )}
+
+            {/* 2ª pergunta: encontrou o produto? */}
+            <div className="flex items-center gap-2 pt-2 border-t">
+              <Switch
+                checked={askFound}
+                onCheckedChange={(v) => onChange({ poll_nps_ask_found_product: v })}
+                id="nps-found"
+              />
+              <Label htmlFor="nps-found" className="text-xs">
+                Perguntar também "Encontrou o produto que procurava?" (Sim/Não)
+              </Label>
             </div>
 
-            {/* Notificacao */}
-            <div className="flex items-center gap-2 pt-2 border-t">
+            {/* Notificação in-app */}
+            <div className="flex items-center gap-2">
               <Switch
                 checked={notifyBad}
                 onCheckedChange={(v) => onChange({ poll_nps_notify_on_bad: v })}
@@ -104,7 +138,20 @@ export function PollConfigSection({ config, onChange }: PollConfigSectionProps) 
               />
               <Label htmlFor="nps-notify" className="text-xs flex items-center gap-1">
                 <Bell className="w-3 h-3" />
-                Notificar gerente quando nota for Ruim ou Pessimo
+                Avisar o gestor no painel quando a nota for baixa
+              </Label>
+            </div>
+
+            {/* Alerta WhatsApp ao gestor */}
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={alertWhatsapp}
+                onCheckedChange={(v) => onChange({ poll_nps_manager_alert_whatsapp: v })}
+                id="nps-wa"
+              />
+              <Label htmlFor="nps-wa" className="text-xs flex items-center gap-1">
+                <Bell className="w-3 h-3" />
+                Avisar o gestor por WhatsApp (nome + número do cliente + atendente + resumo)
               </Label>
             </div>
           </CardContent>

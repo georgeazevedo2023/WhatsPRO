@@ -7,6 +7,7 @@ import { unauthorizedResponse } from '../_shared/auth.ts'
 import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { syncContactAvatar, isWhatsAppCdnUrl } from '../_shared/avatarStorage.ts'
+import { parseNpsScore, isLowScore, type NpsScale } from '../_shared/nps.ts'
 
 // Module-level singleton: reuse connection pool across requests in same Deno isolate
 const supabase = createServiceClient()
@@ -359,7 +360,7 @@ Deno.serve(async (req) => {
         // Find poll_message by UAZAPI message_id
         const { data: pollMsg } = await supabase
           .from('poll_messages')
-          .select('id, conversation_id, instance_id, auto_tags, funnel_id')
+          .select('id, conversation_id, instance_id, auto_tags, funnel_id, is_nps, nps_scale, attendant_id, bad_alert_sent_at')
           .eq('message_id', messageId)
           .maybeSingle()
 
@@ -378,6 +379,11 @@ Deno.serve(async (req) => {
           .eq('jid', cleanJid)
           .maybeSingle()
 
+        // NPS: parseia o score numérico (0-10) pra alimentar métricas/breakdown.
+        const isNpsPoll = (pollMsg as { is_nps?: boolean }).is_nps === true
+        const npsScale: NpsScale = ((pollMsg as { nps_scale?: string }).nps_scale as NpsScale) || 'categorical'
+        const numericScore = isNpsPoll ? parseNpsScore(selectedOptions, npsScale) : null
+
         // Upsert poll_response (ON CONFLICT voter_jid)
         await supabase
           .from('poll_responses')
@@ -386,6 +392,7 @@ Deno.serve(async (req) => {
             voter_jid: cleanJid,
             contact_id: contact?.id || null,
             selected_options: selectedOptions,
+            numeric_score: numericScore,
             voted_at: new Date().toISOString(),
           }, { onConflict: 'poll_message_id,voter_jid' })
 
@@ -440,15 +447,18 @@ Deno.serve(async (req) => {
             external_id: `poll_vote_${Date.now()}`,
           })
 
-          // Trigger AI debounce if conversation has AI enabled
+          // Trigger AI debounce if conversation has AI enabled.
+          // NPS-on-finalize: voto de enquete NPS (ou de conversa já 'resolvida') NÃO
+          // pode acordar a IA — a conversa foi finalizada pelo humano (trava v7.94.0).
           try {
             const { data: conv } = await supabase
               .from('conversations')
-              .select('status_ia, instance_id')
+              .select('status_ia, instance_id, status')
               .eq('id', pollMsg.conversation_id)
               .single()
 
-            if (conv && (conv.status_ia === 'ligada' || conv.status_ia === 'shadow')) {
+            const isSurveyVote = isNpsPoll || conv?.status === 'resolvida'
+            if (conv && !isSurveyVote && (conv.status_ia === 'ligada' || conv.status_ia === 'shadow')) {
               const baseUrl = Deno.env.get('SUPABASE_URL')!
               const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
               fetchWithTimeout(`${baseUrl}/functions/v1/ai-agent-debounce`, {
@@ -464,46 +474,29 @@ Deno.serve(async (req) => {
           } catch { /* non-critical */ }
         }
 
-        // M17 F5: NPS bad note → notify managers
-        if ((pollMsg as any).is_nps) {
-          const BAD_OPTIONS = ['Ruim', 'Pessimo', 'Péssimo']
-          const hasBadNote = selectedOptions.some((o: string) => BAD_OPTIONS.some(b => o.toLowerCase() === b.toLowerCase()))
-          if (hasBadNote && pollMsg.conversation_id) {
-            try {
-              // Load agent to check poll_nps_notify_on_bad
-              const { data: agentConf } = await supabase
-                .from('ai_agents')
-                .select('poll_nps_notify_on_bad')
-                .eq('instance_id', pollMsg.instance_id)
-                .maybeSingle()
-
-              if (agentConf?.poll_nps_notify_on_bad !== false) {
-                // Get inbox managers for this instance
-                const { data: managers } = await supabase
-                  .from('inbox_users')
-                  .select('user_id, inboxes!inner(instance_id)')
-                  .eq('inboxes.instance_id', pollMsg.instance_id)
-                  .eq('role', 'gerente')
-
-                for (const mgr of (managers || [])) {
-                  try {
-                    await supabase.from('notifications' as any).insert({
-                      user_id: mgr.user_id,
-                      type: 'nps_bad_note',
-                      title: 'NPS negativo recebido',
-                      message: `Lead avaliou atendimento como "${selectedOptions.join(', ')}"`,
-                      metadata: { poll_id: pollMsg.id, conversation_id: pollMsg.conversation_id, options: selectedOptions },
-                      read: false,
-                    })
-                  } catch {
-                    // Non-critical notification failure; continue notifying other managers.
-                  }
-                }
-                log.info('NPS bad note: managers notified', { pollId: pollMsg.id, options: selectedOptions, managersCount: (managers || []).length })
-              }
-            } catch (err) {
-              log.warn('NPS notify error (non-critical)', { error: (err as Error).message })
+        // NPS: nota baixa → alerta o gestor (resumo+cliente+atendente) FORA do hot
+        // path. Delega pra notify-manager-nps (idempotência via bad_alert_sent_at lá).
+        if (isNpsPoll && pollMsg.conversation_id && !(pollMsg as { bad_alert_sent_at?: string }).bad_alert_sent_at) {
+          try {
+            const { data: agentConf } = await supabase
+              .from('ai_agents')
+              .select('poll_nps_notify_on_bad, poll_nps_low_score_threshold')
+              .eq('instance_id', pollMsg.instance_id)
+              .maybeSingle()
+            const threshold = (agentConf as { poll_nps_low_score_threshold?: number } | null)?.poll_nps_low_score_threshold ?? 5
+            const low = isLowScore(selectedOptions, npsScale, threshold)
+            if (low && (agentConf as { poll_nps_notify_on_bad?: boolean } | null)?.poll_nps_notify_on_bad !== false) {
+              const baseUrl = Deno.env.get('SUPABASE_URL')!
+              const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
+              fetchWithTimeout(`${baseUrl}/functions/v1/notify-manager-nps`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+                body: JSON.stringify({ poll_message_id: pollMsg.id }),
+              }).catch(() => {}) // fire-and-forget
+              log.info('NPS low score → manager alert dispatched', { pollId: pollMsg.id, options: selectedOptions })
             }
+          } catch (err) {
+            log.warn('NPS alert dispatch error (non-critical)', { error: (err as Error).message })
           }
         }
 

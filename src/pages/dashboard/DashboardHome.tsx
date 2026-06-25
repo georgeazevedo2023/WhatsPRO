@@ -30,6 +30,7 @@ import { useFunnelKPIs } from '@/hooks/useFunnels';
 import FunnelConversionChart from '@/components/dashboard/FunnelConversionChart';
 import PollMetricsCard from '@/components/dashboard/PollMetricsCard';
 import PollNpsChart from '@/components/dashboard/PollNpsChart';
+import NpsByAttendantTable from '@/components/dashboard/NpsByAttendantTable';
 
 
 interface InstanceStats {
@@ -426,12 +427,13 @@ const DashboardHome = () => {
         </LazySection>
       )}
 
-      {/* M17 F5: Poll + NPS Metrics */}
+      {/* M17 F5 + NPS-on-finalize: Poll + NPS Metrics */}
       {isSuperAdmin && (
         <LazySection height="120px">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <PollMetricsCard instanceId={filters.instanceId || rawInstances[0]?.id} periodDays={filters.period} />
             <PollNpsChart instanceId={filters.instanceId || rawInstances[0]?.id} periodDays={filters.period} />
+            <NpsByAttendantTable instanceId={filters.instanceId || rawInstances[0]?.id} periodDays={filters.period} />
           </div>
         </LazySection>
       )}

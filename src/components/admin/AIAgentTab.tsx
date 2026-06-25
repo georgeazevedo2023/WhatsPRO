@@ -85,6 +85,9 @@ const ALLOWED_FIELDS = [
   // M17 F5: NPS
   'poll_nps_enabled', 'poll_nps_delay_minutes', 'poll_nps_question',
   'poll_nps_options', 'poll_nps_notify_on_bad',
+  // NPS-on-finalize (2026-06-25): escala 0-10 + alerta gestor
+  'poll_nps_scale', 'poll_nps_low_score_threshold',
+  'poll_nps_ask_found_product', 'poll_nps_manager_alert_whatsapp',
   // M19-S10: Service Categories (qualificação dinâmica por nicho)
   'service_categories',
   // M19-S11 (D28): Excluded Products — produtos que a tenant NÃO vende

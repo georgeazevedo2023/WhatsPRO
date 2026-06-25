@@ -214,24 +214,25 @@ export function TicketResolutionDrawer({ conversation, onResolved, trigger }: Ti
         broadcastStatusChanged(conversation.id, 'resolvida');
       }).catch(() => {});
 
-      // M17 F5: Schedule NPS poll if enabled (fire-and-forget via job_queue)
-      supabase
-        .from('ai_agents')
-        .select('poll_nps_enabled, poll_nps_delay_minutes')
-        .eq('instance_id', conversation.instance_id)
-        .maybeSingle()
-        .then(({ data: agentNps }) => {
-          if (agentNps?.poll_nps_enabled) {
-            const delayMin = agentNps.poll_nps_delay_minutes || 5;
-            const scheduledFor = new Date(Date.now() + delayMin * 60000).toISOString();
-            supabase.from('job_queue' as any).insert({
-              job_type: 'nps_send',
-              payload: { conversation_id: conversation.id, instance_id: conversation.instance_id },
-              scheduled_for: scheduledFor,
-            }).then(() => {}).catch(() => {});
+      // NPS-on-finalize: dispara a enquete NPS imediatamente (edge fn send-nps-poll,
+      // que valida poll_nps_enabled + idempotência e atribui ao atendente do JWT).
+      // Skips silenciosos (NPS off / já enviado / sentimento negativo) não avisam;
+      // só falha de ENVIO real surge como toast (a conversa já foi finalizada).
+      supabase.functions
+        .invoke('send-nps-poll', {
+          body: { conversation_id: conversation.id, instance_id: conversation.instance_id },
+        })
+        .then(({ data, error }) => {
+          const failed = error || (data && data.ok === false && data.error);
+          if (failed) {
+            toast.warning('Conversa finalizada, mas a pesquisa NPS não foi enviada', {
+              description: 'Você pode reenviar pelo painel se necessário.',
+            });
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          toast.warning('Conversa finalizada, mas a pesquisa NPS não foi enviada');
+        });
 
       toast.success(
         category === 'VENDA' ? `Venda de ${valueDisplay} registrada!` :

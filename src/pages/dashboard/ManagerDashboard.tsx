@@ -20,6 +20,8 @@ import DemandVsCoverageChart from '@/components/manager/DemandVsCoverageChart';
 import ConversionByOriginCard from '@/components/manager/ConversionByOriginCard';
 import BusinessHoursChart from '@/components/dashboard/BusinessHoursChart';
 import TopContactReasons from '@/components/dashboard/TopContactReasons';
+import PollMetricsCard from '@/components/dashboard/PollMetricsCard';
+import NpsByAttendantTable from '@/components/dashboard/NpsByAttendantTable';
 import TopListCard from '@/components/manager/insights/TopListCard';
 import LazySection from '@/components/dashboard/LazySection';
 import GoalProgressBar from '@/components/gestao/GoalProgressBar';
@@ -355,6 +357,15 @@ export default function ManagerDashboard() {
             <LazySection height="260px">
               {metrics ? <IAvsVendorComparison data={metrics.iaVsVendor} /> : <Skeleton className="h-64 rounded-xl" />}
             </LazySection>
+            {/* NPS-on-finalize: satisfação do atendimento (geral + por atendente) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <LazySection height="120px">
+                <PollMetricsCard instanceId={effectiveInstanceId ?? undefined} periodDays={filters.periodDays} />
+              </LazySection>
+              <LazySection height="120px">
+                <NpsByAttendantTable instanceId={effectiveInstanceId ?? undefined} periodDays={filters.periodDays} />
+              </LazySection>
+            </div>
             <InsightsTab instanceId={effectiveInstanceId} periodDays={filters.periodDays} />
           </section>
         </div>

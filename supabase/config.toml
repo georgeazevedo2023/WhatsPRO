@@ -138,3 +138,11 @@ verify_jwt = false
 # Cron 2min — Sprint E.2 handoff por abandono (auth manual via verifyCronOrService)
 [functions.handoff-abandoned-leads]
 verify_jwt = false
+
+# NPS-on-finalize — envia enquete ao finalizar (auth manual via verifyAuth, attendant=JWT)
+[functions.send-nps-poll]
+verify_jwt = false
+
+# NPS-on-finalize — alerta gestor em nota baixa (auth manual via verifyCronOrService)
+[functions.notify-manager-nps]
+verify_jwt = false

@@ -27,7 +27,11 @@ export default function PollMetricsCard({ instanceId, periodDays = 30 }: PollMet
 
   if (!metrics || (metrics.totalPolls === 0 && metrics.npsAvg === 0)) return null;
 
-  const npsColor = metrics.npsAvg >= 4 ? 'text-emerald-600' : metrics.npsAvg >= 3 ? 'text-amber-600' : 'text-red-600';
+  const isNum = metrics.npsScaleMode === 'numeric_0_10';
+  const npsColor = isNum
+    ? (metrics.npsAvg >= 8 ? 'text-emerald-600' : metrics.npsAvg >= 6 ? 'text-amber-600' : 'text-red-600')
+    : (metrics.npsAvg >= 4 ? 'text-emerald-600' : metrics.npsAvg >= 3 ? 'text-amber-600' : 'text-red-600');
+  const npsLabel = metrics.npsAvg ? `${metrics.npsAvg}${isNum ? '/10' : '/5'}` : '—';
 
   return (
     <Card>
@@ -53,7 +57,10 @@ export default function PollMetricsCard({ instanceId, periodDays = 30 }: PollMet
           </div>
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground flex items-center gap-1"><Star className="w-3 h-3" /> NPS</p>
-            <p className={`text-xl font-semibold ${npsColor}`}>{metrics.npsAvg || '—'}</p>
+            <p className={`text-xl font-semibold ${npsColor}`}>{npsLabel}</p>
+            {isNum && metrics.npsLowCount > 0 && (
+              <p className="text-[10px] text-red-600">{metrics.npsLowCount} nota{metrics.npsLowCount > 1 ? 's' : ''} {'<'} 5</p>
+            )}
           </div>
         </div>
       </CardContent>
