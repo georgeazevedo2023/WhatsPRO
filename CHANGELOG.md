@@ -13,6 +13,12 @@ audited_at: 2026-06-17
 
 ---
 
+### v7.96.0 (2026-06-25) — 🔧 `except_keywords`: "máquina de lavar" não recusa mais a MANGUEIRA (acessório que vendemos)
+
+Queixa do dono (print da Fila): lead pediu *"mangueira de saída de água da máquina de lavar"* (peça hidráulica que a loja VENDE) e a IA recusou com *"Esse não é o nosso forte aqui…"*. **Causa-raiz (workflow 10 agentes, verificada em prod):** o matcher de `excluded_products` (`_shared/excludedProducts.ts`) roda **PRÉ-LLM / PRÉ-router** (`index.ts:1497`) e a keyword `máquina de lavar` do item `eletrodomesticos` casa (whole-word) DENTRO da frase da mangueira → short-circuit direto pra recusa via `sendTextMsg`, sem passar por router/qualificação/transbordo (todos verificados SÃOS — só pulados). Catálogo é minoria (7-8 itens, 0 hidráulica), então o caminho certo seria 0-resultado → qualificar → transbordar. **Fix (sem gambiarra):** campo opcional `except_keywords[]` no schema do `excluded_products` — se o texto do lead contém uma "palavra que libera" (`mangueira, engate, cano, registro, válvula, torneira, sifão, adaptador, abraçadeira, niple, ralo, "saída de água", "saída da água"`), a exclusão daquele item é **SUPRIMIDA** e a mensagem segue o fluxo normal (qualificar→transbordar, NUNCA recusa). Aparelho cru (*"quero uma máquina de lavar"*) **continua** recusando. Matcher reusa o MESMO whole-word/accent-insensitive (`containsWholeWord` extraído). **Sem migration** (JSONB livre) **nem regen de types**; config aplicada nos 3 agentes (Eletropiso/V2/Sandbox). Editor self-service novo no admin (`ExcludedProductsConfig` → "Exceções"). **+13 testes** (cobre o typo real "MAGUEIRA" liberado via "saída da água"). tsc 0 · vitest **1939/0** · deno check ai-agent 0. Deploy: ai-agent **v270** + UPDATE config 3 agentes + frontend push→CI. Smoke real (matcher deployado × config viva): **7/7** casos. Detalhe: [[project_except_keywords_v796]].
+
+---
+
 ### v7.95.0 (2026-06-17) — 🧹 Hardening + limpeza (auditoria de pendências)
 
 Achados SEGUROS da [[wiki/auditoria-pendencias-2026-06-17]] (varredura doc+código+backlog pós-v7.94.0): (1) **bug Rules-of-Hooks `BioLinksPage`** (return antes de 14 hooks → crash p/ não-superadmin) → early-returns após os hooks (eslint 12→0); (2) **RLS `USING(true) TO public`** → `service_role` em `ai_debounce_queue`+`scrape_jobs` (não lidas pelo front) + `search_path` em `get_previous_e2e_batch` (migration `20260617140000`); (3) **edge fns mortas `process-jobs`+`group-reasons`** deletadas (prod+source+config+UI); (4) **S9 requalificado** — backend JÁ enforça via `can_view_conversation` (não era vetor multi-tenant); (5) doc-sync (CLAUDE.md/roadmap ~98%, RULES.md→responseSanitizer, migrations registradas, MEMORY.md sob limite). tsc 0 · vitest 1926/0. Sem mudança de comportamento.
@@ -249,29 +255,9 @@ Quick wins da auditoria de inconsistências (4 agentes + verificação manual), 
 
 ---
 
-### v7.78.0 (2026-06-10) — 🟢 Helpdesk: nome extraído pela IA vence o pushname na exibição (caso "oi" → Jessica)
+### v7.78.0 → v7.77.0 (2026-06-09/10)
 
-**Bug do dono:** lead com pushname do WhatsApp literalmente "oi" se apresentou como "Jessica"; a IA gravou certinho em `lead_profiles.full_name` (via `update_lead_profile`), mas header/lista do Helpdesk continuavam mostrando "oi". **Não era falha de extração — é a arquitetura de DOIS nomes:** `contacts.name` preserva o pushname (re-sincronizado a cada mensagem pelo `whatsapp-webhook`; sobrescrever = o webhook reverte na próxima msg) e o nome informado na conversa vive em `lead_profiles`. A UI só olhava `contacts.name`.
-
-**Fix (camada de exibição, zero mudança no backend/webhook):**
-- `src/lib/contactDisplayName.ts` — lógica PURA (8 testes): prioridade `lead_profiles.full_name` → pushname → telefone.
-- Lista (`ConversationItem`), header do chat (`ChatPanel`), painel lateral (`ContactInfoPanel`) e aria-labels (`ConversationList`) usam o helper.
-- Busca local também encontra pelo nome extraído (`useHelpdeskFilters`) — quem vê "Jessica" acha digitando "Jessica".
-- Select da lista embeda `lead_profiles(full_name)` aninhado (1:1, `contact_id` UNIQUE).
-
-**Validação:** tsc 0 · 22/22 testes das áreas tocadas · 19 fails da suite provados pré-existentes (re-rodados com `src/` stashado) · **E2E real Playwright** no app local (login admin → deep-link da conversa): header "oi"→"Jessica" + busca "Jessica" acha a conversa (screenshot conferido).
-
-**Limitação anotada:** `GlobalSearchDialog` (busca global, server-side) ainda não busca por full_name extraído — backlog.
-
-### v7.77.0 (2026-06-09) — 🟢 Helpdesk: vendedores Android sem enviar foto — aba velha pós-deploy era a causa; auto-recuperação de versão + upload anti-zumbi + telemetria
-
-**Bug do dono:** "alguns vendedores/atendentes não conseguem enviar fotos pros leads pelo Helpdesk; acho que usam Android". **Ground truth chocante:** em 7 dias, **ZERO uploads de Android** no `helpdesk-media`; em 14 dias só 9 imagens humanas no total; vendedores já usavam **workaround pelo celular** (7/8 imagens de hoje foram fromMe). RLS descartada (policy pública p/ authenticated).
-
-**Causas-raiz (auditoria multi-agente 5 traces + verificação adversarial):** (1) **CONFIRMADO** — o fix HEIC da v7.75.0 só ficou vivo HOJE (08:04 UTC; deploy anterior era de 06-05) e celular mantém a aba viva por DIAS sem recarregar + `index.html` sem `Cache-Control` (cache heurístico) → vendedores rodavam código **pré-fix**, onde foto de câmera Android (HEIC) toma 500 do UAZAPI. (2) **CONFIRMADO** — cada redeploy **apaga os chunks do build anterior** (flagrado ao vivo: 404 + Bad Gateway); aba antiga que lazy-loada o chunk do heic2any (1,35MB, só baixa no 1º envio de HEIC) toma 404, o Chromium **cacheia a falha do módulo** e todo retry falha até F5 — bolha genérica. (3) **PARCIAL** — upload ao Storage era o único passo de rede sem proteção anti-sessão-zumbi (spinner infinito). (4) **PARCIAL** — heic2any 0.0.4: worker sem error-handler (OOM = promise eterna), asm.js 16MB, zero cap de dimensão; erros reais (`ERR_LIBHEIF`, `Cannot enlarge memory`) não casavam o `humanizeSendError`. (5) Bugs menores: `userId:''` → UAZAPI entrega + INSERT falha + retry **duplica a foto no lead**; cap 20MB pré-conversão; foto cloud-only (0 bytes) sem mensagem.
-
-**Fix de raiz (8 frentes, detalhe na memória `project_vendor_photo_send_audit_v777`):** nginx `no-cache` no index.html + auto-reload em `vite:preloadError` + version.json/toast de nova versão (recuperação de aba velha pós-deploy); HEIC blindado (`normalizeOutboundImage` teto 60s, cap 4096px, fallback canvas); upload com teto 120s+`recoverStuckSession`; guard `!user` no `ChatInput` (mata foto duplicada); telemetria `media_send_telemetry`+`log-send-failure`; `deploy.yml` chama o webhook do Portainer (mata deploy-fantasma).
-
-**Verificação:** 32/32 testes novos+existentes dos módulos; suite 545✓ (5 fails pré-existentes forms); tsc/deno 0 novos; build emite version.json com id idêntico ao bundle; telemetria smoke E2E (beacon→DB). Detalhe: [[project_vendor_photo_send_audit_v777]].
+Movidas p/ [[wiki/changelog/2026-06-part4]] (nome extraído pela IA vence o pushname na exibição — caso "oi"→Jessica; vendedores Android sem enviar foto — aba velha pós-deploy + auto-recuperação de versão + upload anti-zumbi + telemetria).
 
 ---
 

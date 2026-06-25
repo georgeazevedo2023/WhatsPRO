@@ -32,6 +32,22 @@ const SAMPLE_NO_MESSAGE = [
   },
 ]
 
+// Espelha o item de prod "eletrodomesticos" com a lista de exceções aprovada
+// (D-mangueira 2026-06-25): keyword "maquina de lavar" exclui o APARELHO, mas
+// except_keywords libera acessórios hidráulicos que a loja VENDE.
+const SAMPLE_WITH_EXCEPT = [
+  {
+    id: 'eletrodomesticos',
+    keywords: ['geladeira', 'maquina de lavar', 'máquina de lavar', 'fogao', 'fogão', 'lavadora'],
+    message: '',
+    except_keywords: [
+      'mangueira', 'engate', 'cano', 'registro', 'valvula', 'torneira',
+      'sifao', 'adaptador', 'abracadeira', 'niple', 'ralo',
+      'saida de agua', 'saida da agua',
+    ],
+  },
+]
+
 describe('matchExcludedProduct', () => {
   it('match exato em palavra-inteira retorna product+keyword+message', () => {
     const r = matchExcludedProduct('Boa tarde, tem caixa de correio?', SAMPLE)
@@ -131,6 +147,60 @@ describe('matchExcludedProduct', () => {
   })
 })
 
+describe('matchExcludedProduct — except_keywords (suprime recusa de acessório que vendemos)', () => {
+  it('CASO REAL DO DONO (com typo "MAGUEIRA"): libera via "saida da agua" → null (não recusa)', () => {
+    // texto exato do screenshot, com o typo do lead (MAGUEIRA, sem o "n")
+    const r = matchExcludedProduct('MAGUEIRA DE SAIDA DA AGUA DA MAQUINA DE LAVAR', SAMPLE_WITH_EXCEPT)
+    expect(r).toBeNull()
+  })
+
+  it('libera "mangueira de saída de água da máquina de lavar" (grafia correta) → null', () => {
+    const r = matchExcludedProduct('quero uma mangueira de saída de água da máquina de lavar', SAMPLE_WITH_EXCEPT)
+    expect(r).toBeNull()
+  })
+
+  it('aparelho cru "quero uma máquina de lavar" AINDA recusa (exceção não casa)', () => {
+    const r = matchExcludedProduct('quero uma máquina de lavar', SAMPLE_WITH_EXCEPT)
+    expect(r?.product.id).toBe('eletrodomesticos')
+    // retorna a 1ª keyword da lista que casa (texto normalizado "maquina de lavar")
+    expect(r?.matchedKeyword).toBe('maquina de lavar')
+  })
+
+  it('aparelho cru "vocês vendem geladeira?" AINDA recusa', () => {
+    const r = matchExcludedProduct('vocês vendem geladeira?', SAMPLE_WITH_EXCEPT)
+    expect(r?.product.id).toBe('eletrodomesticos')
+    expect(r?.matchedKeyword).toBe('geladeira')
+  })
+
+  it('exceção é whole-word: "canoa" NÃO dispara a exceção "cano" → geladeira recusa', () => {
+    const r = matchExcludedProduct('vendem geladeira? to indo de canoa', SAMPLE_WITH_EXCEPT)
+    expect(r?.product.id).toBe('eletrodomesticos')
+    expect(r?.matchedKeyword).toBe('geladeira')
+  })
+
+  it('exceção é accent-insensitive: "válvula" casa exceção "valvula" → suprime', () => {
+    const r = matchExcludedProduct('preciso trocar a válvula que vai no fogão', SAMPLE_WITH_EXCEPT)
+    expect(r).toBeNull()
+  })
+
+  it('engate da máquina de lavar → null (libera o acessório)', () => {
+    const r = matchExcludedProduct('tem engate pra máquina de lavar?', SAMPLE_WITH_EXCEPT)
+    expect(r).toBeNull()
+  })
+
+  it('backward-compat: item SEM except_keywords se comporta igual ao anterior', () => {
+    // SAMPLE não tem except_keywords — match normal preservado
+    const r = matchExcludedProduct('tem caixa de correio?', SAMPLE)
+    expect(r?.product.id).toBe('caixa_correio')
+  })
+
+  it('except_keywords vazio = sem efeito (recusa normal)', () => {
+    const items = [{ id: 'a', keywords: ['geladeira'], message: 'm', except_keywords: [] }]
+    const r = matchExcludedProduct('quero geladeira', items)
+    expect(r?.product.id).toBe('a')
+  })
+})
+
 describe('buildFallbackMessage', () => {
   it('sem suggested_categories → "outros materiais relacionados" (tom humanizado v7.57.3)', () => {
     expect(buildFallbackMessage('caixa de correio')).toBe(
@@ -207,5 +277,31 @@ describe('validateExcludedProducts', () => {
       { id: 'a', keywords: ['x'], message: 'm', suggested_categories: 'cat1' },
     ])
     expect(errors.some((e) => e.includes('suggested_categories deve ser array'))).toBe(true)
+  })
+
+  it('aceita except_keywords como array de strings', () => {
+    expect(
+      validateExcludedProducts([
+        { id: 'a', keywords: ['x'], except_keywords: ['mangueira', 'cano'] },
+      ]),
+    ).toEqual([])
+  })
+
+  it('aceita schema completo (eletrodomesticos com exceções)', () => {
+    expect(validateExcludedProducts(SAMPLE_WITH_EXCEPT)).toEqual([])
+  })
+
+  it('rejeita except_keywords não-array', () => {
+    const errors = validateExcludedProducts([
+      { id: 'a', keywords: ['x'], except_keywords: 'mangueira' },
+    ])
+    expect(errors.some((e) => e.includes('except_keywords deve ser array'))).toBe(true)
+  })
+
+  it('rejeita except_keyword vazia', () => {
+    const errors = validateExcludedProducts([
+      { id: 'a', keywords: ['x'], except_keywords: ['mangueira', ''] },
+    ])
+    expect(errors.some((e) => e.includes('except_keywords devem ser strings não-vazias'))).toBe(true)
   })
 })

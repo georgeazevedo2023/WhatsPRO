@@ -22,6 +22,22 @@ export interface ExcludedProduct {
   keywords: string[]
   message?: string  // opcional — se vazio, usa fallback "Não trabalhamos com {matched_keyword}, posso te ajudar com outro produto?"
   suggested_categories?: string[]
+  /**
+   * Exceções ("palavras que liberam o produto", D-mangueira 2026-06-25).
+   * Se o texto do lead contém UMA destas palavras (whole-word, accent-insensitive,
+   * MESMA normalização das keywords), a exclusão deste item é SUPRIMIDA e a mensagem
+   * segue pro fluxo normal (router → qualificar → transbordar), NUNCA recusa.
+   *
+   * Resolve o falso-positivo de keyword multi-palavra usada como MODIFICADOR:
+   * "máquina de lavar" exclui o ELETRODOMÉSTICO, mas except_keywords ["mangueira","engate"]
+   * libera "mangueira de saída de água da máquina de lavar" (acessório hidráulico que vendemos).
+   *
+   * Supressão é a nível de ITEM: se qualquer except_keyword aparece no texto, o item inteiro
+   * é pulado naquele turno (mesmo que o texto também cite um aparelho cru). Trade-off aceito —
+   * o pior caso é qualificar+transbordar em vez de recusar (nunca dizer não). Ausente/vazio =
+   * comportamento idêntico ao anterior (100% backward-compatible).
+   */
+  except_keywords?: string[]
 }
 
 export interface ExcludedProductMatch {
@@ -83,6 +99,21 @@ function normalize(text: string): string {
 }
 
 /**
+ * Teste whole-word (boundary) em texto JÁ normalizado.
+ * Mesma semântica usada para keywords E except_keywords: normalize() a frase,
+ * escapa specials de regex, casa com \b...\b (case-insensitive).
+ * Frase vazia → false (não casa). Reuso, não duplicação — garante que a exceção
+ * tem EXATAMENTE a mesma semântica de match das keywords.
+ */
+function containsWholeWord(normalizedText: string, phrase: string): boolean {
+  const normalizedPhrase = normalize(phrase)
+  if (!normalizedPhrase) return false
+  const escaped = normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`\\b${escaped}\\b`, 'i')
+  return re.test(normalizedText)
+}
+
+/**
  * Retorna match com a keyword exata que casou + message resolvida.
  * Match é por palavra-inteira (boundary): "correio" não casa com "correios" — usa regex \b.
  * Se item.message vazio/ausente, usa fallback "Não trabalhamos com {kw}, posso te ajudar...".
@@ -101,14 +132,21 @@ export function matchExcludedProduct(
   for (const item of excludedProducts) {
     if (!item.keywords || item.keywords.length === 0) continue
 
-    for (const kw of item.keywords) {
-      const normalizedKw = normalize(kw)
-      if (!normalizedKw) continue
+    // except_keywords ("palavras que liberam o produto"): se o lead citou um acessório
+    // que VENDEMOS (ex.: "mangueira" da máquina de lavar), suprime a exclusão deste item
+    // inteiro → a mensagem segue pro fluxo normal (qualificar→transbordar), nunca recusa.
+    // Ausente/vazio = comportamento idêntico ao anterior.
+    if (
+      item.except_keywords &&
+      item.except_keywords.length > 0 &&
+      item.except_keywords.some((ek) => containsWholeWord(normalizedText, ek))
+    ) {
+      continue
+    }
 
-      // Word boundary match — escape regex special chars
-      const escaped = normalizedKw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const re = new RegExp(`\\b${escaped}\\b`, 'i')
-      if (re.test(normalizedText)) {
+    for (const kw of item.keywords) {
+      // Word boundary match (whole-word, accent-insensitive) — ver containsWholeWord
+      if (containsWholeWord(normalizedText, kw)) {
         const trimmedAdminMsg = (item.message || '').trim()
         const message = trimmedAdminMsg !== ''
           ? trimmedAdminMsg
@@ -157,6 +195,14 @@ export function validateExcludedProducts(items: unknown): string[] {
     }
     if (it.suggested_categories !== undefined && !Array.isArray(it.suggested_categories)) {
       errors.push(`item ${i}: suggested_categories deve ser array (ou omitido)`)
+    }
+    // except_keywords é opcional — se presente, deve ser array de strings não-vazias
+    if (it.except_keywords !== undefined) {
+      if (!Array.isArray(it.except_keywords)) {
+        errors.push(`item ${i}: except_keywords deve ser array (ou omitido)`)
+      } else if (it.except_keywords.some((k) => typeof k !== 'string' || k.trim() === '')) {
+        errors.push(`item ${i}: except_keywords devem ser strings não-vazias`)
+      }
     }
   }
   return errors

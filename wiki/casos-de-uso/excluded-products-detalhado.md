@@ -2,7 +2,7 @@
 title: Produtos NÃO Vendidos (D28) — Detalhado
 tags: [excluded-products, ai-agent, qualificacao, handoff, fallback, ui-admin]
 sources: [supabase/functions/_shared/excludedProducts.ts, src/components/admin/ai-agent/ExcludedProductsConfig.tsx, supabase/migrations/20260430000001_*]
-updated: 2026-05-04
+updated: 2026-06-25
 ---
 
 # Produtos NÃO Vendidos (D28)
@@ -76,6 +76,7 @@ Coluna `ai_agents.excluded_products JSONB DEFAULT '[]'`:
 | `keywords` | string[] | sim (≥1) | Palavras-chave que disparam o match |
 | `message` | string | não | Resposta customizada. Vazio → fallback genérico |
 | `suggested_categories` | string[] | não | (futuro) categorias sugeridas pra UI |
+| `except_keywords` | string[] | não | **Exceções (v7.96.0)** — palavras que LIBERAM o produto. Se o texto do lead também contém uma destas, a exclusão deste item é suprimida → fluxo normal (qualificar→transbordar), nunca recusa |
 
 ### Helper `_shared/excludedProducts.ts`
 
@@ -88,6 +89,26 @@ matchExcludedProduct(text: string, excluded: ExcludedProduct[])
 - **Case-insensitive** — `GELADEIRA` casa `geladeira`
 - **Acentos ignorados** via NFD normalize
 - **Primeiro match vence** — ordem da lista importa
+- **`except_keywords` checadas ANTES das keywords** (nível de item) — se uma "palavra que libera" aparece, o item inteiro é pulado naquele turno (mesmo helper `containsWholeWord`: whole-word + accent-insensitive)
+
+### 3.x `except_keywords` — exceções (v7.96.0)
+
+**Problema:** keyword de exclusão multi-palavra que também é MODIFICADOR de uma peça vendável. `máquina de lavar` (no item `eletrodomesticos`) recusa o aparelho, mas casava (whole-word) dentro de *"mangueira de saída de água da máquina de lavar"* — peça hidráulica que a loja VENDE → recusa indevida pré-LLM (queixa real do dono, print da Fila 2026-06-25).
+
+**Solução:** `except_keywords[]` opcional por item. Se o texto do lead contém qualquer uma (mesma normalização das keywords), a exclusão **desse item** é suprimida → mensagem segue o fluxo normal (router → 0-resultado no catálogo → qualificar → transbordar; catálogo é minoria, nunca "não temos"). Aparelho cru (*"quero uma máquina de lavar"*, sem palavra-exceção) **continua** recusando.
+
+```json
+{
+  "id": "eletrodomesticos",
+  "keywords": ["geladeira", "máquina de lavar", "fogão", "lavadora", ...],
+  "message": "",
+  "except_keywords": ["mangueira","engate","cano","registro","válvula","torneira","sifão","adaptador","abraçadeira","niple","ralo","saída de água","saída da água"]
+}
+```
+
+- **Trade-off:** supressão é a nível de ITEM — *"quero geladeira e uma mangueira"* libera o item inteiro (geladeira não é recusada naquele turno). Aceito: pior caso é qualificar+transbordar em vez de recusar (nunca dizer não).
+- **Backward-compatible:** ausente/vazio = comportamento idêntico ao anterior.
+- **UI:** campo "Exceções (palavras que liberam o produto)" no editor de cada produto (`ExcludedProductsConfig`). Round-trip automático (JSONB opaco; ALLOWED_FIELDS passa o blob inteiro) — sem migration nem regen de `types.ts`.
 - **Fallback automático** — se `message` vazio, gera `"Não trabalhamos com {matchedKeyword}, posso te ajudar com outro produto?"` preservando case/acento da keyword
 
 ### Integração no edge function

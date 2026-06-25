@@ -35,6 +35,7 @@ import {
   X,
   SearchX,
   Pencil,
+  ShieldCheck,
 } from 'lucide-react'
 
 export interface ExcludedProduct {
@@ -42,6 +43,12 @@ export interface ExcludedProduct {
   keywords: string[]
   message?: string
   suggested_categories?: string[]
+  /**
+   * Exceções: se o texto do lead contém uma destas palavras, a recusa é SUPRIMIDA
+   * e a IA qualifica + transborda em vez de recusar. Ex.: "máquina de lavar" recusa
+   * o aparelho, mas except_keywords ["mangueira"] libera "mangueira da máquina de lavar".
+   */
+  except_keywords?: string[]
 }
 
 /**
@@ -315,6 +322,24 @@ function ProductEditor({ product, idDup, noKeywords, onChange, onRemove }: Produ
         />
         <p className="text-[11px] text-muted-foreground">
           Usadas no fallback automático pra fazer cross-sell.
+        </p>
+      </div>
+
+      {/* Exceptions — palavras que LIBERAM o produto (D-mangueira 2026-06-25) */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
+          <ShieldCheck className="h-3 w-3" />
+          Exceções (palavras que liberam o produto)
+        </Label>
+        <CsvInput
+          initialValue={product.except_keywords || []}
+          onSave={(eks) => onChange({ except_keywords: eks })}
+          itemId={product.id}
+          placeholder="mangueira, engate, cano"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Se o lead usar uma destas, a IA <strong>NÃO recusa</strong> — qualifica e transborda pro vendedor.
+          Ex.: <em>"máquina de lavar"</em> recusa o aparelho, mas <em>"mangueira"</em> libera a peça.
         </p>
       </div>
 
