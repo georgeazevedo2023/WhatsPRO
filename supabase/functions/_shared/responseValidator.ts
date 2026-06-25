@@ -48,6 +48,19 @@ const NEGATIVE_PHRASES = [
   'nao temos esse produto',
 ]
 
+// (2026-06-25) Camada regex p/ negações NOVAS que a lista literal não pegava
+// (gap da auditoria except_keywords v7.96.0). Conservadora: só intenção-de-negação
+// inequívoca — evita "não tem problema" (benigno) ao NÃO usar "nao tem" solto.
+// Testada contra texto JÁ normalizado (lowercase + sem acento).
+const NEGATIVE_REGEXES: RegExp[] = [
+  /\bnao\s+(?:vendemos|comercializamos|oferecemos|possuimos|disponibilizamos)\b/,
+  /\bnao\s+(?:faz|fazem)\s+parte\b/,
+  /\bfora\s+do\s+(?:nosso\s+)?(?:portfolio|catalogo|mix)\b/,
+  /\bnao\s+consta\b/,
+  /\bnao\s+(?:temos|fazemos|trabalhamos\s+com)\s+(?:esse|essa|esses|essas|este|esta|isso|isto)\b/,
+  /\b(?:esgotado|esgotada|esgotados|esgotadas)\b/,
+]
+
 const STOCK_CONFIRMATION_PATTERNS: RegExp[] = [
   /^\s*sim\b.{0,80}\btrabalhamos\s+com\b/i,
   /^\s*sim\b.{0,80}\b(?:modelo|modelos|op[cç][aã]o|op[cç][oõ]es|produto|produtos)\b/i,
@@ -97,6 +110,12 @@ function checkNegativePhrases(norm: string): ResponseViolation | null {
   for (const p of NEGATIVE_PHRASES) {
     if (norm.includes(p)) {
       return { rule: 'anti_negative_phrases', severity: 'block', detail: `frase negativa detectada: "${p}"` }
+    }
+  }
+  for (const re of NEGATIVE_REGEXES) {
+    const m = norm.match(re)
+    if (m) {
+      return { rule: 'anti_negative_phrases', severity: 'block', detail: `frase negativa detectada (regex): "${m[0]}"` }
     }
   }
   return null

@@ -170,7 +170,7 @@ export function sanitizeAgentResponse(
   ctx: SanitizerCtx,
 ): SanitizeResult {
   const text = keepLastQuestionWhenStacked((responseText || '').trim())
-  if (text.length < 15) return { text: responseText, enforced: false, rules: [] }
+  if (!text) return { text: responseText, enforced: false, rules: [] }
 
   const leadName = (ctx.leadName || '').trim() || null
   const outgoing = ctx.outgoingTexts || []
@@ -190,6 +190,18 @@ export function sanitizeAgentResponse(
     result = validateLLMResponse(text, validatorCtx)
   } catch (e) {
     ctx.log.error?.('sanitizeAgentResponse: validateLLMResponse failed (non-fatal)', { error: (e as Error).message })
+    return { text: responseText, enforced: false, rules: [] }
+  }
+
+  // (2026-06-25) Texto curto (<15 chars) pula a lógica COSMÉTICA/premium — acks
+  // legítimos ("Ok", "Sim", "Perfeito!") não devem ser reescritos. MAS conteúdo
+  // NOCIVO (negação proibida / confirmação de estoque / erro interno / leak) é
+  // barrado em QUALQUER tamanho: um "Não temos." de 10 chars não pode escapar do
+  // gate de segurança (gap da auditoria except_keywords v7.96.0).
+  const hasHarmfulBlock = result.violations.some(
+    (v) => v.severity === 'block' && SAFE_TEXT_RULES.has(v.rule),
+  )
+  if (text.length < 15 && !hasHarmfulBlock) {
     return { text: responseText, enforced: false, rules: [] }
   }
 

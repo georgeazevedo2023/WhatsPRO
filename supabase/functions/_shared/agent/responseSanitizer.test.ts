@@ -30,6 +30,26 @@ describe('sanitizeAgentResponse — fonte única monolith×router (Onda 2)', () 
     expect(r.text).toBe('Show! 😊')
   })
 
+  it('negação CURTA (<15 chars) NÃO escapa mais — "Não temos." é barrada (gap v7.96.0)', () => {
+    const r = sanitizeAgentResponse('Não temos.', ctx())
+    expect(r.enforced).toBe(true)
+    expect(r.rules).toContain('anti_negative_phrases')
+    expect(r.text.toLowerCase()).not.toContain('não temos')
+    expect(r.text.length).toBeGreaterThan(15)
+  })
+
+  it('confirmação de estoque CURTA ("Tem sim!") também é barrada', () => {
+    const r = sanitizeAgentResponse('Tem sim!', ctx())
+    expect(r.enforced).toBe(true)
+    expect(r.rules).toContain('anti_stock_confirmation')
+  })
+
+  it('ack curto legítimo ("Ok! 👍") continua passando sem reescrever', () => {
+    const r = sanitizeAgentResponse('Ok! 👍', ctx())
+    expect(r.enforced).toBe(false)
+    expect(r.text).toBe('Ok! 👍')
+  })
+
   it('negação proibida (SAFE_TEXT) → ponte propositiva sem expor a negativa', () => {
     const r = sanitizeAgentResponse(
       'Infelizmente não temos esse produto em estoque no momento, tudo bem?',

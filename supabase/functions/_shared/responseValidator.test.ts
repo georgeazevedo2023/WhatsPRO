@@ -38,6 +38,24 @@ describe('validateLLMResponse', () => {
     expect(r.violations.some((v) => v.rule === 'anti_stock_confirmation')).toBe(false)
   })
 
+  // 1b. anti_negative_phrases — camada regex (gap v7.96.0): negações novas
+  it('anti_negative_phrases (regex): HIT em "não vendemos"', () => {
+    const r = validateLLMResponse('Nós não vendemos esse tipo de produto', baseCtx)
+    expect(r.violations.some((v) => v.rule === 'anti_negative_phrases')).toBe(true)
+  })
+  it('anti_negative_phrases (regex): HIT em "não faz parte do portfólio"', () => {
+    const r = validateLLMResponse('Esse item não faz parte do nosso portfólio', baseCtx)
+    expect(r.violations.some((v) => v.rule === 'anti_negative_phrases')).toBe(true)
+  })
+  it('anti_negative_phrases (regex): HIT em "está esgotado"', () => {
+    const r = validateLLMResponse('Esse modelo está esgotado no momento', baseCtx)
+    expect(r.violations.some((v) => v.rule === 'anti_negative_phrases')).toBe(true)
+  })
+  it('anti_negative_phrases (regex): MISS em "não tem problema" (benigno, sem falso-positivo)', () => {
+    const r = validateLLMResponse('Pode deixar, não tem problema nenhum!', baseCtx)
+    expect(r.violations.some((v) => v.rule === 'anti_negative_phrases')).toBe(false)
+  })
+
   // 2. anti_internal_error
   it('anti_internal_error: HIT em "Desculpe"', () => {
     const r = validateLLMResponse('Desculpe, não consegui processar', baseCtx)
