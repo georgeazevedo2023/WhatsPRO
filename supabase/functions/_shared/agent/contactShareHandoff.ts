@@ -24,22 +24,52 @@
  * `ai-agent/index.ts` reusando `runQueueAssignment` (igual ao path `sale_closed`).
  */
 
-/** media_type que o whatsapp-webhook grava pra mensagem de contato (vCard). */
+/** media_type que o whatsapp-webhook grava pra mensagem de contato (vCard nativo). */
 export const INCOMING_CONTACT_MEDIA_TYPE = 'contact'
 
-type IncomingLike = { media_type?: string | null }
+type IncomingLike = { media_type?: string | null; content?: string | null }
+
+/**
+ * IMPORTANTE (2026-06-26, validação E2E do dono): na prática o contato NÃO chega
+ * como `media_type='contact'`. O pipeline real é UAZAPI → **n8n** → whatsapp-webhook,
+ * e o n8n **achata o vCard em TEXTO** antes de entregar. A mensagem chega como
+ * `media_type='text'` com o `content` renderizado pelo WhatsApp assim:
+ *
+ *     Lara Eletropiso Lucas
+ *     Phone: +55 87 99676-2520
+ *
+ * Então detectamos o contato pelo PADRÃO do texto — a linha `Phone: +<número>` (ou um
+ * `BEGIN:VCARD` cru) que só o app gera ao compartilhar um contato; um lead humano não
+ * digita "Phone:" em inglês com dois-pontos. Mantemos também o check por `media_type`
+ * pra cobrir qualquer caminho que entregue o vCard nativo (defesa em profundidade).
+ */
+const CONTACT_TEXT_PATTERNS: RegExp[] = [
+  // Linha "Phone: +55 ..." gerada ao renderizar o TEL do vCard como texto.
+  /(^|\n)\s*Phone:\s*\+?[\d(]/i,
+  // vCard cru, caso algum caminho entregue o conteúdo bruto.
+  /BEGIN:VCARD/i,
+]
+
+/** A mensagem de TEXTO é um contato compartilhado achatado (Nome\nPhone: +número)? */
+export function looksLikeSharedContactText(content: string | null | undefined): boolean {
+  if (!content || typeof content !== 'string') return false
+  return CONTACT_TEXT_PATTERNS.some((re) => re.test(content))
+}
 
 /**
  * Detector puro: alguma das mensagens recebidas neste turno é um contato (vCard)?
- * Aceita tanto NormalizedMessage (caminho DB) quanto entradas cruas do queue —
- * ambos carregam `media_type`.
+ * Aceita tanto NormalizedMessage (caminho DB) quanto entradas cruas do queue — ambos
+ * carregam `media_type` E `content`. Dispara por `media_type==='contact'` OU pelo
+ * padrão de texto do vCard achatado pelo n8n.
  */
 export function detectSharedContact(
   messages: ReadonlyArray<IncomingLike> | null | undefined,
 ): boolean {
   if (!Array.isArray(messages)) return false
   return messages.some(
-    (m) => typeof m?.media_type === 'string' && m.media_type === INCOMING_CONTACT_MEDIA_TYPE,
+    (m) =>
+      (typeof m?.media_type === 'string' && m.media_type === INCOMING_CONTACT_MEDIA_TYPE) ||
+      looksLikeSharedContactText(m?.content),
   )
 }
 

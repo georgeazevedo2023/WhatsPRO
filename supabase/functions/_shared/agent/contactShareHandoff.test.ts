@@ -2,21 +2,51 @@ import { describe, it, expect } from 'vitest'
 import {
   INCOMING_CONTACT_MEDIA_TYPE,
   detectSharedContact,
+  looksLikeSharedContactText,
   greetingForHour,
   buildContactShareReply,
 } from './contactShareHandoff.ts'
 
+// Formato REAL com que o contato chega (UAZAPI → n8n → webhook achata o vCard em texto).
+const REAL_CONTACT_CONTENT = 'Lara Eletropiso Lucas\nPhone: +55 87 99676-2520'
+
+describe('looksLikeSharedContactText', () => {
+  it('detecta o vCard achatado pelo n8n (caso real do dono)', () => {
+    expect(looksLikeSharedContactText(REAL_CONTACT_CONTENT)).toBe(true)
+    expect(looksLikeSharedContactText('Fernando Amaral Caprice\nPhone: +5587999999999')).toBe(true)
+    // múltiplos números
+    expect(looksLikeSharedContactText('João\nPhone: +55 11 1111-1111\nPhone: +55 11 2222-2222')).toBe(true)
+    // vCard cru
+    expect(looksLikeSharedContactText('BEGIN:VCARD\nFN:Maria\nTEL:+5511999999999\nEND:VCARD')).toBe(true)
+  })
+  it('NÃO falso-positiva em mensagem humana normal', () => {
+    expect(looksLikeSharedContactText('Boa tarde, quero um porcelanato')).toBe(false)
+    expect(looksLikeSharedContactText('meu telefone é 87 99676-2520')).toBe(false)
+    expect(looksLikeSharedContactText('qual o preço? me liga no 999999999')).toBe(false)
+    expect(looksLikeSharedContactText('')).toBe(false)
+    expect(looksLikeSharedContactText(null)).toBe(false)
+    expect(looksLikeSharedContactText(undefined)).toBe(false)
+  })
+})
+
 describe('detectSharedContact', () => {
-  it('detecta quando alguma mensagem é contato (vCard)', () => {
+  it('detecta vCard nativo (media_type=contact)', () => {
     expect(detectSharedContact([{ media_type: 'contact' }])).toBe(true)
     expect(detectSharedContact([{ media_type: 'text' }, { media_type: 'contact' }])).toBe(true)
-    // decisão do dono: "sempre transbordar" — contato + texto junto ainda dispara
     expect(detectSharedContact([{ media_type: 'contact' }, { media_type: 'text' }])).toBe(true)
   })
+  it('detecta o caso REAL: media_type=text com o vCard achatado no content', () => {
+    expect(detectSharedContact([{ media_type: 'text', content: REAL_CONTACT_CONTENT }])).toBe(true)
+    // decisão do dono "sempre transbordar": contato + texto junto na mesma janela
+    expect(detectSharedContact([
+      { media_type: 'text', content: 'Boa tarde' },
+      { media_type: 'text', content: REAL_CONTACT_CONTENT },
+    ])).toBe(true)
+  })
   it('NÃO dispara sem contato', () => {
-    expect(detectSharedContact([{ media_type: 'text' }])).toBe(false)
+    expect(detectSharedContact([{ media_type: 'text', content: 'oi, tudo bem?' }])).toBe(false)
     expect(detectSharedContact([{ media_type: 'image' }, { media_type: 'audio' }])).toBe(false)
-    expect(detectSharedContact([{ media_type: null }])).toBe(false)
+    expect(detectSharedContact([{ media_type: null, content: null }])).toBe(false)
     expect(detectSharedContact([{}])).toBe(false)
   })
   it('é robusto a entradas inválidas', () => {
