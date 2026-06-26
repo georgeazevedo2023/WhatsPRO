@@ -49,6 +49,7 @@ import { buildAgentPromptSections, buildLeadContextBlock, buildDynamicContext } 
 import { buildQualificationContext } from '../_shared/agent/qualificationContext.ts'
 import { runPreLLMShortCircuits } from '../_shared/agent/preLLMShortCircuits.ts'
 import { tryJobVacancyShortCircuit } from '../_shared/agent/jobVacancy.ts'
+import { detectSharedContact, greetingForHour, buildContactShareReply } from '../_shared/agent/contactShareHandoff.ts'
 import { runPreLLMAutoExtract } from '../_shared/agent/preLLMAutoExtract.ts'
 import { dispatchExitActionHandoff, runInlineSearchProducts } from '../_shared/agent/exitActionDispatcher.ts'
 import { dispatchMediaTool } from '../_shared/agent/tools/mediaTools.ts'
@@ -1171,6 +1172,65 @@ Deno.serve(async (req) => {
         log.warn('runQueueAssignment failed — falling back without assignee', { error: (qErr as Error).message })
         return { result: fallback, finalMessage: applyAssigneeNameTemplate(handoffMessageTemplate, null) }
       }
+    }
+
+    // ── Contato compartilhado (vCard) → saudação + transbordo (v7.98.0, 2026-06-26) ──
+    // Quando o lead COMPARTILHA UM CONTATO, o webhook salva media_type='contact' e usa o
+    // NOME do contato como `content` — então o LLM tratava o nome como consulta de produto
+    // (print do dono: "Fernando Amaral Caprice" → "isso não é nosso forte"). Pedido: não
+    // responder/vender — só saudar, agradecer e transbordar pra um atendente.
+    // Determinístico, GLOBAL (sem config) e MODE-AGNOSTIC (nenhum specialist trata vCard).
+    // Decisão do dono: SEMPRE que houver um contato na mensagem (mesmo com texto junto).
+    // Roda ANTES de qualquer outro caminho de handoff/greeting/produto pra o contato nunca
+    // ser maltratado. Pula em shadow (humano já atendendo) e no path shadow do vendedor.
+    if (detectSharedContact(incomingMessages) && conversation.status_ia !== STATUS_IA.SHADOW && !shadow_only) {
+      const spNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
+      const lpForContact = { full_name: await getLeadFullName() }
+      const contactMsg = buildContactShareReply({
+        greeting: greetingForHour(spNow.getHours()),
+        leadName: lpForContact.full_name,
+      })
+      const { result: queueResContact } = await runQueueAssignment(contactMsg)
+      await sendTextMsg(contactMsg)
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'outgoing', content: contactMsg, media_type: 'text',
+      })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'outgoing', content: contactMsg, media_type: 'text' })
+
+      const noteContact = '📇 O lead compartilhou um contato (vCard). Encaminhado para atendimento humano.'
+      await supabase.from('conversation_messages').insert({
+        conversation_id, direction: 'private_note', content: noteContact, media_type: 'text',
+      })
+      broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'private_note', content: noteContact, media_type: 'text' })
+
+      const contactUpdates: Record<string, unknown> = {
+        status_ia: STATUS_IA.SHADOW,
+        tags: mergeTags(conversation.tags || [], {
+          ia: STATUS_IA.SHADOW,
+          [HANDOFF_CREATED_KEY]: 'true',
+          agent_status: 'inactive',
+          [HUMAN_ASSIGNED_KEY]: 'true',
+          seller_notified: 'true',
+          followups_paused: 'true',
+        }),
+      }
+      if (profileData?.handoff_department_id) {
+        contactUpdates.department_id = profileData.handoff_department_id
+      } else if (funnelData?.handoff_department_id) {
+        contactUpdates.department_id = funnelData.handoff_department_id
+      }
+      await supabase.from('conversations').update(contactUpdates).eq('id', conversation_id)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'implicit_handoff',
+        latency_ms: Date.now() - startTime,
+        metadata: { reason: 'contact_shared', queue: queueResContact, incoming_preview: incomingText.substring(0, 200) },
+      })
+      log.info('Contato compartilhado — saudação + transbordo determinístico', {
+        conversation_id, assigned_to: queueResContact.assigned_user_id, reason: queueResContact.reason,
+      })
+      return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'contact_shared', queue: queueResContact }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     // Bug 18 (2026-05-17): se sale_closed detectado, executar handoff automático ANTES dos

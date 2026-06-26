@@ -13,6 +13,12 @@ audited_at: 2026-06-17
 
 ---
 
+### v7.98.0 (2026-06-26) — 📇 Contato compartilhado (vCard) → saudação + transbordo (não vende mais o nome do contato)
+
+Queixa do dono (print da Fila): lead **compartilhou um CONTATO** no WhatsApp ("Fernando Amaral Caprice") e a IA respondeu *"Esse não é o nosso forte aqui, mas trabalhamos com outros materiais relacionados…"* — tratou o **nome do contato** como consulta de produto. **Causa-raiz:** o `whatsapp-webhook` salva a mensagem de contato como `media_type='contact'` usando o **displayName como `content`**; o `ai-agent` consumia esse nome como `incomingText` e o LLM o processava como pergunta. O agente **não tinha nenhum tratamento de vCard**. **Fix (decisões do dono: GLOBAL, todos os agentes + SEMPRE que houver contato, mesmo com texto junto):** short-circuit determinístico pré-LLM — se alguma mensagem recebida no turno tem `media_type='contact'`, a IA não responde/vende: envia **saudação por horário (Bom dia/Boa tarde/Boa noite, fuso `America/Sao_Paulo`) + "Obrigado pelo contato 😊 Só um instante que estou te encaminhando para um de nossos atendentes."** e **transborda** reusando o MESMO caminho do `sale_closed` (`runQueueAssignment` → fila/atribuição + `notify-vendor-assignment` + `status_ia=SHADOW` + tags de handoff + nota interna *"📇 O lead compartilhou um contato"*). Roda ANTES de greeting/produto/excluídos pra o contato nunca ser maltratado; pula em shadow (humano já atendendo, trava v7.94.0) e no path shadow do vendedor. Módulo puro novo `_shared/agent/contactShareHandoff.ts` (detecção + saudação + mensagem) com **+11 testes**. tsc 0 · deno check ai-agent 0 · vitest **1976/0**. Deploy: ai-agent **v272** (global). **⚠️ Validar E2E:** dono enviar um contato no WhatsApp pra confirmar. Detalhe: [[project_contact_share_handoff_v798]].
+
+---
+
 ### v7.97.0 (2026-06-25) — 📊 NPS ao finalizar: enquete 0-10 + alerta ao gestor em nota baixa
 
 Pedido do dono: ao **Finalizar** uma conversa, enviar NPS ao lead; nota **<5** → alertar o gestor com nome/número do cliente + atendente + resumo. **Achado:** a infra de NPS existia mas estava **MORTA** — o Finalizar inseria em `job_queue` (sem worker) e `triggerNpsIfEnabled` (setTimeout não-confiável) não tinha caller. Reconstruída de raiz reusando `poll_messages`/`poll_responses`/webhook/dashboard. **Formato (workflow 9 agentes):** enquete nativa UAZAPI **0-10** (11 botões, cabe no limite 12) + 2ª enquete opcional "Encontrou o produto?" (Sim/Não). **Novas edge fns:** `send-nps-poll` (chamada no Finalizar; attendant=JWT; idempotência por `conversations.nps_sent_at`; envio imediato) e `notify-manager-nps` (resumo via ai_summary/callLLM + cliente/atendente → WhatsApp aos gestores + painel; idempotência por `bad_alert_sent_at`). **Webhook poll_update:** parseia `numeric_score`, **não acorda a IA** no voto (skip is_nps/resolvida — preserva trava v7.94.0), dispara o alerta em nota baixa. **Dashboard:** NPS 0-10 + **breakdown por atendente** (RPC `get_nps_by_attendant`) no painel do gestor e do admin. Migration `20260625130000` (numeric_score, attendant_id, nps_scale, bad_alert_sent_at, nps_sent_at, 4 cols ai_agents, RPC) — defaults behavior-preserving, sem regen de types. +17 testes; tsc 0 · vitest **1963/0** · deno 3 fns 0. Deploy: send-nps-poll v1 + notify-manager-nps v1 + whatsapp-webhook v19 + frontend; ligado em **EletropisoV2 + Sandbox** (0-10, found-product, alerta WhatsApp, threshold 5). **⚠️ Pendência:** nenhum gestor tem `personal_whatsapp` setado → alerta WhatsApp cai só no painel até configurar. **v7.97.1 (mesmo dia):** teste real no WhatsApp do dono validou o envio E pegou 2 bugs (conversations sem `instance_id` → via inbox; UAZAPI devolve `messageid` curto, não `id` composto) — corrigidos. Dono achou a 0-10 longa (11 botões) → trocada por **3 opções curtas** ("1 - Bom"/"2 - Regular"/"3 - Ruim"); categórico agora **pontuado por palavra-chave em 0-10** (`nps.ts`: Bom→8/Regular→5/Ruim→2, tolera prefixo "N - "), `isLowScore` unificado (<threshold; só "Ruim" alerta), `numeric_score` gravado em qualquer escala → dashboard+RPC contam o categórico. Config EletropisoV2+Sandbox atualizada; +2 testes, vitest **1965/0**, 3 fns + RPC redeployados. Detalhe: [[project_nps_on_finalize_v797]].
@@ -243,33 +249,9 @@ Quick wins da auditoria de inconsistências (4 agentes + verificação manual), 
 
 ---
 
-### v7.79.0 (2026-06-11) — 🟢 Helpdesk: busca acha QUALQUER conversa da caixa (server-side) + deep-link abre conversa fora do filtro
+### v7.79.0 → v7.77.0 (2026-06-09/11)
 
-**Bug do dono:** buscou `558196970061` (até com filtro "Todas") e não achou a conversa — ela era "resolvida" e fora das 50 carregadas. **Causa:** a busca era 100% client-side sobre a página carregada (status filtrado no servidor + paginação 50); o `?conv=` da URL também só selecionava conversa presente na lista carregada (deep-link da busca global pra conversa resolvida falhava silencioso).
-
-**Fix:**
-- **Busca server-side (3+ chars):** consulta `contacts` (telefone só-dígitos + pushname) e `lead_profiles.full_name` (nome extraído), busca as conversas da caixa em QUALQUER status e injeta na lista (dedup por id, mesmo shape via `CONVERSATION_LIST_SELECT`/`mapConversationRows` compartilhados). Helpers puros em `src/lib/helpdeskServerSearch.ts` (10 testes). Telefone formatado funciona ("+55 81 9697-0061").
-- **Deep-link `?conv=`:** fallback fetch-by-id quando a conversa não está na página carregada (guard: só abre se for da caixa atual).
-
-**Causa-raiz lateral descoberta no E2E:** o arquivo da página estava como `Helpdesk.tsx` no disco Windows mas `HelpDesk.tsx` no git/imports → Vite (case-sensitive no module graph) servia versão STALE da página em dev; edits não chegavam no browser. Disco renomeado pro casing do git.
-
-**E2E real Playwright 3/3 PASS:** busca pelo número acha a "Van" (resolvida, fora da página) · clique abre · deep-link abre direto. tsc 0, 138 testes lib verdes.
-
----
-
-### v7.78.1 (2026-06-10) — 🟢 Helpdesk: preview da lista congelava na última msg da IA (725 conversas corrigidas)
-
-**Bug do dono (print):** na conversa a última mensagem era "ta certo" (17:17), mas a lista mostrava "Vai ser para uso em área interna ou externa?" — com a hora certa. **Causa raiz:** `conversations.last_message` (texto do preview) só era escrito pela IA; webhook (mensagens do lead + takeover pelo celular) e app confiavam num trigger que só atualizava o TIMESTAMP. O comentário do webhook (linha 1101) prometia "last_message_at + last_message + is_read atualizados pelo trigger" citando um trigger (`update_conversation_on_message_insert`) que **nunca existiu**. Enquanto a aba está aberta o realtime mascara (patch em memória); ao recarregar volta o valor stale do DB.
-
-**Fix de raiz (fonte única):** trigger `update_conversation_last_message_at` agora grava os 3 campos em TODOS os caminhos de escrita — `last_message_at`, `last_message` (content ou preview de mídia 📷/🎥/🎵/📎/🌟/🎠/📊/👤, espelhando `mediaPreview()` do front; `private_note` não altera preview) e `is_read=false` em incoming (antes NENHUM caminho backend resetava unread em conversa existente — badge dependia do realtime). Migration `last_message_preview_trigger` + **backfill: 725 conversas** com preview congelado recalculadas. Comentário do webhook corrigido (sem redeploy — só comentário).
-
-**Validação E2E real:** caso do print conferido no DB ("Vai ser para uso…" → "ta certo") + INSERT de teste em transação com rollback automático (trigger atualizou preview/is_read/timestamp; dado de teste comprovadamente não persistiu).
-
----
-
-### v7.78.0 → v7.77.0 (2026-06-09/10)
-
-Movidas p/ [[wiki/changelog/2026-06-part4]] (nome extraído pela IA vence o pushname na exibição — caso "oi"→Jessica; vendedores Android sem enviar foto — aba velha pós-deploy + auto-recuperação de versão + upload anti-zumbi + telemetria).
+Movidas p/ [[wiki/changelog/2026-06-part4]] (busca server-side acha conversa fora do filtro + deep-link; preview da lista congelava na última msg da IA — trigger fonte única + backfill 725; nome extraído pela IA vence o pushname na exibição — caso "oi"→Jessica; vendedores Android sem enviar foto — aba velha pós-deploy + auto-recuperação de versão + upload anti-zumbi + telemetria).
 
 ---
 
