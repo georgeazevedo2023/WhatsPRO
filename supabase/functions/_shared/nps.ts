@@ -19,11 +19,26 @@ export const FOUND_PRODUCT_AUTO_TAGS: Record<string, string> = {
   'Não': 'encontrou_produto:nao',
 }
 
-const CATEGORICAL_BAD = ['ruim', 'pessimo'] // normalizados (sem acento)
-const CATEGORICAL_SCORE: Record<string, number> = { excelente: 5, bom: 4, regular: 3, ruim: 2, pessimo: 1 }
-
 function norm(s: string): string {
   return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+}
+
+// Mapa categórico → score 0-10 por PALAVRA-CHAVE (tolera prefixos "1 - ", "2 - "
+// e rótulos custom como "1 - Bom"/"3 - Ruim"). Testado contra texto normalizado
+// (sem acento). Ordem: mais específico primeiro. Mantém tudo na MESMA escala 0-10
+// das enquetes numéricas, então alerta (<threshold), média e breakdown funcionam igual.
+const CATEGORICAL_KEYWORDS: Array<[RegExp, number]> = [
+  [/excelente|otimo/, 10],
+  [/pessimo/, 0],
+  [/regular/, 5],
+  [/ruim/, 2],
+  [/\bb(om|oa)\b/, 8],
+]
+
+function categoricalScore(label: string): number | null {
+  const s = norm(label)
+  for (const [re, score] of CATEGORICAL_KEYWORDS) if (re.test(s)) return score
+  return null
 }
 
 /** Opções da enquete NPS conforme a escala configurada. */
@@ -45,26 +60,22 @@ export function parseNpsScore(selectedOptions: string[] | null | undefined, scal
     const n = parseInt(String(first).trim(), 10)
     return Number.isInteger(n) && n >= 0 && n <= 10 ? n : null
   }
-  const s = CATEGORICAL_SCORE[norm(String(first))]
-  return s ?? null
+  return categoricalScore(String(first))
 }
 
 /**
  * O voto conta como "nota baixa" (dispara alerta ao gestor)?
- * - numeric_0_10: score < threshold (default 5 → barra 0,1,2,3,4).
- * - categorical: opção ∈ {Ruim, Pessimo} (acento-insensível).
+ * Unificado nas DUAS escalas via score 0-10: `score < threshold` (default 5).
+ * Numérico: 0-4 disparam. Categórico (Bom=8/Regular=5/Ruim=2): só "Ruim" dispara
+ * (Regular=5 não é <5; suba o threshold p/ 6 se quiser incluir Regular).
  */
 export function isLowScore(
   selectedOptions: string[] | null | undefined,
   scale: NpsScale,
   threshold: number,
 ): boolean {
-  if (scale === 'numeric_0_10') {
-    const score = parseNpsScore(selectedOptions, scale)
-    return score !== null && score < threshold
-  }
-  const first = norm(String((selectedOptions || [])[0] ?? ''))
-  return CATEGORICAL_BAD.includes(first)
+  const score = parseNpsScore(selectedOptions, scale)
+  return score !== null && score < threshold
 }
 
 /** Label legível do score pro alerta ("3/10" ou "Ruim"). */

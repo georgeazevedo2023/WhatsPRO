@@ -59,7 +59,9 @@ export function usePollMetrics(instanceId: string | undefined, periodDays = 30) 
             optionCounts[opt] = (optionCounts[opt] || 0) + 1;
           }
           if (!poll?.is_nps) continue;
-          if (poll.nps_scale === 'numeric_0_10' && typeof resp.numeric_score === 'number') {
+          // numeric_score é gravado pro voto NPS em QUALQUER escala (categórico é
+          // pontuado por palavra-chave em 0-10 no webhook), então unifica aqui.
+          if (typeof resp.numeric_score === 'number') {
             numTotal += resp.numeric_score; numCount++;
             if (resp.numeric_score < 5) numLow++;
             const key = String(resp.numeric_score);

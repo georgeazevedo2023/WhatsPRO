@@ -40,10 +40,12 @@ describe('parseNpsScore', () => {
     expect(parseNpsScore(['abc'], 'numeric_0_10')).toBeNull()
     expect(parseNpsScore([], 'numeric_0_10')).toBeNull()
   })
-  it('categorical: mapeia Excelente=5 .. Pessimo=1 (acento-insensível)', () => {
-    expect(parseNpsScore(['Excelente'], 'categorical')).toBe(5)
-    expect(parseNpsScore(['Péssimo'], 'categorical')).toBe(1)
-    expect(parseNpsScore(['Regular'], 'categorical')).toBe(3)
+  it('categorical: mapeia por palavra-chave em 0-10 (acento + prefixo "N - ")', () => {
+    expect(parseNpsScore(['Excelente'], 'categorical')).toBe(10)
+    expect(parseNpsScore(['Péssimo'], 'categorical')).toBe(0)
+    expect(parseNpsScore(['1 - Bom'], 'categorical')).toBe(8)
+    expect(parseNpsScore(['2 - Regular'], 'categorical')).toBe(5)
+    expect(parseNpsScore(['3 - Ruim'], 'categorical')).toBe(2)
   })
   it('categorical: opção desconhecida → null', () => {
     expect(parseNpsScore(['Talvez'], 'categorical')).toBeNull()
@@ -59,11 +61,16 @@ describe('isLowScore (threshold do alerta)', () => {
     expect(isLowScore(['6'], 'numeric_0_10', 7)).toBe(true)
     expect(isLowScore(['7'], 'numeric_0_10', 7)).toBe(false)
   })
-  it('categorical: Ruim/Pessimo/Péssimo são baixas; Bom/Excelente não', () => {
-    expect(isLowScore(['Ruim'], 'categorical', 5)).toBe(true)
+  it('categorical "N - Label": só "3 - Ruim" dispara (threshold 5)', () => {
+    expect(isLowScore(['3 - Ruim'], 'categorical', 5)).toBe(true)
+    expect(isLowScore(['1 - Bom'], 'categorical', 5)).toBe(false)
+    expect(isLowScore(['2 - Regular'], 'categorical', 5)).toBe(false)
+  })
+  it('categorical: threshold 6 passa a incluir Regular(5)', () => {
+    expect(isLowScore(['2 - Regular'], 'categorical', 6)).toBe(true)
+  })
+  it('categorical legado: Pessimo/Péssimo ainda contam como baixa', () => {
     expect(isLowScore(['Pessimo'], 'categorical', 5)).toBe(true)
-    expect(isLowScore(['Péssimo'], 'categorical', 5)).toBe(true)
-    expect(isLowScore(['Bom'], 'categorical', 5)).toBe(false)
     expect(isLowScore(['Excelente'], 'categorical', 5)).toBe(false)
   })
   it('voto vazio → não é nota baixa', () => {
