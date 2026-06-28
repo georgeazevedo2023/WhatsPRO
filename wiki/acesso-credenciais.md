@@ -33,7 +33,8 @@ tags: [acesso, credenciais, secrets, deploy, supabase, uazapi, n8n]
 | PAT (deploy CLI) | **valor → memória [[reference_supabase_token_novo]]** (`sbp_…`). O antigo [[reference_supabase_token]] dá 403 |
 | CLI | binário scoop `C:\Users\georg\scoop\shims\supabase.exe` — **`npx supabase` quebra** (`uv_spawn`) |
 | Deploy edge fn | `$env:SUPABASE_ACCESS_TOKEN=<PAT>; supabase functions deploy <fn> --project-ref prfcbfumyrrycsrcrvms --use-api` |
-| MCP `mcp__supabase` | lê metadados (list_*, get_logs, advisors). ⚠️ **`execute_sql` e endpoints de management dão 403** (privilégio da conta no endpoint) — confirmado 2026-06-28. Pra rodar SQL, usar conta/dashboard com acesso. |
+| MCP **`mcp__supabase-novo`** ✅ | **É o NOSSO** projeto (`prfcbfumyrrycsrcrvms`, single-project, sem `project_id`). Usar p/ SQL/schema/inspeção: `execute_sql`, `list_tables`, `apply_migration`, `get_advisors`, `get_logs`. Confirmado 2026-06-28 (retornou nossas 3 instâncias). **Deploy de edge fn continua só via CLI scoop** (MCP sobe `_shared` vazio). |
+| MCP `mcp__supabase` ❌ | **NÃO é nosso** — autenticado em OUTRA conta, sem acesso ao `prfcbfumyrrycsrcrvms` (`execute_sql` → 403). Ignorar pro nosso projeto. |
 
 **Secrets do runtime Supabase** (injetados automaticamente nas edge fns — NÃO setar à mão): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`.
 

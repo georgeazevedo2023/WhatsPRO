@@ -122,7 +122,7 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **CLI de deploy** | binário scoop `C:\Users\georg\scoop\shims\supabase.exe` — **`npx supabase` está QUEBRADO** aqui (`uv_spawn`, bin vazio) |
 | Comando edge fn | `$env:SUPABASE_ACCESS_TOKEN=<PAT eletropiso>; supabase functions deploy <fn> --project-ref prfcbfumyrrycsrcrvms --use-api` (`--use-api` evita Docker, bundla `_shared`) |
 | **403 no deploy** | CLI logado na conta ANTIGA → exportar o PAT eletropiso (memória `reference_supabase_token_novo`) |
-| **MCP `mcp__supabase`** | lê metadados (list/logs/advisors). ⚠️ `execute_sql`/management dão **403** (privilégio da conta) — confirmar SQL via conta/dashboard com acesso |
+| **MCP do DB** | **`mcp__supabase-novo` é o NOSSO** (`prfcbfumyrrycsrcrvms`) → `execute_sql`/`list_tables`/`apply_migration`/`get_advisors`. ⚠️ `mcp__supabase` (sem sufixo) **NÃO é nosso** (outra conta, 403) — não usar. Deploy de edge fn segue só CLI scoop |
 | NUNCA | MCP `deploy_edge_function` p/ fns com imports `_shared` (sobe vazio → derruba prod). Só CLI scoop |
 | Credenciais/keys | valores → `.env.local` (`VITE_*`/`ADMIN_*`) + Supabase Secrets (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `UAZAPI_*`, `INTERNAL_FUNCTION_KEY`, `ALLOWED_ORIGIN`…) + memória. Inventário: [[wiki/acesso-credenciais]] |
 | Ingestão (entrada msgs) | UAZAPI → **n8n** (`fluxwebhook.wsmart.com.br/webhook/<path>`) → `whatsapp-webhook`. Lag de entrada = n8n, não a edge fn |
