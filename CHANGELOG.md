@@ -13,6 +13,12 @@ audited_at: 2026-06-28
 
 ---
 
+### v7.101.0 (2026-06-28) — 📊 Cards "Atendimento": teto de recência de 7 dias (foco no acionável, não no backlog)
+
+Decisão do dono: os 4 cards de Atendimento listavam leads de 38-39 dias (backlog antigo). Agora mostram **só os últimos 7 dias**. `get_abandoned_conversations`, `dash_sla_sem_resposta` e `get_active_quotes` ganharam `AND <data> >= now() - interval '7 days'` (CREATE OR REPLACE, mesma assinatura, nenhuma quebra; migration `20260628180000`); "Sem 1ª resposta ao lead" usa `p_days_lookback=7` (hook). Counts em prod caíram p/ valores acionáveis: **+24h 282→32 · SLA 23→7 · cotações 5→0 · 1ª-resposta 4→0** (os zerados = backlog era 100% >7 dias). tsc 0 · vitest **1979/0**.
+
+---
+
 ### v7.100.0 (2026-06-28) — 📊 Cards "Atendimento": mensagem do lead + atendente atribuído + conversa em modal + paginação lazy
 
 Os 3 cards da zona Atendimento do Dashboard do Gestor (`PendingConversationsCard`: "Sem 1ª resposta ao lead", "Sem resposta há +24h", "Cotações em andamento") agora mostram, por item, a **última mensagem do lead** + o **atendente atribuído** (ou "Não atribuído", que explica o não-atendimento), e **clicar abre a conversa em modal** (reusa `ConversationModal`). **Paginação "Ver mais"** (8 por vez) substitui o "+274 mais" estático. **Performance (pedido do dono p/ não travar o load):** nova RPC aditiva `get_pending_conversation_previews(ids[])` (SECURITY INVOKER → RLS aplica; REVOKE public/GRANT authenticated; migration `20260628170000`) busca msg+atendente **só da página visível** (lazy) — o load inicial puxa 8 previews/card, não os 282 pendentes; `placeholderData: keepPreviousData` evita flash no "Ver mais". Atendente resolvido via `useUserProfiles` (RLS-aware). Auditado por workflow adversarial (11 agentes): 0 blocker/high, 2 LOW fechados (placeholder neutro no atendente durante load + keepPreviousData). Frontend + 1 RPC nova; nenhuma RPC existente alterada. tsc 0 novo · vitest **1979/0** · build OK.

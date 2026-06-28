@@ -98,7 +98,10 @@ export function useManagerAdvancedMetrics(
         }),
         supabase.rpc('get_unanswered_first_messages', {
           p_instance_id: instanceId,
-          p_days_lookback: periodDays,
+          // Teto de recência: cards de Atendimento mostram só os últimos 7 dias
+          // (foco no acionável, não no backlog antigo). Casa com o cap das demais
+          // RPCs (abandoned/sla/quotes) na migration 20260628180000.
+          p_days_lookback: 7,
         }),
         supabase.rpc('get_active_quotes', { p_instance_id: instanceId }),
       ]);

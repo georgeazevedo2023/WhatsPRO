@@ -18,6 +18,8 @@ type: log
 
 **Cards "Atendimento" (v7.100.0):** pedido do dono nos 3 cards (`PendingConversationsCard`: sem 1ª resposta / sem resposta +24h / cotações) — mostrar a **msg do lead** + **atendente atribuído**, clicar abrir **modal**, e paginação p/ não travar o load (282 pendentes num card). Implementado: RPC nova aditiva `get_pending_conversation_previews(ids[])` (INVOKER, RLS; migration `20260628170000`, aplicada em prod via `mcp__supabase-novo` + testada) buscada **só da página visível** (lazy); hook `usePendingConversationPreviews` (`keepPreviousData`); card mostra msg+atendente (placeholder neutro enquanto carrega, "Não atribuído" em vermelho só quando confirmado), clique→`ConversationModal`, "Ver mais" (8/vez). Auditado por workflow (11 agentes, 0 blocker/high, 2 LOW fechados). tsc 0 novo · vitest 1979/0 · build OK. **CHANGELOG particionado** (298→224): cluster 06-11 v7.84.0→v7.80.0 → `wiki/changelog/2026-06-part5.md`. Deploy: v7.100.0.
 
+**Teto de 7 dias nos cards (v7.101.0):** dono pediu "só os últimos 7 dias" (os cards listavam backlog de 38-39 dias). `get_abandoned_conversations`/`dash_sla_sem_resposta`/`get_active_quotes` ganharam `>= now() - interval '7 days'` (CREATE OR REPLACE mesma assinatura; migration `20260628180000`, aplicada via `mcp__supabase-novo`); unanswered via `p_days_lookback=7` no hook. Prod: +24h **282→32**, SLA **23→7**, cotações **5→0**, 1ª-resposta **4→0** (zerados = backlog 100% >7d). tsc 0 · vitest 1979/0. Deploy: v7.101.0.
+
 ---
 ## 2026-06-26 — 📇 Contato compartilhado (vCard) → saudação + transbordo (v7.98.0)
 
