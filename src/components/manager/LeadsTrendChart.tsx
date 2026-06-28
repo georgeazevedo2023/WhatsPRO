@@ -70,7 +70,7 @@ export default function LeadsTrendChart({ data }: Props) {
               dataKey="Leads"
               stroke="hsl(142 70% 45%)"
               strokeWidth={2}
-              dot={false}
+              dot={chartData.length <= 1}
               activeDot={{ r: 4 }}
             />
             <Line
@@ -78,7 +78,7 @@ export default function LeadsTrendChart({ data }: Props) {
               dataKey="Conversões"
               stroke="hsl(262 83% 58%)"
               strokeWidth={2}
-              dot={false}
+              dot={chartData.length <= 1}
               activeDot={{ r: 4 }}
             />
           </LineChart>

@@ -13,6 +13,7 @@ import AgentFollowUpStats from '@/components/gestao/AgentFollowUpStats';
 import GoalProgressBar from '@/components/gestao/GoalProgressBar';
 import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
+import { resolveDefaultManagerInstance } from '@/lib/managerInstanceDefault';
 import { useAgentDetail } from '@/hooks/useAgentDetail';
 import { useInstanceGoals } from '@/hooks/useInstanceGoals';
 
@@ -26,8 +27,8 @@ export default function AgentDetailPage() {
     periodDays: 30,
   });
 
-  // Auto-seleciona primeira instância se nenhuma foi escolhida
-  const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+  // Default do grupo Gestão (fonte única — Eletropiso 558781592373)
+  const effectiveInstanceId = filters.instanceId ?? resolveDefaultManagerInstance(instances);
 
   useEffect(() => {
     if (effectiveInstanceId) {

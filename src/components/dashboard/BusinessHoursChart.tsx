@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { Sun, Moon, Calendar, Clock } from 'lucide-react';
+import { formatPeriodLabel } from '@/lib/periodLabel';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface HourData {
@@ -154,7 +155,7 @@ const BusinessHoursChart = ({ inboxId, periodDays = 30 }: BusinessHoursChartProp
             </TooltipProvider>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Últimos {periodDays} dias · Distribuição por hora (Brasília)
+            {formatPeriodLabel(periodDays, true)} · Distribuição por hora (Brasília)
           </p>
         </CardHeader>
         <CardContent className="pt-0 px-2 pb-3">

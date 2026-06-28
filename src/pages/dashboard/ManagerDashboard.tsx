@@ -36,6 +36,8 @@ import { useLeadsNewVsReturning } from '@/hooks/useLeadsNewVsReturning';
 import { useManagerAdvancedMetrics } from '@/hooks/useManagerAdvancedMetrics';
 import { useDashboardInsights } from '@/hooks/useDashboardInsights';
 import { useAuth } from '@/contexts/AuthContext';
+import { formatPeriodLabel } from '@/lib/periodLabel';
+import { resolveDefaultManagerInstance } from '@/lib/managerInstanceDefault';
 
 const ABANDONED_THRESHOLD_HOURS = 24;
 
@@ -52,8 +54,8 @@ export default function ManagerDashboard() {
     periodDays: 30,
   });
 
-  // Auto-seleciona primeira instância se nenhuma foi escolhida
-  const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+  // Default das telas do grupo Gestão (fonte única — Eletropiso 558781592373)
+  const effectiveInstanceId = filters.instanceId ?? resolveDefaultManagerInstance(instances);
 
   // Sincroniza instância selecionada para o widget assistente (useEffect — não no render)
   useEffect(() => {
@@ -183,7 +185,7 @@ export default function ManagerDashboard() {
             <header className="flex items-baseline justify-between">
               <h2 className="text-sm font-semibold">Pulso do período</h2>
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                últimos {filters.periodDays} dias
+                {formatPeriodLabel(filters.periodDays)}
               </span>
             </header>
             {isLoading ? (

@@ -2,6 +2,7 @@ import { memo } from 'react';
 import StatsCard from '@/components/dashboard/StatsCard';
 import { Users, TrendingUp, ArrowRightLeft, Star, Activity } from 'lucide-react';
 import type { ManagerKPIs } from '@/hooks/useManagerMetrics';
+import { formatPeriodLabel } from '@/lib/periodLabel';
 
 interface ManagerKPICardsProps {
   kpis: ManagerKPIs;
@@ -14,7 +15,7 @@ const ManagerKPICards = ({ kpis, periodDays }: ManagerKPICardsProps) => (
       title="Leads Novos"
       value={kpis.newLeads.toLocaleString('pt-BR')}
       icon={Users}
-      description={`últimos ${periodDays} dias`}
+      description={formatPeriodLabel(periodDays)}
     />
     <StatsCard
       title="Taxa Conversão"

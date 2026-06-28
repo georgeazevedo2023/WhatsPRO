@@ -3,6 +3,7 @@ import { memo } from 'react';
 import StatsCard from '@/components/dashboard/StatsCard';
 import { MessageSquare, CheckCircle2, Percent, Clock, Star, DollarSign } from 'lucide-react';
 import type { VendorKPIs } from '@/hooks/useVendorDetail';
+import { formatPeriodLabel } from '@/lib/periodLabel';
 
 interface VendorKPICardsProps {
   kpis: VendorKPIs;
@@ -15,7 +16,7 @@ const VendorKPICards = ({ kpis, periodDays }: VendorKPICardsProps) => (
       title="Conversas"
       value={kpis.conversations.toLocaleString('pt-BR')}
       icon={MessageSquare}
-      description={`últimos ${periodDays} dias`}
+      description={formatPeriodLabel(periodDays)}
     />
     <StatsCard
       title="Resolvidas"

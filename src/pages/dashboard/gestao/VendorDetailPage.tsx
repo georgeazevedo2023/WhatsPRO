@@ -12,6 +12,7 @@ import VendorTrendChart from '@/components/gestao/VendorTrendChart';
 import GoalProgressBar from '@/components/gestao/GoalProgressBar';
 import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
+import { resolveDefaultManagerInstance } from '@/lib/managerInstanceDefault';
 import { useVendorDetail } from '@/hooks/useVendorDetail';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
 import { useInstanceGoals } from '@/hooks/useInstanceGoals';
@@ -27,8 +28,8 @@ export default function VendorDetailPage() {
     periodDays: 30,
   });
 
-  // Auto-seleciona primeira instância se nenhuma foi escolhida
-  const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+  // Default do grupo Gestão (fonte única — Eletropiso 558781592373)
+  const effectiveInstanceId = filters.instanceId ?? resolveDefaultManagerInstance(instances);
 
   useEffect(() => {
     if (effectiveInstanceId) {

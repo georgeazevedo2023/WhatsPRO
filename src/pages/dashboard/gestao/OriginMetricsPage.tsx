@@ -13,6 +13,7 @@ import OriginUTMBreakdown from '@/components/gestao/OriginUTMBreakdown';
 import GoalProgressBar from '@/components/gestao/GoalProgressBar';
 import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
+import { resolveDefaultManagerInstance } from '@/lib/managerInstanceDefault';
 import { useOriginMetrics } from '@/hooks/useOriginMetrics';
 import { useInstanceGoals } from '@/hooks/useInstanceGoals';
 import type { LeadsByOrigin } from '@/hooks/useManagerMetrics';
@@ -26,8 +27,8 @@ export default function OriginMetricsPage() {
     periodDays: 30,
   });
 
-  // Auto-seleciona primeira instância se nenhuma foi escolhida
-  const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+  // Default do grupo Gestão (fonte única — Eletropiso 558781592373)
+  const effectiveInstanceId = filters.instanceId ?? resolveDefaultManagerInstance(instances);
 
   useEffect(() => {
     if (effectiveInstanceId) {

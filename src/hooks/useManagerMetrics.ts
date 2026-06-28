@@ -137,7 +137,12 @@ export function useManagerMetrics(instanceId: string | null, periodDays = 30) {
       const conversionLeads = funnelRows
         .filter((r: any) => r.stage === 'conversion')
         .reduce((s: number, r: any) => s + (r.unique_leads || 0), 0);
-      const conversionRate = newLeads > 0 ? Math.round((conversionLeads / newLeads) * 100) : 0;
+      // Clamp em 100%: sob janela curta (24h) o numerador (funil, granularidade-dia
+      // via event_date) pode cobrir período maior que o denominador (leads, timestamp
+      // exato), o que faria a taxa passar de 100%.
+      const conversionRate = newLeads > 0
+        ? Math.min(100, Math.round((conversionLeads / newLeads) * 100))
+        : 0;
 
       // NPS avg — query poll_responses somente se há polls
       let npsAvg = 0;

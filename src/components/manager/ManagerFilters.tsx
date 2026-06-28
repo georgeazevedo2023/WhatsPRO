@@ -21,6 +21,7 @@ interface ManagerFiltersProps {
 }
 
 const PERIOD_OPTIONS = [
+  { value: 1, label: 'Últimas 24h' },
   { value: 7, label: '7 dias' },
   { value: 15, label: '15 dias' },
   { value: 30, label: '30 dias' },
@@ -71,7 +72,7 @@ const ManagerFilters = ({ instances, filters, onFiltersChange }: ManagerFiltersP
       value={String(filters.periodDays)}
       onValueChange={(val) => onFiltersChange({ ...filters, periodDays: Number(val) })}
     >
-      <SelectTrigger className="h-8 text-xs w-full sm:w-[110px]">
+      <SelectTrigger className="h-8 text-xs w-full sm:w-[130px]">
         <CalendarDays className="w-3 h-3 mr-1.5 shrink-0 text-muted-foreground" />
         <SelectValue />
       </SelectTrigger>

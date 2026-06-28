@@ -81,6 +81,7 @@ export default function LeadsNewVsReturningChart({ data, isLoading }: Props) {
                 stroke={COLOR_NEW}
                 fill="url(#gradNovos)"
                 strokeWidth={2}
+                dot={series.length <= 1}
               />
               <Area
                 type="monotone"
@@ -90,6 +91,7 @@ export default function LeadsNewVsReturningChart({ data, isLoading }: Props) {
                 stroke={COLOR_RETURNING}
                 fill="url(#gradRec)"
                 strokeWidth={2}
+                dot={series.length <= 1}
               />
             </AreaChart>
           </ResponsiveContainer>

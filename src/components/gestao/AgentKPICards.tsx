@@ -3,6 +3,7 @@ import { memo } from 'react';
 import StatsCard from '@/components/dashboard/StatsCard';
 import { Bot, ArrowRightLeft, Shield, Zap, DollarSign, Calculator } from 'lucide-react';
 import type { AgentKPIs } from '@/hooks/useAgentDetail';
+import { formatPeriodLabel } from '@/lib/periodLabel';
 
 interface AgentKPICardsProps {
   kpis: AgentKPIs;
@@ -15,7 +16,7 @@ const AgentKPICards = ({ kpis, periodDays }: AgentKPICardsProps) => (
       title="Respostas IA"
       value={kpis.totalResponses.toLocaleString('pt-BR')}
       icon={Bot}
-      description={`últimos ${periodDays} dias`}
+      description={formatPeriodLabel(periodDays)}
     />
     <StatsCard
       title="Handoffs"

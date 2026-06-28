@@ -3,6 +3,7 @@ import { memo } from 'react';
 import StatsCard from '@/components/dashboard/StatsCard';
 import { ArrowRightLeft, AlertTriangle, Shield, TrendingUp, Clock } from 'lucide-react';
 import type { HandoffKPIs } from '@/hooks/useHandoffMetrics';
+import { formatPeriodLabel } from '@/lib/periodLabel';
 
 interface HandoffKPICardsProps {
   kpis: HandoffKPIs;
@@ -23,7 +24,7 @@ const HandoffKPICards = ({ kpis, periodDays }: HandoffKPICardsProps) => (
       title="Total Handoffs"
       value={kpis.totalHandoffs.toLocaleString('pt-BR')}
       icon={ArrowRightLeft}
-      description={`últimos ${periodDays} dias`}
+      description={formatPeriodLabel(periodDays)}
     />
     <StatsCard
       title="Evitáveis"

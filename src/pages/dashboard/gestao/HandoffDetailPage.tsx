@@ -15,6 +15,7 @@ import GoalProgressBar from '@/components/gestao/GoalProgressBar';
 import GoalsConfigModal from '@/components/gestao/GoalsConfigModal';
 import { useHandoffMetrics } from '@/hooks/useHandoffMetrics';
 import { useManagerInstances } from '@/hooks/useManagerInstances';
+import { resolveDefaultManagerInstance } from '@/lib/managerInstanceDefault';
 import { useInstanceGoals } from '@/hooks/useInstanceGoals';
 
 export default function HandoffDetailPage() {
@@ -27,8 +28,8 @@ export default function HandoffDetailPage() {
     periodDays: 30,
   });
 
-  // Auto-seleciona primeira instância se nenhuma foi escolhida
-  const effectiveInstanceId = filters.instanceId ?? (instances[0]?.id ?? null);
+  // Default do grupo Gestão (fonte única — Eletropiso 558781592373)
+  const effectiveInstanceId = filters.instanceId ?? resolveDefaultManagerInstance(instances);
 
   useEffect(() => {
     if (effectiveInstanceId) {

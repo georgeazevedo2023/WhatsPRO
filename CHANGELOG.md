@@ -1,8 +1,8 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-06-17
-audited_at: 2026-06-17
+updated: 2026-06-28
+audited_at: 2026-06-28
 ---
 
 # Changelog
@@ -10,6 +10,12 @@ audited_at: 2026-06-17
 > Releases ativas (últimos ~14 dias). Histórico completo em [[wiki/changelog/]].
 >
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>.md`.
+
+---
+
+### v7.99.0 (2026-06-28) — 📊 Dashboard do Gestor: Gestão em destaque (item 1) + filtro "Últimas 24h" + Eletropiso default
+
+Três pedidos do dono (prints): (1) **Dashboard do Gestor** como item de **destaque em 1º lugar** no menu; (2) instância **Eletropiso 558781592373** como **default** do filtro; (3) **"Últimas 24h"** no filtro de período (só tinha 7/15/30/60 dias). Entregue e **auditado por workflow adversarial (23 agentes, 17 achados → 13 confirmados)**, que pegou o ponto cego da 1ª versão: o `PERIOD_OPTIONS` e o texto "últimos N dias" são **compartilhados por 5 telas** do grupo Gestão e viviam em **7 lugares** — o fix inicial cobria só 2. **Correções de raiz (fonte única, zero gambiarra):** (a) menu — grupo "Gestão" movido pro topo do `Sidebar` com estilo de destaque (param `highlight` no `renderCollapsible`); (b) `src/lib/periodLabel.ts` (`formatPeriodLabel`) ligado nos **7 consumidores** (Manager/Agent/Handoff/Vendor KPICards + BusinessHoursChart + TopContactReasons + header) → fim do "últimos 1 dias"; (c) `src/lib/managerInstanceDefault.ts` (`resolveDefaultManagerInstance`) ligado nas **5 telas** (Dashboard + Agente + Transbordo + Origem + Vendedor) → default Eletropiso consistente, fim do flip-flop do `wp-gestao-instance`/widget Assistente; (d) `Últimas 24h` (`value:1`) no `ManagerFilters`; (e) `conversionRate` com `Math.min(100,…)` (sob 24h o numerador dia-granular passava de 100%); (f) gráficos `LeadsTrendChart`/`LeadsNewVsReturningChart` com `dot` condicional (1 ponto não some). Frontend puro (nenhuma edge fn). tsc 0 erro novo · vitest **1979/0** · lint 0 novo. 20 arquivos (18 editados + 2 libs novas). **⚠️ Pré-deploy:** confirmar o nome da instância no DB (`name ilike '%558781592373%'`) — o match por nome é magic-string (follow-up: migrar p/ `owner_jid`).
 
 ---
 

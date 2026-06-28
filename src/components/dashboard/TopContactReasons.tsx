@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { MessageCircle, TrendingUp, Sparkles } from 'lucide-react';
+import { formatPeriodLabel } from '@/lib/periodLabel';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface TopReasonsChartProps {
@@ -159,7 +160,7 @@ const TopContactReasons = ({ instanceId, inboxId, periodDays = 30 }: TopReasonsC
           </CardTitle>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Últimos {periodDays} dias · Baseado em resumos IA · Passe o mouse para ver os itens
+          {formatPeriodLabel(periodDays, true)} · Baseado em resumos IA · Passe o mouse para ver os itens
         </p>
       </CardHeader>
       <CardContent className="pt-0 px-4 pb-4 space-y-2.5">

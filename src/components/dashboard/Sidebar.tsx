@@ -243,9 +243,18 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
     setIsOpen: (v: boolean) => void,
     isGroupActive: boolean,
     collapsedPath: string,
-    children: React.ReactNode
+    children: React.ReactNode,
+    highlight = false
   ) => {
     const Icon = icon;
+    // "Destaque": item sempre com tom primário, mais forte quando ativo.
+    const groupStateClass = highlight
+      ? (isGroupActive
+          ? 'bg-primary/15 text-primary border border-primary/30 shadow-sm'
+          : 'bg-primary/5 text-primary border border-primary/20 hover:bg-primary/10')
+      : (isGroupActive
+          ? 'bg-primary/10 text-primary border border-primary/20'
+          : 'text-sidebar-foreground hover:bg-sidebar-accent');
     if (isCollapsed) {
       return (
         <Tooltip>
@@ -254,12 +263,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
               to={collapsedPath}
               onClick={handleLinkClick}
               aria-label={label}
-              className={cn(
-                collapsedLinkClass,
-                isGroupActive
-                  ? 'bg-primary/10 text-primary border border-primary/20'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent'
-              )}
+              className={cn(collapsedLinkClass, groupStateClass)}
             >
               <Icon className="w-5 h-5" />
             </Link>
@@ -275,9 +279,7 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
           <button
             className={cn(
               'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all w-full text-left',
-              isGroupActive
-                ? 'bg-primary/10 text-primary border border-primary/20'
-                : 'text-sidebar-foreground hover:bg-sidebar-accent'
+              groupStateClass
             )}
           >
             <Icon className="w-5 h-5 shrink-0" />
@@ -381,6 +383,24 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
         )}
 
         <div className="h-px bg-border/20 my-1" />
+
+        {/* Gestão (DESTAQUE — item principal) - Dashboard do Gestor (super admin + gerente) */}
+        {(isSuperAdmin || isGerente) && renderCollapsible(
+          LineChart,
+          'Gestao',
+          gestaoOpen,
+          setGestaoOpen,
+          isGestaoActive,
+          '/dashboard/gestao',
+          <>
+            {renderSubItem('/dashboard/gestao', 'Dashboard', LineChart)}
+            {renderSubItem('/dashboard/gestao/agente', 'Agente IA', Bot)}
+            {renderSubItem('/dashboard/gestao/transbordo', 'Transbordo', ArrowRightLeft)}
+            {renderSubItem('/dashboard/gestao/origem', 'Metricas Origem', Globe)}
+            {renderSubItem('/dashboard/assistant', 'Assistente IA', Sparkles)}
+          </>,
+          true
+        )}
 
         {/* Dashboard + Agendamentos (admin only) */}
         {isSuperAdmin && navItems.map((item) => (
@@ -570,23 +590,6 @@ const Sidebar = ({ isMobile = false, onNavigate, onOpenSearch }: SidebarProps) =
             </TooltipTrigger>
             {isCollapsed && <TooltipContent side="right">Leads</TooltipContent>}
           </Tooltip>
-        )}
-
-        {/* Gestão - Collapsible (super admin + gerente) */}
-        {(isSuperAdmin || isGerente) && renderCollapsible(
-          LineChart,
-          'Gestao',
-          gestaoOpen,
-          setGestaoOpen,
-          isGestaoActive,
-          '/dashboard/gestao',
-          <>
-            {renderSubItem('/dashboard/gestao', 'Dashboard', LineChart)}
-            {renderSubItem('/dashboard/gestao/agente', 'Agente IA', Bot)}
-            {renderSubItem('/dashboard/gestao/transbordo', 'Transbordo', ArrowRightLeft)}
-            {renderSubItem('/dashboard/gestao/origem', 'Metricas Origem', Globe)}
-            {renderSubItem('/dashboard/assistant', 'Assistente IA', Sparkles)}
-          </>
         )}
 
         {/* Funis - Collapsible unificado (super admin only) */}
