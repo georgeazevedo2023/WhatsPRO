@@ -110,9 +110,9 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 
 ---
 
-## 🚀 Deploy & Supabase — coordenadas (LER ANTES de qualquer deploy)
+## 🚀 Deploy, Supabase & Acesso — coordenadas (LER ANTES de qualquer deploy)
 
-> ⚠️ As wikis antigas tinham ref/comando ERRADOS e me faziam redescobrir tudo toda sessão. Estas são as coordenadas reais (verificadas 2026-06-04). O **valor do PAT** vive SÓ na memória `reference_supabase_token_novo` — **NUNCA** colar token em arquivo commitado (bloqueia push por secret scanning).
+> ⚠️ As wikis antigas tinham ref/comando ERRADOS e me faziam redescobrir tudo toda sessão. Estas são as coordenadas reais (verificadas 2026-06-28). **Mapa completo de credenciais/keys (frontend, edge fns, hosting, n8n, UAZAPI, ponteiros pros segredos): [[wiki/acesso-credenciais]].** Regra de ouro: **valor de segredo NUNCA em arquivo commitado** (bloqueia push por secret scanning) — PAT vive na memória `reference_supabase_token_novo`; senha admin no `.env.local`; keys de edge fn no painel Supabase Secrets.
 
 | Item | Valor |
 |---|---|
@@ -122,8 +122,12 @@ Este arquivo é o **orquestrador** da documentação: lista o que ler em funçã
 | **CLI de deploy** | binário scoop `C:\Users\georg\scoop\shims\supabase.exe` — **`npx supabase` está QUEBRADO** aqui (`uv_spawn`, bin vazio) |
 | Comando edge fn | `$env:SUPABASE_ACCESS_TOKEN=<PAT eletropiso>; supabase functions deploy <fn> --project-ref prfcbfumyrrycsrcrvms --use-api` (`--use-api` evita Docker, bundla `_shared`) |
 | **403 no deploy** | CLI logado na conta ANTIGA → exportar o PAT eletropiso (memória `reference_supabase_token_novo`) |
+| **MCP `mcp__supabase`** | lê metadados (list/logs/advisors). ⚠️ `execute_sql`/management dão **403** (privilégio da conta) — confirmar SQL via conta/dashboard com acesso |
 | NUNCA | MCP `deploy_edge_function` p/ fns com imports `_shared` (sobe vazio → derruba prod). Só CLI scoop |
-| Deploy frontend | `git push origin master` → GitHub Actions → GHCR → Portainer (stack "whatspro", Hetzner CX42) |
+| Credenciais/keys | valores → `.env.local` (`VITE_*`/`ADMIN_*`) + Supabase Secrets (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `UAZAPI_*`, `INTERNAL_FUNCTION_KEY`, `ALLOWED_ORIGIN`…) + memória. Inventário: [[wiki/acesso-credenciais]] |
+| Ingestão (entrada msgs) | UAZAPI → **n8n** (`fluxwebhook.wsmart.com.br/webhook/<path>`) → `whatsapp-webhook`. Lag de entrada = n8n, não a edge fn |
+| UAZAPI | `https://wsmart.uazapi.com` · header `token` (instância) + `admintoken` (env `UAZAPI_ADMIN_TOKEN`) · skill `/uazapi` |
+| Deploy frontend | `git push origin master` → GitHub Actions → GHCR → **webhook Portainer MANUAL** (memória `reference_portainer_webhook`) → redeploy (stack "whatspro", Hetzner CX42). CI success ≠ deployado |
 | Pós-deploy | `mcp__supabase__list_edge_functions` confere `version`/`verify_jwt`/`ezbr_sha256` mudaram |
 
 ---

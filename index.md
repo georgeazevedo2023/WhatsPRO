@@ -42,6 +42,7 @@ audited_at: 2026-06-18
 | [[CHANGELOG.md]] (raiz) | Releases recentes (~14 dias) |
 | [[wiki/modulos]] | Tasks por módulo (M1-M9) — split do PRD |
 | [[wiki/infraestrutura]] | Stack, edge fns, storage, segurança |
+| [[wiki/acesso-credenciais]] | Mapa único: acesso Supabase, env vars/keys, n8n, UAZAPI, Portainer, ponteiros pros segredos |
 | [[wiki/audio-pipeline]] | Fluxo end-to-end UAZAPI → Groq → DB → UI |
 | [[wiki/visao-geral-projeto]] | O que é, problema, papéis, competidores |
 | [[wiki/visao-geral-modulos]] | Os 19 módulos em 5 grupos |
