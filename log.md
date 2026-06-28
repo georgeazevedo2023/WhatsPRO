@@ -14,6 +14,8 @@ type: log
 
 **Credenciais (docs):** auditei vault + memória + código e consolidei o acesso num **mapa único**: novo `wiki/acesso-credenciais.md` (Supabase, env vars do frontend, secrets das edge fns por NOME, n8n, UAZAPI, Portainer, ponteiros pros segredos), seção "Deploy, Supabase & Acesso" expandida no `CLAUDE.md` (+ MCP `execute_sql` 403, ingestão n8n, UAZAPI), memória `reference_access_credentials_map` + entrada no índice. **Nenhum valor de segredo commitado** (só nomes/ponteiros). Drift corrigido: o código usa `INTERNAL_FUNCTION_KEY`, não `CRON_AUTH_KEY`. Sinalizadas ao dono pendências de segurança: rotacionar PAT (vazou em chat 2026-05-06) + senha admin fraca.
 
+**SLA card modal + MCP + validação (v7.99.1):** descobri que o MCP **`mcp__supabase-novo` é o NOSSO** (`mcp__supabase` sem sufixo = outra conta, 403) → tenho SQL no projeto. **Validei os números do dashboard em prod** (instância V2 `re662a6d32de7e0`): card "Sem resposta +30min" = **23** (exato), lista idêntica (Erick/Luis/Lucas Gois/Lucas Rodrigues/SLONE), Score 40 (exato), Conversão 107/551 = 19% (exato), Leads 551 (print 568 = janela de 30d deslizou). **Achado:** `dash_sla_sem_resposta` não tem teto de recência → lista leads de 38-39 dias (backlog de abandonados, não SLA-agora; decisão de produto do dono). **Feature:** o card SLA (`SlaAlertList`) abria a conversa em nova aba → agora abre **em modal** (reusa `ConversationModal` + a11y role/Enter). tsc 0 · vitest 1979/0. Deploy: v7.99.1.
+
 ---
 ## 2026-06-26 — 📇 Contato compartilhado (vCard) → saudação + transbordo (v7.98.0)
 
