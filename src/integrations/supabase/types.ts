@@ -527,11 +527,15 @@ export type Database = {
           openai_api_key: string | null
           out_of_hours_message: string | null
           personality: string | null
+          poll_nps_ask_found_product: boolean
           poll_nps_delay_minutes: number | null
           poll_nps_enabled: boolean | null
+          poll_nps_low_score_threshold: number
+          poll_nps_manager_alert_whatsapp: boolean
           poll_nps_notify_on_bad: boolean | null
           poll_nps_options: Json | null
           poll_nps_question: string | null
+          poll_nps_scale: string
           prompt_sections: Json | null
           refine_results_threshold: number
           returning_greeting_message: string | null
@@ -601,11 +605,15 @@ export type Database = {
           openai_api_key?: string | null
           out_of_hours_message?: string | null
           personality?: string | null
+          poll_nps_ask_found_product?: boolean
           poll_nps_delay_minutes?: number | null
           poll_nps_enabled?: boolean | null
+          poll_nps_low_score_threshold?: number
+          poll_nps_manager_alert_whatsapp?: boolean
           poll_nps_notify_on_bad?: boolean | null
           poll_nps_options?: Json | null
           poll_nps_question?: string | null
+          poll_nps_scale?: string
           prompt_sections?: Json | null
           refine_results_threshold?: number
           returning_greeting_message?: string | null
@@ -675,11 +683,15 @@ export type Database = {
           openai_api_key?: string | null
           out_of_hours_message?: string | null
           personality?: string | null
+          poll_nps_ask_found_product?: boolean
           poll_nps_delay_minutes?: number | null
           poll_nps_enabled?: boolean | null
+          poll_nps_low_score_threshold?: number
+          poll_nps_manager_alert_whatsapp?: boolean
           poll_nps_notify_on_bad?: boolean | null
           poll_nps_options?: Json | null
           poll_nps_question?: string | null
+          poll_nps_scale?: string
           prompt_sections?: Json | null
           refine_results_threshold?: number
           returning_greeting_message?: string | null
@@ -1363,6 +1375,7 @@ export type Database = {
           last_message: string | null
           last_message_at: string | null
           lead_msg_count: number
+          nps_sent_at: string | null
           priority: string
           resolved_at: string | null
           shown_product_ids: string[] | null
@@ -1388,6 +1401,7 @@ export type Database = {
           last_message?: string | null
           last_message_at?: string | null
           lead_msg_count?: number
+          nps_sent_at?: string | null
           priority?: string
           resolved_at?: string | null
           shown_product_ids?: string[] | null
@@ -1413,6 +1427,7 @@ export type Database = {
           last_message?: string | null
           last_message_at?: string | null
           lead_msg_count?: number
+          nps_sent_at?: string | null
           priority?: string
           resolved_at?: string | null
           shown_product_ids?: string[] | null
@@ -3948,7 +3963,9 @@ export type Database = {
       }
       poll_messages: {
         Row: {
+          attendant_id: string | null
           auto_tags: Json | null
+          bad_alert_sent_at: string | null
           conversation_id: string | null
           created_at: string | null
           created_by: string | null
@@ -3958,12 +3975,15 @@ export type Database = {
           instance_id: string
           is_nps: boolean | null
           message_id: string | null
+          nps_scale: string | null
           options: string[]
           question: string
           selectable_count: number
         }
         Insert: {
+          attendant_id?: string | null
           auto_tags?: Json | null
+          bad_alert_sent_at?: string | null
           conversation_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -3973,12 +3993,15 @@ export type Database = {
           instance_id: string
           is_nps?: boolean | null
           message_id?: string | null
+          nps_scale?: string | null
           options: string[]
           question: string
           selectable_count?: number
         }
         Update: {
+          attendant_id?: string | null
           auto_tags?: Json | null
+          bad_alert_sent_at?: string | null
           conversation_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -3988,11 +4011,19 @@ export type Database = {
           instance_id?: string
           is_nps?: boolean | null
           message_id?: string | null
+          nps_scale?: string | null
           options?: string[]
           question?: string
           selectable_count?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "poll_messages_attendant_id_fkey"
+            columns: ["attendant_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "poll_messages_conversation_id_fkey"
             columns: ["conversation_id"]
@@ -4020,6 +4051,7 @@ export type Database = {
         Row: {
           contact_id: string | null
           id: string
+          numeric_score: number | null
           poll_message_id: string
           selected_options: string[]
           voted_at: string | null
@@ -4028,6 +4060,7 @@ export type Database = {
         Insert: {
           contact_id?: string | null
           id?: string
+          numeric_score?: number | null
           poll_message_id: string
           selected_options: string[]
           voted_at?: string | null
@@ -4036,6 +4069,7 @@ export type Database = {
         Update: {
           contact_id?: string | null
           id?: string
+          numeric_score?: number | null
           poll_message_id?: string
           selected_options?: string[]
           voted_at?: string | null
@@ -5378,6 +5412,27 @@ export type Database = {
           day: string
           novos: number
           recorrentes: number
+        }[]
+      }
+      get_nps_by_attendant: {
+        Args: { p_instance_id: string; p_period_days?: number }
+        Returns: {
+          attendant_id: string
+          attendant_name: string
+          avg_score: number
+          detractors: number
+          low_count: number
+          promoters: number
+          votes: number
+        }[]
+      }
+      get_pending_conversation_previews: {
+        Args: { p_conversation_ids: string[] }
+        Returns: {
+          assigned_to: string
+          conversation_id: string
+          lead_message: string
+          lead_message_at: string
         }[]
       }
       get_previous_e2e_batch: {
