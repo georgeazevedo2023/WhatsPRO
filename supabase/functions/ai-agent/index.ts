@@ -185,13 +185,13 @@ Deno.serve(async (req) => {
     }
 
     // 1-2. Load agent + conversation + instance in parallel (~300ms saved)
-    // v7.102.0 (dieta de egress): a row do agente (~20 kB) vem do cache por-isolate
-    // quando fresca (TTL 60s); conversation/instance são sempre ao vivo (mudam por turno).
-    const cachedAgent = cacheGet<Record<string, unknown>>(`agent:${agent_id}`)
-    const [agentResult, conversationResult, instanceResult] = await Promise.all([
-      cachedAgent
-        ? Promise.resolve({ data: cachedAgent })
-        : supabase.from('ai_agents').select('*').eq('id', agent_id).maybeSingle(),
+    // v7.103.0 (dieta de egress): a row do agente (~20 kB) fica em cache por-isolate
+    // por até 48h; uma SONDA de ~100 bytes (`updated_at`, trigger ai_agents_updated_at)
+    // valida a cada turno — edição de config propaga no turno seguinte, e o payload
+    // completo só trafega quando algo mudou. conversation/instance sempre ao vivo.
+    const agentCached = cacheGet<{ fp: string; row: Record<string, unknown> }>(`agent:${agent_id}`)
+    const [agentProbeResult, conversationResult, instanceResult] = await Promise.all([
+      supabase.from('ai_agents').select('updated_at').eq('id', agent_id).maybeSingle(),
       supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at, shown_product_ids, cart_items, human_handling_at').eq('id', conversation_id).maybeSingle(),
       supabase.from('instances').select('token').eq('id', instance_id).maybeSingle(),
     ])
@@ -199,8 +199,17 @@ Deno.serve(async (req) => {
     // Casts `any`: os selects retornam shapes específicos nullable que fluem pra dezenas
     // de ctx que esperam `& Record<string, any>` não-nulo. Guardas de null logo abaixo
     // garantem não-nulidade em runtime; o cast só alinha o tsc (zero efeito runtime).
-    const agent = agentResult.data as any
-    if (agent && !cachedAgent) cacheSet(`agent:${agent_id}`, agent)
+    const agentFp = (agentProbeResult.data as { updated_at?: string | null } | null)?.updated_at ?? ''
+    let agent: any = null
+    if (agentProbeResult.data) {
+      if (agentCached && agentCached.fp === agentFp) {
+        agent = agentCached.row as any
+      } else {
+        const { data: freshAgent } = await supabase.from('ai_agents').select('*').eq('id', agent_id).maybeSingle()
+        agent = freshAgent as any
+        if (agent) cacheSet(`agent:${agent_id}`, { fp: agentFp, row: agent })
+      }
+    }
     const conversation = conversationResult.data as any
     const instance = instanceResult.data as any
 
@@ -1850,25 +1859,33 @@ Deno.serve(async (req) => {
     }
 
     // 6-8. Load labels + history + lead profile in parallel (~200ms saved)
-    // v7.102.0 (dieta de egress): knowledge é config estável → cache por-isolate (TTL 60s).
+    // v7.103.0 (dieta de egress): knowledge fica em cache por até 48h; a sonda
+    // (count exato + updated_at mais recente, NULLS LAST) detecta insert/edit/delete
+    // no turno seguinte (trigger ai_agent_knowledge_updated_at, migration 20260702).
     const contextLimit = agent.context_short_messages || 10
-    const cachedKb = cacheGet<Array<Record<string, unknown>>>(`kb:${agent_id}`)
+    const kbCached = cacheGet<{ fp: string; items: Array<Record<string, unknown>> }>(`kb:${agent_id}`)
     const [
       { data: currentLabels },
       { data: availableLabels },
       { data: historyMessages },
       { data: leadProfile },
-      { data: knowledgeItems },
+      kbProbe,
     ] = await Promise.all([
       supabase.from('conversation_labels').select('label_id, labels(name)').eq('conversation_id', conversation_id),
       supabase.from('labels').select('id, name').eq('inbox_id', conversation.inbox_id),
       supabase.from('conversation_messages').select('direction, content, media_type, created_at').eq('conversation_id', conversation_id).neq('direction', 'private_note').gte('created_at', sessionStartDt).order('created_at', { ascending: false }).limit(contextLimit),
       supabase.from('lead_profiles').select('*').eq('contact_id', contact.id).maybeSingle(),
-      cachedKb
-        ? Promise.resolve({ data: cachedKb })
-        : supabase.from('ai_agent_knowledge').select('type, title, content').eq('agent_id', agent_id).order('position').limit(30),
+      supabase.from('ai_agent_knowledge').select('updated_at', { count: 'exact' }).eq('agent_id', agent_id).order('updated_at', { ascending: false, nullsFirst: false }).limit(1),
     ])
-    if (knowledgeItems && !cachedKb) cacheSet(`kb:${agent_id}`, knowledgeItems)
+    const kbFp = `${kbProbe.count ?? 0}:${(kbProbe.data?.[0] as { updated_at?: string | null } | undefined)?.updated_at ?? ''}`
+    let knowledgeItems: Array<Record<string, unknown>> | null = null
+    if (kbCached && kbCached.fp === kbFp) {
+      knowledgeItems = kbCached.items
+    } else {
+      const { data: freshKb } = await supabase.from('ai_agent_knowledge').select('type, title, content').eq('agent_id', agent_id).order('position').limit(30)
+      knowledgeItems = freshKb
+      if (knowledgeItems) cacheSet(`kb:${agent_id}`, { fp: kbFp, items: knowledgeItems })
+    }
 
     const currentLabelNames = (currentLabels || []).map((cl: any) => cl.labels?.name).filter(Boolean)
     const availableLabelNames = (availableLabels || []).map((l: any) => l.name)

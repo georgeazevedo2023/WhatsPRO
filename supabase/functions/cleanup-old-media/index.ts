@@ -26,7 +26,10 @@ Deno.serve(async (req) => {
 
     log.info('Cleaning up media older than cutoff', { cutoff })
 
-    const buckets = ['audio-messages', 'helpdesk-media']
+    // v7.103.0: carousel-images incluído — com a memoização por File + cacheControl 30d
+    // (dieta de egress v7.102.0) os objetos de campanha viram lixo após 30d; nenhum
+    // scheduled_message referencia o bucket (verificado 2026-07-02).
+    const buckets = ['audio-messages', 'helpdesk-media', 'carousel-images']
     let totalDeleted = 0
 
     for (const bucket of buckets) {
