@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-07-02 (cont. III) — 📄 PRD-modelo do Disparador (docs/prd-modelo-disparador.md)
+
+Dono pediu PRD do Disparador incluindo carrossel. Agente varreu o módulo (50+ arquivos) e escrevi o **PRD reutilizável grounded na implementação real** (194 lin, mesmo formato do prd-modelo-bio-link): grupos+leads, 4 tipos de msg, importação 4 fontes + verificação, bases (merge/move/auto-enroll+reconcile), agendamento recorrente (claim SKIP LOCKED), anti-ban (delays 350ms/5-10s/10-20s), relatórios, §4 dedicada ao **carrossel** (2-10 cards, 3 botões URL/REPLY/CALL, pipeline de imagem: nunca base64 → URL pública, upload memoizado 1x, cacheControl 30d) + armadilhas de produção e métricas.
+
+---
 ## 2026-07-02 (cont. II) — 🧹 v7.103.0 cache 48h c/ sonda + faxineiro 48h
 
 Dono: "a cada 48h limpar o cache e o que está impactando pra voltar ao Free". Fui crítico com a premissa (cache de 60s auto-limpa; limpar não ajuda) e entreguei o que maximiza o objetivo: **cache vale 48h + sonda `updated_at` de ~100 bytes por turno** (config/FAQ propagam no turno seguinte; 20 kB só trafegam quando algo mudou). Migration `20260702190000`: trigger `ai_agent_knowledge_updated_at` (faltava — edição de FAQ não bumpava a sonda) + backfill + **`purge_stale_operational_data()` em cron 48h** (jobs: logs>30d, runs/eventos/notifs>60d; 0 FKs; dashboards olham ≤30d) — **1ª execução real purgou 2.301 logs**; + `cleanup-old-media` v4 cobre `carousel-images`. deno/tsc 0 · vitest 1990/0. Deploy: ai-agent **v275**, cleanup-old-media **v4**. Commit `1e26d31`. **Régua de volta ao Free:** egress/dia no painel <~115 MB por 1 ciclo (5 GB c/ 30% folga) + storage <1 GB (retenções ativas) + DB <500 MB (faxineiros) → downgrade com crédito pro-rata.
