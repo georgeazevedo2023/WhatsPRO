@@ -37,6 +37,31 @@ interface NotifRow {
   manager_alerted_at: string | null
 }
 
+// v7.101.1: `conversations` NÃO tem contact_name/contact_phone (nome mora em
+// contacts.name / lead_profiles.full_name — arquitetura de dois nomes, v7.78).
+// O select antigo estourava 42703 a cada run e derrubava o alerta de gestor.
+type LeadNameEmbed = {
+  name?: string | null
+  lead_profiles?: { full_name?: string | null } | Array<{ full_name?: string | null }> | null
+}
+
+function pickLeadName(contact: LeadNameEmbed | LeadNameEmbed[] | null | undefined): string {
+  const c = Array.isArray(contact) ? contact[0] : contact
+  if (!c) return 'cliente'
+  const lp = Array.isArray(c.lead_profiles) ? c.lead_profiles[0] : c.lead_profiles
+  const extracted = (lp?.full_name || '').trim()
+  if (extracted) return extracted
+  return (c.name || '').trim() || 'cliente'
+}
+
+// Linhas de notification_log que decidimos NÃO escalar precisam ser assentadas
+// (timestamp gravado) mesmo assim: sem isso a row volta como candidata a cada
+// run de 2min PARA SEMPRE (auditoria 2026-07-02 achou 1.323 presas no caminho
+// do gestor e 1.255 no do vendedor). Escalar horas depois do prazo é ruído.
+async function settle(rowId: string, field: 're_pinged_at' | 'manager_alerted_at'): Promise<void> {
+  await supabase.from('notification_log').update({ [field]: new Date().toISOString() }).eq('id', rowId)
+}
+
 async function vendorResponded(conversation_id: string, assigned_to_id: string, since: string): Promise<boolean> {
   const { count } = await supabase
     .from('conversation_messages')
@@ -54,18 +79,21 @@ async function rePing(row: NotifRow, log: ReturnType<typeof createLogger>): Prom
     .select('full_name, personal_whatsapp, notifications_paused_until, notify_on_assignment')
     .eq('id', row.assigned_to_id)
     .maybeSingle()
-  if (!vendor || !vendor.personal_whatsapp || !vendor.notify_on_assignment) return
-  if (vendor.notifications_paused_until && new Date(vendor.notifications_paused_until).getTime() > Date.now()) return
+  if (!vendor || !vendor.personal_whatsapp || !vendor.notify_on_assignment) return settle(row.id, 're_pinged_at')
+  if (vendor.notifications_paused_until && new Date(vendor.notifications_paused_until).getTime() > Date.now()) return settle(row.id, 're_pinged_at')
 
-  if (!row.instance_id) return
+  if (!row.instance_id) return settle(row.id, 're_pinged_at')
   const { data: inst } = await supabase
     .from('instances').select('token').eq('id', row.instance_id).maybeSingle()
   const token = (inst as { token?: string } | null)?.token
-  if (!token) return
+  if (!token) return settle(row.id, 're_pinged_at')
 
   const { data: conv } = await supabase
-    .from('conversations').select('contact_name, contact_phone').eq('id', row.conversation_id).maybeSingle()
-  const leadName = (conv as { contact_name?: string | null } | null)?.contact_name || 'cliente'
+    .from('conversations')
+    .select('contact:contacts(name, lead_profiles(full_name))')
+    .eq('id', row.conversation_id)
+    .maybeSingle()
+  const leadName = pickLeadName((conv as { contact?: LeadNameEmbed | LeadNameEmbed[] } | null)?.contact)
   const firstName = (vendor.full_name || '').trim().split(/\s+/)[0] || 'membro'
 
   const text = [
@@ -83,20 +111,20 @@ async function alertManagers(row: NotifRow, log: ReturnType<typeof createLogger>
   // Pega dept(s) do vendor pelo conv (campo assigned_to_id no row)
   const { data: conv } = await supabase
     .from('conversations')
-    .select('department_id, contact_name')
+    .select('department_id, contact:contacts(name, lead_profiles(full_name))')
     .eq('id', row.conversation_id)
     .maybeSingle()
-  if (!conv?.department_id) return
+  if (!conv?.department_id) return settle(row.id, 'manager_alerted_at')
 
   // Gerentes do mesmo dept
   const { data: members } = await supabase
     .from('department_members')
     .select('user_id')
     .eq('department_id', conv.department_id)
-  if (!members || members.length === 0) return
+  if (!members || members.length === 0) return settle(row.id, 'manager_alerted_at')
 
   const userIds = (members as { user_id: string }[]).map(m => m.user_id)
-  if (userIds.length === 0) return
+  if (userIds.length === 0) return settle(row.id, 'manager_alerted_at')
 
   const { data: managers } = await supabase
     .from('user_roles')
@@ -104,7 +132,7 @@ async function alertManagers(row: NotifRow, log: ReturnType<typeof createLogger>
     .in('user_id', userIds)
     .in('role', ['gerente', 'super_admin'])
 
-  if (!managers || managers.length === 0) return
+  if (!managers || managers.length === 0) return settle(row.id, 'manager_alerted_at')
 
   const managerIds = (managers as { user_id: string }[]).map(m => m.user_id)
 
@@ -113,18 +141,18 @@ async function alertManagers(row: NotifRow, log: ReturnType<typeof createLogger>
     .select('id, full_name, personal_whatsapp, notifications_paused_until, notify_on_assignment')
     .in('id', managerIds)
 
-  if (!managerProfiles) return
+  if (!managerProfiles) return settle(row.id, 'manager_alerted_at')
 
-  if (!row.instance_id) return
+  if (!row.instance_id) return settle(row.id, 'manager_alerted_at')
   const { data: inst } = await supabase
     .from('instances').select('token').eq('id', row.instance_id).maybeSingle()
   const token = (inst as { token?: string } | null)?.token
-  if (!token) return
+  if (!token) return settle(row.id, 'manager_alerted_at')
 
   const { data: vendor } = await supabase
     .from('user_profiles').select('full_name').eq('id', row.assigned_to_id).maybeSingle()
   const vendorName = ((vendor as { full_name?: string | null } | null)?.full_name || 'Vendedor').trim()
-  const leadName = (conv.contact_name as string | null) || 'cliente'
+  const leadName = pickLeadName((conv as unknown as { contact?: LeadNameEmbed | LeadNameEmbed[] }).contact)
 
   for (const mgr of (managerProfiles as Array<{
     id: string; full_name: string | null; personal_whatsapp: string | null;
@@ -196,11 +224,21 @@ Deno.serve(async (req: Request) => {
         .select('human_handling_at')
         .eq('id', row.conversation_id)
         .maybeSingle()
-      if (lockRow?.human_handling_at) continue
+      if (lockRow?.human_handling_at) {
+        // Humano assumiu = objetivo da escalação cumprido; assenta pra row
+        // sair do scan (senão volta a cada run pra sempre).
+        if (!row.re_pinged_at) await settle(row.id, 're_pinged_at')
+        if (!row.manager_alerted_at) await settle(row.id, 'manager_alerted_at')
+        continue
+      }
 
-      // Vendor já respondeu? Skipa tudo.
+      // Vendor já respondeu? Escalação virou moot — assenta e skipa tudo.
       const responded = await vendorResponded(row.conversation_id, row.assigned_to_id, row.sent_at)
-      if (responded) continue
+      if (responded) {
+        if (!row.re_pinged_at) await settle(row.id, 're_pinged_at')
+        if (!row.manager_alerted_at) await settle(row.id, 'manager_alerted_at')
+        continue
+      }
 
       // 5min escalation
       if (!row.re_pinged_at && row.sent_at <= cutoffRePing) {
