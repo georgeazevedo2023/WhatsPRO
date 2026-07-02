@@ -2,9 +2,28 @@ import { supabase } from '@/integrations/supabase/client';
 import { getSessionUserId } from '@/hooks/useAuthSession';
 
 /**
+ * v7.102.0 (dieta de egress): memoização por File. No Disparador, o MESMO
+ * arquivo era re-uploadado por DESTINATÁRIO (sendCarouselToNumber roda por jid)
+ * e de novo no espelho do Helpdesk — N leads = N objetos novos (UUID) no bucket
+ * + N downloads cold pela UAZAPI. Memoizando aqui (fonte única), o 1º upload
+ * vale pra todos os call sites: mesma URL → o CDN aquece (cached egress tem
+ * cota separada e mais barata). Falha NÃO fica cacheada (retry re-sobe).
+ */
+const uploadedUrls = new WeakMap<File, Promise<string>>();
+
+/**
  * Upload an image file to carousel-images bucket and return the public URL
  */
-export const uploadCarouselImage = async (file: File): Promise<string> => {
+export const uploadCarouselImage = (file: File): Promise<string> => {
+  const pending = uploadedUrls.get(file);
+  if (pending) return pending;
+  const promise = doUploadCarouselImage(file);
+  uploadedUrls.set(file, promise);
+  promise.catch(() => uploadedUrls.delete(file));
+  return promise;
+};
+
+const doUploadCarouselImage = async (file: File): Promise<string> => {
   const userId = await getSessionUserId();
 
   const fileExt = file.name.split('.').pop() || 'jpg';
@@ -14,7 +33,9 @@ export const uploadCarouselImage = async (file: File): Promise<string> => {
   const { error: uploadError } = await supabase.storage
     .from('carousel-images')
     .upload(filePath, file, {
-      cacheControl: '3600',
+      // 30d: a UAZAPI baixa a MESMA URL pra cada destinatário — com cache curto
+      // (1h) toda campanha era 100% cache-miss (uncached egress, o caro).
+      cacheControl: '2592000',
       upsert: false,
     });
 

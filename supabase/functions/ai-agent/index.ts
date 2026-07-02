@@ -34,6 +34,9 @@ import { extractLeadName, sanitizeProfileName, wasNameAsked } from '../_shared/a
 // Bug 2 Fix (v7.43.1): detector de clique "Eu quero" → hint pro LLM continuar venda
 import { detectProductChoice, buildProductChoiceHint } from '../_shared/agent/productChoiceDetector.ts'
 import { loadIncomingMessages } from '../_shared/incomingMessagesLoader.ts'
+// v7.102.0 (dieta de egress): agent row (~20 kB) + knowledge (~4 kB) vêm de cache
+// por-isolate (TTL 60s) — eram re-baixados do PostgREST a CADA turno.
+import { cacheGet, cacheSet } from '../_shared/agent/agentConfigCache.ts'
 import { buildPromptRulesString, buildHumanizationRules } from '../_shared/promptRules.ts'
 import { buildHorizontalHandoffReason } from '../_shared/horizontalQualif.ts'
 // Auditoria paridade (2026-06-02): religa 2 caps que existiam na UI mas eram toggles mortos.
@@ -182,8 +185,13 @@ Deno.serve(async (req) => {
     }
 
     // 1-2. Load agent + conversation + instance in parallel (~300ms saved)
+    // v7.102.0 (dieta de egress): a row do agente (~20 kB) vem do cache por-isolate
+    // quando fresca (TTL 60s); conversation/instance são sempre ao vivo (mudam por turno).
+    const cachedAgent = cacheGet<Record<string, unknown>>(`agent:${agent_id}`)
     const [agentResult, conversationResult, instanceResult] = await Promise.all([
-      supabase.from('ai_agents').select('*').eq('id', agent_id).maybeSingle(),
+      cachedAgent
+        ? Promise.resolve({ data: cachedAgent })
+        : supabase.from('ai_agents').select('*').eq('id', agent_id).maybeSingle(),
       supabase.from('conversations').select('id, contact_id, inbox_id, status, status_ia, assigned_to, department_id, tags, created_at, shown_product_ids, cart_items, human_handling_at').eq('id', conversation_id).maybeSingle(),
       supabase.from('instances').select('token').eq('id', instance_id).maybeSingle(),
     ])
@@ -192,6 +200,7 @@ Deno.serve(async (req) => {
     // de ctx que esperam `& Record<string, any>` não-nulo. Guardas de null logo abaixo
     // garantem não-nulidade em runtime; o cast só alinha o tsc (zero efeito runtime).
     const agent = agentResult.data as any
+    if (agent && !cachedAgent) cacheSet(`agent:${agent_id}`, agent)
     const conversation = conversationResult.data as any
     const instance = instanceResult.data as any
 
@@ -1841,7 +1850,9 @@ Deno.serve(async (req) => {
     }
 
     // 6-8. Load labels + history + lead profile in parallel (~200ms saved)
+    // v7.102.0 (dieta de egress): knowledge é config estável → cache por-isolate (TTL 60s).
     const contextLimit = agent.context_short_messages || 10
+    const cachedKb = cacheGet<Array<Record<string, unknown>>>(`kb:${agent_id}`)
     const [
       { data: currentLabels },
       { data: availableLabels },
@@ -1853,8 +1864,11 @@ Deno.serve(async (req) => {
       supabase.from('labels').select('id, name').eq('inbox_id', conversation.inbox_id),
       supabase.from('conversation_messages').select('direction, content, media_type, created_at').eq('conversation_id', conversation_id).neq('direction', 'private_note').gte('created_at', sessionStartDt).order('created_at', { ascending: false }).limit(contextLimit),
       supabase.from('lead_profiles').select('*').eq('contact_id', contact.id).maybeSingle(),
-      supabase.from('ai_agent_knowledge').select('type, title, content').eq('agent_id', agent_id).order('position').limit(30),
+      cachedKb
+        ? Promise.resolve({ data: cachedKb })
+        : supabase.from('ai_agent_knowledge').select('type, title, content').eq('agent_id', agent_id).order('position').limit(30),
     ])
+    if (knowledgeItems && !cachedKb) cacheSet(`kb:${agent_id}`, knowledgeItems)
 
     const currentLabelNames = (currentLabels || []).map((cl: any) => cl.labels?.name).filter(Boolean)
     const availableLabelNames = (availableLabels || []).map((l: any) => l.name)

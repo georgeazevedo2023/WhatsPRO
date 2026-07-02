@@ -15,6 +15,7 @@ import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { edgeFunctionFetch } from '@/lib/edgeFunctionClient';
 import { broadcastAssignedAgent, broadcastQueueUpdate } from '@/lib/helpdeskBroadcast';
+import { createVisibleDebouncedRefetch } from '@/lib/broadcastRefetch';
 
 export type QueuePeriod = 'today' | 'yesterday' | 'last7' | 'last15' | 'last30';
 
@@ -151,13 +152,16 @@ export function useQueueLive(instanceId: string | null) {
   });
 
   // Realtime: re-fetch quando o backend manda queue-update (D30 Sprint F).
+  // v7.102.0 (dieta de egress): gate de visibilidade + coalescing 5s — aba em
+  // background não refaz RPC (refetchOnWindowFocus ressincroniza ao voltar).
   useEffect(() => {
     if (!instanceId) return;
+    const refetcher = createVisibleDebouncedRefetch(() => { void query.refetch(); }, 5_000);
     const channel = supabase
       .channel(`queue-live-${instanceId}`)
-      .on('broadcast', { event: 'queue-update' }, () => query.refetch())
+      .on('broadcast', { event: 'queue-update' }, refetcher.trigger)
       .subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    return () => { refetcher.cancel(); void supabase.removeChannel(channel); };
   }, [instanceId, query]);
 
   return query;
@@ -242,18 +246,24 @@ export function useUnattendedLeads(
     },
   });
 
+  // v7.102.0 (dieta de egress): new-message dispara pra CADA mensagem do sistema —
+  // sem gate/coalescing, um painel aberto (mesmo em background) refazia o RPC de
+  // unattended centenas de vezes/dia. Agora: aba oculta não refaz; rajadas viram
+  // 1 refetch a cada 10s no máximo.
   useEffect(() => {
     if (!instanceId) return;
+    const refetcher = createVisibleDebouncedRefetch(() => { void query.refetch(); }, 10_000);
     const live = supabase
       .channel(`queue-live-${instanceId}`)
-      .on('broadcast', { event: 'queue-update' }, () => query.refetch())
+      .on('broadcast', { event: 'queue-update' }, refetcher.trigger)
       .subscribe();
     const helpdesk = supabase
       .channel('helpdesk-conversations')
-      .on('broadcast', { event: 'new-message' }, () => query.refetch())
-      .on('broadcast', { event: 'assigned-agent' }, () => query.refetch())
+      .on('broadcast', { event: 'new-message' }, refetcher.trigger)
+      .on('broadcast', { event: 'assigned-agent' }, refetcher.trigger)
       .subscribe();
     return () => {
+      refetcher.cancel();
       void supabase.removeChannel(live);
       void supabase.removeChannel(helpdesk);
     };
