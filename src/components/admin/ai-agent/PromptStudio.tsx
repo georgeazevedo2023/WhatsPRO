@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Collapsible,
@@ -297,6 +297,7 @@ export function PromptStudio({ config, onChange }: PromptStudioProps) {
               <span>Preview do Prompt Final</span>
               <Badge variant="outline">{totalTokens} tokens</Badge>
             </DialogTitle>
+            <DialogDescription className="sr-only">Previa do prompt final montado a partir das secoes configuradas.</DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[60vh]">
             <pre className="text-xs font-mono whitespace-pre-wrap p-4 bg-muted/30 rounded-md">

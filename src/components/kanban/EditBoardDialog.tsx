@@ -3,7 +3,7 @@ import type { Inbox } from '@/types';
 import type { TablesInsert } from '@/integrations/supabase/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -544,6 +544,7 @@ export function EditBoardDialog({ open, onOpenChange, board, inboxes, onSaved }:
       <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Editar Quadro</DialogTitle>
+          <DialogDescription className="sr-only">Edicao das configuracoes do quadro do CRM Kanban.</DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="geral" className="flex-1 flex flex-col min-h-0">

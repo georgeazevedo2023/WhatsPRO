@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -218,6 +218,7 @@ export function ProfilesConfig({ agentId }: ProfilesConfigProps) {
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingProfile ? 'Editar Perfil' : 'Novo Perfil de Atendimento'}</DialogTitle>
+            <DialogDescription className="sr-only">Formulario para criar ou editar um perfil de atendimento do agente.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">

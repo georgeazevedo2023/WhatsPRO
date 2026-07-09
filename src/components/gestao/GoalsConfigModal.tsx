@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -121,6 +122,7 @@ export default function GoalsConfigModal({
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configurar Metas</DialogTitle>
+          <DialogDescription className="sr-only">Configuração das metas de desempenho da instância.</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4 py-2">

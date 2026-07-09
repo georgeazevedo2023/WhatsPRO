@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Loader2, Bot, User, Headphones, ExternalLink } from 'lucide-react';
@@ -97,6 +97,7 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
       <DialogContent className="max-w-3xl h-[80vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6 pb-3 border-b flex-row items-center justify-between gap-2 space-y-0">
           <DialogTitle className="text-base">Conversa com {contactName}</DialogTitle>
+          <DialogDescription className="sr-only">Histórico de mensagens da conversa com o lead.</DialogDescription>
           <Button variant="outline" size="sm" className="mr-8 h-8 shrink-0" onClick={openInHelpdesk}>
             <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Abrir no Helpdesk
           </Button>

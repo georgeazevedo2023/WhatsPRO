@@ -40,6 +40,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
@@ -389,6 +390,7 @@ export function FormsTab({ agentId }: FormsTabProps) {
       <Dialog open={showTemplateGallery} onOpenChange={setShowTemplateGallery}>
         <DialogContent className="max-w-4xl w-[95vw] max-h-[88vh] overflow-y-auto">
           <DialogTitle className="sr-only">Escolha um Template</DialogTitle>
+          <DialogDescription className="sr-only">Galeria de modelos para criar um novo formulário.</DialogDescription>
           <TemplateGallery onSelect={handleSelectTemplate} onBlank={handleBlank} />
         </DialogContent>
       </Dialog>
@@ -458,6 +460,7 @@ export function FormsTab({ agentId }: FormsTabProps) {
       >
         <DialogContent className="max-w-6xl w-[95vw] h-[90vh] p-0 flex flex-col gap-0 overflow-hidden [&>button:first-of-type]:hidden">
           <DialogTitle className="sr-only">Editar Formulário</DialogTitle>
+          <DialogDescription className="sr-only">Editor para configurar os campos do formulário.</DialogDescription>
           {editFormId && (
             <EditSheetContent
               formId={editFormId}

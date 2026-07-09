@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Plus, Pencil, Trash2, HelpCircle, FileText, Loader2, Upload, ExternalLink, Lightbulb, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { handleError } from '@/lib/errorUtils';
@@ -313,6 +313,7 @@ export function KnowledgeConfig({ agentId }: KnowledgeConfigProps) {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar' : 'Novo'} {form.type === 'faq' ? 'FAQ' : 'Documento'}</DialogTitle>
+            <DialogDescription className="sr-only">Formulário para criar ou editar uma FAQ ou documento do agente.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">

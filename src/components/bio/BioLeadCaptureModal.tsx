@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -50,6 +51,7 @@ export function BioLeadCaptureModal({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>{page.capture_title || 'Preencha seus dados'}</DialogTitle>
+          <DialogDescription className="sr-only">Formulário para o lead informar seus dados de contato.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 py-2">

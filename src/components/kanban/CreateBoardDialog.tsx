@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Inbox } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -63,6 +63,7 @@ export function CreateBoardDialog({ open, onOpenChange, inboxes, onCreated }: Cr
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Novo Quadro Kanban</DialogTitle>
+          <DialogDescription className="sr-only">Formulario para criar um novo quadro do CRM Kanban.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">

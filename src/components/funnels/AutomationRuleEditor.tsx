@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -201,6 +202,7 @@ export function AutomationRuleEditor({ open, onClose, funnelId, rule }: Props) {
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{rule ? 'Editar automacao' : 'Nova automacao'}</DialogTitle>
+          <DialogDescription className="sr-only">Formulario para criar ou editar uma regra de automacao do funil.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5 py-2">

@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -34,6 +36,9 @@ const SendStatusModal = ({ status, message, mediaType, progress, onClose }: Send
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md">
+        {/* a11y: título/descrição sr-only — o Radix exige DialogTitle e associa a descrição. */}
+        <DialogTitle className="sr-only">Status do envio</DialogTitle>
+        <DialogDescription className="sr-only">Acompanhamento do progresso do envio da mensagem ao grupo.</DialogDescription>
         <div className="flex flex-col items-center justify-center py-6 space-y-4">
           {status === 'sending' && (
             <>

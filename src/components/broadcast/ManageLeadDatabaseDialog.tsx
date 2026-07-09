@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -351,6 +352,7 @@ const ManageLeadDatabaseDialog = ({
               <Users className="w-5 h-5" />
               Gerenciar Base de Leads
             </DialogTitle>
+            <DialogDescription className="sr-only">Gerenciamento dos contatos da base de leads do Disparador.</DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 flex flex-col gap-4 overflow-hidden">

@@ -31,6 +31,7 @@ import UnattendedLeadsTab from '@/components/dashboard/queue/UnattendedLeadsTab'
 import AttendantPauseButton from '@/components/dashboard/queue/AttendantPauseButton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -68,7 +69,18 @@ function StatusBadge({ paused }: { paused: boolean }) {
 }
 
 function LiveHeader({ instanceId }: { instanceId: string | null }) {
-  const { data, isLoading } = useQueueLive(instanceId);
+  const { data, isLoading, isError, refetch } = useQueueLive(instanceId);
+  // Erro sem dados prévios: mostra estado de erro em vez de skeleton infinito
+  // (o `!data` do guard antigo nunca saía do skeleton quando a query falhava).
+  if (isError && !data) {
+    return (
+      <Card className="flex flex-col items-center gap-2 p-6 text-center">
+        <AlertCircle className="h-8 w-8 text-red-500/70" />
+        <p className="text-sm text-muted-foreground">Não consegui carregar o status da fila. Verifique a conexão.</p>
+        <Button variant="outline" size="sm" onClick={() => void refetch()}>Tentar de novo</Button>
+      </Card>
+    );
+  }
   if (isLoading || !data) {
     return (
       <div className="grid grid-cols-3 gap-3">
@@ -300,8 +312,8 @@ export default function QueueDashboard() {
     }
   }, [instances, instanceId]);
 
-  const { data: stats = [], isLoading: statsLoading } = useQueueStats(instanceId, period);
-  const { data: unattended = [], isLoading: unattendedLoading } = useUnattendedLeads(instanceId, unattendedWin);
+  const { data: stats = [], isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useQueueStats(instanceId, period);
+  const { data: unattended = [], isLoading: unattendedLoading, isError: unattendedError, refetch: refetchUnattended } = useUnattendedLeads(instanceId, unattendedWin);
   const range = resolveQueuePeriod(period);
 
   // Gestores que não atendem a fila (role gerente/super_admin sem gestor_in_queue)
@@ -332,11 +344,18 @@ export default function QueueDashboard() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="unattended" className="gap-1.5 text-xs sm:text-sm">
             Sem atend.
-            {unattended.length > 0 && (
+            {unattendedError ? (
+              <span
+                className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white"
+                title="Falha ao carregar — não confirma fila vazia"
+              >
+                !
+              </span>
+            ) : unattended.length > 0 ? (
               <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
                 {unattended.length}
               </span>
-            )}
+            ) : null}
           </TabsTrigger>
           <TabsTrigger value="live" className="text-xs sm:text-sm">Ao vivo</TabsTrigger>
           <TabsTrigger value="attendants" className="text-xs sm:text-sm">Atendentes</TabsTrigger>
@@ -347,6 +366,8 @@ export default function QueueDashboard() {
           <UnattendedLeadsTab
             leads={unattended}
             isLoading={unattendedLoading}
+            isError={unattendedError}
+            onRetry={() => void refetchUnattended()}
             win={unattendedWin}
             onWinChange={setUnattendedWin}
             attendants={attendants}
@@ -393,7 +414,14 @@ export default function QueueDashboard() {
         <TabsContent value="attendants" className="mt-4 space-y-3">
           <PeriodChips period={period} onChange={setPeriod} />
           {statsLoading && [0, 1, 2].map((i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
-          {!statsLoading && attendants.length === 0 && (
+          {!statsLoading && statsError && (
+            <Card className="flex flex-col items-center gap-2 p-8 text-center">
+              <AlertCircle className="h-10 w-10 text-red-500/70" />
+              <p className="text-sm text-muted-foreground">Não consegui carregar os atendentes. Verifique a conexão.</p>
+              <Button variant="outline" size="sm" onClick={() => void refetchStats()}>Tentar de novo</Button>
+            </Card>
+          )}
+          {!statsLoading && !statsError && attendants.length === 0 && (
             <Card className="p-8 text-center">
               <Users className="mx-auto mb-2 h-10 w-10 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">
@@ -403,7 +431,7 @@ export default function QueueDashboard() {
               </p>
             </Card>
           )}
-          {!statsLoading && attendants.length > 0 && attendants.map((stat) => (
+          {!statsLoading && !statsError && attendants.length > 0 && attendants.map((stat) => (
             <AttendantCard
               key={stat.user_id}
               stat={stat}

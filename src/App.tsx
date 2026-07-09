@@ -3,7 +3,8 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryCache } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useTabFocusRefresh } from "@/hooks/useTabFocusRefresh";
@@ -71,11 +72,20 @@ const OriginMetricsPage = lazy(() => import("./pages/dashboard/gestao/OriginMetr
 const AssistantPage = lazy(() => import("./pages/dashboard/assistant/AssistantPage"));
 
 const queryClient = new QueryClient({
+  // Rede de segurança global: nenhuma falha de query fica 100% silenciosa. Um toast
+  // discreto com id fixo (não empilha sob polling). Componentes que já tratam isError
+  // (ex.: Fila) mostram o próprio estado de erro — este toast é o backstop dos demais.
+  queryCache: new QueryCache({
+    onError: (error) => {
+      const msg = error instanceof Error ? error.message : 'Tente novamente em instantes.';
+      toast.error('Falha ao carregar dados', { id: 'query-error', description: msg });
+    },
+  }),
   defaultOptions: {
     queries: {
       staleTime: 60 * 1000,     // 1 minute default (more responsive for helpdesk)
       gcTime: 5 * 60 * 1000,    // 5 minutes — keep unused cache
-      retry: 1,
+      retry: 2,                 // era 1 — dá mais fôlego a blips de rede/DNS antes de falhar
       refetchOnWindowFocus: true, // Re-fetch on tab focus (agents switch tabs)
     },
   },

@@ -25,7 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Eye, ArrowRightLeft, Clock, UserCheck, CheckCircle2, Loader2, Pause, ArrowDownWideNarrow, Search } from 'lucide-react';
+import { Eye, ArrowRightLeft, Clock, UserCheck, CheckCircle2, Loader2, Pause, ArrowDownWideNarrow, Search, AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 const WINDOWS: { value: UnattendedWindow; label: string }[] = [
@@ -151,12 +151,17 @@ function ReassignDrawer({
 export default function UnattendedLeadsTab({
   leads,
   isLoading,
+  isError = false,
+  onRetry,
   win,
   onWinChange,
   attendants,
 }: {
   leads: UnattendedLead[];
   isLoading: boolean;
+  /** Falha de carregamento da query. Distingue "fila vazia" de "não carregou". */
+  isError?: boolean;
+  onRetry?: () => void;
   win: UnattendedWindow;
   onWinChange: (w: UnattendedWindow) => void;
   attendants: AttendantStat[];
@@ -262,7 +267,24 @@ export default function UnattendedLeadsTab({
 
       {isLoading && [0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
 
-      {!isLoading && leads.length === 0 && (
+      {/* Falha de carregamento (rede/RPC): NÃO cair no empty state feliz — isso
+          enganaria o gestor ("fila vazia") quando pode haver leads esperando. */}
+      {!isLoading && isError && leads.length === 0 && (
+        <Card className="flex flex-col items-center gap-2 p-8 text-center">
+          <AlertTriangle className="h-10 w-10 text-amber-500" />
+          <p className="text-sm font-medium">Não consegui carregar a fila</p>
+          <p className="max-w-xs text-xs text-muted-foreground">
+            Isso é falha de conexão — <strong>não</strong> quer dizer que a fila está vazia. Pode haver leads esperando atendimento.
+          </p>
+          {onRetry && (
+            <Button variant="outline" size="sm" className="mt-1" onClick={onRetry}>
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Tentar de novo
+            </Button>
+          )}
+        </Card>
+      )}
+
+      {!isLoading && !isError && leads.length === 0 && (
         <Card className="p-8 text-center">
           <CheckCircle2 className="mx-auto mb-2 h-10 w-10 text-emerald-500/60" />
           <p className="text-sm text-muted-foreground">Nenhum lead esperando atendimento 🎉</p>

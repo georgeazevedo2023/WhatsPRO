@@ -33,7 +33,7 @@ function relTime(iso: string): string {
 
 export const NotificationBell = () => {
   const navigate = useNavigate();
-  const { items, unreadCount, loading, markAsRead, markAllRead } = useNotifications();
+  const { items, unreadCount, loading, error, refetch, markAsRead, markAllRead } = useNotifications();
 
   const handleClick = (n: AppNotification) => {
     if (!n.read) markAsRead(n.id);
@@ -70,6 +70,17 @@ export const NotificationBell = () => {
         <ScrollArea className="max-h-96">
           {loading && items.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">Carregando...</div>
+          ) : error && items.length === 0 ? (
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+              <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-amber-500" />
+              Não consegui carregar as notificações.
+              <button
+                onClick={() => void refetch()}
+                className="mt-2 block mx-auto text-primary underline underline-offset-2"
+              >
+                Tentar de novo
+              </button>
+            </div>
           ) : items.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">
               <Bell className="w-6 h-6 mx-auto mb-2 opacity-30" />

@@ -3,6 +3,7 @@ import { handleError } from '@/lib/errorUtils';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -82,6 +83,7 @@ const EditDatabaseDialog = ({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Editar Base de Leads</DialogTitle>
+          <DialogDescription className="sr-only">Edição do nome e descrição da base de leads.</DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4 py-4">

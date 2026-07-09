@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pencil, Trash2, Plus, Check, X } from 'lucide-react';
@@ -79,6 +79,7 @@ export const ManageLabelsDialog = ({ open, onOpenChange, inboxId, labels, onChan
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Gerenciar Etiquetas</DialogTitle>
+          <DialogDescription className="sr-only">Criar, editar e excluir etiquetas do atendimento.</DialogDescription>
         </DialogHeader>
 
         {/* Create new */}

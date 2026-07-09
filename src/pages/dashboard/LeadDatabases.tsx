@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -303,6 +304,7 @@ const LeadDatabases = () => {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Nova base de leads</DialogTitle>
+            <DialogDescription className="sr-only">Formulario para criar uma nova base de leads do Disparador.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">

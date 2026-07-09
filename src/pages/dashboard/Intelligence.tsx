@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -44,6 +45,7 @@ function ConversationDetailDialog({
       <DialogContent className="max-w-lg max-h-[80vh]">
         <DialogHeader>
           <DialogTitle className="text-base">{title}</DialogTitle>
+          <DialogDescription className="sr-only">Lista de conversas do grupo selecionado com resumo e link do WhatsApp.</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh] pr-2">
           {filtered.length === 0 ? (

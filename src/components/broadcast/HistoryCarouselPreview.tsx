@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ChevronLeft, ChevronRight, Link, MessageSquare, Phone, Image as ImageIcon, Eye, LayoutGrid, X, ZoomIn, Maximize2 } from 'lucide-react';
@@ -259,6 +260,7 @@ export function HistoryCarouselPreview({ data }: HistoryCarouselPreviewProps) {
       <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
         <DialogContent className="max-w-3xl p-0 bg-black/95 border-none">
           <DialogTitle className="sr-only">Visualizar imagem</DialogTitle>
+          <DialogDescription className="sr-only">Imagem ampliada do carrossel.</DialogDescription>
           <Button
             variant="ghost"
             size="icon"
@@ -283,6 +285,7 @@ export function HistoryCarouselPreview({ data }: HistoryCarouselPreviewProps) {
       <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] p-0 bg-background overflow-hidden">
           <DialogTitle className="sr-only">Visualização em tela cheia do carrossel</DialogTitle>
+          <DialogDescription className="sr-only">Visualização em tela cheia dos cards do carrossel.</DialogDescription>
           
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b">

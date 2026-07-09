@@ -57,7 +57,12 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
+    <CommandDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Buscar conversas"
+      description="Busque conversas por nome, telefone ou conteúdo de mensagem em todas as caixas de entrada"
+    >
       <CommandInput
         placeholder="Buscar por nome, telefone ou mensagem em todas as caixas..."
         value={query}
