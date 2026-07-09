@@ -3,7 +3,7 @@
  * Funções puras de formatação de data no fuso horário America/Sao_Paulo.
  * 13 casos cobrindo formatBR, timeAgoBR, smartDateBR e BRAZIL_TZ.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatBR, timeAgoBR, smartDateBR, BRAZIL_TZ } from '../dateUtils';
 
 // ─── BRAZIL_TZ ────────────────────────────────────────────────────────────────
@@ -76,6 +76,18 @@ describe('timeAgoBR', () => {
 // ─── smartDateBR ──────────────────────────────────────────────────────────────
 
 describe('smartDateBR', () => {
+  // Relógio fixo no meio-dia de São Paulo (15:00 UTC) — determinístico e longe da
+  // borda de meia-noite. Sem isso o teste "Ontem" era flaky: quando o CI roda entre
+  // 00–03h UTC, o "ontem" montado no fuso do runner (UTC) cai no MESMO dia no fuso
+  // America/Sao_Paulo que smartDateBR usa, e a formatação vira "HH:mm" em vez de "Ontem".
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-08T15:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('retorna "Ontem" para data de exatamente ontem', () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
