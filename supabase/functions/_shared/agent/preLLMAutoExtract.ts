@@ -23,6 +23,7 @@ import {
   getCategoriesOrDefault,
   matchCategory,
   matchCategoryBySearchText,
+  matchAllCategoriesBySearchText,
   getCurrentStage,
   getScoreFromTags,
   calculateScoreDelta,
@@ -175,6 +176,57 @@ export async function runPreLLMAutoExtract(
     (t: string) => typeof t === 'string' && t.startsWith('interesse:'),
   )
   const interesseValue = interesseTagPre ? interesseTagPre.split(':')[1] || '' : ''
+
+  // ── R129 sob router: desambiguação multi-categoria no auto-extract ──────────
+  // Sob routing_mode='router' os short-circuits do index.ts são pulados — incluindo
+  // o R129 que pergunta "qual você quer começar?". Mas ESTE auto-extract continua
+  // rodando e, via matchCategoryBySearchText (abaixo), travava a PRIMEIRA categoria
+  // da ordem do array. Bug (Erika, EletropisoV2 PROD 2026-07-08): a descrição de
+  // visão de uma foto de TORNEIRA dizia "...com cano flexível" → casava tanto
+  // `torneiras` quanto `canos`; como `canos` vinha antes no array, o seed R143 fixava
+  // interesse:canos e a IA perguntou "água ou esgoto?" (e insistiu mesmo após o lead
+  // dizer "não é cano não").
+  // Fix: se o texto casa 2+ categorias e o lead ainda não tem interesse definido,
+  // semeamos multi_interesse_pending (NÃO uma categoria única) e retornamos — o
+  // qualification specialist confirma com o lead ("Posso te ajudar com X e Y...")
+  // via qualificationContext (R129/R134, que JÁ roda sob router). Não enviamos
+  // mensagem determinística aqui: não reintroduz o caminho paralelo que motivou o
+  // skipShortCircuits. No monolith este ponto não muda (o R129 short-circuit já
+  // resolveu antes; se seu send falhou, suppressAutoExtractForMulti=true nos protege).
+  const alreadyHasMultiPending = tagsNow.some(
+    (t: string) => typeof t === 'string' && t.startsWith('multi_interesse_pending:'),
+  )
+  if (!interesseTagPre && !alreadyHasMultiPending && !ctx.suppressAutoExtractForMulti) {
+    const allCatsMatched = matchAllCategoriesBySearchText(ctx.incomingText, cfgPre)
+    if (allCatsMatched.length >= 2) {
+      const multiSlug = `multi_interesse_pending:${allCatsMatched.map((c) => c.id).join(',')}`
+      const mergedMulti = [...tagsNow, multiSlug]
+      ctx.conversation.tags = mergedMulti
+      tagsMutated = true
+      await ctx.supabase
+        .from('conversations')
+        .update({ tags: mergedMulti })
+        .eq('id', ctx.conversation_id)
+      await ctx.supabase.from('ai_agent_logs').insert({
+        agent_id: ctx.agent_id,
+        conversation_id: ctx.conversation_id,
+        event: 'auto_field_extracted',
+        latency_ms: 0,
+        metadata: {
+          source: 'r129_multi_interesse_router_autoextract',
+          new_tags: [multiSlug],
+          category_ids: allCatsMatched.map((c) => c.id),
+          resolved_via: 'search_text_multi',
+          incoming_preview: ctx.incomingText.substring(0, 120),
+        },
+      })
+      log.info('R129 (router auto-extract): multi-categoria — semeando multi_interesse_pending', {
+        categories: allCatsMatched.map((c) => c.id),
+        incoming_preview: ctx.incomingText.substring(0, 80),
+      })
+      return { pendingExitActionHandoff, pendingExitActionSearch, tagsMutated }
+    }
+  }
 
   const categoryPre = ctx.suppressAutoExtractForMulti
     ? null

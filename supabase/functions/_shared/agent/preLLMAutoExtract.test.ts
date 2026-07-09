@@ -542,3 +542,127 @@ describe('Prioridade R121 trigger > C2 fallback', () => {
     expect(r.pendingExitActionSearch!.query.length).toBeGreaterThan(0)
   })
 })
+
+// ────────────────────────────────────────────────────────────────────
+// Multi-categoria sob router (bug Erika, EletropisoV2 PROD 2026-07-08):
+// foto de TORNEIRA cuja descrição de visão dizia "...com cano flexível" casava
+// `torneiras` E `canos`; sob router o R129 short-circuit é pulado e o seed R143
+// travava a 1ª categoria da ordem (canos) → IA perguntou "água ou esgoto?".
+// Fix: semear multi_interesse_pending (não uma categoria única) → specialist
+// confirma com o lead via qualificationContext.
+// ────────────────────────────────────────────────────────────────────
+
+/** Agente com 2 categorias offline: `canos` (ANTES) e `torneiras` (depois) — espelha a ordem real do EletropisoV2. */
+function makeAgentTorneiraCano() {
+  return {
+    service_categories: {
+      default: {
+        stages: [
+          { id: 'd', label: 'd', min_score: 0, max_score: 100, exit_action: 'handoff',
+            fields: [{ key: 'detalhes', label: 'detalhes', examples: 'x', score_value: 25, priority: 1 }], phrasing: '{label}?' },
+        ],
+      },
+      categories: [
+        {
+          id: 'canos', label: 'Canos e Tubos', interesse_match: 'cano|canos|tubo|tubos|tubulação|tubulacao',
+          catalog_status: 'offline',
+          stages: [
+            { id: 'qualificacao', label: 'Qualificação', min_score: 0, max_score: 30, exit_action: 'handoff',
+              fields: [{ key: 'tipo_cano', label: 'tipo', examples: 'esgoto ou água', score_value: 15, priority: 1 }],
+              phrasing: 'Pra te ajudar, {label}? ({examples})' },
+          ],
+        },
+        {
+          id: 'torneiras', label: 'Torneiras', interesse_match: 'torneira|torneiras',
+          catalog_status: 'offline',
+          stages: [
+            { id: 'q', label: 'Qualif', min_score: 0, max_score: 30, exit_action: 'handoff',
+              fields: [{ key: 'modelo_torneira', label: 'modelo', examples: 'bica alta', score_value: 15, priority: 1 }],
+              phrasing: 'Qual {label}?' },
+          ],
+        },
+      ],
+    },
+  }
+}
+
+describe('Multi-categoria sob router (bug torneira "com cano flexível")', () => {
+  const torneiraFotoText =
+    'Qual o valor\n[Foto enviada pelo cliente] Torneira preta para cozinha com cano flexível, bica alta, ajuste duplo do jato, rotação 360º e indicada para bancada.'
+
+  it('foto de torneira com "cano flexível" → semeia multi_interesse_pending, NÃO interesse:canos', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({ supabase: spy.supabase, agent: makeAgentTorneiraCano(), incomingText: torneiraFotoText })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+
+    expect(r.tagsMutated).toBe(true)
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    const tags: string[] = update!.payload.tags
+    const multi = tags.find((t) => t.startsWith('multi_interesse_pending:'))
+    expect(multi).toBeTruthy()
+    expect(multi).toContain('canos')
+    expect(multi).toContain('torneiras')
+    // O bug: NÃO deve travar interesse:canos (nem nenhum interesse único)
+    expect(tags.some((t) => t.startsWith('interesse:'))).toBe(false)
+    // Sem exit actions — deixa o specialist perguntar "qual começar?"
+    expect(r.pendingExitActionHandoff).toBeNull()
+    expect(r.pendingExitActionSearch).toBeNull()
+    // Log estruturado com a fonte do fix
+    const logIns = spy.calls.find(
+      (c) => c.table === 'ai_agent_logs' && c.op === 'insert' &&
+        c.payload.metadata?.source === 'r129_multi_interesse_router_autoextract',
+    )
+    expect(logIns).toBeTruthy()
+    expect(logIns!.payload.metadata.category_ids).toContain('canos')
+    expect(logIns!.payload.metadata.category_ids).toContain('torneiras')
+  })
+
+  it('texto de UMA categoria (só torneira) segue fluxo normal — sem multi_interesse_pending', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({ supabase: spy.supabase, agent: makeAgentTorneiraCano(), incomingText: 'quero uma torneira gourmet' })
+    await runPreLLMAutoExtract(ctx, makeLog())
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    const tags: string[] = update!.payload.tags
+    expect(tags.some((t) => t.startsWith('multi_interesse_pending:'))).toBe(false)
+    expect(tags).toContain('interesse:torneiras')
+  })
+
+  it('NÃO semeia multi quando já há interesse: definido', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase, agent: makeAgentTorneiraCano(),
+      conversation: { tags: ['interesse:torneiras'], status_ia: 'active' },
+      incomingText: torneiraFotoText,
+    })
+    await runPreLLMAutoExtract(ctx, makeLog())
+    const update = spy.calls.find((c) => c.table === 'conversations' && c.op === 'update')
+    if (update) {
+      expect(update.payload.tags.some((t: string) => t.startsWith('multi_interesse_pending:'))).toBe(false)
+    }
+  })
+
+  it('suppressAutoExtractForMulti=true (monolith já resolveu) → não semeia', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase, agent: makeAgentTorneiraCano(),
+      incomingText: torneiraFotoText, suppressAutoExtractForMulti: true,
+    })
+    const r = await runPreLLMAutoExtract(ctx, makeLog())
+    expect(r.tagsMutated).toBe(false)
+  })
+
+  it('já tem multi_interesse_pending → idempotente (não re-semeia)', async () => {
+    const spy = makeSupabaseSpy()
+    const ctx = baseCtx({
+      supabase: spy.supabase, agent: makeAgentTorneiraCano(),
+      conversation: { tags: ['multi_interesse_pending:canos,torneiras'], status_ia: 'active' },
+      incomingText: torneiraFotoText,
+    })
+    await runPreLLMAutoExtract(ctx, makeLog())
+    const reseed = spy.calls.find(
+      (c) => c.table === 'ai_agent_logs' && c.op === 'insert' &&
+        c.payload.metadata?.source === 'r129_multi_interesse_router_autoextract',
+    )
+    expect(reseed).toBeFalsy()
+  })
+})
