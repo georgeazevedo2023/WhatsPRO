@@ -33,6 +33,18 @@ export const DEFAULT_BRANDS: string[] = [
   'deca', 'celite', 'roca', 'incepa',
   // Argamassas / cimento
   'votoran', 'tigre cement', 'mix', 'votorantim',
+  // ── Auditoria de marcas 2026-07-25 (leads reais citavam e a lista não tinha) ──
+  // Cerâmicas / porcelanato — core do negócio Eletropiso; segmento estava ausente.
+  // NÃO adicionar marcas que colidem com nome de pessoa (Elizabeth, Karina):
+  // detectBrand roda sobre incomingText e taguearia apresentação de lead como marca.
+  'eliane', 'incenor', 'biancogres', 'incefra', 'portobello', 'cecrisa', 'formigres',
+  // Chuveiros / metais / hidráulica popular
+  'lorenzetti', 'lorenzeti', 'hydra', 'docol', 'astra',
+  // Elétrica / iluminação (complemento)
+  'hdl', 'taschibra', 'ourolux', 'steck', 'margirius', 'ilumi', 'sil', 'corfio',
+  'cobrecom', 'weg',
+  // Telhas / tubos (complemento regional PE)
+  'onduline', 'multilit', 'plastilit',
 ]
 
 const ACCENT_MAP: Record<string, string> = {

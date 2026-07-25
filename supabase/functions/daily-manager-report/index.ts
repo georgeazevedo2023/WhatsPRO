@@ -23,6 +23,7 @@ import { createLogger } from '../_shared/logger.ts'
 import { verifyCronOrService, unauthorizedResponse } from '../_shared/auth.ts'
 import { sendUazapiText } from '../_shared/sendWhatsApp.ts'
 import { buildDailyReportText, type DailyReportData } from '../_shared/dailyReport.ts'
+import { DEFAULT_BRANDS } from '../_shared/brandDetection.ts'
 
 // @ts-ignore — Deno global
 const supabase = createServiceClient()
@@ -80,6 +81,9 @@ Deno.serve(async (req: Request) => {
       .rpc('get_daily_manager_report', {
         p_instance_id: body.instance_id,
         p_day: body.day || null,
+        // Fonte única da lista de marcas (v7.107.0): top_brands passa a varrer
+        // as msgs do dia (content+transcription) contra esta lista, na RPC.
+        p_brands: DEFAULT_BRANDS,
       })
     if (rpcErr || !report) {
       log.error('rpc error', { error: rpcErr?.message })

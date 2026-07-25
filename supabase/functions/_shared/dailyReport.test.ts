@@ -206,7 +206,25 @@ describe('buildDailyReportText', () => {
     expect(text).toContain('2. Tinta suvinil — 3 buscas');
     expect(text).toContain('5. C — 1 busca');
     expect(text).not.toContain('6. ');
-    expect(text).toContain('🏷️ *Marcas citadas:* Suvinil (3) · Hdl (1)');
+    expect(text).toContain('🏷️ *Marcas citadas:* Suvinil (3) · HDL (1)');
+  });
+
+  it('marcas: top 5 com display de slug (sigla, multi-palavra)', () => {
+    const text = buildDailyReportText({
+      title: 'X',
+      businessHours: null,
+      data: baseData({
+        top_brands: [
+          { b: 'brasilit', n: 5 }, { b: 'la_fonte', n: 3 }, { b: 'sherwin_williams', n: 2 },
+          { b: 'weg', n: 2 }, { b: 'lorenzetti', n: 1 }, { b: 'coral', n: 1 },
+        ],
+      }),
+    });
+    expect(text).toContain(
+      '🏷️ *Marcas citadas:* Brasilit (5) · La Fonte (3) · Sherwin Williams (2) · WEG (2) · Lorenzetti (1)',
+    );
+    // corta no 5º — 'coral' fica de fora
+    expect(text).not.toContain('Coral (1)');
   });
 
   it('NPS agregado por bucket quando há votos', () => {

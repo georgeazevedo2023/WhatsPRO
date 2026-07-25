@@ -5373,6 +5373,10 @@ export type Database = {
           total_leads: number
         }[]
       }
+      get_daily_manager_report: {
+        Args: { p_brands?: string[]; p_day?: string; p_instance_id: string }
+        Returns: Json
+      }
       get_db_size_summary: { Args: { threshold_mb?: number }; Returns: Json }
       get_demand_vs_coverage_by_hour: {
         Args: { p_end: string; p_instance_id: string; p_start: string }
@@ -5621,6 +5625,7 @@ export type Database = {
       }
       purge_notifications_older: { Args: never; Returns: Json }
       purge_scheduled_message_logs: { Args: never; Returns: number }
+      purge_stale_operational_data: { Args: never; Returns: Json }
       purge_system_logs_older_than_24h: { Args: never; Returns: Json }
       recalc_lead_database_count: { Args: { p_db: string }; Returns: undefined }
       reconcile_broadcast_enrollments: {

@@ -38,6 +38,21 @@ describe('brandDetection', () => {
     expect(detectBrand('')).toEqual(null)
   })
 
+  it('detectBrand — marcas da auditoria 2026-07-25 (cerâmicas + regionais)', () => {
+    expect(detectBrand('tem revestimento Eliane 10x10?')).toEqual('eliane')
+    expect(detectBrand('caixa da marca Incenor')).toEqual('incenor')
+    expect(detectBrand('porcelanato biancogres')).toEqual('biancogres')
+    expect(detectBrand('chuveiro Lorenzetti acqua duo')).toEqual('lorenzetti')
+    expect(detectBrand('chuveiro lorenzeti')).toEqual('lorenzeti') // grafia comum do lead
+    expect(detectBrand('porteiro eletrônico HDL')).toEqual('hdl')
+    expect(detectBrand('fio sil 2,5mm rolo 100m')).toEqual('sil')
+  })
+
+  it('detectBrand — "sil" não casa dentro de outra palavra', () => {
+    expect(detectBrand('sou aqui do brasil')).toEqual(null)
+    expect(detectBrand('é fácil de instalar?')).toEqual(null)
+  })
+
   it('detectBrand — lista customizada via segundo parâmetro', () => {
     const customBrands = ['Acme Tintas', 'Globex']
     expect(detectBrand('quero da acme tintas', customBrands)).toEqual('acme_tintas')

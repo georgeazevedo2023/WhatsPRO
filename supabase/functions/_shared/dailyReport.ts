@@ -92,6 +92,17 @@ function cap(s: string): string {
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : t
 }
 
+/**
+ * Slug canônico de marca ('la_fonte', 'hdl') → display ('La Fonte', 'HDL').
+ * Slug de palavra ÚNICA com ≤3 chars vira sigla maiúscula (HDL, WEG, SIL);
+ * multi-palavra capitaliza cada uma ('la_fonte' → 'La Fonte', não 'LA Fonte').
+ */
+export function brandDisplay(slug: string): string {
+  const words = (slug || '').split('_').filter(Boolean)
+  if (words.length === 1 && words[0].length <= 3) return words[0].toUpperCase()
+  return words.map(cap).join(' ')
+}
+
 function fmtDayBR(day: string): string {
   const [y, m, d] = day.split('-')
   return `${d}/${m}/${y}`
@@ -191,10 +202,10 @@ export function buildDailyReportText(input: BuildReportInput): string {
     })
   }
 
-  const brands = (data.top_brands || []).slice(0, 3)
+  const brands = (data.top_brands || []).slice(0, 5)
   if (brands.length > 0) {
     lines.push('')
-    lines.push(`🏷️ *Marcas citadas:* ${brands.map((x) => `${cap(x.b)} (${x.n})`).join(' · ')}`)
+    lines.push(`🏷️ *Marcas citadas:* ${brands.map((x) => `${brandDisplay(x.b)} (${x.n})`).join(' · ')}`)
   }
 
   // ── histograma: conversas iniciadas por hora (faixa contínua min..max)
