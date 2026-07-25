@@ -146,3 +146,7 @@ verify_jwt = false
 # NPS-on-finalize — alerta gestor em nota baixa (auth manual via verifyCronOrService)
 [functions.notify-manager-nps]
 verify_jwt = false
+
+# Resumo do dia pros gestores por WhatsApp (auth manual via verifyCronOrService)
+[functions.daily-manager-report]
+verify_jwt = false
