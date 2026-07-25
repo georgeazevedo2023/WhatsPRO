@@ -96,8 +96,8 @@ const ALLOWED_FIELDS = [
   'extended_hours_until',
   // 2026-05-13: toggle que controla a msg de transbordo fora do horário
   'notify_outside_hours_on_handoff',
-  // Sprint C (2026-05-23): feature flag router LLM vs monolito
-  'routing_mode',
+  // D6 (2026-07-25): routing_mode saiu do ALLOWED_FIELDS — monolito aposentado,
+  // a UI não edita mais o flag (coluna segue no DB, inerte).
   // v7.91.0 (2026-06-13): modelo dos specialists do router, configurável por agente (decisão #4)
   'specialist_model',
   // Sprint E.2 (2026-05-26): handoff por abandono (cutucada + transbordo automático)
@@ -574,54 +574,9 @@ export default function AIAgentTab() {
                     <GeneralConfig config={config} onChange={handleChange} instances={instances || []} />
                     <BusinessInfoConfig config={config} onChange={handleChange} />
 
-                    {/* Sprint C (2026-05-23): feature flag routing_mode. Visível só super_admin
-                        durante POC. Default 'monolith' = pipeline atual. 'router' = novo
-                        classifyIntent + specialist (em desenvolvimento — não habilitar em prod
-                        sem coordenação). */}
-                    {isSuperAdmin && (
-                      <div className="rounded-lg border border-amber-300/40 bg-amber-50/30 dark:bg-amber-950/10 p-4 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <BrainCircuit className="w-4 h-4 text-amber-600" />
-                          <Label className="text-sm font-semibold">Modo de Roteamento <span className="text-xs text-amber-600 font-normal">(experimental, super_admin)</span></Label>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          <strong>Monolito</strong> (recomendado): pipeline atual, 1 LLM call mega.<br/>
-                          <strong>Router</strong>: classifyIntent (gpt-4.1-mini) + specialist dedicado por intent (Sprint D — 5 specialists).<br/>
-                          <strong>Shadow</strong>: router classifica e registra a intent, mas o Monolito responde o lead (coleta de regressão, sem risco).
-                        </p>
-                        <Select
-                          value={(config.routing_mode as string) || 'monolith'}
-                          onValueChange={(v) => handleChange({ routing_mode: v })}
-                        >
-                          <SelectTrigger className="w-full max-w-sm">
-                            <SelectValue placeholder="Selecione o modo" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="monolith">Monolito (recomendado)</SelectItem>
-                            <SelectItem value="shadow">Shadow (router loga, monolito responde)</SelectItem>
-                            <SelectItem value="router">Router (specialists dedicados)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {config.routing_mode === 'router' && (
-                          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-100/40 dark:bg-amber-950/30 rounded p-2">
-                            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                            <span>
-                              Modo Router ativo — agent usa router + specialists dedicados (greeting/qualification/
-                              product/objection/handoff). Monolito vira fallback de erro. Rollback: voltar pra Monolito aqui.
-                            </span>
-                          </div>
-                        )}
-                        {config.routing_mode === 'shadow' && (
-                          <div className="flex items-start gap-2 text-xs text-sky-700 dark:text-sky-400 bg-sky-100/40 dark:bg-sky-950/30 rounded p-2">
-                            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                            <span>
-                              Modo Shadow — o router classifica a intent e grava em ai_agent_runs para análise,
-                              mas o Monolito continua respondendo o lead. Zero risco; use para validar a accuracy do router.
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    {/* D6 (2026-07-25): seletor de routing_mode REMOVIDO — o monolito foi
+                        aposentado; todo agente roda router + specialists (único cérebro).
+                        A coluna ai_agents.routing_mode segue no DB, inerte (código não lê). */}
                   </div>
                 )}
 

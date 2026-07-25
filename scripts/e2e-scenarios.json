@@ -4,7 +4,7 @@
     {
       "id": "S1-saudacao",
       "intent": "saudacao",
-      "expected_path": "monolith",
+      "expected_path": "specialist",
       "turns": ["oi boa tarde"],
       "expect": "Saudação calorosa, se apresenta como Eletropiso, pergunta o nome ou como pode ajudar. NÃO repete saudação, NÃO inventa produto."
     },
@@ -32,21 +32,21 @@
     {
       "id": "S5-objecao",
       "intent": "objecao",
-      "expected_path": "monolith",
+      "expected_path": "specialist",
       "turns": ["achei muito caro, no concorrente tá bem menos"],
       "expect": "Empatia primeiro, defende valor (qualidade/garantia/entrega), NÃO desconto automático. Marca tag objecao:preco."
     },
     {
       "id": "S6-pagamento",
       "intent": "pagamento",
-      "expected_path": "monolith",
+      "expected_path": "specialist",
       "turns": ["vcs parcelam? aceita pix?"],
       "expect": "Responde formas de pagamento com base no business_info. Não inventa condições não configuradas."
     },
     {
       "id": "S7-fora_escopo",
       "intent": "fora_escopo",
-      "expected_path": "monolith",
+      "expected_path": "specialist",
       "turns": ["qual a previsão do tempo amanhã?"],
       "expect": "Redireciona educadamente pro escopo de vendas sem ser ríspido. Não responde a pergunta fora de escopo."
     }

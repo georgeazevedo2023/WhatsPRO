@@ -1,22 +1,18 @@
 /**
  * Onda 2 item 5 (2026-06-12) — router pipeline EXTRAÍDO de ai-agent/index.ts.
  *
- * Move-only (comportamento idêntico): hop guard → classifyIntent (hop 0) →
- * tabela de dispatch intent→specialist → no-result loop determinístico →
- * qualificationGate (buscar vs qualificar) → override pós-nome → override
- * exit_action=handoff (item 4) → pré-busca do product → runSpecialist →
- * fallback monolith (return null).
+ * Pipeline: hop guard → classifyIntent (hop 0) → tabela de dispatch
+ * intent→specialist → no-result loop determinístico → qualificationGate
+ * (buscar vs qualificar) → override pós-nome → override exit_action=handoff
+ * (item 4) → pré-busca do product → runSpecialist.
  *
  * Contrato: devolve { response, pendingHandoffTrigger, pendingHandoffTriggerMsg }.
  *   - response != null  → turno respondido pelo specialist (caller retorna direto).
- *   - response == null  → fallthrough pro monolith (shadow mode, hop guard,
- *     intent sem specialist, erro catastrófico do specialist).
- *   - pendingHandoffTrigger/Msg ecoam de volta possivelmente ATUALIZADOS (o
- *     override de exit_action arma o trigger; o monolith fallback precisa vê-lo).
- *
- * Extração = passo do D6 (aposentar o monolith): o index.ts encolhe ~830 linhas
- * e o pipeline do router ganha fronteira própria. Histórico das decisões inline
- * (gate, no-result loop, pré-busca, overrides) preservado nos comentários do corpo.
+ *   - response == null  → falha interna (hop guard, intent sem specialist, erro
+ *     catastrófico do specialist, exceção). D6 (2026-07-25): o monolito foi
+ *     APOSENTADO — o index.ts responde a null com FALLBACK GRACIOSO (transbordo
+ *     pro humano com a msg de handoff configurada), nunca mais com o LLM antigo.
+ *   - pendingHandoffTrigger/Msg ecoam de volta possivelmente ATUALIZADOS.
  */
 
 import { classifyIntent, logRouterRun, type Intent } from './router.ts'
@@ -83,7 +79,7 @@ export interface RouterPipelineCtx {
 }
 
 export interface RouterPipelineResult {
-  /** Response final do turno; null = fallthrough pro monolith */
+  /** Response final do turno; null = falha interna → index faz transbordo gracioso (D6) */
   response: Response | null
   pendingHandoffTrigger: string | null
   pendingHandoffTriggerMsg: string
@@ -107,17 +103,18 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
   let pendingHandoffTriggerMsg = ctx.pendingHandoffTriggerMsg
 
   const run = async (): Promise<Response | null> => {
-    const isShadow = agent.routing_mode === 'shadow'
-    if (agent.routing_mode === 'router' || isShadow) {
+    // D6 (2026-07-25): gate de routing_mode removido — router é o único cérebro.
+    // Bloco preservado pra manter a indentação/diff mínimos na aposentadoria.
+    {
       const turn_id = generateTurnId()
-      log.info('Router pipeline START', { turn_id, conversation_id, shadow: isShadow })
+      log.info('Router pipeline START', { turn_id, conversation_id })
 
       try {
         const hopCheck = await checkHopLimit({
           supabase, turn_id, agent_id, conversation_id, log,
         })
         if (!hopCheck.allow) {
-          log.warn('Router: hop guard tripped (defensive fallback to monolith)', hopCheck)
+          log.warn('Router: hop guard tripped — null → transbordo gracioso (D6)', hopCheck)
         } else {
           // Hop 0: classifyIntent
           const shortHistory = (geminiContents as any[])
@@ -755,7 +752,7 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
           // intocado (nenhum campo respondido) e o nome já é conhecido, retomamos direto o
           // qualification_specialist (que cumprimenta pelo nome e JÁ faz a 1ª pergunta do
           // funil). Guard estreito: não dispara em saudação pura sem interesse premium.
-          if (!isShadow && routerResult.intent === 'saudacao' && (leadName || capturedLeadName)) {
+          if (routerResult.intent === 'saudacao' && (leadName || capturedLeadName)) {
             const seedVerdict = evaluateProductQualificationFlow({
               tags: conversation.tags || [], agent, incomingText,
             })
@@ -783,7 +780,7 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
           // Roda DEPOIS do no-result loop (que sempre retorna Response) e dos overrides
           // do gate — qualificação completa fecha o ciclo, não reabre pergunta.
           let exitActionDirective: string | null = null
-          if (routerExitActionHandoff && !isShadow && !handoffAlreadyCreated) {
+          if (routerExitActionHandoff && !handoffAlreadyCreated) {
             def = buildHandoffSpecialistDef()
             exitActionDirective = [
               '[QUALIFICAÇÃO COMPLETA — AÇÃO OBRIGATÓRIA NESTE TURNO]',
@@ -800,17 +797,10 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
             })
           }
 
-          if (isShadow) {
-            // Shadow mode (lite): só o ROUTER roda e loga. NÃO rodamos o specialist,
-            // porque executeToolSafe tem efeitos colaterais reais (envia carrossel,
-            // grava tags, faz handoff) — rodar em paralelo dispararia ações duplicadas.
-            // Medimos a accuracy do router (que é o teto de qualidade do sistema) sem
-            // risco. O monolith responde o lead normalmente.
-            log.info('Router pipeline SHADOW END — intent classified & logged; monolith answers', {
-              intent: routerResult.intent, would_dispatch: def?.name || 'none', confidence: routerResult.confidence,
-            })
-            // Fallthrough pro monolith abaixo
-          } else if (def) {
+          // D6 (2026-07-25): routing_mode='shadow' aposentado junto com o monolito
+          // (o modo só existia pra medir o router ANTES da migração, com o monolito
+          // respondendo — sem monolito não há o que sombrear).
+          if (def) {
             let dispatchDef = def
             log.info(`Dispatching to ${dispatchDef.name}_specialist (hop 1)`, { intent: routerResult.intent })
 
@@ -911,13 +901,12 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
             }
             const specialistResult = await runSpecialist(specialistCtx, dispatchDef)
 
-            // Bug 4 fix (v7.43.2): falha catastrófica do LLM → fallback monolith
-            // (não retorna 502 ao webhook, que mataria o turno).
+            // Bug 4 fix (v7.43.2): falha catastrófica do LLM → return null
+            // (não retorna 502 ao webhook; D6: index faz transbordo gracioso).
             if (specialistResult.errorResponse) {
-              log.error?.('Specialist failed catastrophically — falling back to monolith', {
+              log.error?.('Specialist failed catastrophically — null → transbordo gracioso (D6)', {
                 specialist: dispatchDef.name, error: specialistResult.errorMessage || 'unknown',
               })
-              // Fallthrough pro monolith abaixo
             } else {
               log.info(`Router pipeline END (${dispatchDef.name}_specialist)`, {
                 intent: routerResult.intent,
@@ -928,16 +917,14 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
               return specialistResult.response as Response
             }
           } else {
-            log.warn('Router: intent sem specialist mapeado (fallback monolith)', { intent: routerResult.intent })
-            // Fallthrough pro monolith abaixo
+            log.warn('Router: intent sem specialist mapeado — null → transbordo gracioso (D6)', { intent: routerResult.intent })
           }
         }
       } catch (err) {
-        log.error?.('Router pipeline error (fallback to monolith)', { error: (err as Error).message })
-        // Fallthrough pro monolith
+        log.error?.('Router pipeline error — null → transbordo gracioso (D6)', { error: (err as Error).message })
       }
     }
-    return null // fallthrough pro monolith
+    return null // D6: index responde a null com transbordo gracioso (sem monolito)
   }
 
   const response = await run()

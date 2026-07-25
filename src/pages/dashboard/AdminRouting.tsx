@@ -99,7 +99,7 @@ const AdminRouting = () => {
               sub={`em ${data?.period_days ?? days} dias`} />
             <KpiCard icon={<GitBranch className="h-4 w-4" />} label="Hop loops"
               value={ov?.hop_loops ?? 0} alert={(ov?.hop_loops ?? 0) > 0}
-              sub={(ov?.hop_loops ?? 0) > 0 ? 'fallback monolith disparado' : 'nenhum loop'} />
+              sub={(ov?.hop_loops ?? 0) > 0 ? 'transbordo de segurança disparado' : 'nenhum loop'} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
