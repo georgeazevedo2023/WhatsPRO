@@ -2,6 +2,12 @@
 // dailyReport.ts — formatter PURO do "Resumo do dia" enviado aos gestores por
 // WhatsApp (edge fn daily-manager-report). Zero imports (testável em vitest).
 //
+// v7.108.0: formato RICO aprovado pelo dono (2026-07-25) — comparação com o
+// MESMO dia da semana anterior (varejo tem sazonalidade de dia-da-semana),
+// "o que procuraram" por categoria, uso do painel e pontos de atenção
+// automáticos. Os campos novos são OPCIONAIS: sem eles o layout legado é
+// preservado (compat com chamadores antigos da RPC).
+//
 // Contrato de consistência (definições únicas — os números FECHAM entre si):
 //   - atendimento  = conversa com ≥1 msg INCOMING no dia (janela America/Sao_Paulo)
 //   - novo         = atendimento cujo contact foi criado no dia; recorrente = resto
@@ -25,17 +31,57 @@ export interface DailyReportData {
   nps_votes: Array<{ score: number | null; options: string[] | null }>
   top_searches: Array<{ q: string; n: number }>
   top_brands: Array<{ b: string; n: number }>
+  // ── campos v4 (RPC rica) — opcionais pra compat com dados antigos ──
+  /** Mesmas métricas-chave do MESMO dia da semana anterior (day - 7). */
+  prev?: {
+    day: string
+    conversations_total: number
+    conversations_new: number
+    inbound_total: number
+    handoffs_total: number
+    sales: number
+  }
+  /** "O que procuraram": varredura por categoria (nº de msgs e conversas). */
+  category_mentions?: Array<{ c: string; msgs: number; convs: number }>
+  /** Enquetes NPS ENVIADAS no dia (nps_votes = votos recebidos). */
+  nps_sent?: number
+  /** Msgs outgoing com sender_id (respostas pelo PAINEL; celular = NULL). */
+  human_panel_msgs?: number
+  human_panel_convs?: number
 }
+
+/**
+ * Categorias do "o que procuraram" — padrões POSIX aplicados pela RPC sobre
+ * texto normalizado (lowercase, sem acento) com fronteira de palavra.
+ * Fonte única: a edge fn passa esta lista como p_categories.
+ */
+export const REPORT_CATEGORIES: Array<{ n: string; p: string }> = [
+  { n: 'Cerâmica/Piso/Porcelanato', p: '(ceramicas?|ceramicos?|porcelanatos?|pisos?|revestimentos?)' },
+  { n: 'Tinta', p: '(tintas?|verniz|selador(es)?|massa corrida)' },
+  { n: 'Telha', p: 'telhas?' },
+  { n: 'Rejunte/Argamassa', p: '(rejuntes?|argamassas?)' },
+  { n: 'Porta/Fechadura', p: '(portas?|fechaduras?)' },
+  { n: 'Chuveiro/Torneira', p: '(chuveiros?|torneiras?|duchas?)' },
+  { n: "Caixa d'água", p: '(caixas? d.?agua|caixa de agua)' },
+  { n: 'Elétrica (fio/tomada/lâmpada)', p: '(fios?|cabos?|tomadas?|interruptor(es)?|disjuntor(es)?|lampadas?|led)' },
+  { n: 'Hidráulica (cano/conexão/bomba)', p: '(canos?|tubos?|conexao|conexoes|mangueiras?|bombas?|registros?)' },
+]
 
 // deno-lint-ignore no-explicit-any
 type BusinessHours = Record<string, any> | null | undefined
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+const DAY_PT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
 
 /** Dia da semana ('sun'..'sat') de uma data 'YYYY-MM-DD' — independente de fuso. */
 export function weekdayKey(day: string): string {
   const d = new Date(`${day}T12:00:00Z`)
   return DAY_KEYS[d.getUTCDay()]
+}
+
+function weekdayPt(day: string): string {
+  const d = new Date(`${day}T12:00:00Z`)
+  return DAY_PT[d.getUTCDay()]
 }
 
 function parseHHMM(hhmm: unknown): number | null {
@@ -108,6 +154,29 @@ function fmtDayBR(day: string): string {
   return `${d}/${m}/${y}`
 }
 
+/** 232 → '3h52' · 45 → '45min'. */
+export function fmtMinutes(min: number): string {
+  if (!Number.isFinite(min) || min < 0) return '0min'
+  if (min < 60) return `${Math.round(min)}min`
+  const h = Math.floor(min / 60)
+  const m = Math.round(min % 60)
+  return `${h}h${String(m).padStart(2, '0')}`
+}
+
+/**
+ * Sufixo de comparação com o mesmo dia da semana anterior.
+ * Ex.: ' ▼8% (sex ant.: 251)' · ' (sex ant.: 2)' quando a base é pequena (<10,
+ * % vira ruído) · '' quando não há prev.
+ */
+function fmtDelta(cur: number, prevN: number | undefined, prevDay: string | undefined): string {
+  if (prevN === undefined || prevN === null || !prevDay) return ''
+  const label = `${weekdayPt(prevDay)} ant.: ${prevN}`
+  if (prevN < 10) return ` (${label})`
+  const pct = Math.round(((cur - prevN) / prevN) * 100)
+  if (pct === 0) return ` = (${label})`
+  return ` ${pct > 0 ? '▲' : '▼'}${Math.abs(pct)}% (${label})`
+}
+
 /** Bucket do voto NPS (escala curta v7.97.1: Bom→8 / Regular→5 / Ruim→2). */
 export function npsBucket(vote: { score: number | null; options: string[] | null }): 'Bom' | 'Regular' | 'Ruim' | null {
   if (typeof vote.score === 'number') {
@@ -135,6 +204,8 @@ export function buildDailyReportText(input: BuildReportInput): string {
   const { data, businessHours } = input
   const dayKey = weekdayKey(data.day)
   const returning = Math.max(0, data.conversations_total - data.conversations_new)
+  const prev = data.prev
+  const prevDay = prev?.day
 
   // ── mensagens dentro/fora do horário (por hora)
   let inHours = 0
@@ -149,57 +220,87 @@ export function buildDailyReportText(input: BuildReportInput): string {
   lines.push(`${fmtDayBR(data.day)} · ${input.cutoffLabel || 'dia completo'}`)
   lines.push('')
 
-  const novoRec = data.conversations_total > 0
-    ? ` (${data.conversations_new} novos · ${returning} recorrentes)`
-    : ''
-  lines.push(`👥 *Atendimentos:* ${data.conversations_total}${novoRec}`)
+  // ── atendimentos (+ delta e sub-linha no formato rico)
+  if (prev) {
+    lines.push(`👥 *Atendimentos:* ${data.conversations_total}${fmtDelta(data.conversations_total, prev.conversations_total, prevDay)}`)
+    if (data.conversations_total > 0) {
+      lines.push(`↳ ${data.conversations_new} novos · ${returning} recorrentes`)
+    }
+  } else {
+    const novoRec = data.conversations_total > 0
+      ? ` (${data.conversations_new} novos · ${returning} recorrentes)`
+      : ''
+    lines.push(`👥 *Atendimentos:* ${data.conversations_total}${novoRec}`)
+  }
 
-  const msgSplit = data.inbound_total > 0
-    ? (outHours > 0 ? ` (${inHours} no horário · ${outHours} fora)` : ' (todas no horário)')
-    : ''
-  lines.push(`💬 *Mensagens recebidas:* ${data.inbound_total}${msgSplit}`)
+  // ── mensagens (+ delta e sub-linha no formato rico)
+  if (prev) {
+    lines.push(`💬 *Mensagens recebidas:* ${data.inbound_total}${fmtDelta(data.inbound_total, prev.inbound_total, prevDay)}`)
+    if (outHours > 0) lines.push(`↳ ${inHours} no horário · ${outHours} fora`)
+  } else {
+    const msgSplit = data.inbound_total > 0
+      ? (outHours > 0 ? ` (${inHours} no horário · ${outHours} fora)` : ' (todas no horário)')
+      : ''
+    lines.push(`💬 *Mensagens recebidas:* ${data.inbound_total}${msgSplit}`)
+  }
 
   if (data.conversations_total > 0) {
     const pct = Math.round((data.ai_only / data.conversations_total) * 100)
     lines.push(`🤖 *Só com a IA (sem humano):* ${data.ai_only} de ${data.conversations_total} (${pct}%)`)
   }
 
+  const answered = (data.handoff_first_response_minutes || []).length
+  const med = median(data.handoff_first_response_minutes || [])
+  const pend = data.handoffs_total - answered
+  const handoffDelta = prev ? fmtDelta(data.handoffs_total, prev.handoffs_total, prevDay) : ''
   if (data.handoffs_total > 0) {
-    const med = median(data.handoff_first_response_minutes || [])
-    const answered = (data.handoff_first_response_minutes || []).length
     if (answered === 0) {
-      lines.push(`🤝 *Transbordos:* ${data.handoffs_total} · ⚠️ nenhum respondido por humano ainda`)
+      lines.push(`🤝 *Transbordos:* ${data.handoffs_total}${handoffDelta} · ⚠️ nenhum respondido por humano ainda`)
     } else {
-      const pend = data.handoffs_total - answered
       const pendTxt = pend > 0 ? ` · ⚠️ ${pend} sem resposta` : ''
-      lines.push(`🤝 *Transbordos:* ${data.handoffs_total} · 1ª resposta humana em ${med}min${pendTxt}`)
+      lines.push(`🤝 *Transbordos:* ${data.handoffs_total}${handoffDelta} · 1ª resposta humana em ${fmtMinutes(med as number)}${pendTxt}`)
     }
   } else {
-    lines.push(`🤝 *Transbordos:* 0`)
+    lines.push(`🤝 *Transbordos:* 0${handoffDelta}`)
   }
 
-  lines.push(`💰 *Vendas detectadas:* ${data.sales}`)
+  lines.push(`💰 *Vendas detectadas:* ${data.sales}${prev ? ` (${weekdayPt(prevDay as string)} ant.: ${prev.sales})` : ''}`)
 
+  // ── NPS: enviadas + votos (rico) ou só votos (legado)
   const buckets = { Bom: 0, Regular: 0, Ruim: 0 }
   for (const v of data.nps_votes || []) {
     const b = npsBucket(v)
     if (b) buckets[b]++
   }
   const totalVotes = buckets.Bom + buckets.Regular + buckets.Ruim
-  if (totalVotes > 0) {
-    const parts = (['Bom', 'Regular', 'Ruim'] as const)
-      .filter((k) => buckets[k] > 0)
-      .map((k) => `${buckets[k]} ${k}`)
-    lines.push(`⭐ *NPS:* ${totalVotes} voto${totalVotes > 1 ? 's' : ''} (${parts.join(' · ')})`)
+  const bucketTxt = (['Bom', 'Regular', 'Ruim'] as const)
+    .filter((k) => buckets[k] > 0)
+    .map((k) => `${buckets[k]} ${k}`)
+    .join(' · ')
+  if (typeof data.nps_sent === 'number') {
+    const votos = totalVotes > 0
+      ? `${totalVotes} voto${totalVotes > 1 ? 's' : ''} (${bucketTxt})`
+      : '0 votos'
+    lines.push(`⭐ *NPS:* ${data.nps_sent} enquete${data.nps_sent === 1 ? '' : 's'} enviada${data.nps_sent === 1 ? '' : 's'} · ${votos}`)
+  } else if (totalVotes > 0) {
+    lines.push(`⭐ *NPS:* ${totalVotes} voto${totalVotes > 1 ? 's' : ''} (${bucketTxt})`)
   }
 
-  const searches = (data.top_searches || []).slice(0, 5)
-  if (searches.length > 0) {
+  // ── "o que procuraram" por categoria (rico); fallback: top buscas (legado)
+  const cats = (data.category_mentions || []).filter((c) => c.convs > 0).slice(0, 8)
+  if (cats.length > 0) {
     lines.push('')
-    lines.push('🛒 *Top produtos procurados:*')
-    searches.forEach((s, i) => {
-      lines.push(`${i + 1}. ${cap(s.q)} — ${s.n} busca${s.n > 1 ? 's' : ''}`)
-    })
+    lines.push('🛒 *O que procuraram* (nº de conversas):')
+    cats.forEach((c, i) => lines.push(`${i + 1}. ${c.c} — ${c.convs}`))
+  } else {
+    const searches = (data.top_searches || []).slice(0, 5)
+    if (searches.length > 0) {
+      lines.push('')
+      lines.push('🛒 *Top produtos procurados:*')
+      searches.forEach((s, i) => {
+        lines.push(`${i + 1}. ${cap(s.q)} — ${s.n} busca${s.n > 1 ? 's' : ''}`)
+      })
+    }
   }
 
   const brands = (data.top_brands || []).slice(0, 5)
@@ -226,6 +327,33 @@ export function buildDailyReportText(input: BuildReportInput): string {
       const fora = !isHourInBusinessHours(businessHours, dayKey, h) ? ' _(fora do horário)_' : ''
       lines.push(n > 0 ? `${hh}h ${bar(n, maxN)} ${n}${fora}` : `${hh}h 0${fora}`)
     }
+  }
+
+  // ── pontos de atenção (regras determinísticas; seção só aparece se ≥1 dispara)
+  const attention: string[] = []
+  if (med !== null && med > 60) {
+    attention.push(`1ª resposta humana demorou: mediana ${fmtMinutes(med)}`)
+  }
+  if (data.handoffs_total > 0 && pend > 0) {
+    attention.push(`${pend} transbordo${pend > 1 ? 's' : ''} sem resposta humana`)
+  }
+  if (answered > 0 && data.human_panel_msgs === 0) {
+    attention.push('Respostas humanas vieram só do celular — sem medição por atendente no painel')
+  }
+  if (typeof data.nps_sent === 'number') {
+    if (data.nps_sent === 0 && data.conversations_total > 0) {
+      attention.push('Nenhuma enquete NPS disparou — a enquete sai ao Finalizar a conversa no painel')
+    } else if (data.nps_sent > 0 && totalVotes === 0) {
+      attention.push(`${data.nps_sent} enquete${data.nps_sent > 1 ? 's' : ''} NPS enviada${data.nps_sent > 1 ? 's' : ''} sem nenhum voto`)
+    }
+  }
+  if (outHours >= 5) {
+    attention.push(`${outHours} mensagens fora do horário — cliente chama com a loja fechada`)
+  }
+  if (attention.length > 0) {
+    lines.push('')
+    lines.push('⚠️ *Pontos de atenção:*')
+    attention.forEach((a, i) => lines.push(`${i + 1}. ${a}`))
   }
 
   lines.push('')

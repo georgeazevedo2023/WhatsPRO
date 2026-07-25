@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildDailyReportText,
+  fmtMinutes,
   isHourInBusinessHours,
   median,
   npsBucket,
@@ -225,6 +226,105 @@ describe('buildDailyReportText', () => {
     );
     // corta no 5º — 'coral' fica de fora
     expect(text).not.toContain('Coral (1)');
+  });
+
+  it('formato RICO (v7.108.0): deltas vs mesmo dia da semana anterior + sub-linhas ↳', () => {
+    const text = buildDailyReportText({
+      title: 'EletropisoV2',
+      businessHours: WEEKLY_HOURS,
+      data: baseData({
+        // sex 24/07 vs sex 17/07
+        inbound_total: 110,
+        inbound_by_hour: { '9': 100, '19': 10 }, // 19h = fora (sex fecha 18h)
+        conversations_total: 50,
+        conversations_new: 30,
+        conv_starts_by_hour: { '9': 50 },
+        ai_only: 10,
+        handoffs_total: 4,
+        handoff_first_response_minutes: [120, 300], // mediana 210 → 3h30
+        sales: 0,
+        nps_sent: 0,
+        human_panel_msgs: 0,
+        human_panel_convs: 0,
+        category_mentions: [
+          { c: 'Tinta', msgs: 5, convs: 4 },
+          { c: 'Telha', msgs: 3, convs: 2 },
+        ],
+        top_searches: [{ q: 'ignorado', n: 1 }], // rico usa categorias, não buscas
+        prev: {
+          day: '2026-07-17',
+          conversations_total: 40,
+          conversations_new: 20,
+          inbound_total: 100,
+          handoffs_total: 2,
+          sales: 1,
+        },
+      }),
+    });
+    expect(text).toContain('👥 *Atendimentos:* 50 ▲25% (sex ant.: 40)');
+    expect(text).toContain('↳ 30 novos · 20 recorrentes');
+    expect(text).toContain('💬 *Mensagens recebidas:* 110 ▲10% (sex ant.: 100)');
+    expect(text).toContain('↳ 100 no horário · 10 fora');
+    // base pequena (<10) não vira % — mostra só o valor anterior
+    expect(text).toContain('🤝 *Transbordos:* 4 (sex ant.: 2) · 1ª resposta humana em 3h30 · ⚠️ 2 sem resposta');
+    expect(text).toContain('💰 *Vendas detectadas:* 0 (sex ant.: 1)');
+    expect(text).toContain('⭐ *NPS:* 0 enquetes enviadas · 0 votos');
+    expect(text).toContain('🛒 *O que procuraram* (nº de conversas):');
+    expect(text).toContain('1. Tinta — 4');
+    expect(text).toContain('2. Telha — 2');
+    expect(text).not.toContain('Top produtos procurados');
+  });
+
+  it('formato RICO: pontos de atenção disparam pelas regras determinísticas', () => {
+    const text = buildDailyReportText({
+      title: 'X',
+      businessHours: WEEKLY_HOURS,
+      data: baseData({
+        inbound_total: 20,
+        inbound_by_hour: { '9': 14, '20': 6 }, // 6 fora ≥5 → atenção
+        conversations_total: 10,
+        conversations_new: 10,
+        conv_starts_by_hour: { '9': 10 },
+        handoffs_total: 3,
+        handoff_first_response_minutes: [232], // mediana 3h52 > 60min
+        nps_sent: 0,
+        human_panel_msgs: 0,
+      }),
+    });
+    expect(text).toContain('⚠️ *Pontos de atenção:*');
+    expect(text).toContain('1ª resposta humana demorou: mediana 3h52');
+    expect(text).toContain('2 transbordos sem resposta humana');
+    expect(text).toContain('Respostas humanas vieram só do celular — sem medição por atendente no painel');
+    expect(text).toContain('Nenhuma enquete NPS disparou — a enquete sai ao Finalizar a conversa no painel');
+    expect(text).toContain('6 mensagens fora do horário — cliente chama com a loja fechada');
+  });
+
+  it('formato RICO: enquete enviada sem voto vira atenção; painel usado não alerta', () => {
+    const text = buildDailyReportText({
+      title: 'X',
+      businessHours: null,
+      data: baseData({
+        conversations_total: 5,
+        conversations_new: 5,
+        inbound_total: 10,
+        inbound_by_hour: { '9': 10 },
+        conv_starts_by_hour: { '9': 5 },
+        handoffs_total: 1,
+        handoff_first_response_minutes: [3],
+        nps_sent: 2,
+        human_panel_msgs: 7,
+      }),
+    });
+    expect(text).toContain('⭐ *NPS:* 2 enquetes enviadas · 0 votos');
+    expect(text).toContain('2 enquetes NPS enviadas sem nenhum voto');
+    expect(text).not.toContain('só do celular');
+    expect(text).not.toContain('demorou');
+  });
+
+  it('fmtMinutes: minutos e horas', () => {
+    expect(fmtMinutes(26)).toBe('26min');
+    expect(fmtMinutes(60)).toBe('1h00');
+    expect(fmtMinutes(232)).toBe('3h52');
   });
 
   it('NPS agregado por bucket quando há votos', () => {

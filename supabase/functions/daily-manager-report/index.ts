@@ -7,11 +7,13 @@
 // Body:
 //   { instance_id: string,       — instância alvo (ex.: re662a6d32de7e0)
 //     day?: 'YYYY-MM-DD',        — default: hoje (America/Sao_Paulo)
-//     test_phone?: string,       — MODO TESTE: envia SÓ pra esse número
+//     to_phone?: string,         — destinatário FIXO (decisão do dono 2026-07-25:
+//                                  cron envia pro número dele; ignora lista de gestores)
+//     test_phone?: string,       — alias legado de to_phone (mesmo comportamento)
 //     title?: string }           — título do cabeçalho (default: nome do agente)
 //
-// Sem test_phone → envia pros gestores (user_roles gerente/super_admin) com
-// personal_whatsapp cadastrado, respeitando opt-out e pausa de notificações
+// Sem to_phone/test_phone → envia pros gestores (user_roles gerente/super_admin)
+// com personal_whatsapp cadastrado, respeitando opt-out e pausa de notificações
 // (mesmo critério do notify-manager-nps).
 //
 // Auth: verify_jwt=false + verifyCronOrService (cron/service-role only).
@@ -22,7 +24,7 @@ import { createServiceClient } from '../_shared/supabaseClient.ts'
 import { createLogger } from '../_shared/logger.ts'
 import { verifyCronOrService, unauthorizedResponse } from '../_shared/auth.ts'
 import { sendUazapiText } from '../_shared/sendWhatsApp.ts'
-import { buildDailyReportText, type DailyReportData } from '../_shared/dailyReport.ts'
+import { buildDailyReportText, REPORT_CATEGORIES, type DailyReportData } from '../_shared/dailyReport.ts'
 import { DEFAULT_BRANDS } from '../_shared/brandDetection.ts'
 
 // @ts-ignore — Deno global
@@ -32,6 +34,7 @@ const log = createLogger('daily-manager-report')
 interface Body {
   instance_id: string
   day?: string
+  to_phone?: string
   test_phone?: string
   title?: string
 }
@@ -81,9 +84,10 @@ Deno.serve(async (req: Request) => {
       .rpc('get_daily_manager_report', {
         p_instance_id: body.instance_id,
         p_day: body.day || null,
-        // Fonte única da lista de marcas (v7.107.0): top_brands passa a varrer
-        // as msgs do dia (content+transcription) contra esta lista, na RPC.
+        // Fonte única das listas (v7.107.0/v7.108.0): a RPC varre as msgs do dia
+        // (content+transcription) contra marcas e categorias vindas do TS.
         p_brands: DEFAULT_BRANDS,
+        p_categories: REPORT_CATEGORIES,
       })
     if (rpcErr || !report) {
       log.error('rpc error', { error: rpcErr?.message })
@@ -106,9 +110,10 @@ Deno.serve(async (req: Request) => {
     })
 
     // ── destinatários
+    const fixedPhone = body.to_phone || body.test_phone
     let recipients: Array<{ phone: string; label: string }> = []
-    if (body.test_phone) {
-      recipients = [{ phone: body.test_phone, label: 'test' }]
+    if (fixedPhone) {
+      recipients = [{ phone: fixedPhone, label: body.to_phone ? 'direct' : 'test' }]
     } else {
       const { data: roleRows } = await supabase
         .from('user_roles')
@@ -149,7 +154,7 @@ Deno.serve(async (req: Request) => {
     }
 
     log.info('daily_report_sent', {
-      instance: body.instance_id, day: data.day, sent, failed: failures.length, test: !!body.test_phone,
+      instance: body.instance_id, day: data.day, sent, failed: failures.length, direct: !!fixedPhone,
     })
     return json({ ok: sent > 0, day: data.day, sent, failed: failures, preview: text }, 200, cors)
   } catch (err) {

@@ -5374,7 +5374,12 @@ export type Database = {
         }[]
       }
       get_daily_manager_report: {
-        Args: { p_brands?: string[]; p_day?: string; p_instance_id: string }
+        Args: {
+          p_brands?: string[]
+          p_categories?: Json
+          p_day?: string
+          p_instance_id: string
+        }
         Returns: Json
       }
       get_db_size_summary: { Args: { threshold_mb?: number }; Returns: Json }
