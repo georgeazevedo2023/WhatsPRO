@@ -8,6 +8,8 @@ audited_at: 2026-06-17
 
 # O que falta fazer no WhatsPRO (auditoria 2026-06-17)
 
+> 🔄 **STATUS 2026-07-25 (fotografia datada — a análise abaixo é de 2026-06-17, não foi reescrita):** o item **D6 — aposentar o monolito do ai-agent** (linhas da tabela abaixo) foi **✅ RESOLVIDO na v7.109.0** (commit `5245eab`, ai-agent **v277**). Não existe mais monolito: o único cérebro é `_shared/agent/routerPipeline.ts` (~932 lin, `DISPATCH` de 7 intents em `routerPipeline.ts:151-159`); `ai_agents.routing_mode` virou **coluna inerte** (sem leitor no código, default do DB = `router`, seletor fora da UI); falha de specialist/hop guard cai em **fallback gracioso** no `ai-agent/index.ts` (~L2906-2941) em vez do LLM antigo. `ai-agent/index.ts`: **3.440 → 2.964 linhas (-476)**. Os demais itens desta auditoria seguem válidos até nova verificação.
+
 > Auditoria ampla (workflow: doc-health + backlog + código/dívida + follow-ups v7.94.0 → síntese), verificada contra código (grep/wc), DB e advisor ao vivo — **não confiou no texto das docs**. Atualiza o backlog de [[wiki/auditoria-estrutura-2026-06-14]].
 
 ## Resumo
@@ -24,7 +26,7 @@ audited_at: 2026-06-17
 - **Doc-drift** (CLAUDE.md/roadmap/RULES.md) + **CHANGELOG particionado** + **migrations registradas** + `.gitignore` imagens.
 - Migrations: `20260617120000` (v7.94.0) e `20260617140000` (hardening) aplicadas e registradas.
 
-**Ainda aberto (abaixo):** `ai_agent_validations`/`follow_up_executions` tenant-scoping entre autenticados (anon já fechado 06-19), D6 monolito (gate), e os épicos (lint, god files, wikis, front data layer, testes edge fns).
+**Ainda aberto (abaixo):** `ai_agent_validations`/`follow_up_executions` tenant-scoping entre autenticados (anon já fechado 06-19), ~~D6 monolito (gate)~~ **✅ RESOLVIDO em 2026-07-25 (v7.109.0)**, e os épicos (lint, god files, wikis, front data layer, testes edge fns).
 
 ## ✅ Fechado 2026-06-18 (hardening seguro + docs)
 
@@ -61,7 +63,7 @@ audited_at: 2026-06-17
 | **P2** | **45 edge fns runtime com 0 testes co-located**; parse `sender_pn`/`@lid`, `shouldLockHumanHandling` sem teste | test | large | webhook 1499/uazapi-proxy 1021/ai-agent 3349 | Extrair parse p/ `_shared/` puro + vitest. |
 | **P2** | **Camada de dados dupla no front**: ~158 `supabase.from()` em 47 componentes + React Query; `useSupabaseQuery` @deprecated | code | large | UsersTab 11×, EditBoardDialog 24× | Lint `no-restricted-imports` + migrar incremental. |
 | **P2** | **God files sem teto**: `ServiceCategoriesConfig.tsx` 2170, `whatsapp-webhook` 1499, `searchProducts` 1150 | code | large | `wc -l` (excl. types.ts gerado) | Teto SUAVE >700 lin no healthcheck. ai-agent encolhe com D6. |
-| **P2** | **D6 — aposentar monolito ai-agent** (gate ~23/06): 3/3 agentes em `router`, mas default do schema = `monolith`, setup caro roda e é descartado | backlog | large | SQL routing_mode={router:3}; index.ts:3107 | Aguardar gate. Flipar default → bifurcar antes do setup → remover branch+toolDefs+prompt → deletar validatorAgent. **Maior alavanca de dívida.** |
+| ~~P2~~ | ~~**D6 — aposentar monolito ai-agent** (gate ~23/06): 3/3 agentes em `router`, mas default do schema = `monolith`, setup caro roda e é descartado~~ | backlog | — | — | ✅ **RESOLVIDO em 2026-07-25 (v7.109.0**, commit `5245eab`, ai-agent v277**)** — branch do monolito removida (`index.ts` 3.440 → 2.964 lin, -476); `routing_mode` virou coluna inerte (default do DB = `router`, seletor fora da UI) em vez de dropada; fallback de erro agora é transbordo gracioso, não o LLM antigo. Rollback = redeploy do commit `36f0555`. |
 | **P3** | **Lint debt** (eslint informativo): 322 problemas (~190 no-explicit-any + 47 exhaustive-deps + 47 unused-vars + resto). **Imports não usados ZERADOS** (06-19/20: −60 em ~31 arq via 2 fatias, tsc/build/vitest OK a cada passo) | code | large | `eslint .` | Restam só unused-vars que são vars/props/params (julgamento, podem mudar comportamento), no-explicit-any (tipar views SQL), exhaustive-deps (47). |
 | ~~P3~~ | ~~`group-reasons` morta~~ | code | — | — | ✅ **FEITO v7.95.0** — deletada de prod+source. |
 | **P3** | **index.md / decisoes-chave stale**: index updated 05-11 (v7.32 máx); não citam router/human_handling | doc | medium | `index.md:4`; grep v7.9x=0 | Revisar referências; bump. |

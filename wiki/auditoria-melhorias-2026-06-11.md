@@ -8,6 +8,8 @@ audited_at: 2026-06-11
 
 # Auditoria & Melhorias — 2026-06-11 (tarde/noite)
 
+> 🔄 **STATUS 2026-07-25 (fotografia datada — a análise abaixo é de 2026-06-11):** o item **#9 D6 — aposentar monolito** foi **✅ RESOLVIDO na v7.109.0**. Os demais itens seguem como estavam até nova verificação.
+
 > Consolidação da sessão que shipou **v7.81.0 → v7.83.0** + auditoria do que falta
 > + 10 melhorias propostas. Frase de retomada: **"retomar whatspro 2026-06-11"**
 > (handoff completo na memória `project_session_2026_06_11_handoff`).
@@ -76,7 +78,10 @@ Re-derivar do zero = `TRUNCATE conversion_funnel_events` + `mode=daily` com `dat
 8. **1-produto-multi-imagem vira carrossel** (achado v7.51).
 
 ### Plano orquestrador (CLAUDE.md)
-9. **D6 — aposentar monolito** (~23/06: 30d de router estável no EletropisoV2).
+9. ~~**D6 — aposentar monolito** (~23/06: 30d de router estável no EletropisoV2).~~
+   ✅ **RESOLVIDO em 2026-07-25 (v7.109.0**, commit `5245eab`, ai-agent **v277**): monolito
+   removido, único cérebro = `_shared/agent/routerPipeline.ts`; `routing_mode` virou coluna
+   inerte; `ai-agent/index.ts` 3.440 → 2.964 linhas (-476).
 10. **Sprint E.2 resto** (proatividade/follow-ups) + **E.3 RAG**.
 11. **B4** — varredura R134 idempotência (hardening).
 

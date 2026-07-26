@@ -1,6 +1,6 @@
 ---
 title: AI Agent — O Cérebro (Router + 5 Specialists) e as 9 Ferramentas
-tags: [ai-agent, router, specialists, llm, tools, qualification-gate, greeting-policy, handoff, monolith-fallback]
+tags: [ai-agent, router, specialists, llm, tools, qualification-gate, greeting-policy, handoff, d6, fallback-gracioso]
 sources:
   - supabase/functions/_shared/agent/router.ts
   - supabase/functions/_shared/agent/routerPipeline.ts
@@ -13,8 +13,8 @@ sources:
   - supabase/functions/_shared/constants.ts
   - supabase/functions/ai-agent/index.ts
 parent: [[wiki/casos-de-uso/ai-agent-detalhado]]
-updated: 2026-06-20
-audited_at: 2026-06-20
+updated: 2026-07-26
+audited_at: 2026-07-26
 ---
 
 # AI Agent — O Cérebro (Router + 5 Specialists) e as 9 Ferramentas
@@ -25,7 +25,7 @@ audited_at: 2026-06-20
 
 **Didático:** imagine uma loja com um **recepcionista** na porta. Ele não vende nada — só ouve a primeira frase do cliente e decide para qual **balcão** mandar: "quer só dar oi", "ainda está pesquisando", "quer um produto específico", "está reclamando do preço", ou "quer falar com um vendedor de verdade". Cada balcão tem um especialista treinado só para aquele momento. Esse recepcionista é o **router**; os balcões são os **5 specialists**.
 
-**Técnico:** o agente roda em pipeline de **2 saltos (hops)** — `routerPipeline.ts` chama `classifyIntent` (router LLM, hop 0) e despacha para um **specialist** (hop 1). O pipeline só roda quando `agent.routing_mode === 'router'` ou `'shadow'` (`index.ts:3107`); o **default é `monolith`** (router pulado, o mega-prompt responde). Em prod o agente ativo (EletropisoV2) está em `router`.
+**Técnico:** o agente roda em pipeline de **2 saltos (hops)** — `routerPipeline.ts` chama `classifyIntent` (router LLM, hop 0) e despacha para um **specialist** (hop 1). Desde o **D6 (2026-07-25, `ai-agent` v277)** esse pipeline é o **único cérebro**: não há mais gate de modo nem mega-prompt alternativo. Todo agente — EletropisoV2 em prod incluído — passa por router + specialists em **todo** turno.
 
 ---
 
@@ -43,7 +43,7 @@ audited_at: 2026-06-20
 3. `confidence < 0.6` E intent ≠ qualificacao → forçado a `qualificacao` (no código, não só no prompt).
 4. A chamada LLM lança exceção → `qualificacao`.
 
-**Hop guard** (`hopGuard.ts`): hop 0 = router, hop 1 = specialist, **máximo 2 hops** por `turn_id`. Consulta `ai_agent_runs`; se já há ≥2 linhas → bloqueia, loga `loop_detected` e cai no monolito. Erro de DB → defensivo `allow: true`.
+**Hop guard** (`hopGuard.ts`): hop 0 = router, hop 1 = specialist, **máximo 2 hops** por `turn_id`. Consulta `ai_agent_runs`; se já há ≥2 linhas → bloqueia, loga `loop_detected` e o pipeline devolve `null` → **transbordo gracioso** (§7). Erro de DB → defensivo `allow: true`.
 
 ---
 
@@ -51,7 +51,7 @@ audited_at: 2026-06-20
 
 **Didático:** sete tipos de pedido, mas só **cinco balcões** — alguns balcões atendem dois tipos. Pagamento, por exemplo, é atendido pelo mesmo especialista de objeção (ele já carrega os preços e condições). E "fora do escopo" vai pro mesmo que cuida da saudação, que redireciona educadamente.
 
-**Técnico** (`routerPipeline.ts:154-162):
+**Técnico** (`routerPipeline.ts:151-159`):
 
 | Intent | Builder do specialist |
 |---|---|
@@ -77,7 +77,7 @@ audited_at: 2026-06-20
 
 **Didático:** todo balcão segue o mesmo roteiro de bastidores: cumprimentar (se ainda não cumprimentou), lembrar do cliente, falar como gente (humanização), conhecer a loja (endereço/horário/pagamento), não repetir o nome toda hora. Cada especialista só escreve a parte que é "a cara dele"; o resto o sistema cola automaticamente em volta.
 
-**Técnico:** cada specialist é só `{ name, intent, model, buildPrompt, toolDefs, disableHandoffGuard }` (`SpecialistDef`); `runSpecialist(ctx, def, hopN)` faz o resto. O system prompt é montado nesta ordem exata (specialistBase.ts:260-262):
+**Técnico:** cada specialist é só `{ name, intent, model, buildPrompt, toolDefs, disableHandoffGuard }` (`SpecialistDef`); `runSpecialist(ctx, def, hopN)` faz o resto. O system prompt é montado nesta ordem exata (`specialistBase.ts:260`):
 1. `buildLeadMemoryBlock(leadProfile)` — memória longa do lead (topo).
 2. `greetingDoneDirective` — anti double-ask se já saudou neste turno.
 3. o `buildPrompt` do próprio specialist.
@@ -87,7 +87,7 @@ audited_at: 2026-06-20
 7. `ctx.exitActionDirective` — quando o motor concluiu qualif com `exit_action=handoff`.
 8. `ctx.preSearchContext` — pré-busca determinística (último, fix de latência 1-round do produto).
 
-**Pipeline:** `buildPrompt` → `runLlmCallLoop` (loop de function-calling com retry/backoff) → insere linha de hop em `ai_agent_runs` → sanitização (§5) → dispatch. Pós-dispatch: `consolidateLeadMemory` fire-and-forget. Erro 3× LLM → `errorResponse` propagado (caller cai no monolito; não mata o turno). Modelo default no `SpecialistDef`: `gpt-4.1` (full, não-reasoning).
+**Pipeline:** `buildPrompt` → `runLlmCallLoop` (loop de function-calling com retry/backoff) → insere linha de hop em `ai_agent_runs` → sanitização (§5) → dispatch. Pós-dispatch: `consolidateLeadMemory` fire-and-forget. Erro 3× LLM → `errorResponse` propagado; o `routerPipeline` NÃO devolve esse erro ao lead — loga e retorna `null`, e o `index.ts` faz o **transbordo gracioso** (§7). Modelo default no `SpecialistDef`: `gpt-4.1` (full, não-reasoning).
 
 ---
 
@@ -122,49 +122,57 @@ audited_at: 2026-06-20
 **Técnico (alto nível):**
 - `qualificationGate.ts` — fonte única "search vs qualify". `evaluateQualificationGate` devolve `mode`: `search` (força product specialist), `qualify` (força qualification, muitas vezes devolvendo a próxima pergunta determinística sem chamar o LLM), `qualify_then_handoff` (catálogo offline → qualifica breve e transfere), `no_category`. **Nunca lança**: em qualquer erro retorna `readyToSearch=true` para o lead não ficar preso em loop. Substituiu 4 decisores rivais que divergiam na migração monolito→router.
 - `greetingPolicy.ts` — `classifyLeadRecency` → `novo`/`recorrente`/`ativo`; `buildOpeningDirective` injeta a diretiva de abertura no topo do prompt (ou só a P5 de registro de nome, se a saudação já foi feita deterministicamente no index.ts). `buildNameUsageDirective` suprime o nome se usado nas últimas 2 mensagens do bot.
-- `responseSanitizer.ts` — **fonte única de validação para router E monolito**. O **Validator LLM (`validatorAgent.validateResponse`) foi APOSENTADO do hot path** (Onda 2, 2026-06-12); `validatorAgent.ts` sobrevive só para `countMsgsSinceNameUse` e auditoria offline. O sanitizer roda o motor **determinístico** `validateLLMResponse` (regras/regex, apesar do "LLM" no nome). `sanitizeAgentResponse` nunca lança; aplica `SAFE_TEXT_RULES` (substitui texto inteiro: negação de produto / vazamento de erro / leak interno), `AUTO_FIX_RULES` (reescrita cirúrgica) e regras cosméticas (só telemetria).
-- Short-circuits pré-LLM (`preLLMShortCircuits.ts` R136/R129) e pré-busca inline (R121, `preLLMAutoExtract.ts`) são **pulados sob router** (`skipShortCircuits`/`skipR121`); o handoff por exit-action é deferido ao handoff specialist.
+- `responseSanitizer.ts` — **fonte única de validação de toda resposta que sai do agente**. Desde o D6 tem um único consumidor: `sanitizeSpecialistResponse` no `specialistBase.ts` (antes era compartilhado com o monolito). O **Validator LLM (`validatorAgent.validateResponse`) foi APOSENTADO do hot path** (Onda 2, 2026-06-12); `validatorAgent.ts` sobrevive só para `countMsgsSinceNameUse` e auditoria offline. O sanitizer roda o motor **determinístico** `validateLLMResponse` (regras/regex, apesar do "LLM" no nome). `sanitizeAgentResponse` nunca lança; aplica `SAFE_TEXT_RULES` (substitui texto inteiro: negação de produto / vazamento de erro / leak interno), `AUTO_FIX_RULES` (reescrita cirúrgica) e regras cosméticas (só telemetria).
+- **Short-circuits pré-LLM: os do monolito foram REMOVIDOS no D6.** Até 2026-07-25 o `index.ts` chamava `runPreLLMShortCircuits` (R129/R136) e a pré-busca inline R121, ambos pulados quando o agente rodava em router; com o monolito aposentado, os dois caminhos saíram do código. Hoje quem roda pré-LLM é o `preLLMAutoExtract.ts` (auto-extração de campos, score, seed de `interesse:` R143, `pendingExitActionHandoff`/`pendingExitActionSearch`), e a **desambiguação multi-categoria** virou seed de `multi_interesse_pending` (v7.105.0, a foto de torneira que virava "cano") consumido pelo qualification specialist. `preLLMShortCircuits.ts` continua no repo, mas só como utilitário: `jsonResponse`, `persistAndBroadcastReply` e o tipo `PreLLMShortCircuitsCtx`, importados pelo `jobVacancy.ts`.
 
 ---
 
-## 7. O monolito — hoje é fallback (ainda NÃO aposentado)
+## 7. O que acontece quando algo falha (fallback gracioso)
 
-**Didático:** antes do recepcionista existir, **um único cérebro gigante** lidava com tudo sozinho (um prompt de ~17 KB). Ele ainda está lá como **rede de segurança**: se o recepcionista ou um balcão der pau, o cérebro velho assume e responde, para o cliente nunca ficar no vácuo.
+**Didático:** até 2026-07-25 existia um **cérebro gigante antigo** (um prompt de ~17 KB) que fazia tudo sozinho e ficou como rede de segurança. Ele **foi aposentado** (D6). Hoje a rede de segurança não é outra IA — é o **transbordo digno**: se o recepcionista se confunde, ele manda o cliente pro balcão que faz perguntas (nunca é grosseiro nem some); se um balcão inteiro cai, a loja não pede desculpa técnica ao cliente — manda a mensagem de "vou te passar pro nosso atendente", coloca o lead na fila e avisa o vendedor. Na Eletropiso: o lead pergunta "tem porcelanato 60x60?" e o specialist de produto quebra → o lead recebe *"George, um de nossos atendentes vai te ajudar…"* e cai na fila com nota interna, em vez de um "Desculpe, erro interno".
 
-**Técnico:** o caminho monolito (`runLlmCallLoop`, index.ts:3131) roda quando:
-- `routing_mode = monolith` (default — pipeline pulado inteiro), OU
-- `routing_mode = router`/`shadow` e `runRouterPipeline` retorna `response === null` (shadow mode, hop-guard trip, intent sem specialist, falha catastrófica do specialist, ou qualquer exceção do pipeline).
+**Técnico — 3 camadas, nesta ordem:**
 
-Então o monolito é hoje **(a)** o respondente ativo de qualquer agente ainda em `monolith` e **(b)** a rede de segurança dos agentes router/shadow. Ele compartilha o **mesmo sanitizer** (`sanitizeAgentResponse`, index.ts:3170) dos specialists. **D6** (aposentar o monolito) segue STAGED (gate ~23/06).
+**(a) O router LLM falhou → NÃO transborda.** `classifyIntent` (`router.ts`) nunca lança: JSON não parseia, intent fora de `VALID_INTENTS`, `confidence < 0.6` fora de qualificação, ou exceção da chamada → devolve intent `qualificacao` com `confidence 0.5` e `fallback: true`. O turno continua normal, com o qualification specialist (a intent mais segura: perguntar nunca estraga a conversa).
 
-**Os 3 valores de `routing_mode`:**
-- `monolith` — default; pipeline pulado; mega-prompt responde.
-- `router` — router classifica + despacha; specialist responde (com overrides); cai no monolito em falha.
-- `shadow` — router só classifica e loga em `ai_agent_runs` (mede acurácia); NÃO roda o specialist; o monolito responde ao lead.
+**(b) O specialist falhou → transbordo gracioso.** O `runRouterPipeline` devolve `response = null` em quatro situações: hop guard estourado (`loop_detected`), intent sem specialist mapeado, `errorResponse` do specialist (3× falha do LLM) ou qualquer exceção do pipeline. Ao receber `null`, o `ai-agent/index.ts` executa o transbordo (bloco D6, logo após a chamada do pipeline):
+
+1. envia a `handoff_message` configurada do agente (via `pickHandoffMessage`, respeitando fora-de-horário);
+2. `runQueueAssignment` → põe o lead na **fila** e notifica o vendedor;
+3. `status_ia = SHADOW` + tag `ia:shadow` (a IA continua extraindo, nunca responde);
+4. grava **nota interna**: *"⚠️ A IA não conseguiu processar este turno (falha interna do pipeline). Lead encaminhado para atendimento humano."*;
+5. loga em `ai_agent_logs` com `event = 'implicit_handoff'` e `metadata.reason = 'router_fallback'`.
+
+Regra da casa respeitada: **nunca expor erro interno ao lead**. Em 40h de prod pós-deploy (verificação de 2026-07-26) houve **zero `router_fallback`** em tráfego real — o único registro é o teste proposital de 2026-07-25.
+
+**(c) Rollback do D6 não é mais um flag.** Não existe chave pra "voltar pro monolito": o caminho é **redeploy do `ai-agent` a partir do commit `36f0555`** (o pai do D6, último com o monolito) via CLI scoop — versão anterior em prod = **v276**, atual = **v277**.
+
+> A coluna `ai_agents.routing_mode` continua no banco, mas está **INERTE desde 2026-07-25**: nenhum código a lê, o default do DB virou `router` e o seletor sumiu da UI (`src/components/admin/AIAgentTab.tsx`). Não confundir com `conversations.status_ia = 'shadow'`, que continua vivo e é outra coisa: **um humano assumiu o atendimento** (§7 de [[wiki/casos-de-uso/ai-agent-sdr-shadow-detalhado]]).
 
 ---
 
-## 8. As 9 ferramentas (tools)
+## 8. O vocabulário de ferramentas (tools)
 
-**Didático:** o agente não só conversa — ele tem **9 ferramentas** que pode acionar a qualquer momento, como um vendedor com acesso ao estoque, ao sistema de etiquetas e ao CRM. O próprio LLM decide qual usar e quando.
+**Didático:** o agente não só conversa — ele aciona **ferramentas**, como um vendedor com acesso ao estoque, ao sistema de etiquetas e ao CRM. O próprio LLM decide qual usar e quando; cada balcão (specialist) recebe só o molho de chaves que precisa.
 
-**Técnico:** as 9 defs canônicas vivem no monolito (`ai-agent/index.ts:2721-2810`), todas `strict: true` (toda key em `required[]`, opcionais como união `["TYPE","null"]`).
+**Técnico:** o **executor** `executeToolSafe` (`ai-agent/index.ts`) continua entendendo os 10 nomes abaixo, mas **as definições que o LLM enxerga não vivem mais no `index.ts`** — o D6 (2026-07-25) apagou de lá o bloco das 9 defs canônicas do monolito. Hoje elas vivem em `_shared/agent/specialistTools.ts` (compartilhadas) e em `productSpecialist.ts` (`getProductSpecialistToolDefs`), todas `strict: true` (toda key em `required[]`, opcionais como união `["TYPE","null"]`). Consequência prática: **`assign_label` e `move_kanban` ficaram sem def** — o handler segue no executor (e no `ai-agent-playground`), mas nenhum specialist oferece essas tools ao LLM, então na prática elas não são mais chamadas em produção.
 
 1. **`search_products`** — busca no catálogo. Se acha produtos com foto, **envia o carrossel automaticamente** (a descrição manda NÃO chamar `send_carousel` depois). Args: `query, category, subcategory, min_price, max_price` (nullable).
 2. **`send_carousel`** — carrossel de produtos com imagens + botões; usar com 2+ produtos COM imagem. Args: `product_ids` (títulos exatos, máx 10), `message` (nullable).
 3. **`send_media`** — uma imagem/documento (foto de um produto específico). Args: `media_url`, `media_type` (image/video/document), `caption` (nullable).
-4. **`assign_label`** — etiqueta a conversa para rastrear etapa do funil; os labels disponíveis são interpolados na descrição. Arg: `label_name`.
+4. **`assign_label`** — etiqueta a conversa para rastrear etapa do funil. Arg: `label_name`. **Só handler desde o D6** (nenhum specialist expõe a def).
 5. **`set_tags`** — adiciona tags cumulativas `"chave:valor"` (ex: `motivo:compra`, `interesse:tinta`). Arg: `tags` (array).
-6. **`move_kanban`** — move o card do CRM Kanban de coluna. Arg: `column_name`.
+6. **`move_kanban`** — move o card do CRM Kanban de coluna. Arg: `column_name`. **Só handler desde o D6** (nenhum specialist expõe a def).
 7. **`update_lead_profile`** — salva dados do lead. Args: `full_name, city, interests, notes, reason, average_ticket, objections` (todos nullable e required).
 8. **`handoff_to_human`** — transfere para humano (lead pede vendedor, mostra intenção de compra, ou frustração). Arg: `reason` (com resumo dos dados coletados).
 9. **`send_poll`** — enquete nativa do WhatsApp com opções clicáveis; **NUNCA numerar opções**. Args: `question` (máx 255), `options` (2-12), `selectable_count` (1=única, 0=múltipla, null=1).
 
 ### Onde as defs vivem (nuance importante)
 
-- `specialistTools.ts` **NÃO** guarda as 9. Exclui as tools de produto (`search_products`/`send_carousel`/`send_media`, que vivem em `productSpecialist.ts` via `getProductSpecialistToolDefs`) e também `assign_label`/`move_kanban`. Define **5**: `setTagsToolDef`, `updateLeadProfileToolDef`, `handoffToHumanToolDef`, `sendPollToolDef`, **e `setCartToolDef`** — uma 6ª tool fora da lista.
+- `specialistTools.ts` define **5**: `setTagsToolDef`, `updateLeadProfileToolDef`, `handoffToHumanToolDef`, `sendPollToolDef` e `setCartToolDef`. Não guarda as tools de mídia/busca (`search_products`/`send_carousel`/`send_media`, que vivem em `productSpecialist.ts` via `getProductSpecialistToolDefs`) nem `assign_label`/`move_kanban` (sem def).
+- `getProductSpecialistToolDefs()` devolve **7**: as 3 de produto + `set_tags` (cópia própria) + `updateLeadProfileToolDef` + `setCartToolDef` + `handoff_to_human`.
 - **`set_cart`** é a tool do cart engine: define o pedido COMPLETO (substitui o pedido inteiro, idempotente — não duplica). Item = `{name, qty, product_id, unit_price}`; cada item declara `additionalProperties:false` (o llmProvider só injeta isso no root → senão OpenAI 400 → 502).
-- Todas as defs compartilhadas são `strict: true`, cópias 1:1 dos schemas do monolito para evitar drift entre o que o LLM vê e o que `executeToolSafe` espera. `updateLeadProfileToolDef` exige TODOS os campos (null quando desconhecido). Specialists escolhem um SUBSET mínimo (princípio strict: "tool overload é sobre sobreposição, não quantidade").
+- Todas as defs compartilhadas são `strict: true`. Antes elas eram cópias 1:1 dos schemas do monolito (pra evitar drift); com o monolito aposentado, **`specialistTools.ts` virou a fonte canônica** — a régua de drift agora é o `executeToolSafe`. `updateLeadProfileToolDef` exige TODOS os campos (null quando desconhecido). Specialists escolhem um SUBSET mínimo (princípio strict: "tool overload é sobre sobreposição, não quantidade").
 
 ---
 

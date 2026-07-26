@@ -1,8 +1,8 @@
 ---
 title: WhatsPRO — Master Index
 type: index
-updated: 2026-06-18
-audited_at: 2026-06-18
+updated: 2026-07-26
+audited_at: 2026-07-26
 ---
 
 # WhatsPRO — Master Index
@@ -74,6 +74,7 @@ audited_at: 2026-06-18
 | `wiki/erros/` (3 arquivos) | Regras preventivas + histórico R91-R114 |
 | `wiki/historico-planos/` (9 arquivos) | Planos shipados (enquetes-polls, S10, S11) particionados |
 | `wiki/log-arquivo-*` (12+ arquivos) | Logs históricos particionados ≤300 lin cada |
+| [[wiki/claude-historico-sessoes]] | Blocos "Hoje" antigos do `CLAUDE.md` (2026-06-26 e anteriores), movidos no particionamento de 2026-07-26 |
 
 Última entrada do log ativo: `log.md`. Anteriores acessíveis via ponteiros no fim do `log.md`.
 
@@ -143,9 +144,9 @@ audited_at: 2026-06-18
 
 | Página | Conteúdo |
 |--------|----------|
-| [[wiki/plano-orquestrador-subagentes]] | **Plano Orquestrador parte 1** — visão monolito→router + Sprint B (B1-B5, pré-requisitos) |
-| [[wiki/plano-orquestrador-subagentes-part2]] | **Plano Orquestrador parte 2** — Sprint C (Router + product POC) + Sprint D + métricas 90d |
-| [[wiki/auditoria-pendencias-2026-06-17]] | **O que falta (pós v7.94.0)** — re-auditoria doc+código+backlog; doc-drift já corrigido; abertos: S9 RLS Helpdesk, RLS public, schema órfão Fluxos v3.0, bug BioLinksPage hooks, D6 monolito |
+| [[wiki/plano-orquestrador-subagentes]] | **Plano Orquestrador parte 1** ✅ **CONCLUÍDO** — visão monolito→router + Sprint B (B1-B5, pré-requisitos) |
+| [[wiki/plano-orquestrador-subagentes-part2]] | **Plano Orquestrador parte 2** ✅ **CONCLUÍDO 2026-07-25 (D6, v7.109.0)** — Sprint C (Router + product POC) + Sprint D + métricas 90d |
+| [[wiki/auditoria-pendencias-2026-06-17]] | **O que falta (pós v7.94.0)** — ⚠️ fotografia datada, **parcialmente resolvida**: D6 monolito ✅ fechado em 2026-07-25 (v7.109.0). Ainda abertos: S9 RLS Helpdesk, RLS public entre autenticados, bug BioLinksPage hooks, lint debt, god files |
 | [[wiki/auditoria-estrutura-2026-06-14]] | **Auditoria de estruturação 6.4/10** (workflow 26 agentes, 8 dimensões, verif. adversarial) — núcleo sólido, bordas frágeis; top riscos: CI sem gate, escalate sem auth, SECURITY DEFINER anon |
 | [[wiki/auditoria-2026-05-21-veredito]] | **Veredito 5.9/10** — síntese 5 ondas, notas oficiais nos 5 pontos pedidos, top-20 findings |
 | [[wiki/auditoria-2026-05-21-melhorias]] | **30 melhorias gerais + 20 de inteligência** priorizadas P0-P3, 3 sprints recomendados |

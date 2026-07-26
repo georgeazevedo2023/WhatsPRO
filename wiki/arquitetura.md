@@ -2,8 +2,8 @@
 title: Arquitetura Tecnica
 tags: [arquitetura, stack, supabase, edge-functions, automacao, perfis, fluxos, metricas]
 sources: [CLAUDE.md, docs/CONTEXTO_PROJETO.md]
-updated: 2026-04-27
-audited_at: 2026-05-11
+updated: 2026-07-26
+audited_at: 2026-07-26
 ---
 
 # Arquitetura Tecnica
@@ -20,7 +20,7 @@ audited_at: 2026-05-11
 | Storage | Supabase Storage |
 | WhatsApp API | UAZAPI (proxied via Edge Functions) |
 | IA — Agent (LLM primario) | OpenAI gpt-4.1-mini (function calling, SDR, 9 tools) |
-| IA — Router (classifyIntent, routing_mode=router) | OpenAI gpt-4.1-mini (gpt-5-nano falhava parse JSON; specialists default gpt-4.1) |
+| IA — Router (classifyIntent) — **único cérebro desde 2026-07-25 (v7.109.0)** | OpenAI gpt-4.1-mini (gpt-5-nano falhava parse JSON; specialists default gpt-4.1). ⚠️ `ai_agents.routing_mode` é **coluna inerte** (nenhum código lê) — o monolito foi aposentado no D6; o pipeline vive em `_shared/agent/routerPipeline.ts` (~932 lin, DISPATCH de 7 intents → 5 specialists) e falha de specialist vira transbordo gracioso, não LLM antigo |
 | IA — Agent (fallback) | Gemini 2.5 Flash → Mistral Small → templates estaticos |
 | IA — TTS | Gemini 2.5 Flash Preview TTS (6 vozes) |
 | IA — Transcricao | Groq API (Whisper) |

@@ -1,6 +1,6 @@
 # WhatsPRO — Quick Brief for External Agents
 
-> Concise English overview for AI agents (Claude Code, Cursor, Copilot Workspace) onboarding to the codebase. Updated 2026-06-18.
+> Concise English overview for AI agents (Claude Code, Cursor, Copilot Workspace) onboarding to the codebase. Updated 2026-07-26.
 
 ## Overview
 
@@ -61,11 +61,16 @@ React Frontend → Supabase Client (DB, Auth, Realtime, Storage)
 
 **SDR flow:** generic terms → qualify first; specific terms → search immediately. Search fail → enrichment → handoff with qualification chain. Max lead messages → auto-handoff.
 
-**Architecture (2026):** a tiny **router LLM** (gpt-4.1-mini) classifies intent → dispatches to one of **5 dedicated specialists** (greeting/qualification/product/objection/handoff); the monolith is the error fallback. `routing_mode='router'` is live on all 3 prod agents. Deterministic layer (`qualificationGate`, `greetingPolicy`, `responseSanitizer`) decides search-vs-qualify and sanitizes output.
+**Architecture (as of 2026-07-25, v7.109.0 — "D6"):** a tiny **router LLM** (gpt-4.1-mini) classifies intent → the DISPATCH table in `_shared/agent/routerPipeline.ts` (7 intents; `fora_escopo` → greeting, `pagamento` → objection) hands off to one of **5 dedicated specialists** (greeting/qualification/product/objection/handoff). ⚠️ **The monolith was retired on 2026-07-25** — `routerPipeline.ts` (~932 lines) is now the ONLY brain, there is no legacy-LLM fallback left, and `ai_agents.routing_mode` is an **inert column** (no code reads it; the DB default moved to `router` and the UI selector was removed from `AIAgentTab.tsx`). Deterministic layer (`qualificationGate`, `greetingPolicy`, `responseSanitizer`) decides search-vs-qualify and sanitizes output.
+
+**Failure paths (post-D6):**
+- **Router LLM fails** (bad JSON parse / invalid intent / confidence < 0.6) → deterministic fallback to the `qualificacao` intent (`_shared/agent/router.ts`). No handoff.
+- **Specialist fails / hop guard trips / pipeline throws** → `routerPipeline` returns null and `ai-agent/index.ts` runs the **graceful handoff**: sends the configured `handoff_message`, assigns the conversation to the queue, sets `status_ia='shadow'`, writes an internal note, and logs to `ai_agent_logs` with `event=implicit_handoff` + `metadata.reason=router_fallback`.
+- **Rollback is no longer a flag:** redeploy `ai-agent` from commit `36f0555` (the parent commit, last one containing the monolith) via the scoop CLI. Prod was v276 before D6, v277 after.
 
 **Handoff priority:** profileData > funnelData > agent.handoff_message (D10).
 
-**Shadow mode:** after handoff, `status_ia='shadow'` — extracts data without responding to lead. NEVER overwrites `full_name`.
+**Shadow mode:** after handoff, `conversations.status_ia='shadow'` — extracts data without responding to lead. NEVER overwrites `full_name`. ⚠️ Do not confuse this with the old routing **shadow mode** (router runs but does not answer), which no longer exists — it was removed with the monolith in v7.109.0.
 
 ## Edge Functions (43 in `supabase/functions/`; 44 ACTIVE in prod — `env-diag` is deploy-only)
 
@@ -76,7 +81,7 @@ Located in `supabase/functions/`. Deno runtime.
 - **Shared modules (~46 in `_shared/` + `_shared/agent/`):** key ones — `cors`, `fetchWithTimeout` (30s), `circuitBreaker` (Gemini/Groq/Mistral), `llmProvider`, `constants`, `logger`, `agentHelpers`, `auth`, `supabaseClient`, `carousel`, `rateLimit`, `ttsProviders`, `response`, `aiRuntime`, `leadHelper`, `automationEngine`, `responseSanitizer`, `routerPipeline`, `specialistBase`, `qualificationGate`, `greetingPolicy`. ⚠️ `validatorAgent` retired from the hot path in v7.89.0 (deterministic validation moved to `responseSanitizer`)
 
 **Key functions:**
-- `ai-agent` (~3349 lines, HIGH RISK) — brain (router + 5 specialists, monolith fallback), SDR + handoff + shadow + circuit breaker
+- `ai-agent` (2,964 lines since 2026-07-25, was 3,440 — HIGH RISK) — brain entrypoint (router pipeline + 5 specialists; **no monolith** since v7.109.0, failures go to graceful handoff), SDR + handoff + shadow + circuit breaker
 - `ai-agent-debounce` — atomic 10s grouping (no-retry on 500)
 - `whatsapp-webhook` — receives msgs, parallel I/O, broadcast Realtime
 - `uazapi-proxy` — proxies to UAZAPI (send-chat, send-media, send-poll, etc.)
@@ -101,7 +106,7 @@ Located in `supabase/functions/`. Deno runtime.
 
 ## High-Risk Files (DO NOT modify without explicit approval)
 
-- `supabase/functions/ai-agent/index.ts` (~3349 lines)
+- `supabase/functions/ai-agent/index.ts` (2,964 lines) and `supabase/functions/_shared/agent/routerPipeline.ts` (~932 lines — the actual brain)
 - `supabase/functions/ai-agent-playground/index.ts`
 - `supabase/functions/e2e-test/index.ts`
 - `src/integrations/supabase/types.ts` (only via `supabase gen types` — binário scoop, NÃO npx)

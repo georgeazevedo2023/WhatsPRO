@@ -1,12 +1,15 @@
 ---
 title: Plano Orquestrador + Subagentes — Visão + Sprint B
-tags: [orquestrador, subagentes, router, specialists, ai-agent, sprint-b, refator, prompt-size]
+tags: [orquestrador, subagentes, router, specialists, ai-agent, sprint-b, refator, prompt-size, concluido]
 sources: [auditoria-2026-05-21-veredito, auditoria-2026-05-21-melhorias, auditoria-2026-05-21-research, auditoria-2026-05-21-ai-agent]
-updated: 2026-05-21
-audited_at: 2026-05-21
+updated: 2026-07-26
+audited_at: 2026-07-26
 ---
 
 # Plano Orquestrador + Subagentes — Parte 1
+
+> ✅ **PLANO CONCLUÍDO 100% em 2026-07-25 — D6 executado na v7.109.0** (commit `5245eab`, ai-agent **v277** em prod).
+> A transição **monolito → router + specialists** terminou: **não existe mais monolito**. O único cérebro é `_shared/agent/routerPipeline.ts` (~932 lin, `DISPATCH` de 7 intents em `routerPipeline.ts:151-159`); `ai_agents.routing_mode` virou **coluna inerte** (sem leitor no código, default do DB = `router`, seletor fora da UI). O que sobrou aberto deste arquivo é só **B4** (varredura R134 de idempotência — hardening, não-bloqueador). Detalhe do fechamento: seção D6 em [[wiki/plano-orquestrador-subagentes-part2]].
 
 > Saída consolidada de 2026-05-21: planejamento da transição **monolito → router + 5 specialists**. Sprint A já fechou pré-requisitos (I2, I3, gpt-5-mini). Sprint B prepara terreno; Sprint C+D em [[wiki/plano-orquestrador-subagentes-part2]].
 
@@ -118,18 +121,19 @@ audited_at: 2026-05-21
 - ✅ **Onda 2b** v7.40.6 — `_shared/agent/qualificationContext` (-125 lin)
 - ✅ **Onda 2c-i** v7.40.7 — `_shared/agent/preLLMShortCircuits` (R136 + R129) (-112 lin)
 - ✅ **Onda 2c-ii** v7.40.8 — `_shared/agent/{preLLMAutoExtract, exitActionDispatcher}` (autoExtract + Bug 24 handoff + R121 inline search) (-121 lin)
-- ⏳ **Onda 3** — toolExecution switch (~1500 lin, vai subdividir por capacidade — **pré-req real do Sprint C**)
-- ⏳ **Onda 4** — llmCallLoop (~370 lin)
-- ⏳ **Onda 5** — dispatchResponse + handoff fallback (~240 lin)
+- ✅ **Onda 3** v7.41.0→v7.41.3 — toolExecution por capacidade (media tools, crmTools, `search_products`, `set_tags`+`handoff_to_human`) — **boundary dos specialists**
+- ✅ **Onda 4** v7.41.15 — `llmCallLoop` (-184 lin)
+- ✅ **Onda 5** v7.41.16 — `dispatchResponse` (steps 15.5-22 + Response final, -188 lin)
+- ✅ **Extra (Onda 2 da auditoria)** v7.89.0 — router pipeline extraído pra `routerPipeline.ts` (index.ts 4.152 → 3.344 lin)
 
-**Target final:** index.ts ~1200-1500 lin (não <300 como dizia o plano original — irrealista pro tamanho atual). Pré-req pro Sprint C real: Onda 3 (separação por capacidade = boundary dos specialists).
+**Target final da época:** index.ts ~1200-1500 lin (não <300 como dizia o plano original — irrealista pro tamanho atual).
 
-**Esforço restante:** M (~2 dias) pra fechar Ondas 2c-ii + 3 + 4 + 5.
+**Realizado:** o D6 (v7.109.0, 2026-07-25) fechou o corte final removendo a branch do monolito — `ai-agent/index.ts` **3.440 → 2.964 linhas (-476)**. Acima do target de 1200-1500 porque o que sobrou é orquestração real (ingestão, short-circuits determinísticos, tools, fallback gracioso), com o cérebro já morando em `routerPipeline.ts` (~932 lin).
 
 ### Subtotal Sprint B
 
 **Esforço:** 8-12 dias (2 semanas)
-**Saída:** prompt assembled ~150 lin (-45%), index.ts <300 lin, alucinação <0.1%, hardcodedRules em código testável.
+**Saída:** prompt assembled ~150 lin (-45%), ~~index.ts <300 lin~~ (alvo irrealista, revisado nas Ondas do B5 — ver "Realizado" acima), alucinação <0.1%, hardcodedRules em código testável.
 
 ---
 

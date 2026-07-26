@@ -2,13 +2,17 @@
 title: Roadmap
 tags: [roadmap, milestones, fases, status, m19-s10, eletropiso, d28-excluded-products, helpdesk-escopo-tabs, plano-orquestrador]
 sources: [.planning/ROADMAP.md (deprecated), .planning/STATE.md (deprecated), CLAUDE.md, PRD.md]
-updated: 2026-06-17
-audited_at: 2026-06-17
+updated: 2026-07-26
+audited_at: 2026-07-26
 ---
 
 # Roadmap
 
-> Para o detalhe do **Plano Orquestrador (Sprints A→E, ~98% concluído — router + 5 specialists 100% em PROD; falta só D6 aposentar o monolito, gate ~23/06)**, ver tabela em `CLAUDE.md`. Para mapa de R# (regras preventivas), ver [[wiki/erros/familias-r-codes]]. Esta página guarda os milestones do PRODUTO (M1-M18 + correlatos). Releases recentes (v7.64→v7.94) detalhadas no `CHANGELOG.md`; o que falta no produto/dívida: [[wiki/auditoria-pendencias-2026-06-17]].
+> **Plano Orquestrador (Sprints A→E): 100% concluído.** O último bloqueador, **D6 — aposentar o monolito do ai-agent**, foi shipado em **2026-07-25 (v7.109.0, ai-agent v277)**: `_shared/agent/routerPipeline.ts` é o **único cérebro** (router LLM + tabela DISPATCH de 7 intents + 5 specialists), `supabase/functions/ai-agent/index.ts` caiu de 3.440 → **2.964 linhas (-476)** e `ai_agents.routing_mode` virou **coluna inerte** (nenhum código lê; seletor removido da UI). Sem LLM antigo de fallback: falha do router cai em fallback determinístico pra intent `qualificacao`; falha de specialist/hop guard vira **transbordo gracioso** (fila + `status_ia=shadow` + log `implicit_handoff`/`router_fallback`). Tabela de sprints: `CLAUDE.md`.
+>
+> **Ainda em aberto do plano (fora do núcleo router+specialists):** **B4** — varredura R134 de idempotência (hardening, não-bloqueador); **Sprint E.2** — proatividade / follow-ups (parte 1, handoff por abandono, já shipada na v7.56.0); **Sprint E.3** — RAG. A **Sprint E.1** (memória longa por lead) já foi shipada na v7.46.0.
+>
+> Para mapa de R# (regras preventivas), ver [[wiki/erros/familias-r-codes]]. Esta página guarda os milestones do PRODUTO (M1-M18 + correlatos). Releases recentes detalhadas no `CHANGELOG.md`; o que falta no produto/dívida: [[wiki/auditoria-pendencias-2026-06-17]].
 
 ## Milestones
 

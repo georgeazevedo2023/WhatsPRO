@@ -37,7 +37,7 @@ Located in `supabase/functions/`. Deno runtime.
 - Shared: `_shared/cors.ts`, `fetchWithTimeout.ts` (30s), `rateLimit.ts`, `circuitBreaker.ts`, `logger.ts`, `response.ts`
 
 **Principais:**
-- `ai-agent` — cerebro IA (~3349 linhas), **router LLM + 5 specialists** (greeting/qualif/produto/objeção/handoff) com monolito de fallback, SDR+handoff+shadow, circuit breaker, 9 tools
+- `ai-agent` — entrada do cerebro IA (2.964 linhas desde 2026-07-25; era 3.440). O cérebro em si é o **router pipeline** (`_shared/agent/routerPipeline.ts`, ~932 lin): router LLM classifica a intent → tabela DISPATCH (7 intents) despacha pros **5 specialists** (greeting/qualif/produto/objeção/handoff; `fora_escopo`→greeting, `pagamento`→objection). ⚠️ **O monolito foi APOSENTADO em 2026-07-25 (v7.109.0, "D6")** — não existe mais LLM de fallback: falha do router LLM (parse/intent inválida/confiança <0.6) cai em fallback determinístico pra intent `qualificacao`; falha de specialist / hop guard / exceção do pipeline dispara **transbordo gracioso** (`handoff_message` configurada + fila + `status_ia=shadow` + nota interna + log `ai_agent_logs` `event=implicit_handoff`, `metadata.reason=router_fallback`). `ai_agents.routing_mode` virou **coluna inerte** (nenhum código lê). Rollback do D6 = redeploy do commit `36f0555` via CLI scoop (prod era v276, hoje v277). SDR + handoff + shadow, circuit breaker, 9 tools
 - `ai-agent-debounce` — agrupamento 10s atomico
 - `ai-agent-playground` — testing sandbox
 - `whatsapp-webhook` — entrada das msgs (chamado pelo **n8n**, NÃO direto do UAZAPI — ver "Fluxo de entrada"), parallel I/O, broadcast Realtime

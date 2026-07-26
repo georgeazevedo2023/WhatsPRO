@@ -10,6 +10,8 @@ audited_at: 2026-06-14
 > ✅ **STATUS 2026-06-14: os 3 maiores riscos foram RESOLVIDOS e verificados (v7.92.0).**
 > (1) Gate de CI — job `quality-gate` (tsc+vitest duros, lint informativo) com `needs:` no build; bloqueio provado. (2) `escalate-stale-handoffs` — `verifyCronOrService` add (cron 200 / bogus 401). (3) SECURITY DEFINER — `REVOKE PUBLIC` cirúrgico, advisor anon **65→16**. Detalhe: memória `project_audit_3_risks_fixed_v792`. Demais itens (lint debt, schema órfão, docs stale, god files) seguem no backlog abaixo.
 >
+> ✅ **STATUS 2026-07-25: a migração monolith→router foi CONCLUÍDA (D6, v7.109.0**, commit `5245eab`, ai-agent **v277**). O achado central desta auditoria — *"monolith é DEFAULT e load-bearing, router enxertado na linha 3087"* — está **RESOLVIDO**: não existe mais monolito, o único cérebro é `_shared/agent/routerPipeline.ts` (~932 lin, `DISPATCH` de 7 intents em `routerPipeline.ts:151-159`); `ai_agents.routing_mode` virou **coluna inerte** (sem leitor, default do DB = `router`, seletor fora da UI); falha de specialist/hop guard cai em **fallback gracioso** no `ai-agent/index.ts` (~L2906-2941). `ai-agent/index.ts`: **3.440 → 2.964 linhas (-476)**; `contextDocuments.ts` (+ teste) deletado junto. **Segue aberto:** `validatorAgent.ts` continua órfão em `_shared/` (não foi removido no D6). Demais itens do backlog abaixo seguem como estavam.
+>
 > 🔄 **STATUS 2026-06-17:** re-auditado pós-v7.94.0 — backlog atualizado e re-priorizado em [[wiki/auditoria-pendencias-2026-06-17]]. Confirmado AINDA ABERTO: lint debt (219), schema órfão Fluxos v3.0 (+ cron jobid 13 morto-vivo), docs 2º nível stale, god files, D6 monolith. NOVOS achados: S9 RLS Helpdesk (vetor multi-tenant), RLS `USING(true) TO public` (4 tabelas), bug Rules-of-Hooks em `BioLinksPage`. Doc-drift do orquestrador/roadmap/RULES.md já corrigido.
 
 ## Sumário Executivo
@@ -44,7 +46,7 @@ A saúde estrutural é **boa no coração e frágil nas bordas**. O subsistema d
 7. **[database]** Migration de drop das 11 tabelas órfãs Fluxos v3.0 + coluna `instances.use_orchestrator` + `install_flow_template` (fecha v7.90.0 de verdade).
 8. **[docs]** Corrigir números stale em ARCHITECTURE/AGENTS/PATTERNS (45 fns, 74 shared, ai-agent 3329 lin, 27 componentes) e remover roteamento pra Fluxos v3.0 (CLAUDE.md:93,209; README:25) — idealmente gerar contagens via script.
 9. **[frontend]** Lint rule `no-restricted-imports` proibindo `supabase` client fora de `hooks/`/`lib/`; migrar incrementalmente os piores (`EditBoardDialog` 24x, `UsersTab` 11x).
-10. **[aiagent]** Mover a bifurcação router pra ANTES do setup caro do monolith (após short-circuits) — desbloqueia D6 (não dá pra deletar monolith com router enxertado em 3087).
+10. ~~**[aiagent]** Mover a bifurcação router pra ANTES do setup caro do monolith (após short-circuits) — desbloqueia D6~~ → ✅ **RESOLVIDO em 2026-07-25 (v7.109.0)**: em vez de mover a bifurcação, o D6 removeu o monolito inteiro — não há mais bifurcação a mover.
 11. **[tooling]** `git rm bun.lock bun.lockb` + gitignore (stale ~3 meses, só `package-lock.json` é consumido); trocar `.gitignore` `/*.png` por `/*.{png,jpg,jpeg,webp,gif}`.
 12. **[qualidade/database]** Declarar tipos das views SQL (`v_lead_metrics` etc.) em `types/views.d.ts` — elimina cluster `as any` na camada de métricas onde shape errado vira número errado silencioso.
 
@@ -54,13 +56,13 @@ A saúde estrutural é **boa no coração e frágil nas bordas**. O subsistema d
 Subsistema mais bem decomposto do repo; a migração monolith→router é madura no código mas não está estruturalmente concluída.
 
 **Alta (confirmada):**
-- **Router enxertado no meio do monolith** (`index.ts:3087`) — todo o setup do monolith (systemPrompt ~17KB, 9 toolDefs, `buildContextDocuments` com I/O) roda e é descartado no modo router; é um early-return a ~3000 lin de função, com coupling por ref (`geminiContents`/`toolCallsLog` mutados). Bloqueia D6. → Mover bifurcação pra antes do setup; branches paralelos. (ressalva: 4 detectores escrevem tags consumidas pelo dashboard, não são puro desperdício.)
+- ~~**Router enxertado no meio do monolith** (`index.ts:3087`) — todo o setup do monolith (systemPrompt ~17KB, 9 toolDefs, `buildContextDocuments` com I/O) roda e é descartado no modo router; é um early-return a ~3000 lin de função, com coupling por ref (`geminiContents`/`toolCallsLog` mutados). Bloqueia D6.~~ → ✅ **RESOLVIDO em 2026-07-25 (v7.109.0)**: o setup do monolito não existe mais (prompt, toolDefs e `contextDocuments` deletados), então não há mais enxerto nem trabalho descartado — o router pipeline é o caminho único. (ressalva da época mantida: 4 detectores escrevem tags consumidas pelo dashboard, não eram puro desperdício.)
 
 **Média (não-verificada adversarialmente):**
 - **God functions persistem** — `runRouterPipeline` 853 lin, `searchProducts` 755 lin, `setTags` 578 lin, cada uma numa única função. → Promover blocos comentados a sub-passos puros testáveis.
 - **validatorAgent.ts órfão** (zero imports) com comentário em `responseSanitizer.ts:17` afirmando falsamente que está em uso. → Deletar.
 - **Docs de contrato divergem** (ARCHITECTURE/RULES descrevem monolith ~2600 lin + Validator ativo). → Atualizar 2º nível (CLAUDE.md já ok).
-- **Monolith ainda é DEFAULT do schema** (`routing_mode DEFAULT 'monolith'`) e load-bearing, não fallback de erro; ~50 guards `routing_mode==='router'` espalhados. → D6 deve flipar default + migrar legados + remover branch.
+- ~~**Monolith ainda é DEFAULT do schema** (`routing_mode DEFAULT 'monolith'`) e load-bearing, não fallback de erro; ~50 guards `routing_mode==='router'` espalhados.~~ → ✅ **RESOLVIDO em 2026-07-25 (v7.109.0)**: branch do monolito removida, default do DB flipado pra `router` e os guards saíram junto — `routing_mode` não é mais lido por código nenhum (coluna inerte, mantida no DB). Fallback de erro agora é transbordo gracioso (`index.ts` ~L2906-2941), não o LLM antigo.
 
 **Baixa:** nomenclatura sobreposta nos 5 arquivos `qualification*` (decomposição legítima, só atrito de navegação).
 

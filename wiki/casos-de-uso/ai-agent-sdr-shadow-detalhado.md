@@ -8,11 +8,13 @@ sources:
   - supabase/functions/_shared/agent/greetingSpecialist.ts
   - supabase/functions/_shared/agent/specialistBase.ts
   - supabase/functions/_shared/agent/responseSanitizer.ts
+  - supabase/functions/_shared/agent/routerPipeline.ts
+  - supabase/functions/_shared/agent/preLLMAutoExtract.ts
   - supabase/functions/ai-agent/index.ts
   - supabase/functions/whatsapp-webhook/index.ts
   - supabase/functions/_shared/handoffQueue.ts
-updated: 2026-06-20
-audited_at: 2026-06-20
+updated: 2026-07-26
+audited_at: 2026-07-26
 parent: [[wiki/casos-de-uso/ai-agent-detalhado]]
 ---
 
@@ -37,7 +39,7 @@ Tabela de decisão determinística:
 
 Degradação graciosa explícita: **nunca lança exceção**; em qualquer erro devolve `readyToSearch=true` (`mode='no_category'`, reason `'erro na avaliação do gate — fallback ready'`) — um lead jamais fica preso em loop de qualificação.
 
-Por que existe: substituiu 4 decisores rivais (engine de stages, `detectIncomingSearchSignal`/R121, `deriveProductSearchParams` e o LLM do product specialist) que divergiam na migração monolith→router. Consumidores: o dispatch do router em `index.ts` (intent=`produto` não-pronto → redireciona ao qualification specialist e suprime a pré-busca) e o próprio `deriveProductSearchParams` (defesa: retorna null se não estiver pronto).
+Por que existe: substituiu 4 decisores rivais (engine de stages, `detectIncomingSearchSignal`/R121, `deriveProductSearchParams` e o LLM do product specialist) que divergiam durante a migração monolito→router (2026, concluída no D6). Consumidores hoje: o dispatch do router (`routerPipeline.ts`) — intent=`produto` não-pronto → redireciona ao qualification specialist e suprime a pré-busca — e o próprio `deriveProductSearchParams` (defesa: retorna null se não estiver pronto).
 
 ---
 
@@ -73,7 +75,7 @@ Por que existe: substituiu 4 decisores rivais (engine de stages, `detectIncoming
 
 **Técnico.** `_shared/agent/qualificationSpecialist.ts` (`buildQualificationSpecialistDef(specialistModel)`), default `gpt-4.1`. Tools: `set_tags`, `update_lead_profile`. Descoberta estilo SPIN, UMA pergunta por turno. Reusa o contexto determinístico `buildQualificationContext` ("PRÓXIMA PERGUNTA OBRIGATÓRIA": frasing R131, anti-loop R135, idempotência R134) + um bloco de "contrato premium" de `evaluateProductQualificationFlow`/`readProductQualificationState` (category_id, flow_mode, score, next_required_field, search_enabled, etc.). NUNCA busca catálogo / trata objeção / transborda. Escape hatch anti-invenção-de-argumento mata o Bug 12.
 
-**Quando o gate força este specialist:** sob router, para os intents `produto`/`qualificacao` o `qualificationGate` é a autoridade — `mode='qualify'` força o qualification specialist (frequentemente devolvendo uma Response de pergunta determinística, sem nem chamar o LLM); `mode='qualify_then_handoff'` (offline) força este specialist com diretiva de enriquecimento. Há ainda o override pós-nome: `saudacao` + nome conhecido + funil intocado → força qualificação (interesse premium semeado).
+**Quando o gate força este specialist:** para os intents `produto`/`qualificacao` o `qualificationGate` é a autoridade (acima da intent do router) — `mode='qualify'` força o qualification specialist (frequentemente devolvendo uma Response de pergunta determinística, sem nem chamar o LLM); `mode='qualify_then_handoff'` (offline) força este specialist com diretiva de enriquecimento. Há ainda o override pós-nome: `saudacao` + nome conhecido + funil intocado → força qualificação (interesse premium semeado).
 
 ---
 
@@ -85,7 +87,7 @@ Por que existe: substituiu 4 decisores rivais (engine de stages, `detectIncoming
 
 A pré-extração determinística cuida disso ANTES do LLM (`_shared/agent/preLLMAutoExtract.ts`, `runPreLLMAutoExtract`): resolve categoria, auto-extrai campos do texto de entrada (`autoExtractFields` em `flattenCategoryFields`, pulando chaves já presentes), semeia `interesse:<categoryId>` quando detecta categoria sem tag prévia (R143, pra o LLM não inventar interesse), soma o score e — ao bater o `max_score` do stage — arma `pendingExitActionHandoff` (`exit_action='handoff'`) ou `pendingExitActionSearch` (`exit_action='search_products'`, digital). Faz só updates de tag + um log estruturado; sem I/O de mensagem. `shouldQualifyPremiumBeforeSearch` é um gate hardcoded pras categorias `revestimentos`/`porcelanatos_revestimentos`/`torneiras`: qualifica antes de buscar se algum campo obrigatório ainda falta.
 
-Short-circuits multi-item rodam ainda antes (`preLLMShortCircuits.ts`): R136 (lista mista categoria+órfão → uma pergunta horizontal) vence R129 (≥2 categorias → "Posso te ajudar com X e Y. Por qual prefere começar?").
+**Multi-item / multi-categoria (mudou no D6).** Até 2026-07-25 os short-circuits `preLLMShortCircuits.ts` (R136 lista mista categoria+órfão, R129 ≥2 categorias) rodavam antes do LLM — mas só no caminho do monolito; sob router eram pulados. Com o monolito aposentado eles saíram do fluxo: hoje o próprio `preLLMAutoExtract` semeia **`multi_interesse_pending:<cat1,cat2>`** quando `matchAllCategoriesBySearchText` casa ≥2 categorias, e o qualification specialist pergunta ao lead qual delas ("torneira ou cano?" — v7.105.0, o caso da foto de torneira que virava "cano"). O arquivo `preLLMShortCircuits.ts` segue no repo apenas como utilitário (`jsonResponse`, `persistAndBroadcastReply`, tipo `PreLLMShortCircuitsCtx`) reusado pelo `jobVacancy.ts`.
 
 ---
 
@@ -93,7 +95,7 @@ Short-circuits multi-item rodam ainda antes (`preLLMShortCircuits.ts`): R136 (li
 
 **Didático.** Depois que o specialist redige a resposta, um "revisor automático" passa o olho antes de enviar ao lead: corta negação de produto ("não temos essa caixa-d'água"), vazamento de erro interno e tool-call vazada como texto. Esse revisor NÃO é mais um segundo LLM (custo/latência) — é uma régua determinística.
 
-**Técnico.** `_shared/agent/responseSanitizer.ts` → `sanitizeAgentResponse(text, ctx)` é a fonte única compartilhada por router (via `sanitizeSpecialistResponse` no specialistBase) e pelo fallback monolith (`index.ts`). O validador LLM (`validatorAgent.validateResponse`) foi **APOSENTADO do hot path** (auditoria Onda 2, 2026-06-12): `validatorAgent.ts` permanece no repo só pra `countMsgsSinceNameUse` e auditoria offline; nenhum turno de produção paga sua latência. A engine que de fato roda é a determinística `validateLLMResponse` (de `responseValidator.ts`) — regras/regex, não chamada de LLM, apesar do "LLM" no nome. Três tiers: `SAFE_TEXT_RULES` (substitui o texto inteiro por ponte segura), `AUTO_FIX_RULES` (reescrita cirúrgica via `autoFixHumanizationViolations`) e regras cosméticas (só telemetria). Nunca lança; em erro interno devolve o texto original.
+**Técnico.** `_shared/agent/responseSanitizer.ts` → `sanitizeAgentResponse(text, ctx)` é a fonte única por onde passa TODA resposta enviada ao lead. Desde o D6 (2026-07-25) tem um único chamador: `sanitizeSpecialistResponse`, no `specialistBase.ts` — antes era compartilhado também com o fallback monolith do `index.ts`, que deixou de existir. O validador LLM (`validatorAgent.validateResponse`) foi **APOSENTADO do hot path** (auditoria Onda 2, 2026-06-12): `validatorAgent.ts` permanece no repo só pra `countMsgsSinceNameUse` e auditoria offline; nenhum turno de produção paga sua latência. A engine que de fato roda é a determinística `validateLLMResponse` (de `responseValidator.ts`) — regras/regex, não chamada de LLM, apesar do "LLM" no nome. Três tiers: `SAFE_TEXT_RULES` (substitui o texto inteiro por ponte segura), `AUTO_FIX_RULES` (reescrita cirúrgica via `autoFixHumanizationViolations`) e regras cosméticas (só telemetria). Nunca lança; em erro interno devolve o texto original.
 
 ---
 
@@ -101,7 +103,7 @@ Short-circuits multi-item rodam ainda antes (`preLLMShortCircuits.ts`): R136 (li
 
 **Didático.** Depois que a IA transfere a conversa pro vendedor (handoff), ela não desliga: entra em **modo sombra**. Lê TODAS as mensagens (do lead e do vendedor) e **extrai dados automaticamente**, mas **não envia nada** ao lead. É o assistente invisível tomando notas. Quando o vendedor abre o perfil, cidade, interesses e objeções já estão lá — sem ninguém digitar.
 
-**Técnico.** Shadow é acionado quando `conversation.status_ia === STATUS_IA.SHADOW`. O bloco SHADOW MODE do `ai-agent/index.ts` (linhas ~1853-2010) roda extração via LLM e **retorna sem enviar resposta** (`reason: 'shadow_mode'` / `'shadow_vendor'`). É bilateral: lado do lead (`status_ia='shadow'`) OU lado do vendedor (`shadow_only=true` do webhook → `isShadowVendor`). Mensagens triviais são pré-filtradas (`isTrivialMessage`) e pulam o LLM (`shadow_skipped_trivial`).
+**Técnico.** Shadow é acionado quando `conversation.status_ia === STATUS_IA.SHADOW` — nada a ver com o antigo `routing_mode='shadow'` de roteamento, que foi aposentado junto com o monolito no D6. O bloco SHADOW MODE do `ai-agent/index.ts` (linhas ~1879-2039) roda extração via LLM e **retorna sem enviar resposta** (`reason: 'shadow_mode'` / `'shadow_vendor'`). É bilateral: lado do lead (`status_ia='shadow'`) OU lado do vendedor (`shadow_only=true` do webhook → `isShadowVendor`). Mensagens triviais são pré-filtradas (`isTrivialMessage`) e pulam o LLM (`shadow_skipped_trivial`).
 
 Dois prompts distintos: o de vendedor analisa o comportamento do vendedor (`set_tags` como `vendedor_tom`, `venda_status`, `pagamento` + `extract_shadow_data`); o de lead extrai dados do lead (`set_tags`, `update_lead_profile`, `extract_shadow_data`). O executor de tools em shadow trata só `set_tags`, `update_lead_profile`, `extract_shadow_data`.
 
@@ -119,12 +121,12 @@ Em `index.ts` todo caminho de handoff/cap guarda `status_ia !== STATUS_IA.SHADOW
 
 **Técnico.** `conversations.human_handling_at` é a verdade durável de "humano atendendo", ao contrário do volátil `status_ia` e das tags `handoff_created`/`human_assigned` (que reabertura/abandono podem limpar).
 
-- **Set** no `whatsapp-webhook/index.ts` (~1148-1163) quando `shouldLockHumanHandling({fromMe, wasSentByApi})` é true — i.e. `fromMe === true && wasSentByApi === false` (vendedor respondeu pelo celular, não eco de API/IA/Helpdesk). Sinal confiável, SEM condição de `status_ia` (trava mesmo já estando shadow/desligada). Grava só uma vez (`.is('human_handling_at', null)`) e, no primeiro lock, sela o evento de fila ativo (`status='responded', resolved_reason='human_handling'`). Respostas pelo Helpdesk NÃO passam por aqui (setam `status_ia=desligada`; o `detectResponded` da fila as vê via `sender_id`).
-- **Gate no ai-agent** (`index.ts` ~224-242): se `human_handling_at` setado e ainda não shadow, COAGE `status_ia → shadow` (e persiste) — a IA cai no Shadow Mode (extrai, nunca responde).
-- **Fila não rotaciona enquanto travada** (RULE 1), em três pontos (defesa em profundidade): `assignHandoff` (`handoffQueue.ts` ~138-152) early-return `{ assigned_user_id: null, reason: 'human_handling' }`; `requeue-conversations` sela o evento; `escalate-stale-handoffs` faz `continue` (pula a escalação).
+- **Set** no `whatsapp-webhook/index.ts` (~1141-1160) quando `shouldLockHumanHandling({fromMe, wasSentByApi})` (`_shared/aiRuntime.ts`) é true — i.e. `fromMe === true && wasSentByApi === false` (vendedor respondeu pelo celular, não eco de API/IA/Helpdesk). Sinal confiável, SEM condição de `status_ia` (trava mesmo já estando shadow/desligada). Grava só uma vez (`.is('human_handling_at', null)`) e, no primeiro lock, sela o evento de fila ativo (`status='responded', resolved_reason='human_handling'`). Respostas pelo Helpdesk NÃO passam por aqui (setam `status_ia=desligada`; o `detectResponded` da fila as vê via `sender_id`).
+- **Gate no ai-agent** (`index.ts` ~232-250): se `human_handling_at` setado e ainda não shadow, COAGE `status_ia → shadow` (e persiste) — a IA cai no Shadow Mode (extrai, nunca responde).
+- **Fila não rotaciona enquanto travada** (RULE 1), em três pontos (defesa em profundidade): `assignHandoff` (`handoffQueue.ts` ~141-152) early-return `{ assigned_user_id: null, reason: 'human_handling' }`; `requeue-conversations` sela o evento; `escalate-stale-handoffs` faz `continue` (pula a escalação).
 - Só **Finalizar / Ativar IA** (e limpar contexto) liberam a trava; senão congela indefinidamente (decisão do dono). Reassign manual do gestor faz bypass.
 
-Existe ainda um gate durável mais antigo (2026-06-09, `index.ts` ~244-268): `hasActiveHandoffMarker(tags)` (handoff_created/human_assigned) também coage `status_ia → shadow`. É distinto da trava v7.94.0 justamente porque essas tags SÃO limpas na reabertura — razão pela qual `human_handling_at` foi criada.
+Existe ainda um gate durável mais antigo (2026-06-09, `index.ts` ~252-275): `hasActiveHandoffMarker(tags)` (handoff_created/human_assigned) também coage `status_ia → shadow`. É distinto da trava v7.94.0 justamente porque essas tags SÃO limpas na reabertura — razão pela qual `human_handling_at` foi criada.
 
 ---
 

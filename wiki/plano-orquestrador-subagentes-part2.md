@@ -1,12 +1,15 @@
 ---
 title: Plano Orquestrador + Subagentes — Sprint C + D + Métricas
-tags: [orquestrador, subagentes, router, specialists, sprint-c, sprint-d, metricas]
+tags: [orquestrador, subagentes, router, specialists, sprint-c, sprint-d, metricas, concluido]
 sources: [plano-orquestrador-subagentes, auditoria-2026-05-21-research]
-updated: 2026-05-21
-audited_at: 2026-05-21
+updated: 2026-07-26
+audited_at: 2026-07-26
 ---
 
 # Plano Orquestrador — Parte 2 (Sprint C + D)
+
+> ✅ **PLANO CONCLUÍDO 100% em 2026-07-25 — D6 executado na v7.109.0** (commit `5245eab`, ai-agent **v277** em prod).
+> **Não existe mais monolito.** O único cérebro é o router pipeline: `_shared/agent/routerPipeline.ts` (~932 lin), com a tabela `DISPATCH` de 7 intents em `routerPipeline.ts:151-159` (`fora_escopo` → greeting, `pagamento` → objection). `ai_agents.routing_mode` virou **coluna inerte** — nenhum código lê, o default do DB passou a `router` e o seletor saiu da UI (`src/components/admin/AIAgentTab.tsx`). As seções abaixo (C3, C5, D5, D6) foram atualizadas pra descrever o que **FOI FEITO**; o resto do plano fica como registro de intenção da época.
 
 > Continuação de [[wiki/plano-orquestrador-subagentes]] (parte 1 = visão + Sprint B). Aqui: POC router + product_specialist + resto dos specialists + métricas alvo.
 
@@ -82,6 +85,8 @@ ALTER TABLE ai_agents ADD COLUMN routing_mode TEXT
 
 Pipeline lê o flag, decide entre rota antiga e nova. Permite rollback instantâneo.
 
+> ✅ **Estado final (D6, 2026-07-25):** a flag cumpriu o papel e foi **aposentada**. `routing_mode` é hoje **coluna inerte** (nenhum leitor no código; default do DB = `router`; seletor removido da UI). O modo **`shadow` de ROTEAMENTO deixou de existir** — não confundir com `conversations.status_ia='shadow'`, que continua vivo e significa outra coisa (humano assumiu o atendimento). Rollback não é mais flag: ver D6.
+
 ### C4 — Primeiro specialist: `product_specialist` (~60 linhas, ~3 KB)
 
 ```xml
@@ -120,7 +125,8 @@ Lead qualificado pediu produto. Buscar no catálogo e enviar a melhor opção.
 - Máx 2 hops: `router → specialist → done`
 - Specialist NÃO chama router (sem A→B→A)
 - Hop counter no metadata
-- Loop detectado → fallback monolith + log + alerta gestor
+- ~~Loop detectado → fallback monolith~~ → **estado final (D6):** hop guard estourado / exceção do pipeline faz `runRouterPipeline` devolver `null` e cair no **fallback gracioso** do `ai-agent/index.ts` (~L2906-2941): `handoff_message` configurada + fila + `status_ia=SHADOW` + nota interna + log em `ai_agent_logs` (`event=implicit_handoff`, `metadata.reason=router_fallback`). **Nunca mais cai no LLM antigo.**
+- Falha do **router LLM** (parse, intent inválida, confiança < 0.6) é caso à parte: **não transborda** — cai em fallback determinístico pra intent `qualificacao` (`_shared/agent/router.ts:171-278`).
 
 ### C6 — E2E sandbox (10 cenários)
 
@@ -166,18 +172,30 @@ Empatia primeiro + business_info pricing. 2+ objeções → handoff. Tools: `set
 
 Substitui handler hardcoded atual (`index.ts:1465+`). Greeting + returning + name capture. Tools: `set_tags(lead_name:)`.
 
-### D5 — Migração 100%
+### D5 — Migração 100% ✅ CONCLUÍDO
 
 Feature flag default `routing_mode='router'`. Monitora 7d. Se métricas OK, atualiza todos os agents em massa.
 
-### D6 — Deprecate monolith
+**Feito:** os 3 agentes migrados pra `router` (EletropisoV2 foi o primeiro, v7.45.1) e mantidos assim até o D6, quando o default do schema também virou `router`.
 
-Após 30d sem rollback: remove path do `index.ts`, drop column `routing_mode`, drop legacy `sub_agents`. Refator final.
+### D6 — Deprecate monolith ✅ EXECUTADO em 2026-07-25 (v7.109.0)
+
+**Plano original (2026-05-21):** *"Após 30d sem rollback: remove path do `index.ts`, drop column `routing_mode`, drop legacy `sub_agents`. Refator final."*
+
+**O que FOI FEITO** (commit `5245eab`, ai-agent **v277**):
+
+- **Branch do monolito removida do `ai-agent/index.ts`** — mega-prompt, tool defs e loop de LLM do caminho antigo saíram. **3.440 → 2.964 linhas (-476)**; numstat do commit `+93/-569`. (Se precisar citar não-brancas: 3.236 → 2.781.)
+- **`routerPipeline.ts` é o único cérebro** (~932 lin) — `DISPATCH` de 7 intents em `routerPipeline.ts:151-159`.
+- **`routing_mode` NÃO foi dropada** (divergência consciente do plano): virou **coluna inerte** — nenhum leitor no código, default do DB flipado pra `router`, seletor removido de `AIAgentTab.tsx`. Drop da coluna fica como faxina futura, sem impacto funcional.
+- **Fallback de erro trocado por transbordo digno** — sem monolito pra onde cair, o pipeline sem `Response` executa o **fallback gracioso** descrito em C5 (handoff + fila + shadow + nota interna + `implicit_handoff`/`router_fallback`).
+- **Rollback não é mais flag:** é **redeploy do `ai-agent` a partir do commit `36f0555`** (pai, último com monolito) via CLI scoop. Versão anterior em prod = **v276**; atual = **v277**.
+
+**Verificação em prod (2026-07-26, 40h pós-deploy):** router = 40 turnos · qualification 16 · greeting 6 · product 3 · handoff 1. Os 14 turnos com router e sem specialist entregaram resposta ao lead (curto-circuitos determinísticos). **ZERO `router_fallback` em tráfego real** — o único registrado é o teste proposital de 2026-07-25.
 
 ### Subtotal Sprint D
 
 **Esforço:** 8-10 dias
-**Saída:** Arquitetura 100% router. Monolito removido.
+**Saída:** ✅ Arquitetura 100% router. Monolito removido (2026-07-25).
 
 ---
 
@@ -194,6 +212,8 @@ Após 30d sem rollback: remove path do `index.ts`, drop column `routing_mode`, d
 | Cobertura audit log | 0% | **100%** | toda hop em ai_agent_runs |
 | Sessões > 24h preservadas | 0% | **100%** | lead_memory (futuro Sprint E) |
 | Tabelas mortas | 7-9 | **0** | types.ts drift = 0 |
+
+> **Realizado no D6 (2026-07-25):** `ai-agent/index.ts` **3.440 → 2.964 linhas (-476)**. O alvo `<800` não foi atingido — o que sobrou no arquivo é orquestração de verdade (ingestão, short-circuits determinísticos, execução de tools, fallback gracioso), não mais o mega-prompt do monolito; o cérebro em si vive em `routerPipeline.ts` (~932 lin).
 
 ---
 
