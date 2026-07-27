@@ -5,8 +5,9 @@ import { toast } from 'sonner';
 import { STATUS_IA } from '@/constants/statusIa';
 import { detectImageKind, normalizeImageForSend } from '@/lib/normalizeOutboundImage';
 import { humanizeSendError } from '@/lib/sendErrors';
-import { logSendFailure, type SendStage } from '@/lib/sendTelemetry';
-import { recoverStuckSession } from '@/lib/sessionRecovery';
+import { logSendFailure, logSendSuccess, type SendStage } from '@/lib/sendTelemetry';
+import { clearDeadSession, probeSession, recoverStuckSession } from '@/lib/sessionRecovery';
+import { decideUploadTimeout } from '@/lib/uploadTimeoutPolicy';
 import type { Tables } from '@/integrations/supabase/types';
 
 interface SendFileOptions {
@@ -75,11 +76,14 @@ export function useSendFile(): UseSendFileReturn {
       }
 
       setSendingFile(true);
+      const startedAt = Date.now();
       // isImage precisa estar visível no catch (mensagem de erro por tipo)
       let isImage = file.type.startsWith('image/');
       // Estágio corrente — vai pra telemetria no catch (diz ONDE falhou).
       let stage: SendStage = 'normalize';
       let detectedKind: string | null = null;
+      // Diagnóstico da normalização (downscale/conversão) — vai na telemetria de sucesso.
+      let normInfo = '';
       try {
         // Decide imagem vs documento por MAGIC BYTES, não por file.type: no
         // mobile o file.type chega vazio (foto vira "documento" octet-stream).
@@ -101,6 +105,7 @@ export function useSendFile(): UseSendFileReturn {
           uploadFile = norm.file;
           resolvedContentType = norm.contentType;
           ext = norm.ext;
+          normInfo = norm.downscaled ? 'downscaled' : norm.converted ? 'converted' : 'passthrough';
         } else {
           resolvedContentType = file.type || 'application/octet-stream';
           const extFromName = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
@@ -117,15 +122,20 @@ export function useSendFile(): UseSendFileReturn {
         // Upload ao Storage com TETO de wall-clock (anti sessão-zumbi): o
         // supabase-js chama getSession() ANTES do fetch e era o ÚNICO passo de
         // rede do envio sem proteção — em aba mobile retomada podia pendurar e o
-        // atendente ficava com spinner infinito, sem erro e sem rastro. No
-        // timeout, dispara a recuperação de sessão (pro retry funcionar) e
-        // falha LIMPO com mensagem acionável.
+        // atendente ficava com spinner infinito, sem erro e sem rastro.
+        // No timeout, upload LENTO ≠ sessão ZUMBI (auditoria 2026-07-26): a
+        // sonda de sessão decide — só recarrega com evidência de client travado
+        // ('unknown'); sessão válida = falha limpa e a bolha de retry fica viva.
         stage = 'upload';
         let uploadTimer: ReturnType<typeof setTimeout> | undefined;
         const uploadTimeout = new Promise<never>((_, reject) => {
           uploadTimer = setTimeout(() => {
-            void recoverStuckSession().catch(() => {});
-            reject(new Error('upload timeout: o envio demorou demais (conexão ou sessão)'));
+            void probeSession(4000).then((probe) => {
+              const decision = decideUploadTimeout(probe);
+              if (decision.recoverStuck) void recoverStuckSession().catch(() => {});
+              if (decision.clearDead) void clearDeadSession().catch(() => {});
+              reject(new Error(decision.errorMessage));
+            });
           }, UPLOAD_TIMEOUT_MS);
         });
         try {
@@ -206,6 +216,13 @@ export function useSendFile(): UseSendFileReturn {
           status_ia: STATUS_IA.DESLIGADA,
         });
 
+        // Telemetria de SUCESSO (2026-07-26): sem ela não dá pra medir taxa de
+        // falha por plataforma — a auditoria só enxergava os 2 casos que falharam.
+        logSendSuccess({
+          ...telemetryBase,
+          detected_kind: detectedKind,
+          info: `ok in ${Date.now() - startedAt}ms; upload=${uploadFile.size}B${normInfo ? ` (${normInfo})` : ''}`,
+        });
         toast.success(isImage ? 'Imagem enviada!' : 'Documento enviado!');
         return { success: true, mediaType, mediaUrl: filePublicUrl, insertedMsg };
       } catch (err) {

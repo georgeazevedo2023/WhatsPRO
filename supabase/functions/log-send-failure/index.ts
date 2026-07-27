@@ -16,8 +16,10 @@ import { createLogger } from '../_shared/logger.ts'
 
 const log = createLogger('log-send-failure')
 
-const VALID_STAGES = new Set(['validate', 'normalize', 'upload', 'proxy', 'confirm', 'insert', 'unknown'])
-const VALID_OUTCOMES = new Set(['fail', 'hang_timeout'])
+// 'done'/'success' (2026-07-26): evento de SUCESSO — sem ele não dá pra medir
+// taxa de falha por plataforma (a auditoria do caso Android ficou meio-cega).
+const VALID_STAGES = new Set(['validate', 'normalize', 'upload', 'proxy', 'confirm', 'insert', 'done', 'unknown'])
+const VALID_OUTCOMES = new Set(['fail', 'hang_timeout', 'success'])
 const MAX_BODY_BYTES = 4096
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

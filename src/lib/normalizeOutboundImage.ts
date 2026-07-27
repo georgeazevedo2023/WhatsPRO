@@ -18,7 +18,7 @@
  * file.type vem vazio com frequência, então não dá pra confiar nele.
  */
 
-export type ImageKind = 'jpeg' | 'png' | 'gif' | 'webp' | 'heic' | 'unknown';
+export type ImageKind = 'jpeg' | 'png' | 'gif' | 'webp' | 'heic' | 'avif' | 'bmp' | 'unknown';
 
 /** Formatos que o UAZAPI decodifica sem conversão (comprovado ao vivo). */
 const UAZAPI_SAFE: ReadonlyArray<ImageKind> = ['jpeg', 'png', 'gif', 'webp'];
@@ -30,6 +30,15 @@ const UAZAPI_SAFE: ReadonlyArray<ImageKind> = ['jpeg', 'png', 'gif', 'webp'];
  */
 const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1', 'heif']);
 
+/**
+ * Marcas ISO-BMFF de AVIF (foto de Android moderno/apps de edição). Auditoria
+ * 2026-07-26: AVIF caía em 'unknown' e, com `file.type` vazio (mobile), a FOTO
+ * era enviada como DOCUMENTO em silêncio — com toast de sucesso. O browser
+ * decodifica AVIF nativamente (Chrome 85+/Safari 16.4+), então convertemos via
+ * canvas como imagem.
+ */
+const AVIF_BRANDS = new Set(['avif', 'avis']);
+
 export interface NormalizedImage {
   /** Arquivo a enviar (convertido p/ JPEG quando preciso). */
   file: File;
@@ -39,6 +48,8 @@ export interface NormalizedImage {
   ext: string;
   /** true se houve conversão (HEIC/desconhecido → JPEG). */
   converted: boolean;
+  /** true se a imagem foi reduzida (downscale ~2048px pré-upload). */
+  downscaled: boolean;
   /** Formato originalmente detectado. */
   kind: ImageKind;
 }
@@ -67,6 +78,39 @@ const HEIC_CONVERT_TIMEOUT_MS = 60_000;
 const MAX_CANVAS_DIM = 4096;
 
 /**
+ * Downscale pré-upload (auditoria 2026-07-26, caso Alberto: JPEG de câmera com
+ * 4,8MB subia INTEGRAL e estourava o teto de 120s em rede móvel). Acima de
+ * 1MB, JPEG/PNG é redimensionado a ≤2048px e re-encodado a q0.85 — paridade
+ * com o que o WhatsApp faria (~1600px) e ordem de grandeza a menos de upload.
+ * GIF/WEBP ficam de fora (podem ser animados; downscale mataria a animação).
+ */
+const DOWNSCALE_THRESHOLD_BYTES = 1_000_000;
+const DOWNSCALE_MAX_DIM = 2048;
+const DOWNSCALE_QUALITY = 0.85;
+
+/**
+ * Teto de qualquer operação de canvas (decode+re-encode). Em browser real
+ * load/error sempre dispara; o teto protege de ambiente patológico — e o
+ * downscale NUNCA pode travar um envio que hoje funciona.
+ */
+const CANVAS_OP_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
+/** Decide se vale re-encodar com downscale antes do upload (função PURA, testável). */
+export function shouldDownscaleImage(kind: ImageKind, sizeBytes: number): boolean {
+  return (kind === 'jpeg' || kind === 'png') && sizeBytes > DOWNSCALE_THRESHOLD_BYTES;
+}
+
+/**
  * Detecta o formato de imagem pelos magic bytes. Função PURA (testável sem
  * File/DOM): recebe os primeiros bytes do arquivo.
  */
@@ -83,10 +127,13 @@ export function detectImageKindFromBytes(b: Uint8Array): ImageKind {
     b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
     b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50
   ) return 'webp';
-  // HEIC/HEIF (ISO-BMFF): bytes 4-7 = "ftyp", brand em 8-11
+  // BMP: "BM" (foto exportada por app antigo/Windows; browser decodifica nativo)
+  if (b[0] === 0x42 && b[1] === 0x4d) return 'bmp';
+  // HEIC/HEIF/AVIF (ISO-BMFF): bytes 4-7 = "ftyp", brand em 8-11
   if (b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) {
     const brand = String.fromCharCode(b[8], b[9], b[10], b[11]).toLowerCase();
     if (HEIC_BRANDS.has(brand)) return 'heic';
+    if (AVIF_BRANDS.has(brand)) return 'avif';
   }
   return 'unknown';
 }
@@ -178,7 +225,7 @@ async function heicToJpeg(file: File): Promise<Blob> {
 }
 
 /** Re-encoda qualquer imagem que o browser consiga decodificar → JPEG. */
-function canvasToJpeg(file: File, quality = 0.92): Promise<Blob> {
+function canvasToJpeg(file: Blob, quality = 0.92, maxDim = MAX_CANVAS_DIM): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -186,7 +233,7 @@ function canvasToJpeg(file: File, quality = 0.92): Promise<Blob> {
       try {
         // Cap de dimensão: foto de câmera 50/108MP estoura memória de canvas em
         // celular de entrada (ImageData ≈ 4 bytes/pixel). Escala mantendo proporção.
-        const scale = Math.min(1, MAX_CANVAS_DIM / Math.max(img.naturalWidth, img.naturalHeight, 1));
+        const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight, 1));
         const w = Math.max(1, Math.round(img.naturalWidth * scale));
         const h = Math.max(1, Math.round(img.naturalHeight * scale));
         const canvas = document.createElement('canvas');
@@ -198,6 +245,9 @@ function canvasToJpeg(file: File, quality = 0.92): Promise<Blob> {
           reject(new Error('canvas indisponível'));
           return;
         }
+        // Fundo branco: JPEG não tem alpha — sem isso, PNG transparente vira preto.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
         canvas.toBlob(
@@ -219,20 +269,59 @@ function canvasToJpeg(file: File, quality = 0.92): Promise<Blob> {
 }
 
 /**
+ * Downscale BEST-EFFORT pré-upload: reduz a ≤2048px / JPEG q0.85. Qualquer
+ * falha (decode, OOM, timeout) devolve o arquivo ORIGINAL — a otimização nunca
+ * pode quebrar um envio que hoje funciona; e se o re-encode não reduzir
+ * (imagem já otimizada), mantém o original também.
+ */
+async function tryDownscaleToJpeg(
+  file: File,
+  timeoutMs: number,
+): Promise<{ file: File; downscaled: boolean }> {
+  try {
+    const jpeg = await withTimeout(
+      canvasToJpeg(file, DOWNSCALE_QUALITY, DOWNSCALE_MAX_DIM),
+      timeoutMs,
+      'downscale timeout',
+    );
+    if (jpeg.size >= file.size) return { file, downscaled: false };
+    return {
+      file: new File([jpeg], toJpgName(file.name), { type: 'image/jpeg' }),
+      downscaled: true,
+    };
+  } catch {
+    return { file, downscaled: false };
+  }
+}
+
+/**
  * Normaliza um arquivo de imagem para um formato que o UAZAPI aceite.
- * - JPEG/PNG/WEBP/GIF → passa direto (sem reprocessar).
- * - HEIC/HEIF → converte p/ JPEG (heic2any).
- * - Desconhecido mas decodificável pelo browser → re-encoda p/ JPEG (canvas).
+ * - JPEG/PNG grande (>1MB) → downscale ≤2048px/q0.85 (best-effort; original em falha).
+ * - JPEG/PNG pequeno, WEBP/GIF → passa direto (sem reprocessar).
+ * - HEIC/HEIF → converte p/ JPEG (heic2any) + downscale se o resultado for grande.
+ * - AVIF/BMP/desconhecido decodificável pelo browser → re-encoda p/ JPEG (canvas).
  * - Caso contrário → lança `UNSUPPORTED_IMAGE_FORMAT`.
  *
  * Detecta o tipo por magic bytes; quando indeterminado, tenta o canvas.
+ * `opts.canvasTimeoutMs` existe pra teste (jsdom não decodifica imagem).
  */
-export async function normalizeImageForSend(file: File): Promise<NormalizedImage> {
+export async function normalizeImageForSend(
+  file: File,
+  opts?: { canvasTimeoutMs?: number },
+): Promise<NormalizedImage> {
+  const canvasTimeoutMs = opts?.canvasTimeoutMs ?? CANVAS_OP_TIMEOUT_MS;
   const kind = await detectImageKind(file);
 
   if (isUazapiSafeImageKind(kind)) {
+    // Fix da classe timeout (2026-07-26): foto de câmera não sobe mais integral.
+    if (shouldDownscaleImage(kind, file.size)) {
+      const down = await tryDownscaleToJpeg(file, canvasTimeoutMs);
+      if (down.downscaled) {
+        return { file: down.file, contentType: 'image/jpeg', ext: 'jpg', converted: true, downscaled: true, kind };
+      }
+    }
     const ext = kind === 'jpeg' ? 'jpg' : kind;
-    return { file, contentType: `image/${kind === 'jpeg' ? 'jpeg' : kind}`, ext, converted: false, kind };
+    return { file, contentType: `image/${kind === 'jpeg' ? 'jpeg' : kind}`, ext, converted: false, downscaled: false, kind };
   }
 
   if (kind === 'heic') {
@@ -250,24 +339,34 @@ export async function normalizeImageForSend(file: File): Promise<NormalizedImage
         throw heicErr;
       }
     }
-    return {
-      file: new File([jpeg], toJpgName(file.name), { type: 'image/jpeg' }),
-      contentType: 'image/jpeg',
-      ext: 'jpg',
-      converted: true,
-      kind,
-    };
+    // heic2any devolve JPEG em RESOLUÇÃO CHEIA (q0.92) — um HEIC de 12MP vira
+    // 4-6MB e cai na MESMA classe de timeout do upload. Downscale best-effort.
+    let outFile = new File([jpeg], toJpgName(file.name), { type: 'image/jpeg' });
+    let downscaled = false;
+    if (outFile.size > DOWNSCALE_THRESHOLD_BYTES) {
+      const down = await tryDownscaleToJpeg(outFile, canvasTimeoutMs);
+      outFile = down.file;
+      downscaled = down.downscaled;
+    }
+    return { file: outFile, contentType: 'image/jpeg', ext: 'jpg', converted: true, downscaled, kind };
   }
 
-  // Desconhecido: pode ser uma imagem com file.type vazio que o browser
-  // decodifica. Tenta o canvas; se falhar, é formato não suportado.
+  // AVIF/BMP/desconhecido: o browser pode decodificar nativamente (AVIF era o
+  // buraco: virava DOCUMENTO em silêncio). Re-encoda direto no tamanho final
+  // (2048px/q0.85 quando grande) — 1 encode só; se falhar, formato não suportado.
   try {
-    const jpeg = await canvasToJpeg(file);
+    const big = file.size > DOWNSCALE_THRESHOLD_BYTES;
+    const jpeg = await withTimeout(
+      canvasToJpeg(file, big ? DOWNSCALE_QUALITY : 0.92, big ? DOWNSCALE_MAX_DIM : MAX_CANVAS_DIM),
+      canvasTimeoutMs,
+      'canvas convert timeout',
+    );
     return {
       file: new File([jpeg], toJpgName(file.name), { type: 'image/jpeg' }),
       contentType: 'image/jpeg',
       ext: 'jpg',
       converted: true,
+      downscaled: big,
       kind,
     };
   } catch {

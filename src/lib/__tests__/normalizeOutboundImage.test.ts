@@ -4,6 +4,7 @@ import {
   detectImageKind,
   isUazapiSafeImageKind,
   normalizeImageForSend,
+  shouldDownscaleImage,
   UNSUPPORTED_IMAGE_FORMAT,
 } from '@/lib/normalizeOutboundImage';
 
@@ -25,7 +26,17 @@ const GIF = magic(0x47, 0x49, 0x46, 0x38, 0x39, 0x61);
 const WEBP = magic(0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50);
 const HEIC_MIF1 = magic(0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x69, 0x66, 0x31);
 const HEIC_HEIC = magic(0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63);
+const AVIF = magic(0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66);
+const AVIS = magic(0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x73);
+const BMP = magic(0x42, 0x4d, 0x36, 0x00, 0x0c, 0x00, 0x00, 0x00);
 const PDF = magic(0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37);
+
+/** File de imagem "grande" (> 1MB) com os magic bytes dados no início. */
+function bigFile(head: Uint8Array, name: string, type = ''): File {
+  const buf = new Uint8Array(1_100_000);
+  buf.set(head.subarray(0, 16), 0);
+  return new File([buf], name, { type });
+}
 
 describe('detectImageKindFromBytes', () => {
   it('detecta JPEG', () => expect(detectImageKindFromBytes(JPEG)).toBe('jpeg'));
@@ -34,6 +45,9 @@ describe('detectImageKindFromBytes', () => {
   it('detecta WEBP', () => expect(detectImageKindFromBytes(WEBP)).toBe('webp'));
   it('detecta HEIC (brand mif1, foto de iPhone/Android HEIF)', () => expect(detectImageKindFromBytes(HEIC_MIF1)).toBe('heic'));
   it('detecta HEIC (brand heic)', () => expect(detectImageKindFromBytes(HEIC_HEIC)).toBe('heic'));
+  it('detecta AVIF (brand avif — antes caía em unknown e a FOTO virava documento)', () => expect(detectImageKindFromBytes(AVIF)).toBe('avif'));
+  it('detecta AVIF sequência (brand avis)', () => expect(detectImageKindFromBytes(AVIS)).toBe('avif'));
+  it('detecta BMP', () => expect(detectImageKindFromBytes(BMP)).toBe('bmp'));
   it('PDF é unknown (vira documento, não imagem)', () => expect(detectImageKindFromBytes(PDF)).toBe('unknown'));
   it('buffer curto é unknown', () => expect(detectImageKindFromBytes(new Uint8Array([0xff, 0xd8]))).toBe('unknown'));
 });
@@ -45,9 +59,32 @@ describe('isUazapiSafeImageKind', () => {
     expect(isUazapiSafeImageKind('gif')).toBe(true);
     expect(isUazapiSafeImageKind('webp')).toBe(true);
   });
-  it('heic e unknown NÃO são seguros (precisam conversão)', () => {
+  it('heic, avif, bmp e unknown NÃO são seguros (precisam conversão)', () => {
     expect(isUazapiSafeImageKind('heic')).toBe(false);
+    expect(isUazapiSafeImageKind('avif')).toBe(false);
+    expect(isUazapiSafeImageKind('bmp')).toBe(false);
     expect(isUazapiSafeImageKind('unknown')).toBe(false);
+  });
+});
+
+describe('shouldDownscaleImage (fix da classe timeout — caso Alberto 4,8MB)', () => {
+  it('JPEG de câmera acima de 1MB → downscale', () => {
+    expect(shouldDownscaleImage('jpeg', 4_800_000)).toBe(true);
+    expect(shouldDownscaleImage('jpeg', 1_000_001)).toBe(true);
+  });
+  it('PNG grande (print pesado) → downscale', () => {
+    expect(shouldDownscaleImage('png', 2_000_000)).toBe(true);
+  });
+  it('JPEG/PNG pequeno passa direto (não reprocessa à toa)', () => {
+    expect(shouldDownscaleImage('jpeg', 900_000)).toBe(false);
+    expect(shouldDownscaleImage('png', 500_000)).toBe(false);
+  });
+  it('GIF/WEBP nunca (podem ser animados — downscale mataria a animação)', () => {
+    expect(shouldDownscaleImage('gif', 5_000_000)).toBe(false);
+    expect(shouldDownscaleImage('webp', 5_000_000)).toBe(false);
+  });
+  it('HEIC não passa por aqui (tem caminho próprio de conversão)', () => {
+    expect(shouldDownscaleImage('heic', 5_000_000)).toBe(false);
   });
 });
 
@@ -97,11 +134,38 @@ describe('normalizeImageForSend', () => {
     const out = await normalizeImageForSend(file);
     expect(heic2any).toHaveBeenCalledOnce();
     expect(out.converted).toBe(true);
+    expect(out.downscaled).toBe(false); // resultado pequeno → não re-encoda de novo
     expect(out.kind).toBe('heic');
     expect(out.contentType).toBe('image/jpeg');
     expect(out.ext).toBe('jpg');
     expect(out.file.name).toBe('IMG_0001.jpg');
     expect(out.file.type).toBe('image/jpeg');
+  });
+
+  // jsdom não decodifica imagem (Image.onload nunca dispara / createObjectURL
+  // ausente) — o canvasTimeoutMs curto força o caminho de FALHA do canvas, que
+  // é exatamente o contrato sob teste: downscale é BEST-EFFORT e nunca pode
+  // quebrar um envio que hoje funciona.
+  it('JPEG grande: se o downscale falhar, envia o ORIGINAL (nunca piora)', async () => {
+    const file = bigFile(JPEG, 'IMG_2077.jpg', 'image/jpeg');
+    const out = await normalizeImageForSend(file, { canvasTimeoutMs: 100 });
+    expect(out.file).toBe(file);
+    expect(out.converted).toBe(false);
+    expect(out.downscaled).toBe(false);
+    expect(out.contentType).toBe('image/jpeg');
+  });
+
+  it('JPEG pequeno NÃO tenta downscale (passa direto, mesmo objeto)', async () => {
+    const file = new File([JPEG], 'foto.jpg', { type: 'image/jpeg' });
+    const out = await normalizeImageForSend(file, { canvasTimeoutMs: 100 });
+    expect(out.file).toBe(file);
+    expect(out.downscaled).toBe(false);
+  });
+
+  it('AVIF entra no caminho de IMAGEM e falha TIPADO se não decodificar (nunca vira documento mudo)', async () => {
+    const file = new File([AVIF], 'IMG_555.avif', { type: '' });
+    await expect(normalizeImageForSend(file, { canvasTimeoutMs: 100 }))
+      .rejects.toThrow(UNSUPPORTED_IMAGE_FORMAT);
   });
 });
 
