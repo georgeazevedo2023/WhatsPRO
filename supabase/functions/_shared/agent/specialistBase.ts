@@ -124,6 +124,15 @@ export interface SpecialistCtx {
    * e chamar handoff_to_human AGORA com resumo completo. Vazio = sem exit action.
    */
   exitActionDirective?: string
+
+  /**
+   * R150 fix (2026-07-26): bloco <knowledge_base> (FAQ + documentos, já formatado
+   * e sanitizado por buildKnowledgeInstruction no index.ts). Injetado no prompt de
+   * TODO specialist, logo após as Informações da Empresa — é DADO de negócio, não
+   * diretiva. Sob o monolito o bloco existia no mega-prompt; a migração pro router
+   * o deixou pra trás e 26 FAQs reais ficaram mortas ~2 meses (lição R150).
+   */
+  knowledgeInstruction?: string
 }
 
 /**
@@ -253,11 +262,13 @@ export async function runSpecialist(
   // TODO specialist (antes era copiada em 3 prompts e ausente em objection/handoff).
   const humanizationRules = buildHumanizationRules()
   // Ordem: [memória do lead] → [já cumprimentado] → [prompt do specialist] →
-  // [humanização] → [info da empresa] → [uso do nome] → [exit action] → [pré-busca].
+  // [humanização] → [info da empresa] → [knowledge/FAQ] → [uso do nome] →
+  // [exit action] → [pré-busca].
+  // Knowledge (R150) fica junto das infos da empresa — ambos são DADOS de negócio.
   // A pré-busca vai por último (mais perto da decisão) pra o product specialist
   // tratá-la como verdade-base "search já feito" e compor em 1 round; a diretiva de
   // exit action fica logo antes (recency bias — ação obrigatória do turno).
-  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, humanizationRules, businessSection, nameDirective, ctx.exitActionDirective, ctx.preSearchContext]
+  const systemPrompt = [memoryBlock, greetingDoneDirective, basePrompt, humanizationRules, businessSection, ctx.knowledgeInstruction, nameDirective, ctx.exitActionDirective, ctx.preSearchContext]
     .filter(Boolean)
     .join('\n\n')
   const promptChars = systemPrompt.length
@@ -271,6 +282,7 @@ export async function runSpecialist(
     tools_count: toolDefs.length,
     has_memory: !!memoryBlock,
     has_presearch: !!ctx.preSearchContext,
+    has_knowledge: !!ctx.knowledgeInstruction,
     shadow: !!ctx.shadow,
   })
 
@@ -333,7 +345,9 @@ export async function runSpecialist(
       outputTokens: llmLoopResult.outputTokens,
       promptChars,
       errorResponse: llmLoopResult.errorResponse,
-      errorMessage: 'LLM loop 3x failure',
+      // R152: propaga a msg CRUA do provedor (não o genérico) — o index classifica
+      // transitório (429/5xx/timeout) vs permanente pra decidir transbordo vs skip.
+      errorMessage: llmLoopResult.errorMessage || 'LLM loop 3x failure',
       intent: def.intent,
       specialist: def.name,
     }

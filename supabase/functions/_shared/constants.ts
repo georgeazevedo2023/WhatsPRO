@@ -41,6 +41,7 @@ export const INTERNAL_TAG_KEYS = [
   'qualif_horizontal',
   'search_fail',
   'ia_cleared',
+  'router_transient_fail', // R152: strike de falha transitória do provedor (nunca é fato do lead)
 ] as const
 
 export const HANDOFF_CREATED_KEY = 'handoff_created'

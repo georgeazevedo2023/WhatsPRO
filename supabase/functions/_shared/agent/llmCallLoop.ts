@@ -125,6 +125,12 @@ export interface LlmCallLoopResult {
    * que dava `return new Response(...)` dentro do while).
    */
   errorResponse: Response | null
+  /**
+   * R152 (2026-07-26): mensagem CRUA do último erro do LLM quando errorResponse
+   * está setado (ex. `OpenAI_CLIENT_ERROR 404: model not found`, `OpenAI 502: ...`).
+   * O caller usa isTransientLlmError() pra decidir transbordo vs skip. Null = sucesso.
+   */
+  errorMessage: string | null
 }
 
 // =============================================================================
@@ -371,6 +377,7 @@ export async function runLlmCallLoop(ctx: LlmCallLoopCtx): Promise<LlmCallLoopRe
           status: 502,
           headers: { ...ctx.corsHeaders, 'Content-Type': 'application/json' },
         }),
+        errorMessage: errMsg,
       }
     }
 
@@ -448,5 +455,6 @@ export async function runLlmCallLoop(ctx: LlmCallLoopCtx): Promise<LlmCallLoopRe
     outputTokens,
     usedModel,
     errorResponse: null,
+    errorMessage: null,
   }
 }

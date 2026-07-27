@@ -256,6 +256,8 @@ describe('runLlmCallLoop — safety limits', () => {
     const result = await runLlmCallLoop(ctx)
     expect(result.errorResponse).not.toBeNull()
     expect(result.errorResponse?.status).toBe(502)
+    // R152: a msg CRUA do ÚLTIMO erro sobe pro caller (classificação transitório/permanente)
+    expect(result.errorMessage).toBe('fail 3')
     // Insere log de erro no DB
     expect(sup.inserts.some((i) => i.payload.event === 'error')).toBe(true)
   }, 15000)

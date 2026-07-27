@@ -11,7 +11,7 @@ import {
   hasActiveHandoffMarker,
 } from '../_shared/constants.ts'
 import { createLogger } from '../_shared/logger.ts'
-import { mergeTags, escapeLike } from '../_shared/agentHelpers.ts'
+import { mergeTags, escapeLike, buildKnowledgeInstruction } from '../_shared/agentHelpers.ts'
 import { unauthorizedResponse, verifyCronOrService } from '../_shared/auth.ts'
 import { detectObjection } from '../_shared/objectionDetection.ts'
 import { detectSaleClosed, detectVendorSaleClosed, shouldPromoteVendorStatusToSale } from '../_shared/saleClosedDetection.ts'
@@ -1848,21 +1848,42 @@ Deno.serve(async (req) => {
     }
 
     // 6-8. Load labels + history + lead profile in parallel (~200ms saved)
-    // (D6 2026-07-25) Load do knowledge/FAQ REMOVIDO — só o prompt do monolito
-    // consumia (sonda kb v7.103 + cache saem juntos; -1 query/turno). Religar o
-    // knowledge nos specialists é follow-up explícito do D6.
+    // R150 fix (2026-07-26): load do knowledge/FAQ RELIGADO — o D6 o removeu junto
+    // com o monolito, mas nenhum specialist recebia o bloco (26 FAQs reais mortas
+    // ~2 meses em prod). Mesmo padrão v7.103: cache 48h + sonda (count + updated_at,
+    // trigger ai_agent_knowledge_updated_at) que detecta edição no turno seguinte.
+    // O bloco agora é injetado nos 5 specialists via specialistBase.
     const contextLimit = agent.context_short_messages || 10
+    const kbCached = cacheGet<{ fp: string; items: Array<Record<string, unknown>> }>(`kb:${agent_id}`)
     const [
       { data: currentLabels },
       { data: availableLabels },
       { data: historyMessages },
       { data: leadProfile },
+      kbProbe,
     ] = await Promise.all([
       supabase.from('conversation_labels').select('label_id, labels(name)').eq('conversation_id', conversation_id),
       supabase.from('labels').select('id, name').eq('inbox_id', conversation.inbox_id),
       supabase.from('conversation_messages').select('direction, content, media_type, created_at').eq('conversation_id', conversation_id).neq('direction', 'private_note').gte('created_at', sessionStartDt).order('created_at', { ascending: false }).limit(contextLimit),
       supabase.from('lead_profiles').select('*').eq('contact_id', contact.id).maybeSingle(),
+      supabase.from('ai_agent_knowledge').select('updated_at', { count: 'exact' }).eq('agent_id', agent_id).order('updated_at', { ascending: false, nullsFirst: false }).limit(1),
     ])
+    const kbFp = `${kbProbe.count ?? 0}:${(kbProbe.data?.[0] as { updated_at?: string | null } | undefined)?.updated_at ?? ''}`
+    let knowledgeItems: Array<Record<string, unknown>> | null = null
+    if (kbCached && kbCached.fp === kbFp) {
+      knowledgeItems = kbCached.items
+    } else {
+      const { data: freshKb } = await supabase.from('ai_agent_knowledge').select('type, title, content').eq('agent_id', agent_id).order('position').limit(30)
+      knowledgeItems = freshKb
+      if (knowledgeItems) cacheSet(`kb:${agent_id}`, { fp: kbFp, items: knowledgeItems })
+    }
+    const faqItems = (knowledgeItems || [])
+      .filter((k: any) => k.type === 'faq' && k.title && k.content)
+      .map((k: any) => ({ title: String(k.title), content: String(k.content) }))
+    const docItems = (knowledgeItems || [])
+      .filter((k: any) => k.type === 'document' && k.content)
+      .map((k: any) => ({ title: String(k.title || ''), content: String(k.content) }))
+    const knowledgeInstruction = buildKnowledgeInstruction(faqItems, docItems)
 
     const currentLabelNames = (currentLabels || []).map((cl: any) => cl.labels?.name).filter(Boolean)
     const availableLabelNames = (availableLabels || []).map((l: any) => l.name)
@@ -2432,10 +2453,9 @@ ${contextBlock}`
     }
 
     // (D6 2026-07-25) Blocos de prompt do monolito REMOVIDOS (extraction fields,
-    // knowledge/FAQ, promptSections, dynamicContext) — prompts vivem nos specialists.
-    // ⚠️ Achado documentado: o FAQ/knowledge SÓ era injetado no prompt do monolito;
-    // specialists nunca receberam (comportamento de prod inalterado). Religar o
-    // knowledge nos specialists é follow-up explícito do D6.
+    // promptSections, dynamicContext) — prompts vivem nos specialists.
+    // R150 fix (2026-07-26): o knowledge/FAQ foi RELIGADO — carregado no bloco 6-8
+    // (cache 48h + sonda) e injetado nos 5 specialists via specialistBase.
 
     // 2026-05-13 — Auto-extração de fields proativa (Bug 4).
     // O LLM tipicamente esquece de chamar set_tags na 1ª resposta, fazendo o
@@ -2894,6 +2914,7 @@ ${contextBlock}`
       incomingText, geminiContents, toolCallsLog,
       queuedMessages: queuedMessages || [], incomingHasAudio,
       leadName, capturedLeadName, leadProfile, profileData, funnelData,
+      knowledgeInstruction,
       hasInteracted, hasEverInteracted, greetingBlockEntered,
       routerProductPreSearch, routerExitActionHandoff,
       pendingHandoffTrigger, pendingHandoffTriggerMsg,
@@ -2901,7 +2922,17 @@ ${contextBlock}`
       pickHandoffMessage, runQueueAssignment,
       buildQualificationChain,
     })
-    if (routerOutcome.response) return routerOutcome.response
+    if (routerOutcome.response) {
+      // R152: turno OK → limpa o strike de falha transitória (se havia), pra um
+      // strike antigo não somar com um incidente futuro e transbordar cedo demais.
+      const strikeCleared = (conversation.tags || []).filter(
+        (t: string) => !(typeof t === 'string' && t.startsWith('router_transient_fail:')),
+      )
+      if (strikeCleared.length !== (conversation.tags || []).length) {
+        await supabase.from('conversations').update({ tags: strikeCleared }).eq('id', conversation_id)
+      }
+      return routerOutcome.response
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // D6 — fallback GRACIOSO (substitui o fallthrough pro monolito).
@@ -2909,7 +2940,39 @@ ${contextBlock}`
     // catastrófica de specialist). Regra da casa: NUNCA expor erro ao lead —
     // transbordo digno: msg de handoff configurada + fila + shadow + nota
     // interna (mesma sequência do Bug 24 v2 / vCard v7.98.0).
-    log.error('Router pipeline sem resposta — fallback gracioso: transbordo', { conversation_id })
+    //
+    // R152 (2026-07-26): falha TRANSITÓRIA do provedor (429/5xx/timeout/breaker)
+    // NÃO transborda no 1º strike — selar shadow é durável (só Finalizar/Ativar IA
+    // destrava) e um incidente de minutos do provedor converteria leads em massa
+    // pra humano, silenciando a IA neles. 1º strike: silêncio ao lead (regra da
+    // casa: nunca expor erro) + tag router_transient_fail:1 — a PRÓXIMA msg do
+    // lead reprocessa o turno normalmente. 2º strike consecutivo: o provedor
+    // segue fora → transbordo gracioso (lead já esperou 2 turnos; humano assume).
+    // Falha permanente/lógica (modelo inválido, hop guard, exceção): transborda direto.
+    const fbFailure = routerOutcome.failure
+    const fbStrikeTag = (conversation.tags || []).find(
+      (t: string) => typeof t === 'string' && t.startsWith('router_transient_fail:'),
+    )
+    if (fbFailure?.transient && !fbStrikeTag) {
+      log.warn('Router pipeline: falha TRANSITÓRIA (1º strike) — turno pulado SEM transbordo (R152)', {
+        conversation_id, reason: fbFailure.reason,
+      })
+      await supabase.from('conversations').update({
+        tags: mergeTags(conversation.tags || [], { router_transient_fail: '1' }),
+      }).eq('id', conversation_id)
+      await supabase.from('ai_agent_logs').insert({
+        agent_id, conversation_id, event: 'error',
+        error: `router_transient_skip: ${fbFailure.reason}`.substring(0, 300),
+        latency_ms: Date.now() - startTime,
+        metadata: { reason: 'router_fallback_transient_skip', strike: 1, incoming_preview: incomingText.substring(0, 200) },
+      })
+      return new Response(JSON.stringify({ ok: true, skipped: 'transient_llm_failure', strike: 1 }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+    log.error('Router pipeline sem resposta — fallback gracioso: transbordo', {
+      conversation_id, transient: !!fbFailure?.transient, second_strike: !!fbStrikeTag, reason: fbFailure?.reason,
+    })
     const notifyOutsideFb = agent.notify_outside_hours_on_handoff !== false
     const outsideHoursFb = notifyOutsideFb && isOutsideBusinessHours(agent.business_hours, agent.extended_hours_until)
     const fallbackMsg = pickHandoffMessage({ agent, profileData, funnelData, outsideHours: outsideHoursFb })
@@ -2926,7 +2989,13 @@ ${contextBlock}`
     broadcastEvent({ conversation_id, inbox_id: conversation.inbox_id, direction: 'private_note', content: noteFb, media_type: 'text' })
     const fbUpdates: Record<string, unknown> = {
       status_ia: STATUS_IA.SHADOW,
-      tags: mergeTags(conversation.tags || [], { ia: STATUS_IA.SHADOW }),
+      // R152: higiene — o strike transitório morre junto com o transbordo (humano assume).
+      tags: mergeTags(
+        (conversation.tags || []).filter(
+          (t: string) => !(typeof t === 'string' && t.startsWith('router_transient_fail:')),
+        ),
+        { ia: STATUS_IA.SHADOW },
+      ),
       lead_msg_count: 0,
     }
     if (profileData?.handoff_department_id) fbUpdates.department_id = profileData.handoff_department_id
@@ -2935,7 +3004,12 @@ ${contextBlock}`
     await supabase.from('ai_agent_logs').insert({
       agent_id, conversation_id, event: 'implicit_handoff',
       latency_ms: Date.now() - startTime,
-      metadata: { reason: 'router_fallback', queue: queueResFb, incoming_preview: incomingText.substring(0, 200) },
+      metadata: {
+        reason: 'router_fallback', queue: queueResFb, incoming_preview: incomingText.substring(0, 200),
+        // R152: telemetria da causa — transitório 2º strike vs permanente/lógica
+        transient: !!fbFailure?.transient, second_strike: !!fbStrikeTag,
+        failure_reason: (fbFailure?.reason || 'unknown').substring(0, 200),
+      },
     })
     return new Response(JSON.stringify({ ok: true, handoff: true, reason: 'router_fallback', queue: queueResFb }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -17,6 +17,7 @@
 
 import { classifyIntent, logRouterRun, type Intent } from './router.ts'
 import { checkHopLimit, generateTurnId } from './hopGuard.ts'
+import { isTransientLlmError } from './llmErrorClassifier.ts'
 import { runSpecialist, type SpecialistCtx, type SpecialistDef } from './specialistBase.ts'
 import { buildGreetingSpecialistDef } from './greetingSpecialist.ts'
 import { buildQualificationSpecialistDef } from './qualificationSpecialist.ts'
@@ -57,6 +58,13 @@ export interface RouterPipelineCtx {
   leadProfile: any
   profileData: any
   funnelData: any
+  /**
+   * R150 fix (2026-07-26): bloco <knowledge_base> (FAQ + documentos) já formatado
+   * pelo index.ts (buildKnowledgeInstruction). Vazio = agente sem knowledge. Vai
+   * pro prompt de TODO specialist via specialistBase — sob o monolito o bloco
+   * existia no mega-prompt; sob router ninguém recebia (26 FAQs mortas ~2 meses).
+   */
+  knowledgeInstruction: string
   hasInteracted: boolean
   hasEverInteracted: boolean
   /** greeting determinístico foi enviado NESTE turno (anti double-ask) */
@@ -78,9 +86,24 @@ export interface RouterPipelineCtx {
   buildQualificationChain: (tags: string[], pendingTags: Record<string, string>, name: string | null) => string
 }
 
+/** R152 (2026-07-26): descreve POR QUE o pipeline devolveu null. */
+export interface RouterPipelineFailure {
+  /**
+   * true = falha transitória do provedor de LLM (429/5xx/timeout/breaker) — o
+   * index NÃO deve selar shadow no 1º strike (próxima msg reprocessa).
+   * false = falha permanente/lógica (hop guard, modelo inválido, exceção) —
+   * transbordo gracioso imediato.
+   */
+  transient: boolean
+  /** mensagem crua da causa (vai pro log, nunca pro lead) */
+  reason: string
+}
+
 export interface RouterPipelineResult {
   /** Response final do turno; null = falha interna → index faz transbordo gracioso (D6) */
   response: Response | null
+  /** null quando response != null; senão a causa da falha (R152) */
+  failure: RouterPipelineFailure | null
   pendingHandoffTrigger: string | null
   pendingHandoffTriggerMsg: string
 }
@@ -91,6 +114,7 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
     supabase, log, corsHeaders, startTime,
     incomingText, geminiContents, toolCallsLog, queuedMessages, incomingHasAudio,
     leadName, capturedLeadName, leadProfile, profileData, funnelData,
+    knowledgeInstruction,
     hasInteracted, hasEverInteracted, greetingBlockEntered,
     routerExitActionHandoff,
     executeToolSafe, sendTextMsg, sendTts, sendPresence, broadcastEvent,
@@ -101,6 +125,8 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
   let routerProductPreSearch = ctx.routerProductPreSearch
   let pendingHandoffTrigger = ctx.pendingHandoffTrigger
   let pendingHandoffTriggerMsg = ctx.pendingHandoffTriggerMsg
+  // R152: causa da falha quando run() devolve null (default = lógica/desconhecida).
+  let failure: RouterPipelineFailure = { transient: false, reason: 'unknown' }
 
   const run = async (): Promise<Response | null> => {
     // D6 (2026-07-25): gate de routing_mode removido — router é o único cérebro.
@@ -115,6 +141,7 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
         })
         if (!hopCheck.allow) {
           log.warn('Router: hop guard tripped — null → transbordo gracioso (D6)', hopCheck)
+          failure = { transient: false, reason: 'hop_guard' }
         } else {
           // Hop 0: classifyIntent
           const shortHistory = (geminiContents as any[])
@@ -881,6 +908,7 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
               toolCallsLog,
               executeToolSafe,
               profileData, funnelData,
+              knowledgeInstruction: knowledgeInstruction || undefined,
               leadProfile: leadProfile || (capturedLeadName ? { full_name: capturedLeadName } : null),
               incomingHasAudio,
               queuedMessages: queuedMessages || [],
@@ -904,8 +932,15 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
             // Bug 4 fix (v7.43.2): falha catastrófica do LLM → return null
             // (não retorna 502 ao webhook; D6: index faz transbordo gracioso).
             if (specialistResult.errorResponse) {
+              // R152: classifica a causa — 429/5xx/timeout do provedor é transitório
+              // (index NÃO sela shadow no 1º strike); 4xx/lógica transborda direto.
+              failure = {
+                transient: isTransientLlmError(specialistResult.errorMessage),
+                reason: `specialist_${dispatchDef.name}: ${specialistResult.errorMessage || 'unknown'}`,
+              }
               log.error?.('Specialist failed catastrophically — null → transbordo gracioso (D6)', {
                 specialist: dispatchDef.name, error: specialistResult.errorMessage || 'unknown',
+                transient: failure.transient,
               })
             } else {
               log.info(`Router pipeline END (${dispatchDef.name}_specialist)`, {
@@ -918,15 +953,17 @@ export async function runRouterPipeline(ctx: RouterPipelineCtx): Promise<RouterP
             }
           } else {
             log.warn('Router: intent sem specialist mapeado — null → transbordo gracioso (D6)', { intent: routerResult.intent })
+            failure = { transient: false, reason: `no_specialist_for_intent:${routerResult.intent}` }
           }
         }
       } catch (err) {
         log.error?.('Router pipeline error — null → transbordo gracioso (D6)', { error: (err as Error).message })
+        failure = { transient: false, reason: `pipeline_exception: ${(err as Error).message}` }
       }
     }
     return null // D6: index responde a null com transbordo gracioso (sem monolito)
   }
 
   const response = await run()
-  return { response, pendingHandoffTrigger, pendingHandoffTriggerMsg }
+  return { response, failure: response ? null : failure, pendingHandoffTrigger, pendingHandoffTriggerMsg }
 }
