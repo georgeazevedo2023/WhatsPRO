@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Bot, User, Headphones, ExternalLink } from 'lucide-react';
 import { handleError } from '@/lib/errorUtils';
 import { useUserProfiles } from '@/hooks/useUserProfiles';
+import { useMediaUrl } from '@/hooks/useMediaUrl';
+import { AudioPlayer } from '@/components/helpdesk/AudioPlayer';
 import { msgKind, senderLabelFor, type MsgKind } from './conversationLabel';
 
 interface Message {
@@ -40,10 +42,43 @@ const KIND_PRESENTATION: Record<MsgKind, { icon: typeof Bot; color: string; alig
   ia:         { icon: Bot,        color: 'bg-primary text-primary-foreground', align: 'justify-end',   outgoing: true },
 };
 
+/**
+ * Mídia de UMA mensagem. Componente próprio porque `useMediaUrl` é um hook e não
+ * pode ser chamado dentro do `.map`. A mídia do WhatsApp chega como URL
+ * temporária do UAZAPI, que só abre via proxy autenticado (precisa do
+ * `instance_id`) — por isso o modal não pode usar `media_url` cru.
+ */
+function ModalMessageMedia({ msg, instanceId }: { msg: Message; instanceId: string | null }) {
+  const isAudio = msg.media_type === 'audio';
+  const isImage = msg.media_type === 'image';
+  const resolved = useMediaUrl(msg.media_url, instanceId, isAudio || isImage);
+
+  if (!msg.media_url || (!isAudio && !isImage)) return null;
+
+  if (isAudio) {
+    if (resolved.loading) return <p className="text-[11px] italic opacity-70 py-1">Carregando áudio…</p>;
+    if (!resolved.url) return <p className="text-[11px] italic opacity-70 py-1">Áudio indisponível</p>;
+    return (
+      <div className="mt-1">
+        <AudioPlayer src={resolved.url} direction={msg.direction} />
+      </div>
+    );
+  }
+
+  if (resolved.loading) return <div className="mt-1 h-20 w-40 rounded-lg bg-muted/40 animate-pulse" />;
+  if (!resolved.url) return null;
+  return (
+    <a href={resolved.url} target="_blank" rel="noopener noreferrer">
+      <img src={resolved.url} alt="" className="rounded-lg max-w-full mt-1 max-h-48 object-cover" />
+    </a>
+  );
+}
+
 export function ConversationModal({ open, onOpenChange, conversationId, contactName, inboxId }: ConversationModalProps) {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
+  const [instanceId, setInstanceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -62,13 +97,16 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
     if (!open || !conversationId) return;
     setLoading(true);
     // Atendente responsável pela conversa — nomeia as msgs enviadas pelo celular (sem sender_id).
+    // `instance_id` (via inbox) é o que permite baixar áudio/foto pelo uazapi-proxy.
     supabase
       .from('conversations')
-      .select('assigned_to')
+      .select('assigned_to, inbox:inboxes(instance_id)')
       .eq('id', conversationId)
       .maybeSingle()
       .then(({ data }) => {
         setAssignedTo((data?.assigned_to as string | null) ?? null);
+        const inbox = data?.inbox as { instance_id: string | null } | null;
+        setInstanceId(inbox?.instance_id ?? null);
       });
     supabase
       .from('conversation_messages')
@@ -117,7 +155,12 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
               {messages.map((msg) => {
                 const info = KIND_PRESENTATION[msgKind(msg)];
                 const Icon = info.icon;
-                const text = msg.content || msg.transcription || (msg.media_type !== 'text' ? `[${msg.media_type}]` : '');
+                // Áudio tem tratamento próprio (player + transcrição destacada);
+                // sem isso a mensagem virava um "[audio]" seco, ilegível pro gestor.
+                const isAudio = msg.media_type === 'audio';
+                const text = isAudio
+                  ? ''
+                  : msg.content || msg.transcription || (msg.media_type !== 'text' ? `[${msg.media_type}]` : '');
                 // Rótulo "quem enviou" (lógica + política "(responsável)" em ./conversationLabel).
                 const senderLabel = senderLabelFor(msg, { contactName, assignedTo, agentNamesMap });
 
@@ -131,10 +174,25 @@ export function ConversationModal({ open, onOpenChange, conversationId, contactN
                     <div className={`max-w-[75%] rounded-2xl px-3 py-2 ${info.color} ${
                       info.outgoing ? 'rounded-tr-md' : 'rounded-tl-md'
                     } ${msg.direction === 'private_note' ? 'border border-yellow-500/30 italic' : ''}`}>
-                      <p className="text-sm whitespace-pre-wrap break-words">{text}</p>
-                      {msg.media_url && msg.media_type === 'image' && (
-                        <img src={msg.media_url} alt="" className="rounded-lg max-w-full mt-1 max-h-48 object-cover" />
+                      {text && <p className="text-sm whitespace-pre-wrap break-words">{text}</p>}
+                      {isAudio && (
+                        <>
+                          <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                            {msg.direction === 'incoming' ? '🎤 Áudio do cliente' : '🎤 Áudio enviado'}
+                          </span>
+                          <ModalMessageMedia msg={msg} instanceId={instanceId} />
+                          {msg.transcription ? (
+                            <p className={`text-[11px] italic whitespace-pre-wrap break-words rounded-md px-2 py-1.5 mt-1 ${
+                              info.outgoing ? 'bg-black/20' : 'bg-foreground/5'
+                            }`}>
+                              📝 {msg.transcription}
+                            </p>
+                          ) : (
+                            <p className="text-[10px] italic opacity-60 mt-1">(sem transcrição)</p>
+                          )}
+                        </>
                       )}
+                      {msg.media_type === 'image' && <ModalMessageMedia msg={msg} instanceId={instanceId} />}
                       <p className={`text-[10px] mt-1 ${info.outgoing ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
                         {senderLabel} · {new Date(msg.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </p>

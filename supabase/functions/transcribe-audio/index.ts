@@ -307,9 +307,22 @@ Deno.serve(async (req) => {
     // ── Save to database ────────────────────────────────────────────
     const supabase = createServiceClient()
 
+    const { data: msgRow, error: msgRowError } = await supabase
+      .from('conversation_messages')
+      .select('direction')
+      .eq('id', messageId)
+      .maybeSingle()
+    if (msgRowError) log.error('direction lookup failed', { error: msgRowError.message })
+    // A DIREÇÃO É LIDA DA PRÓPRIA MENSAGEM, não de um flag do caller: desde
+    // 2026-07-27 o webhook também transcreve áudio de SAÍDA (o vendedor
+    // respondendo pelo celular) e o disparo do agente lá embaixo manda
+    // `direction:'incoming'` fixo — sem este guard a IA responderia à fala do
+    // próprio vendedor. Ausência de row (não deveria ocorrer) = não dispara.
+    const isIncoming = msgRow?.direction === 'incoming'
+
     const { error: updateError } = await supabase
       .from('conversation_messages')
-      .update({ 
+      .update({
         transcription,
         media_url: audioUrl // Save the final (possibly converted to MP3) URL
       })
@@ -348,8 +361,8 @@ Deno.serve(async (req) => {
       )
     }
 
-    // ── Trigger AI Agent ────────────────────────────────────────────
-    if (conversationId && transcription && isService) {
+    // ── Trigger AI Agent (SÓ para áudio do LEAD) ────────────────────
+    if (conversationId && transcription && isService && isIncoming) {
       try {
         const { data: conv } = await supabase
           .from('conversations')
@@ -407,7 +420,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    log.info('END', { messageId, provider: providerUsed })
+    log.info('END', { messageId, provider: providerUsed, direction: msgRow?.direction ?? 'unknown', agentTriggered: isIncoming })
     return successResponse(corsHeaders, { transcription, provider: providerUsed })
   } catch (error) {
     log.error('FATAL ERROR', { error: (error as Error).message })

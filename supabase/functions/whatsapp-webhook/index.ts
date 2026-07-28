@@ -1291,8 +1291,12 @@ Deno.serve(async (req) => {
     // Trigger audio transcription directly (no fila — claim_jobs/complete_job RPCs
     // don't exist in this project + INSERT em job_queue caía silencioso por col
     // inexistente max_retries vs schema max_attempts). Direct call elimina a cadeia.
-    if (mediaType === 'audio' && mediaUrl && insertedMsg && direction === 'incoming') {
-      log.info('Triggering audio transcription (direct call)', { messageId: insertedMsg.id })
+    // OUTGOING entra aqui desde 2026-07-27: o vendedor responde por ÁUDIO pelo
+    // celular (114 em 30 dias) e o gestor só via "[audio]" na Fila/resumos —
+    // metade do atendimento era ilegível. O disparo do agente NÃO acontece pra
+    // esses: quem decide é o guard por `direction` dentro do transcribe-audio.
+    if (mediaType === 'audio' && mediaUrl && insertedMsg && (direction === 'incoming' || direction === 'outgoing')) {
+      log.info('Triggering audio transcription (direct call)', { messageId: insertedMsg.id, direction })
       const SVC_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
       backgroundFetch(fetch(`${SUPABASE_URL}/functions/v1/transcribe-audio`, {
         method: 'POST',

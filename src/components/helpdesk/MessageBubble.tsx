@@ -9,6 +9,9 @@ import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { toast } from 'sonner';
 import type { Message } from '@/pages/dashboard/HelpDesk';
 
+/** Janela em que faz sentido dizer "Transcrevendo..." (o provedor leva segundos). */
+const TRANSCRIPTION_GRACE_MS = 5 * 60 * 1000;
+
 interface MessageBubbleProps {
   message: Message;
   instanceId?: string;
@@ -21,6 +24,16 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
   const isNote = message.direction === 'private_note';
   const [imgError, setImgError] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // "Transcrevendo..." só enquanto a transcrição pode REALMENTE estar a caminho.
+  // Sem esse teto o spinner girava pra sempre em todo áudio sem transcrição —
+  // o caso dos áudios antigos do vendedor, que nunca foram transcritos (a
+  // transcrição de saída só passou a existir em 2026-07-27) e dos raros em que
+  // os dois provedores falham. A transcrição real leva segundos.
+  const transcriptionPending = useMemo(
+    () => Date.now() - new Date(message.created_at).getTime() < TRANSCRIPTION_GRACE_MS,
+    [message.created_at],
+  );
 
   // Resolve Supabase storage URLs to signed URLs for private buckets
   const needsSignedUrl = ['image', 'audio', 'video', 'document', 'sticker'].includes(message.media_type);
@@ -227,7 +240,11 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
           </div>
         )}
 
-        {/* Image with error fallback */}
+        {/* Image with error fallback. Teto de 480px (2026-07-27): sem ele a foto
+            enchia a bolha inteira (medido em prod: 955px) e empurrava a conversa
+            pra fora da tela — clicar abre o tamanho real em nova aba. O teto é
+            em PIXEL, não `min(480px,100%)`: percentual não conta na largura
+            intrínseca e a bolha continuava 979px com a foto pequena dentro. */}
         {message.media_type === 'image' && (mediaUrl || resolvedMedia.loading || resolvedMedia.error) && (
           <div className="mb-1">
             {resolvedMedia.loading ? (
@@ -241,7 +258,7 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
                   alt="Imagem"
                   loading="lazy"
                   decoding="async"
-                  className="rounded-lg max-w-full cursor-pointer hover:opacity-90 transition-opacity"
+                  className="rounded-lg max-w-full sm:max-w-[480px] cursor-pointer hover:opacity-90 transition-opacity"
                   onError={() => setImgError(true)}
                 />
               </a>
@@ -280,12 +297,12 @@ export const MessageBubble = memo(function MessageBubble({ message, instanceId, 
               <p className={`text-[11px] italic whitespace-pre-wrap rounded-md px-2 py-1.5 mt-0.5 ${message.direction === 'incoming' ? 'bg-foreground/5 text-foreground/80' : 'bg-emerald-950/30 text-emerald-50/90'}`}>
                 📝 {message.transcription}
               </p>
-            ) : (
-              <div className={`flex items-center gap-1.5 mt-0.5 animate-pulse ${message.direction === 'incoming' ? '' : ''}`}>
+            ) : transcriptionPending ? (
+              <div className="flex items-center gap-1.5 mt-0.5 animate-pulse">
                 <div className={`w-3 h-3 rounded-full border-2 animate-spin ${message.direction === 'incoming' ? 'border-muted-foreground/40 border-t-muted-foreground' : 'border-white/40 border-t-white'}`} />
                 <span className={`text-[11px] italic ${message.direction === 'incoming' ? 'text-muted-foreground' : 'text-white/85'}`}>Transcrevendo...</span>
               </div>
-            )}
+            ) : null}
           </div>
         )}
         {message.media_type === 'video' && resolvedMedia.loading && (
