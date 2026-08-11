@@ -84,8 +84,11 @@ export function useSendFile(): UseSendFileReturn {
       // Estágio corrente — vai pra telemetria no catch (diz ONDE falhou).
       let stage: SendStage = 'normalize';
       let detectedKind: string | null = null;
-      // Diagnóstico da normalização (downscale/conversão) — vai na telemetria de sucesso.
+      // Diagnóstico da normalização (downscale/conversão) — vai na telemetria de
+      // sucesso E de falha (2026-08-11: hang_timeout no APK sem saber se o
+      // downscale tinha rodado — ponto cego fechado).
       let normInfo = '';
+      let uploadSize: number | null = null;
       try {
         // Decide imagem vs documento por MAGIC BYTES, não por file.type: no
         // mobile o file.type chega vazio (foto vira "documento" octet-stream).
@@ -119,6 +122,16 @@ export function useSendFile(): UseSendFileReturn {
         if (uploadFile.size > MAX_FILE_SIZE) {
           throw new Error(`file size exceeds maximum: ${uploadFile.size}`);
         }
+        uploadSize = uploadFile.size;
+        // WebView do APK (2026-08-11, moto g20): File vindo da câmera/galeria é
+        // content://-backed e o streaming desse provider pelo fetch pode PENDURAR
+        // (hang_timeout com sessão válida). Ler pra memória desacopla o upload do
+        // provider. Best-effort "nunca pior": falha de leitura mantém o original.
+        // Imagem downscalada já é Blob em memória — o re-read é barato nesse caso.
+        try {
+          const buf = await uploadFile.arrayBuffer();
+          uploadFile = new File([buf], uploadFile.name || `upload.${ext}`, { type: resolvedContentType });
+        } catch { /* mantém o File original */ }
         const fileName = `${conversationId}/${Date.now()}.${ext}`;
 
         // Upload ao Storage com TETO de wall-clock (anti sessão-zumbi): o
@@ -237,7 +250,9 @@ export function useSendFile(): UseSendFileReturn {
           stage,
           outcome: /timeout/i.test(rawMsg) ? 'hang_timeout' : 'fail',
           detected_kind: detectedKind,
-          raw_error: rawMsg,
+          // [norm:...] = o downscale/conversão rodou? [upload:...B] = tamanho
+          // REAL que foi pro Storage (telemetryBase.file_size é o original)
+          raw_error: `${normInfo ? `[norm:${normInfo}]` : ''}${uploadSize !== null ? `[upload:${uploadSize}B]` : ''} ${rawMsg}`.trim(),
         });
         const friendly = humanizeSendError(err, { isImage });
         toast.error(friendly);
@@ -246,6 +261,7 @@ export function useSendFile(): UseSendFileReturn {
         setSendingFile(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
         if (imageInputRef.current) imageInputRef.current.value = '';
+        if (cameraInputRef.current) cameraInputRef.current.value = '';
       }
     },
     [],

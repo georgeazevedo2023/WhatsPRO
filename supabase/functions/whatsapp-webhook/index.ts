@@ -266,13 +266,18 @@ Deno.serve(async (req) => {
       }
 
       // Find open/pending conversation
+      // ⚠️ .limit(1) é OBRIGATÓRIO antes do .maybeSingle(): sem ele, contato com
+      // 2+ conversas abertas fazia o PostgREST devolver ERRO (multiple rows), o
+      // código lia só `data` (null) e concluía "não existe conversa" → criava
+      // OUTRA — espiral que chegou a 93 conversas duplicadas em prod (2026-08-11).
       const { data: iaConv } = await supabase
         .from('conversations')
         .select('id, status_ia')
         .eq('inbox_id', resolvedInboxId)
         .eq('contact_id', iaContact.id)
         .in('status', ['aberta', 'pendente'])
-        .order('created_at', { ascending: false })
+        .order('last_message_at', { ascending: false })
+        .limit(1)
         .maybeSingle()
       if (!iaConv) {
         // No open conversation found - check if payload also contains message content
@@ -925,14 +930,19 @@ Deno.serve(async (req) => {
       : null
 
     if (!conversation) {
-      const { data: foundConv } = await supabase
+      // ⚠️ .limit(1) é OBRIGATÓRIO (ver comentário no lookup do status_ia): sem
+      // ele, 2+ conversas abertas = erro PostgREST engolido = conversa NOVA por
+      // mensagem (bug das 93 duplicadas, 2026-08-11). Erro agora é LOGADO.
+      const { data: foundConv, error: findError } = await supabase
         .from('conversations')
         .select('id, status_ia')
         .eq('inbox_id', inbox.id)
         .eq('contact_id', contact.id)
         .in('status', ['aberta', 'pendente'])
-        .order('created_at', { ascending: false })
+        .order('last_message_at', { ascending: false })
+        .limit(1)
         .maybeSingle()
+      if (findError) log.error('Conversation lookup failed', { error: findError.message })
       conversation = foundConv
     }
 
@@ -984,7 +994,7 @@ Deno.serve(async (req) => {
       // R102: popular department_id desde criação. Antes era setado só no handoff
       // (R95 corrigiu assign-handoff), mas conversas atendidas pela IA nunca passam
       // por handoff e ficavam com dept=NULL → "Departamento: Nenhum" no helpdesk.
-      const { data: newConv } = await supabase
+      const { data: newConv, error: insertError } = await supabase
         .from('conversations')
         .insert({
           inbox_id: inbox.id,
@@ -998,6 +1008,24 @@ Deno.serve(async (req) => {
         .select('id, status_ia')
         .single()
       conversation = newConv
+      // Corrida (2 msgs simultâneas do mesmo contato, ex.: n8n entrega em par):
+      // o índice único uq_conversations_open_per_contact faz o PERDEDOR receber
+      // 23505 — re-busca a conversa que o vencedor criou em vez de duplicar.
+      if (!conversation && insertError?.code === '23505') {
+        log.info('Conversation insert lost race, re-selecting winner', { contactId: contact.id })
+        const { data: raceWinner } = await supabase
+          .from('conversations')
+          .select('id, status_ia')
+          .eq('inbox_id', inbox.id)
+          .eq('contact_id', contact.id)
+          .in('status', ['aberta', 'pendente'])
+          .order('last_message_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        conversation = raceWinner
+      } else if (!conversation && insertError) {
+        log.error('Conversation insert failed', { error: insertError.message })
+      }
     }
 
     if (!conversation) {
