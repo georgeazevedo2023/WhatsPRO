@@ -1,0 +1,9 @@
+# Segredos de assinatura — NUNCA commitar (secret scanning bloqueia push; regra do vault)
+keystore-*.p12
+keystore-*.p12.base64
+*.SEGREDO.txt
+# Push (fase 3) — entra via secret do CI, nunca no git
+google-services.json
+firebase-*.json
+
+node_modules/

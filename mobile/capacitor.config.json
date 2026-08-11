@@ -1,0 +1,16 @@
+{
+  "appId": "br.com.wsmart.whatspro",
+  "appName": "WhatsPRO",
+  "webDir": "www",
+  "server": {
+    "url": "https://crm.wsmart.com.br",
+    "allowNavigation": ["crm.wsmart.com.br"]
+  },
+  "_comentario_arquitetura": "Modo server.url REMOTO (decisão 2026-08-11, mesma receita do Casa do Agricultor): o APK é casca nativa; o WebView abre o painel de PRODUÇÃO. Deploy do front continua via CI sem novo APK. Origem = crm.wsmart.com.br → zero mudança de CORS.",
+  "_comentario_appendUserAgent": "whatspro-app/N = versionCode do APK. O front pode ler do userAgent p/ saber que roda no app (telemetria media_send_telemetry.platform, push fase 3). SUBIR JUNTO com o versionCode do android/app/build.gradle.",
+  "appendUserAgent": "whatspro-app/1",
+  "android": {
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "auto"
+  }
+}

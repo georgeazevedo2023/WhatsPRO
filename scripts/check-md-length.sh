@@ -9,7 +9,7 @@ STRICT=${1:-}
 
 mapfile -t offenders < <(
   find . -name "*.md" \
-    -not -path "./node_modules/*" \
+    -not -path "*/node_modules/*" \
     -not -path "./.git/*" \
     -not -path "./.claude/*" \
     -not -path "./public/*" \

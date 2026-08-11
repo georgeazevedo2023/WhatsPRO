@@ -1,0 +1,71 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace "br.com.wsmart.whatspro"
+    compileSdk rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "br.com.wsmart.whatspro"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // ⚠️ SUBIR JUNTO com "appendUserAgent" do capacitor.config.json
+        // (whatspro-app/N): é por ele que o front saberá que roda no app.
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            // O CI (.github/workflows/apk.yml) escreve o keystore a partir do
+            // secret ANDROID_KEYSTORE_BASE64. PKCS12 gerado com openssl —
+            // esta máquina não tem Java/keytool, e não precisa ter.
+            storeFile file("keystore-whatspro.p12")
+            storePassword System.getenv("ANDROID_KEYSTORE_PASS") ?: ""
+            keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "whatspro"
+            keyPassword System.getenv("ANDROID_KEYSTORE_PASS") ?: ""
+            storeType "pkcs12"
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // keystore presente -> assinatura de release (atualizável no aparelho);
+            // ausente -> assinatura debug, que também instala (bom p/ teste local)
+            signingConfig file("keystore-whatspro.p12").exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
