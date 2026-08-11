@@ -44,6 +44,7 @@ audited_at: 2026-07-26
 | [[wiki/infraestrutura]] | Stack, edge fns, storage, segurança |
 | [[wiki/acesso-credenciais]] | Mapa único: acesso Supabase, env vars/keys, n8n, UAZAPI, Portainer, ponteiros pros segredos |
 | [[wiki/audio-pipeline]] | Fluxo end-to-end UAZAPI → Groq → DB → UI |
+| [[wiki/app-android]] | APK do vendedor (Capacitor, Inbox+Fila, câmera/galeria/mic; build no CI) |
 | [[wiki/visao-geral-projeto]] | O que é, problema, papéis, competidores |
 | [[wiki/visao-geral-modulos]] | Os 19 módulos em 5 grupos |
 | [[wiki/visao-geral-arquitetura]] | Stack, 59 tabelas, fluxo dados ponta-a-ponta |
