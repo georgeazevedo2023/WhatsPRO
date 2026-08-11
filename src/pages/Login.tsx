@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { MessageSquare, Mail, Lock, ArrowRight, Loader2, Shield, Zap, Users, Bot, ArrowLeft } from 'lucide-react';
+import { MessageSquare, Mail, Lock, ArrowRight, Loader2, Shield, Zap, Users, Bot, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -16,6 +16,7 @@ const Login = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (user) navigate(isSuperAdmin ? '/dashboard' : '/dashboard/helpdesk', { replace: true });
@@ -126,12 +127,20 @@ const Login = () => {
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                   <Input
-                    id="login-password" type="password" placeholder="••••••••"
+                    id="login-password" type={showPassword ? 'text' : 'password'} placeholder="••••••••"
                     value={loginPassword} onChange={e => setLoginPassword(e.target.value)}
                     required disabled={isLoading}
-                    className="pl-11 bg-muted/40 border-border/60 focus:bg-background"
+                    className="pl-11 pr-11 bg-muted/40 border-border/60 focus:bg-background"
                     autoComplete="current-password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 
