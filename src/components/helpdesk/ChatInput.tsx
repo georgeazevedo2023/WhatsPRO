@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, memo } from 'react';
-import { Send, StickyNote, Mic, X, Paperclip, Loader2, Plus, ImageIcon, Smile, Tags, CircleDot, Check, Reply } from 'lucide-react';
+import { Send, StickyNote, Mic, X, Paperclip, Loader2, Plus, ImageIcon, Smile, Tags, CircleDot, Check, Reply, Camera } from 'lucide-react';
 import { EmojiPickerContent } from '@/components/ui/emoji-picker';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -45,7 +45,12 @@ interface ChatInputProps {
 export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, onAgentAssigned, inboxLabels = [], assignedLabelIds = [], onLabelsChanged, onStatusChange, replyTo, onClearReply, onSendFailed, onClearFailed }: ChatInputProps) {
   const { user } = useAuth();
   const { isRecording, recordingTime, startRecording, stopRecording, cancelRecording, formatTime } = useAudioRecorder();
-  const { sendingFile, fileInputRef, imageInputRef, handleSendFile } = useSendFile();
+  const { sendingFile, fileInputRef, imageInputRef, cameraInputRef, handleSendFile } = useSendFile();
+  // "Tirar foto" só onde há câmera de verdade: dentro do APK (UA whatspro-app/N)
+  // ou browser mobile (pointer coarse). No desktop o atributo capture é ignorado
+  // e o item viraria um "Enviar imagem" duplicado confuso.
+  const canCapturePhoto = navigator.userAgent.includes('whatspro-app/') ||
+    (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches);
 
   const autoAssignAgent = async () => {
     if (!user || conversation.assigned_to === user.id) return;
@@ -549,6 +554,18 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
             accept="image/*,.heic,.heif"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileSelected(f); }}
           />
+          {/* capture="environment" abre a CÂMERA direto (traseira). No APK o
+              Capacitor resolve via ACTION_IMAGE_CAPTURE (permissão CAMERA +
+              <queries> do manifest, v7.113); a foto cai no MESMO pipeline
+              (downscale v7.111 → Storage → UAZAPI). */}
+          <input
+            type="file"
+            ref={cameraInputRef}
+            className="hidden"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileSelected(f); e.target.value = ''; }}
+          />
 
           {sendingFile ? (
             <Button variant="ghost" size="icon" className="shrink-0 h-9 w-9" disabled>
@@ -570,6 +587,16 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
                     <StickyNote className="w-4 h-4" />
                     {isNote ? 'Desativar nota' : 'Nota privada'}
                   </button>
+                  {canCapturePhoto && (
+                    <button
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-accent text-foreground disabled:opacity-50 disabled:pointer-events-none"
+                      onClick={() => { cameraInputRef.current?.click(); setMenuOpen(false); }}
+                      disabled={isNote}
+                    >
+                      <Camera className="w-4 h-4" />
+                      Tirar foto
+                    </button>
+                  )}
                   <button
                     className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-accent text-foreground disabled:opacity-50 disabled:pointer-events-none"
                     onClick={() => { imageInputRef.current?.click(); setMenuOpen(false); }}

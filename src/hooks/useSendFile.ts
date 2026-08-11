@@ -22,6 +22,7 @@ export interface UseSendFileReturn {
   sendingFile: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   imageInputRef: React.RefObject<HTMLInputElement | null>;
+  cameraInputRef: React.RefObject<HTMLInputElement | null>;
   handleSendFile: (file: File, opts: SendFileOptions) => Promise<{ success: boolean; mediaType?: string; mediaUrl?: string; insertedMsg?: Tables<'conversation_messages'>; error?: string }>;
 }
 
@@ -40,6 +41,7 @@ export function useSendFile(): UseSendFileReturn {
   const [sendingFile, setSendingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSendFile = useCallback(
     async (
@@ -249,5 +251,5 @@ export function useSendFile(): UseSendFileReturn {
     [],
   );
 
-  return { sendingFile, fileInputRef, imageInputRef, handleSendFile };
+  return { sendingFile, fileInputRef, imageInputRef, cameraInputRef, handleSendFile };
 }
