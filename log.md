@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-08-11 (cont. III) — 📸 v7.115.0: "Tirar foto" no menu de anexos + 🔑 rotação da senha admin
+
+(1) **v7.115.0** — dono testou o APK no celular (funcionou: login, chat, menu) e pediu câmera direta. `ChatInput`: item "Tirar foto" (gate: UA `whatspro-app/` ou pointer coarse) → input `capture="environment"` → mesmo pipeline de envio; `cameraInputRef` novo no `useSendFile`. Sem novo APK (casca remota). tsc 0 · vitest 2031/0 · build ✓ · commit `909c029`; verificação live pelo marker "Tirar foto" no chunk `HelpDesk-*.js`. (2) **Senha do admin rotacionada** a pedido do dono (a antiga era fraca e a pendência estava aberta desde julho): hash bcrypt novo via SQL no `auth.users`, E2E dupla (senha nova loga ✓, antiga `invalid_credentials` ✓), `.env.local` atualizado — valor NUNCA no vault/memória, como manda a regra. Sessões antigas continuam ativas (avisado). (3) Registro: nome do lead Ivonete corrigido de manhã (entrada própria abaixo).
+
+---
 ## 2026-08-11 (cont. II) — 👁️ v7.114.0: mostrar/ocultar senha no Login
 
 Pedido direto do dono (print). `Login.tsx`: botão-olho no input de senha (alterna `password`/`text`), aria-label pt-BR, focável por teclado, `pr-11` pro texto não invadir o botão. tsc 0 · vitest 2031/0 · build ✓. Commit `4162a4c`, deploy via CI; verificação live pelo marker "Mostrar senha" no `index-*.js` (Login NÃO é lazy — diferente do Helpdesk).

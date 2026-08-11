@@ -13,6 +13,12 @@ audited_at: 2026-07-26
 
 ---
 
+### v7.115.0 (2026-08-11) — 📸 Helpdesk: "Tirar foto" no menu de anexos (câmera direta no APK/mobile)
+
+Dono testou o APK v7.113 no aparelho e apontou: o menu "+" só tinha "Enviar imagem" (galeria/arquivos), sem atalho de câmera. Novo item **"Tirar foto"** no `ChatInput.tsx`: input oculto `capture="environment"` (câmera traseira direto) via `cameraInputRef` novo no `useSendFile`. No APK, o Capacitor resolve com `ACTION_IMAGE_CAPTURE` — a permissão CAMERA e o bloco `<queries>` do manifest já estavam prontos desde a v7.113 (a lição de campo do agro era exatamente pra isso). A foto cai no MESMO pipeline provado (downscale ≤2048px v7.111 → Storage → UAZAPI → telemetria). **Visível só onde há câmera**: UA `whatspro-app/` (APK) ou `pointer: coarse` (browser mobile) — no desktop `capture` é ignorado e o item seria um "Enviar imagem" duplicado confuso. Como o app é `server.url` remoto, o vendedor recebe o recurso **sem novo APK**. tsc 0 · vitest **2031/0** · build ✓ (marker no chunk lazy `HelpDesk-*.js`). Commit `909c029`.
+
+---
+
 ### v7.114.0 (2026-08-11) — 👁️ Login: botão mostrar/ocultar senha
 
 Pedido do dono (print da tela de login). Botão com ícone de olho (`Eye`/`EyeOff` lucide) dentro do campo de senha do `Login.tsx`: alterna `type` entre `password`/`text`, `aria-label` "Mostrar senha"/"Ocultar senha", alcançável por teclado (sem `tabIndex=-1` — padrão a11y da v7.104), estilo `text-muted-foreground → hover:foreground` idêntico aos ícones dos inputs. `pr-11` no input pra senha longa não passar por baixo do botão. tsc 0 · vitest **2031/0** · build ✓ (marker no `index-*.js`; Login não é chunk lazy). Deploy via CI (commit `4162a4c`).
