@@ -150,3 +150,7 @@ verify_jwt = false
 # Resumo do dia pros gestores por WhatsApp (auth manual via verifyCronOrService)
 [functions.daily-manager-report]
 verify_jwt = false
+
+# Push FCM "cliente esperando" no APP do vendedor (cron 2min, auth via verifyCronOrService)
+[functions.push-queue-alert]
+verify_jwt = false

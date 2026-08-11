@@ -4092,6 +4092,65 @@ export type Database = {
           },
         ]
       }
+      push_alert_log: {
+        Row: {
+          conversation_id: string
+          last_message_id: string | null
+          notified_at: string
+        }
+        Insert: {
+          conversation_id: string
+          last_message_id?: string | null
+          notified_at?: string
+        }
+        Update: {
+          conversation_id?: string
+          last_message_id?: string | null
+          notified_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_alert_log_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: true
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      push_devices: {
+        Row: {
+          app_build: number
+          created_at: string
+          enabled: boolean
+          fcm_token: string
+          id: string
+          last_seen_at: string
+          platform: string
+          user_id: string
+        }
+        Insert: {
+          app_build?: number
+          created_at?: string
+          enabled?: boolean
+          fcm_token: string
+          id?: string
+          last_seen_at?: string
+          platform?: string
+          user_id: string
+        }
+        Update: {
+          app_build?: number
+          created_at?: string
+          enabled?: boolean
+          fcm_token?: string
+          id?: string
+          last_seen_at?: string
+          platform?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       rate_limit_log: {
         Row: {
           action: string
@@ -5364,6 +5423,7 @@ export type Database = {
           last_message_at: string
         }[]
       }
+      get_backup_tables: { Args: never; Returns: string[] }
       get_conversion_by_origin: {
         Args: { p_end: string; p_instance_id: string; p_start: string }
         Returns: {

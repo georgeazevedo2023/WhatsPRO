@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { wireAppPush, disableAppPush } from '@/lib/appPush';
 
 type AppRole = 'super_admin' | 'gerente' | 'user';
 
@@ -88,6 +89,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (session?.user) {
           await fetchUserData(session.user.id);
+          // APP Android: registra o token de push (no-op fora do APK)
+          void wireAppPush(session.user.id);
         } else {
           setProfile(null);
           setIsSuperAdmin(false);
@@ -115,6 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(session?.user ?? null);
         if (session?.user) {
           await fetchUserData(session.user.id);
+          // APP Android: registra o token de push (no-op fora do APK)
+          void wireAppPush(session.user.id);
         }
         setLoading(false);
         initialDone = true;
@@ -151,6 +156,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     try {
+      // ANTES do signOut (RLS precisa da sessão): sair desliga o push deste
+      // usuário — o aparelho de quem saiu não pode seguir vibrando (lição agro)
+      if (user) await disableAppPush(user.id);
       await supabase.auth.signOut();
     } catch (err) {
       console.error('[AuthContext] Sign out error:', err);
