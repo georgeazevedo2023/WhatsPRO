@@ -16,6 +16,7 @@ import { nowBRISO } from '@/lib/dateUtils';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { useSendFile } from '@/hooks/useSendFile';
 import { mediaPreview } from '@/lib/messagePreview';
+import { materializeFile } from '@/lib/materializeFile';
 import type { Conversation, Label, Message } from '@/types';
 
 /** Falha persistente de envio de mídia (bolha vermelha com "tentar de novo"). */
@@ -342,7 +343,12 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
     }
   };
 
-  const onFileSelected = async (file: File) => {
+  const onFileSelected = async (rawFile: File) => {
+    // Foto/arquivo do WebView Android chega content://-backed com leitura
+    // ONE-SHOT (2026-08-12, moto g20): a 2ª leitura morre com NotReadableError.
+    // Materializa pra memória ANTES de qualquer leitura — e os closures de
+    // retry abaixo capturam a CÓPIA, não o File morto.
+    const file = await materializeFile(rawFile);
     // Guard de sessão (2026-06-09): sem user, o fluxo seguia com userId:'' — o
     // UAZAPI ENTREGAVA a foto, o INSERT falhava (uuid inválido) e o retry
     // DUPLICAVA a foto no WhatsApp do lead. Aborta ANTES de qualquer envio.

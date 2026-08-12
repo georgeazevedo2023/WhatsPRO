@@ -1,7 +1,7 @@
 ---
 title: Changelog
 type: changelog
-updated: 2026-07-26
+updated: 2026-08-12
 audited_at: 2026-07-26
 ---
 
@@ -10,6 +10,12 @@ audited_at: 2026-07-26
 > Releases ativas (últimos ~14 dias). Histórico completo em [[wiki/changelog/]].
 >
 > **Convenção:** semver. Toda feature/fix shipado vira entrada aqui (REGRA 17 do CLAUDE.md). Após release recente envelhecer >14 dias, mover pra `wiki/changelog/<ano-mes>-part<N>.md` (último particionamento: 2026-07-26 → [[wiki/changelog/2026-07-part1]] + [[wiki/changelog/2026-06-part6]]).
+
+---
+
+### v7.118.0 (2026-08-12) — 📷 Envio de foto no mobile: File one-shot da câmera + upload desacoplado do auth client
+
+Dono testou foto pelo APK e pelo Chrome mobile de manhã — telemetria pegou **2 causas distintas** (todas as 6 falhas de 48h eram dele testando). **(1) `NotReadableError` no APK (build3, moto g20):** o `File` que o WebView devolve é lastreado em `content://` com permissão de leitura **one-shot** — o pipeline lia 2× (magic bytes + normalize) e a 2ª leitura morria com "permission problems… after a reference was acquired"; o "Tentar de novo" reusava o MESMO File morto (o snapshot da v7.116 rodava DEPOIS do normalize — tarde). Fix na fonte: **`materializeFile.ts`** — `onFileSelected` (ChatInput) lê TUDO pra memória na ENTRADA (retry 1×/300ms p/ foto ainda gravando; teto 20s; >50MB passa direto), todo o pipeline e os closures de retry usam a CÓPIA; best-effort "nunca pior". **(2) `hang_timeout` no upload com arquivo JÁ em memória (~350KB pós-downscale, 2× no Chrome):** o storage-js resolve o token via `getSession()` **antes** de todo upload — auth client travado (aba/WebView voltando do background; o próprio picker de foto backgrounda a página) pendurava o upload em 0 bytes por 120s, a sonda dava `unknown` e o recover **recarregava a página matando o File** (a cura matava o paciente); em paralelo, socket morto em rede móvel pendurava o fetch sem abort pra sempre. Fix na fonte: **`directStorageUpload.ts`** — upload por **fetch CRU** (token direto do localStorage, técnica do `refreshTokenIntoStorage`), **AbortController real + retry em conexão nova** com path novo por tentativa e teto proporcional ao tamanho (350KB → 3×30s; 15MB → 1×120s, paridade com o teto antigo); token ausente/expirado/recusado → **cai no caminho storage-js de sempre** (que refresca sessão corretamente — evita refresh-token reuse); 4xx de payload = erro limpo sem retry; esgotou tudo → mesma sonda `decideUploadTimeout` de hoje. Telemetria ganha `attempts:N`. tsc 0 · vitest **2052/0** (+21: 7 materializeFile, 14 directStorageUpload) · build ✓. Deploy frontend via CI (sem novo APK — casca remota).
 
 ---
 

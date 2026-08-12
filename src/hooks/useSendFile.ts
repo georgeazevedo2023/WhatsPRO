@@ -8,6 +8,7 @@ import { humanizeSendError } from '@/lib/sendErrors';
 import { logSendFailure, logSendSuccess, type SendStage } from '@/lib/sendTelemetry';
 import { clearDeadSession, probeSession, recoverStuckSession } from '@/lib/sessionRecovery';
 import { decideUploadTimeout } from '@/lib/uploadTimeoutPolicy';
+import { directUploadWithRetry } from '@/lib/directStorageUpload';
 import type { Tables } from '@/integrations/supabase/types';
 
 interface SendFileOptions {
@@ -127,42 +128,70 @@ export function useSendFile(): UseSendFileReturn {
         // content://-backed e o streaming desse provider pelo fetch pode PENDURAR
         // (hang_timeout com sessão válida). Ler pra memória desacopla o upload do
         // provider. Best-effort "nunca pior": falha de leitura mantém o original.
-        // Imagem downscalada já é Blob em memória — o re-read é barato nesse caso.
+        // Desde 2026-08-12 o ChatInput já materializa na ENTRADA (leitura
+        // one-shot do content:// morria no normalize) — aqui virou cinto de
+        // segurança pra chamadores que não materializam; re-read de memória é barato.
         try {
           const buf = await uploadFile.arrayBuffer();
           uploadFile = new File([buf], uploadFile.name || `upload.${ext}`, { type: resolvedContentType });
         } catch { /* mantém o File original */ }
-        const fileName = `${conversationId}/${Date.now()}.${ext}`;
 
-        // Upload ao Storage com TETO de wall-clock (anti sessão-zumbi): o
-        // supabase-js chama getSession() ANTES do fetch e era o ÚNICO passo de
-        // rede do envio sem proteção — em aba mobile retomada podia pendurar e o
-        // atendente ficava com spinner infinito, sem erro e sem rastro.
-        // No timeout, upload LENTO ≠ sessão ZUMBI (auditoria 2026-07-26): a
-        // sonda de sessão decide — só recarrega com evidência de client travado
-        // ('unknown'); sessão válida = falha limpa e a bolha de retry fica viva.
+        // Upload por fetch CRU com retry (2026-08-12): o storage-js resolve o
+        // token via getSession() ANTES do fetch — client de auth travado (aba/
+        // WebView retomada do background) pendurava o upload em 0 bytes por 120s
+        // e o recover recarregava a página, matando o File e o retry. O caminho
+        // cru lê o token do localStorage, aborta DE VERDADE cada tentativa e
+        // re-tenta em conexão nova (socket morto em rede móvel era hang eterno).
         stage = 'upload';
-        let uploadTimer: ReturnType<typeof setTimeout> | undefined;
-        const uploadTimeout = new Promise<never>((_, reject) => {
-          uploadTimer = setTimeout(() => {
-            void probeSession(4000).then((probe) => {
-              const decision = decideUploadTimeout(probe);
-              if (decision.recoverStuck) void recoverStuckSession().catch(() => {});
-              if (decision.clearDead) void clearDeadSession().catch(() => {});
-              reject(new Error(decision.errorMessage));
-            });
-          }, UPLOAD_TIMEOUT_MS);
+        let fileName: string;
+        const direct = await directUploadWithRetry({
+          bucket: 'helpdesk-media',
+          pathFor: () => `${conversationId}/${Date.now()}.${ext}`,
+          file: uploadFile,
+          contentType: resolvedContentType,
         });
-        try {
-          const { error: uploadError } = await Promise.race([
-            supabase.storage
-              .from('helpdesk-media')
-              .upload(fileName, uploadFile, { contentType: resolvedContentType }),
-            uploadTimeout,
-          ]);
-          if (uploadError) throw uploadError;
-        } finally {
-          if (uploadTimer !== undefined) clearTimeout(uploadTimer);
+        if (direct.ok) {
+          fileName = direct.path;
+          if (direct.attempts > 1) normInfo = `${normInfo ? `${normInfo};` : ''}attempts:${direct.attempts}`;
+        } else if (direct.kind === 'error') {
+          throw new Error(direct.message);
+        } else if (direct.kind === 'exhausted') {
+          // Rede/hang em TODAS as tentativas. Upload lento ≠ sessão zumbi
+          // (auditoria 2026-07-26): a sonda decide — só recarrega com evidência
+          // de client travado ('unknown'); sessão válida = falha limpa e a
+          // bolha de retry fica viva.
+          const probe = await probeSession(4000);
+          const decision = decideUploadTimeout(probe);
+          if (decision.recoverStuck) void recoverStuckSession().catch(() => {});
+          if (decision.clearDead) void clearDeadSession().catch(() => {});
+          throw new Error(`${decision.errorMessage} [attempts:${direct.attempts}] ${direct.lastError}`);
+        } else {
+          // 'unavailable' (sem token utilizável / Storage recusou o token): o
+          // storage-js refresca a sessão CORRETAMENTE — caminho legado com o
+          // teto de wall-clock de sempre.
+          fileName = `${conversationId}/${Date.now()}.${ext}`;
+          let uploadTimer: ReturnType<typeof setTimeout> | undefined;
+          const uploadTimeout = new Promise<never>((_, reject) => {
+            uploadTimer = setTimeout(() => {
+              void probeSession(4000).then((probe) => {
+                const decision = decideUploadTimeout(probe);
+                if (decision.recoverStuck) void recoverStuckSession().catch(() => {});
+                if (decision.clearDead) void clearDeadSession().catch(() => {});
+                reject(new Error(decision.errorMessage));
+              });
+            }, UPLOAD_TIMEOUT_MS);
+          });
+          try {
+            const { error: uploadError } = await Promise.race([
+              supabase.storage
+                .from('helpdesk-media')
+                .upload(fileName, uploadFile, { contentType: resolvedContentType }),
+              uploadTimeout,
+            ]);
+            if (uploadError) throw uploadError;
+          } finally {
+            if (uploadTimer !== undefined) clearTimeout(uploadTimer);
+          }
         }
 
         const { data: publicUrlData } = supabase.storage
