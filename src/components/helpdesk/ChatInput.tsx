@@ -29,7 +29,10 @@ export interface FailedSend {
 
 interface ChatInputProps {
   conversation: Conversation;
-  onMessageSent: () => void;
+  /** Chamado após envio confirmado. Com a LINHA inserida, o ChatPanel pinta a
+   *  bolha localmente SEM refetch (2026-08-12: no mobile o client trava pós-
+   *  picker; o refetch estourava 12s e o recover recarregava a página). */
+  onMessageSent: (sentMsg?: Message) => void;
   onAgentAssigned?: (conversationId: string, agentId: string) => void;
   inboxLabels?: Label[];
   assignedLabelIds?: string[];
@@ -335,7 +338,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
         },
       }).catch((err) => console.warn('[outgoing-audio-transcribe]', err));
 
-      onMessageSent();
+      onMessageSent(insertedMsg as Message);
     } catch (err) {
       handleError(err, 'Erro ao enviar áudio', 'Send audio error');
     } finally {
@@ -372,13 +375,15 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
       userId: user?.id || '',
     });
     if (result.success) {
+      // Bolha PRIMEIRO: autoAssign/webhook também passam pelo client e podem
+      // travar no mobile — não podem segurar a mensagem já confirmada.
+      onMessageSent(result.insertedMsg as Message | undefined);
       await autoAssignAgent();
       await fireOutgoingWebhook({
         message_type: result.mediaType || 'document',
         content: result.mediaType === 'image' ? null : file.name,
         media_url: result.mediaUrl || null,
       });
-      onMessageSent();
     } else if (onSendFailed) {
       // Falha deixa de ser só um toast efêmero: vira bolha persistente com
       // "tentar de novo" (mantém o File em memória pro retry).
@@ -406,6 +411,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
       : `*${agentName}*\n${quoted}`;
 
     try {
+      let sentMsg: Message | undefined;
       if (isNote) {
         const { error } = await supabase.from('conversation_messages').insert({
           conversation_id: conversation.id,
@@ -436,6 +442,7 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
           sender_id: user.id,
         }).select().single();
         if (error) throw error;
+        sentMsg = insertedMsg as Message;
 
         // last_message_at + last_message são atualizados pelo trigger
         // `update_conversation_on_message_insert`. Aqui só atualizamos status_ia.
@@ -457,10 +464,10 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
         });
       }
 
-      if (!isNote) {
-        await autoAssignAgent();
-        await fireOutgoingWebhook({ message_type: 'text', content: finalContent, media_url: null });
-      }
+      // Bolha + limpeza do input PRIMEIRO: autoAssign/webhook passam pelo
+      // client e podem travar no mobile — não podem segurar a UI da mensagem
+      // já confirmada (nem deixar o texto no campo convidando a reenviar).
+      onMessageSent(sentMsg);
       setText('');
       onClearReply?.();
       const draftKeyToClear = `helpdesk-draft-${conversation.id}`;
@@ -471,7 +478,10 @@ export const ChatInput = memo(function ChatInput({ conversation, onMessageSent, 
           detail: { conversationId: conversation.id, hasDraft: false },
         }));
       }
-      onMessageSent();
+      if (!isNote) {
+        await autoAssignAgent();
+        await fireOutgoingWebhook({ message_type: 'text', content: finalContent, media_url: null });
+      }
     } catch (err) {
       handleError(err, 'Erro ao enviar', 'Send error');
     } finally {

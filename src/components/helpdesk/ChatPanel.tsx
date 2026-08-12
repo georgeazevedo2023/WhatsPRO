@@ -386,7 +386,18 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   }, [channelStatus, conversation?.id, fetchMessages]);
 
   // These callbacks MUST be before the early return to maintain consistent hook count
-  const handleMessageSent = useCallback(() => { fetchMessages(); setIaAtivada(false); }, [fetchMessages]);
+  // Com a linha inserida em mãos, a bolha é pintada LOCALMENTE (zero rede):
+  // no mobile o client trava na volta do picker — o refetch estourava os 12s e
+  // o recover recarregava a página ("a foto só aparece depois do reload").
+  // Refetch vira fallback pros caminhos sem a linha (ex.: nota privada).
+  const handleMessageSent = useCallback((sentMsg?: Message) => {
+    if (sentMsg) {
+      setMessages(prev => prev.some(m => m.id === sentMsg.id) ? prev : [...prev, sentMsg]);
+    } else {
+      fetchMessages();
+    }
+    setIaAtivada(false);
+  }, [fetchMessages]);
   const handleStatusChange = useCallback((status: string) => {
     if (conversation) onUpdateConversation(conversation.id, { status });
   }, [conversation?.id, onUpdateConversation]);
