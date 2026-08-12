@@ -47,7 +47,9 @@ Por que assim: front deploya via CI **sem novo APK**; origem = `crm.wsmart.com.b
 
 **Versionar:** subir `versionCode`/`versionName` no `mobile/android/app/build.gradle` **JUNTO** com `appendUserAgent whatspro-app/N` no `capacitor.config.json`.
 
-## Fase 3 — push "cliente esperando" (v7.117.0: CONSTRUÍDO, aguarda Firebase)
+## Fase 3 — push "cliente esperando" (v7.117.0: ✅ ATIVO em 2026-08-12)
+
+**Firebase:** projeto **`whatspro-crm-8faae`** (conta `george.azevedo2023@gmail.com`), app Android `br.com.wsmart.whatspro`, service account `firebase-adminsdk-fbsvc@whatspro-crm-8faae.iam.gserviceaccount.com`. JSONs em `mobile/google-services.json` + `mobile/firebase-conta-servico.json` (**gitignored — fazer backup em gerenciador de senhas**). Secrets: `GOOGLE_SERVICES_JSON` (GitHub) + `FIREBASE_SERVICE_ACCOUNT` (Supabase, base64). OAuth+FCM validados ponta a ponta (API FCM v1 ativa). APK com push = **v1.2-build3** (UA `whatspro-app/3`). ⚠️ NÃO recriar o projeto Firebase: invalida todos os tokens em silêncio.
 
 Infra completa shipada em 2026-08-11: `push_devices` (RLS own-rows, upsert por token) + `push_alert_log` + edge fn `push-queue-alert` (cron 2min via vault; anti-ruído: 1 aviso/msg, cooldown 10min, tag por conversa, janela 15min, atribuído→dono / dept não-pausado / fallback todos, token morto auto-desativado; OAuth WebCrypto zero-dep) + `src/lib/appPush.ts` no `AuthContext` (canal "fila", registro no login, **logout desliga o push do dono anterior**) + plugin no `mobile/` (APK v1.1-build2, UA `whatspro-app/2`).
 
