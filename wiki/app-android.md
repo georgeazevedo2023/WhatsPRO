@@ -47,9 +47,11 @@ Por que assim: front deploya via CI **sem novo APK**; origem = `crm.wsmart.com.b
 
 **Versionar:** subir `versionCode`/`versionName` no `mobile/android/app/build.gradle` **JUNTO** com `appendUserAgent whatspro-app/N` no `capacitor.config.json`.
 
-## Fase 3 (aberta) — push "cliente esperando"
+## Fase 3 — push "cliente esperando" (v7.117.0: CONSTRUÍDO, aguarda Firebase)
 
-Plugin `@capacitor/push-notifications` + Firebase (projeto novo, app `br.com.wsmart.whatspro`) + backend: tabela de tokens, edge fn de envio no evento da fila, registro via UA. Receita completa (incl. armadilhas: cooldown, lead atribuído, battery saver) no `helpdesk/APP.md` do agro. Sem Firebase o app funciona inteiro — só não vibra no bolso.
+Infra completa shipada em 2026-08-11: `push_devices` (RLS own-rows, upsert por token) + `push_alert_log` + edge fn `push-queue-alert` (cron 2min via vault; anti-ruído: 1 aviso/msg, cooldown 10min, tag por conversa, janela 15min, atribuído→dono / dept não-pausado / fallback todos, token morto auto-desativado; OAuth WebCrypto zero-dep) + `src/lib/appPush.ts` no `AuthContext` (canal "fila", registro no login, **logout desliga o push do dono anterior**) + plugin no `mobile/` (APK v1.1-build2, UA `whatspro-app/2`).
+
+**Pra LIGAR (10 min de console, só o dono):** (1) console.firebase.google.com → Adicionar projeto (ex. `whatspro-crm`; Analytics off); (2) Adicionar app → Android, pacote **`br.com.wsmart.whatspro`** exato → baixar `google-services.json`; (3) Configurações → Contas de serviço → Gerar nova chave privada (JSON do servidor); (4) entregar os 2 JSONs ao assistente → ele seta `GOOGLE_SERVICES_JSON` (GitHub secret, base64) + `FIREBASE_SERVICE_ACCOUNT` (Supabase secret), rebuilda o APK e reinstala. ⚠️ NÃO recriar o projeto Firebase depois: `google-services.json` novo invalida TODOS os tokens registrados em silêncio (lição agro). Sem Firebase o app funciona inteiro — só não vibra no bolso. Armadilhas de campo (battery saver Xiaomi/Realme, lead atribuído a quem não tem app) no `helpdesk/APP.md` do agro.
 
 ## Limitações conhecidas
 
