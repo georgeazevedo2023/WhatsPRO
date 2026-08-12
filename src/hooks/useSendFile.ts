@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { uazapiProxy } from '@/lib/uazapiClient';
+import { uazapiProxy, uazapiProxyRaw } from '@/lib/uazapiClient';
+import { rawRestInsert, rawRestUpdate } from '@/lib/rawSupabaseApi';
+import { getStoredAccessToken } from '@/lib/directStorageUpload';
 import { toast } from 'sonner';
 import { STATUS_IA } from '@/constants/statusIa';
 import { detectImageKind, normalizeImageForSend } from '@/lib/normalizeOutboundImage';
@@ -203,8 +205,14 @@ export function useSendFile(): UseSendFileReturn {
         // Comprovado em teste ao vivo: base64-cru é REJEITADO pelo UAZAPI
         // ("failed to decode image: unsupported image format"); a URL é aceita e
         // entregue. É o mesmo `file: <URL>` que o AI Agent usa em PROD diariamente.
+        //
+        // CADEIA CRUA (2026-08-12): daqui até o fim, com token utilizável no
+        // localStorage, NADA passa pelo supabase client — na volta do picker de
+        // foto o GoTrueClient fica travado e proxy/INSERT/UPDATE pendurariam sem
+        // teto (foto subida e até ENTREGUE, mas spinner infinito e sem bolha).
         stage = 'proxy';
-        const sendResult = await uazapiProxy({
+        const rawToken = getStoredAccessToken();
+        const proxyPayload = {
           action: 'send-media',
           instance_id: instanceId,
           jid: contactJid,
@@ -212,7 +220,10 @@ export function useSendFile(): UseSendFileReturn {
           mediaType,
           filename: isImage ? undefined : file.name,
           caption: '',
-        }) as Record<string, unknown> | null;
+        };
+        const sendResult = (rawToken
+          ? await uazapiProxyRaw(rawToken, proxyPayload)
+          : await uazapiProxy(proxyPayload)) as Record<string, unknown> | null;
 
         // NÃO marcar "enviado" sem o UAZAPI confirmar (fim do envio-fantasma):
         // sucesso = corpo sem `error` e com messageid/id. Caso contrário lança →
@@ -225,47 +236,68 @@ export function useSendFile(): UseSendFileReturn {
 
         // Save to DB
         stage = 'insert';
-        const { data: insertedMsg, error } = await supabase
-          .from('conversation_messages')
-          .insert({
-            conversation_id: conversationId,
-            direction: 'outgoing',
-            content: isImage ? null : file.name,
-            media_type: mediaType,
-            media_url: filePublicUrl,
-            sender_id: userId,
-          })
-          .select()
-          .single();
-        if (error) throw error;
-
-        // last_message_at + last_message são atualizados pelo trigger DB
-        // `update_conversation_on_message_insert`. Aqui só atualizamos status_ia.
-        await supabase
-          .from('conversations')
-          .update({ status_ia: STATUS_IA.DESLIGADA })
-          .eq('id', conversationId);
-
-        // Broadcast for realtime
-        const { broadcastNewMessage } = await import('@/lib/helpdeskBroadcast');
-        await broadcastNewMessage({
+        const messageRow = {
           conversation_id: conversationId,
-          inbox_id: inboxId,
-          message_id: insertedMsg.id,
           direction: 'outgoing',
           content: isImage ? null : file.name,
           media_type: mediaType,
           media_url: filePublicUrl,
-          created_at: insertedMsg.created_at,
-          status_ia: STATUS_IA.DESLIGADA,
-        });
+          sender_id: userId,
+        };
+        let insertedMsg: Tables<'conversation_messages'>;
+        if (rawToken) {
+          insertedMsg = await rawRestInsert<Tables<'conversation_messages'>>(
+            'conversation_messages', messageRow, { accessToken: rawToken },
+          );
+        } else {
+          const { data, error } = await supabase
+            .from('conversation_messages')
+            .insert(messageRow)
+            .select()
+            .single();
+          if (error) throw error;
+          insertedMsg = data;
+        }
+
+        // last_message_at + last_message são atualizados pelo trigger DB
+        // `update_conversation_on_message_insert`. Aqui só atualizamos status_ia
+        // (best-effort — paridade com o caminho client, que nunca checou o error).
+        if (rawToken) {
+          await rawRestUpdate(
+            'conversations', { status_ia: STATUS_IA.DESLIGADA }, { id: conversationId }, { accessToken: rawToken },
+          ).catch(() => {});
+        } else {
+          await supabase
+            .from('conversations')
+            .update({ status_ia: STATUS_IA.DESLIGADA })
+            .eq('id', conversationId);
+        }
+
+        // Broadcast for realtime — com TETO: o send do canal usa o client e um
+        // send pendurado não rejeita; sem o race, o envio já-concluído ficaria
+        // preso aqui (os outros clients se recuperam pelo refetch/polling).
+        const { broadcastNewMessage } = await import('@/lib/helpdeskBroadcast');
+        await Promise.race([
+          broadcastNewMessage({
+            conversation_id: conversationId,
+            inbox_id: inboxId,
+            message_id: insertedMsg.id,
+            direction: 'outgoing',
+            content: isImage ? null : file.name,
+            media_type: mediaType,
+            media_url: filePublicUrl,
+            created_at: insertedMsg.created_at,
+            status_ia: STATUS_IA.DESLIGADA,
+          }),
+          new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+        ]);
 
         // Telemetria de SUCESSO (2026-07-26): sem ela não dá pra medir taxa de
         // falha por plataforma — a auditoria só enxergava os 2 casos que falharam.
         logSendSuccess({
           ...telemetryBase,
           detected_kind: detectedKind,
-          info: `ok in ${Date.now() - startedAt}ms; upload=${uploadFile.size}B${normInfo ? ` (${normInfo})` : ''}`,
+          info: `ok in ${Date.now() - startedAt}ms; upload=${uploadFile.size}B; chain=${rawToken ? 'raw' : 'client'}${normInfo ? ` (${normInfo})` : ''}`,
         });
         toast.success(isImage ? 'Imagem enviada!' : 'Documento enviado!');
         return { success: true, mediaType, mediaUrl: filePublicUrl, insertedMsg };
