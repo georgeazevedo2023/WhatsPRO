@@ -81,10 +81,15 @@ const HelpDesk = () => {
 
   const defaultAssignmentFilter = isSuperAdmin ? 'todas' as const : 'minhas' as const;
 
-  // Departments
+  // Departments — 1 query só: os da inbox selecionada são SUBCONJUNTO da
+  // busca por todas as inboxes (a 2ª instância do hook duplicava a query no
+  // mount; auditoria 2026-08-13).
   const allInboxIds = inboxes.map(ib => ib.id);
   const { departmentsByInbox: allInboxDepts } = useDepartments({ inboxIds: allInboxIds, enabled: allInboxIds.length > 0 });
-  const { departments: inboxDepartments } = useDepartments({ inboxId: selectedInboxId, enabled: !!selectedInboxId });
+  const inboxDepartments = useMemo(
+    () => (selectedInboxId ? allInboxDepts[selectedInboxId] || [] : []),
+    [allInboxDepts, selectedInboxId],
+  );
 
   // Filters (needs statusFilter before conversations)
   const [statusFilter, setStatusFilter] = useState<string>('aberta');

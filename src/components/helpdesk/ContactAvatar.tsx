@@ -64,7 +64,11 @@ export const ContactAvatar = memo(function ContactAvatar({
 
   useEffect(() => {
     if (!effectiveSrc && contactId && !refreshedIds.has(contactId)) {
-      triggerRefresh();
+      // Fora do caminho quente (2026-08-13): a edge fn leva 500-870ms e
+      // disparava JUNTO com o load das mensagens a cada conversa aberta —
+      // 2s de atraso não mudam nada pra um avatar com fallback de iniciais.
+      const timer = setTimeout(() => triggerRefresh(), 2000);
+      return () => clearTimeout(timer);
     }
   }, [contactId, effectiveSrc, triggerRefresh]);
 

@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-08-13 (cont.) — ⚡ v7.121.0: perf leva 2 (mídia sem sign, departments 1 query, avatar adiado) + 🔔 push CONFIRMADO em campo
+
+Dono confirmou a notificação do push no APK ("chegou a notificação agora") — **fase 3 do APK 100% validada em campo**; o "teste2" não notificou no 1º ciclo por TIMING (msg chegou 1s antes do cron; INSERT via n8n assentou depois) + cooldown de 10min do push anterior — ambos por design; o ciclo 00:36 entregou. **v7.121.0:** `useSignedUrl` com `PUBLIC_BUCKETS` (todos os buckets de mídia são públicos — 1 request de rede POR MÍDIA eliminado + 400s do console mortos); `departments` derivado em memória (era 2ª query subconjunto); `refresh-avatar` adiado 2s (saía junto com as mensagens). Descartado por ganho marginal: cache no `useUserProfiles`. tsc 0 · vitest 2058/0 · build ✓. Imports conferidos ANTES do commit (lição v7.120.1 aplicada).
+
+---
 ## 2026-08-13 — ⚡ v7.120.0: auditoria de carregamento do Helpdesk (medida em prod) + 6 fixes
 
 Dono pediu ("audite o tempo de carregamento"). **Método:** agente Explore mapeou o fluxo (17 achados), EXPLAIN no DB (fetch msgs 5ms, RLS 2,7ms — inocente), Playwright mediu prod: 1ª carga ~4,0s até mensagens (bundle 2s + waterfall 5 níveis), quente 1,1s, **clique = 11 requests em 3 levas** (ping-pong: efeito do `?conv=` via URL velha e devolvia a conversa ANTERIOR por 1 commit). **Fixes (v7.120.0):** anti-ping-pong (`pendingUserSelectionRef`); `is_read` fire-and-forget (era o 1º await do clique); lista pinta ANTES de labels/notas; `status_ia` da prop (query removida); `assigned_to` só com fila envolvida na conversa; tick de 1s só com evento de fila (matava CPU/bateria re-renderizando tudo a cada segundo com fila vazia); `ai_summary` (~33KB/fetch) fora do select da lista (ContactInfoPanel busca sob demanda). tsc 0 · vitest 2058/0 · build ✓. **Backlog priorizado no CHANGELOG** (duplicatas de config, realtime com query em vez de payload, catch-all da fila, virtualização de mensagens, N+1 signed URLs).
