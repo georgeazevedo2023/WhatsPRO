@@ -178,9 +178,21 @@ export const ContactInfoPanel = ({
     contact?.id, contact?.jid, conversation.inbox?.instance_id, contact?.profile_pic_url
   );
 
-  // Sync aiSummary when conversation changes
+  // Sync aiSummary when conversation changes. O `ai_summary` saiu do select da
+  // LISTA (2026-08-13, dieta de ~33KB/fetch) — este painel, aberto sob demanda,
+  // busca o resumo da conversa atual por conta própria.
   useEffect(() => {
     setAiSummary(conversation.ai_summary || null);
+    let cancelled = false;
+    supabase
+      .from('conversations')
+      .select('ai_summary')
+      .eq('id', conversation.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data) setAiSummary((data.ai_summary as unknown as AiSummary) ?? null);
+      });
+    return () => { cancelled = true; };
   }, [conversation.id, conversation.ai_summary]);
 
   // Fetch AI context: lead_profiles + last handoff log

@@ -7,9 +7,12 @@ import type { Conversation } from '@/types';
 const PAGE_SIZE = 50;
 
 /** Select da lista — compartilhado com a busca server-side (useHelpdeskFilters)
- *  pra resultado injetado ter o MESMO shape de uma conversa carregada. */
+ *  pra resultado injetado ter o MESMO shape de uma conversa carregada.
+ *  SEM `ai_summary` (2026-08-13, dieta de payload: jsonb de ~660B × 50 linhas
+ *  = ~33KB por fetch que a lista nunca exibe — o ContactInfoPanel, aberto sob
+ *  demanda, busca o resumo da conversa por conta própria). */
 export const CONVERSATION_LIST_SELECT =
-  'id, inbox_id, contact_id, status, priority, assigned_to, department_id, is_read, last_message_at, last_message, status_ia, tags, ai_summary, created_at, contacts(id, phone, jid, name, profile_pic_url, lead_profiles(full_name)), inboxes(id, name, instance_id, webhook_outgoing_url), departments(id, name)';
+  'id, inbox_id, contact_id, status, priority, assigned_to, department_id, is_read, last_message_at, last_message, status_ia, tags, created_at, contacts(id, phone, jid, name, profile_pic_url, lead_profiles(full_name)), inboxes(id, name, instance_id, webhook_outgoing_url), departments(id, name)';
 
 /** Mapper puro row PostgREST → Conversation (contacts→contact, inboxes→inbox…). */
 export function mapConversationRows(data: Record<string, unknown>[]): Conversation[] {
@@ -99,13 +102,16 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
       const rows = data || [];
       setHasMoreConversations(rows.length === PAGE_SIZE);
 
+      // Lista pinta JÁ (2026-08-13): labels e dots de nota moram em estados
+      // próprios e chegam ~200ms depois como patch — segurar o primeiro paint
+      // da lista atrás deles era 1 round-trip inteiro de atraso percebido.
+      setConversations(mapConversations(rows));
+
       const convIds = rows.map((c: { id: string }) => c.id);
-      await Promise.all([
+      void Promise.all([
         fetchConversationLabels(convIds),
         fetchConversationNotes(convIds),
-      ]);
-
-      setConversations(mapConversations(rows));
+      ]).catch(() => { /* best-effort — dots/labels ficam do estado anterior */ });
     } catch (err) {
       console.error('Error fetching conversations:', err);
     } finally {

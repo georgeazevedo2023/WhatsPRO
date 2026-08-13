@@ -92,34 +92,14 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     ? (agentNamesMap?.[conversation.assigned_to] || conversation.assigned_to.slice(0, 8))
     : null;
 
-  // Load IA state
+  // Load IA state — da PROP, sem query (2026-08-13): `status_ia` já vem no
+  // select da lista e é patchado pelo realtime (`new-message`/`status-changed`);
+  // a query por clique era 1 request redundante no caminho de abertura, e os
+  // handlers locais (enviar msg, Ativar IA) já setam o estado diretamente.
   useEffect(() => {
     setAtivandoIa(false);
-    if (!conversation?.id) { setIaAtivada(false); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from('conversations')
-          .select('status_ia')
-          .eq('id', conversation.id)
-          .maybeSingle();
-        if (cancelled) return;
-        if (error) {
-          console.warn('[ChatPanel] Failed to load IA state:', error.message);
-          setIaAtivada(false);
-          return;
-        }
-        setIaAtivada(data?.status_ia === STATUS_IA.LIGADA);
-      } catch (err) {
-        if (!cancelled) {
-          console.warn('[ChatPanel] Unexpected error loading IA state:', err);
-          setIaAtivada(false);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [conversation?.id]);
+    setIaAtivada(conversation?.status_ia === STATUS_IA.LIGADA);
+  }, [conversation?.id, conversation?.status_ia]);
 
   const conversationId = conversation?.id;
 

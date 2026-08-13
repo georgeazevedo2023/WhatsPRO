@@ -100,6 +100,10 @@ const HelpDesk = () => {
 
   const { namesMap: agentNamesMap } = useUserProfiles();
 
+  // Seleção manual em trânsito: id que o usuário clicou e cuja URL ainda não
+  // aplicou. O efeito de deep-link lê isto pra não reverter a seleção.
+  const pendingUserSelectionRef = useRef<string | null>(null);
+
   // Persiste/restaura a conversa selecionada via ?conv= (vem da busca global E de
   // cada clique na lista). Antes a seleção era só estado em memória → sumia ao trocar
   // de aba/janela e voltar (o estado ficava, mas algum refetch zerava). Mantendo o id
@@ -107,7 +111,15 @@ const HelpDesk = () => {
   // conversa, e ela também sobrevive a reload. (2026-05-26)
   useEffect(() => {
     if (!convParam || loading) return;
-    if (selectedConversation?.id === convParam) return; // já selecionada
+    if (selectedConversation?.id === convParam) {
+      pendingUserSelectionRef.current = null; // URL alcançou a seleção manual
+      return;
+    }
+    // Clique na lista seta a seleção ANTES da URL aplicar: sem este guard, o
+    // efeito via a URL velha e devolvia a conversa ANTERIOR por 1 commit —
+    // ping-pong que disparava a carga da conversa 2x e da antiga 1x
+    // (auditoria 2026-08-13: 11 requests por clique, 3 levas).
+    if (pendingUserSelectionRef.current === selectedConversation?.id) return;
     const found = conversations.find(c => c.id === convParam);
     if (found) {
       setSelectedConversation(found);
@@ -212,6 +224,7 @@ const HelpDesk = () => {
   };
 
   const handleSelectConversation = useCallback(async (conversation: Conversation) => {
+    pendingUserSelectionRef.current = conversation.id; // guarda anti-ping-pong do efeito de deep-link
     setSelectedConversation(conversation);
     // Persiste a seleção na URL — sobrevive a troca de aba/refetch/reload.
     setSearchParams(prev => {
@@ -222,11 +235,15 @@ const HelpDesk = () => {
     if (isMobile) setMobileView('chat');
 
     if (!conversation.is_read) {
-      const { error: readErr } = await supabase
+      // Fire-and-forget (2026-08-13): o clique não espera a rede pra abrir o
+      // chat — o UPDATE de leitura era o 1º passo AWAITED do caminho crítico.
+      supabase
         .from('conversations')
         .update({ is_read: true })
-        .eq('id', conversation.id);
-      if (readErr) console.error('[HelpDesk] Error marking as read:', readErr);
+        .eq('id', conversation.id)
+        .then(({ error: readErr }) => {
+          if (readErr) console.error('[HelpDesk] Error marking as read:', readErr);
+        });
 
       setConversations(prev =>
         prev.map(c => c.id === conversation.id ? { ...c, is_read: true } : c)
@@ -456,6 +473,8 @@ const HelpDesk = () => {
 
   // D30 Sprint F: badge "Em fila — Lucas (3:42)" + countdown ao vivo + Realtime updates
   const { events: queueEvents, secondsRemaining: queueSecondsRemaining } = useActiveQueueEvents();
+  // Conversa cujo evento de fila foi visto por último (detecta a transição "saiu da fila").
+  const prevSelectedQueueEventRef = useRef<string | null>(null);
 
   // D30 R94: quando queueEvents muda (broadcast queue-update do cron / assignAgent),
   // a conversation.assigned_to pode ter mudado em background. Sincroniza header +
@@ -463,6 +482,15 @@ const HelpDesk = () => {
   useEffect(() => {
     const id = selectedConversation?.id;
     if (!id) return;
+    // Só ressincroniza quando a FILA está (ou acabou de estar) envolvida com a
+    // conversa aberta — fora disso, assigned_to não muda em background (o canal
+    // `assigned-agent` cobre atribuição manual) e a query por clique era ruído
+    // (auditoria 2026-08-13). A transição "tinha evento → sumiu" (rotação/
+    // expiração) ainda dispara a checagem.
+    const hasQueueEvent = queueEvents.has(id);
+    const hadQueueEvent = prevSelectedQueueEventRef.current === id;
+    prevSelectedQueueEventRef.current = hasQueueEvent ? id : null;
+    if (!hasQueueEvent && !hadQueueEvent) return;
     let cancelled = false;
     (async () => {
       const { data } = await supabase

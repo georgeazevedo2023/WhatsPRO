@@ -53,13 +53,18 @@ export function useActiveQueueEvents() {
   const [now, setNow] = useState(() => Date.now());
   const isMountedRef = useRef(true);
 
-  // Tick para countdown (1s)
+  // Tick para countdown (1s) — SÓ com evento de fila ativo (2026-08-13): o
+  // setNow re-renderiza o HelpDesk inteiro a cada segundo; com a fila vazia
+  // (caso comum) isso era CPU/bateria queimada à toa, o dia todo, no mobile.
+  const hasEvents = events.size > 0;
   useEffect(() => {
+    if (!hasEvents) return;
+    setNow(Date.now()); // countdown parte do agora ao (re)ligar
     const t = setInterval(() => {
       if (isMountedRef.current) setNow(Date.now());
     }, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [hasEvents]);
 
   const fetchAll = useCallback(async () => {
     try {
