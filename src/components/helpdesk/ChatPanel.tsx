@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import { supabase } from '@/integrations/supabase/client';
 import { recoverStuckSession } from '@/lib/sessionRecovery';
 import { getSessionUserId } from '@/hooks/useAuthSession';
@@ -51,6 +52,70 @@ const getDateLabel = (dateStr: string) => {
 
 const MESSAGES_PAGE_SIZE = 50;
 
+// ── Virtualização (react-virtuoso, 2026-08-13) ───────────────────────
+// A lista de mensagens crescia sem teto no DOM ("carregar anteriores" +50 por
+// clique) — agora só ~viewport+overscan ficam montados. Base grande o
+// suficiente pra nunca zerar com prepends sucessivos (histórico real ≤ ~5k).
+const VIRTUOSO_START_INDEX = 1_000_000;
+
+/** Contexto lido pelos componentes ESTÁVEIS do Virtuoso (Header/Footer fora do
+ *  componente — identidade nova por render remontaria o header a cada commit). */
+interface VirtuosoCtx {
+  hasOlderMessages: boolean;
+  loadingOlder: boolean;
+  loadOlderMessages: () => void;
+  failedSends: FailedSend[];
+  dismissFailed: (id: string) => void;
+}
+
+const VirtuosoHeader = ({ context }: { context?: VirtuosoCtx }) => {
+  if (!context?.hasOlderMessages) return <div className="pt-3" />;
+  return (
+    <div className="flex justify-center py-2">
+      <Button variant="ghost" size="sm" className="text-xs gap-1.5 text-muted-foreground" onClick={context.loadOlderMessages} disabled={context.loadingOlder}>
+        {context.loadingOlder ? <><RefreshCw className="w-3 h-3 animate-spin" />Carregando...</> : 'Carregar mensagens anteriores'}
+      </Button>
+    </div>
+  );
+};
+
+const VirtuosoFooter = ({ context }: { context?: VirtuosoCtx }) => (
+  <div className="pb-3">
+    {context && context.failedSends.length > 0 && (
+      <FailedSendsBlock failedSends={context.failedSends} dismissFailed={context.dismissFailed} />
+    )}
+  </div>
+);
+
+/** Bolhas de FALHA de envio (estado persistente, não só toast) — usadas no
+ *  Footer da lista virtual E no estado vazio (sem mensagens). */
+const FailedSendsBlock = ({ failedSends, dismissFailed }: { failedSends: FailedSend[]; dismissFailed: (id: string) => void }) => (
+  <div className="space-y-1 mt-1">
+    {failedSends.map((f) => (
+      <div key={f.id} className="flex justify-end">
+        <div className="max-w-[75%] rounded-2xl rounded-br-md px-3 py-2 text-sm bg-destructive/10 border border-destructive/30 text-foreground">
+          <div className="flex items-center gap-1.5 text-destructive font-medium text-[11px] mb-0.5">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            Falha ao enviar
+          </div>
+          <p className="text-xs break-words">{f.error}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5 truncate" title={f.fileName}>{f.fileName}</p>
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <Button variant="outline" size="sm" className="h-6 text-[11px] gap-1 px-2" onClick={f.retry}>
+              <RotateCw className="w-3 h-3" /> Tentar de novo
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1 px-2 text-muted-foreground" onClick={() => dismissFailed(f.id)}>
+              <X className="w-3 h-3" /> Dispensar
+            </Button>
+          </div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+const virtuosoComponents = { Header: VirtuosoHeader, Footer: VirtuosoFooter };
+
 export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowInfo, onToggleInfo, showingInfo, onToggleList, showingList, inboxLabels, assignedLabelIds, onLabelsChanged, agentNamesMap, onAgentAssigned }: ChatPanelProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -58,8 +123,9 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   const [channelStatus, setChannelStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Índice virtual do 1º item (Virtuoso): decrementa a cada prepend de
+  // histórico — é o que preserva a posição visual sem matemática de scrollTop.
+  const [firstItemIndex, setFirstItemIndex] = useState(VIRTUOSO_START_INDEX);
   const [iaAtivada, setIaAtivada] = useState(false);
   const [ativandoIa, setAtivandoIa] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -144,6 +210,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
       if (fetchId !== fetchIdRef.current) return;
       const msgs = ((data as Message[]) || []).slice().reverse();
       setMessages(msgs);
+      setFirstItemIndex(VIRTUOSO_START_INDEX); // lista recarregada do zero
       setHasOlderMessages(msgs.length === MESSAGES_PAGE_SIZE);
     } catch (err) {
       if (fetchId !== fetchIdRef.current) return;
@@ -165,8 +232,6 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     if (!conversationId || loadingOlder || messages.length === 0) return;
     setLoadingOlder(true);
     const oldestMsg = messages[0];
-    const scrollEl = scrollContainerRef.current;
-    const prevScrollHeight = scrollEl?.scrollHeight || 0;
     try {
       const { data, error } = await supabase
         .from('conversation_messages')
@@ -177,12 +242,14 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
         .limit(MESSAGES_PAGE_SIZE);
       if (error) throw error;
       const older = ((data as Message[]) || []).slice().reverse();
+      // Virtualização (2026-08-13): o Virtuoso preserva a posição visual no
+      // prepend via firstItemIndex — desloca pelo nº de itens de CHAT
+      // prependados (notas privadas ficam fora da lista). Os dois setState são
+      // batched (React 18) → o data e o índice mudam no MESMO commit.
+      const olderChatCount = older.filter(m => m.direction !== 'private_note').length;
       setMessages(prev => [...older, ...prev]);
+      if (olderChatCount > 0) setFirstItemIndex(prev => prev - olderChatCount);
       setHasOlderMessages(older.length === MESSAGES_PAGE_SIZE);
-      // Preserve scroll position after prepending
-      requestAnimationFrame(() => {
-        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight - prevScrollHeight;
-      });
     } catch (err) {
       handleError(err, 'Erro ao carregar mensagens anteriores', 'Load older');
     } finally {
@@ -304,25 +371,9 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     prevMsgCountRef.current = incomingCount;
   }, [chatMessages]);
 
-  // Smart auto-scroll: only scroll to bottom if user is already near the bottom
-  // This prevents snapping away when user is reading older messages
-  const isNearBottomRef = useRef(true);
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const handleScroll = () => {
-      const threshold = 150; // px from bottom
-      isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    };
-    el.addEventListener('scroll', handleScroll, { passive: true });
-    return () => el.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  useEffect(() => {
-    if (loading || !isNearBottomRef.current) return;
-    const timer = setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'instant' }), 150);
-    return () => clearTimeout(timer);
-  }, [messages, loading]);
+  // Auto-scroll em mensagem nova: `followOutput` do Virtuoso — rola pro fim SÓ
+  // se o usuário já está no fim (substitui o par isNearBottomRef + scrollIntoView
+  // que existia antes da virtualização, com a mesma semântica).
 
   const handleToggleIA = async () => {
     if (!conversation || ativandoIa) return;
@@ -368,23 +419,45 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   const contact = conversation?.contact;
   const headerPic = useContactProfilePic(contact?.id, contact?.jid, conversation?.inbox?.instance_id, contact?.profile_pic_url);
 
-  // Compute date dividers for messages
-  const messagesWithDividers = useMemo(() => {
-    const result: Array<{ type: 'divider'; label: string } | { type: 'message'; message: Message; showUnread: boolean }> = [];
-    let lastDate = '';
-    const isConversationRead = conversation?.is_read ?? true;
+  // Item da lista virtual: o divider de data e o marcador "Novas mensagens"
+  // são PARTE do item da mensagem que os inaugura (mantém `data` flat — o
+  // delta do prepend vira exatamente o nº de mensagens, e a altura do divider
+  // é medida junto com a bolha).
+  const isConversationRead = conversation?.is_read ?? true;
+  const conversationInstanceId = conversation?.inbox?.instance_id;
+  const renderMessageItem = useCallback((index: number, msg: Message) => {
+    const localIdx = index - firstItemIndex;
+    const prev = localIdx > 0 ? chatMessages[localIdx - 1] : undefined;
+    const dateLabel = getDateLabel(msg.created_at);
+    const showDivider = !prev || getDateLabel(prev.created_at) !== dateLabel;
+    const showUnread = !isConversationRead && msg.direction === 'incoming' && localIdx > 0 && prev?.direction !== 'incoming';
+    return (
+      <div className="pb-1">
+        {showDivider && (
+          <div className="flex items-center justify-center gap-3 py-3">
+            <div className="h-px flex-1 bg-border/40" />
+            <span className="text-[10px] text-muted-foreground bg-background px-3 py-0.5 rounded-full border border-border/40 font-medium">
+              {dateLabel}
+            </span>
+            <div className="h-px flex-1 bg-border/40" />
+          </div>
+        )}
+        {showUnread && (
+          <div className="flex items-center gap-2 py-2 my-1">
+            <div className="h-px flex-1 bg-primary/40" />
+            <span className="text-[10px] text-primary font-semibold px-2">Novas mensagens</span>
+            <div className="h-px flex-1 bg-primary/40" />
+          </div>
+        )}
+        <MessageBubble message={msg} instanceId={conversationInstanceId} agentNamesMap={agentNamesMap} onReply={setReplyTo} />
+      </div>
+    );
+  }, [firstItemIndex, chatMessages, isConversationRead, conversationInstanceId, agentNamesMap]);
 
-    chatMessages.forEach((msg, idx) => {
-      const msgDate = getDateLabel(msg.created_at);
-      if (msgDate !== lastDate) {
-        result.push({ type: 'divider', label: msgDate });
-        lastDate = msgDate;
-      }
-      const showUnread = !isConversationRead && msg.direction === 'incoming' && idx > 0 && chatMessages[idx - 1]?.direction !== 'incoming';
-      result.push({ type: 'message', message: msg, showUnread });
-    });
-    return result;
-  }, [chatMessages, conversation?.is_read]);
+  const dismissFailed = useCallback((id: string) => setFailedSends(prev => prev.filter(x => x.id !== id)), []);
+  const virtuosoContext = useMemo<VirtuosoCtx>(() => ({
+    hasOlderMessages, loadingOlder, loadOlderMessages, failedSends, dismissFailed,
+  }), [hasOlderMessages, loadingOlder, loadOlderMessages, failedSends, dismissFailed]);
 
   // Reconnect automático após disconnect (5s delay)
   useEffect(() => {
@@ -501,8 +574,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
       {/* ── Messages ── */}
       <div
-        ref={scrollContainerRef}
-        className={`flex-1 overflow-y-auto px-3 md:px-4 py-3 relative ${isDragOver ? 'ring-2 ring-primary ring-inset bg-primary/5' : ''}`}
+        className={`flex-1 relative flex flex-col overflow-hidden ${isDragOver ? 'ring-2 ring-primary ring-inset bg-primary/5' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setIsDragOver(false); const file = e.dataTransfer.files?.[0]; if (file) window.dispatchEvent(new CustomEvent('helpdesk-file-drop', { detail: { file } })); }}
@@ -518,7 +590,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
 
         {loading ? (
           /* Skeleton loading */
-          <div className="space-y-4 py-4 animate-pulse">
+          <div className="space-y-4 px-3 md:px-4 py-4 animate-pulse">
             {[...Array(5)].map((_, i) => (
               <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
                 <div className={`rounded-2xl ${i % 2 === 0 ? 'bg-muted' : 'bg-primary/20'}`} style={{ width: `${40 + Math.random() * 30}%`, height: `${28 + Math.random() * 24}px` }} />
@@ -532,74 +604,34 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
             <Button variant="outline" size="sm" className="gap-1.5" onClick={handleRetry}><RefreshCw className="w-3.5 h-3.5" />Tentar novamente</Button>
           </div>
         ) : chatMessages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2 animate-scale-in">
-            <div className="w-14 h-14 rounded-2xl bg-muted/50 flex items-center justify-center"><MessageSquare className="w-6 h-6 opacity-30" /></div>
-            <p className="text-sm font-medium">Nenhuma mensagem</p>
-            <p className="text-xs">Envie uma mensagem para iniciar</p>
+          <div className="flex-1 flex flex-col px-3 md:px-4 py-3 overflow-y-auto">
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2 animate-scale-in">
+              <div className="w-14 h-14 rounded-2xl bg-muted/50 flex items-center justify-center"><MessageSquare className="w-6 h-6 opacity-30" /></div>
+              <p className="text-sm font-medium">Nenhuma mensagem</p>
+              <p className="text-xs">Envie uma mensagem para iniciar</p>
+            </div>
+            {failedSends.length > 0 && <FailedSendsBlock failedSends={failedSends} dismissFailed={dismissFailed} />}
           </div>
         ) : (
-          <div className="space-y-1">
-            {hasOlderMessages && (
-              <div className="flex justify-center py-2">
-                <Button variant="ghost" size="sm" className="text-xs gap-1.5 text-muted-foreground" onClick={loadOlderMessages} disabled={loadingOlder}>
-                  {loadingOlder ? <><RefreshCw className="w-3 h-3 animate-spin" />Carregando...</> : 'Carregar mensagens anteriores'}
-                </Button>
-              </div>
-            )}
-            {messagesWithDividers.map((item, idx) => {
-              if (item.type === 'divider') {
-                return (
-                  <div key={`div-${idx}`} className="flex items-center justify-center gap-3 py-3">
-                    <div className="h-px flex-1 bg-border/40" />
-                    <span className="text-[10px] text-muted-foreground bg-background px-3 py-0.5 rounded-full border border-border/40 font-medium">
-                      {item.label}
-                    </span>
-                    <div className="h-px flex-1 bg-border/40" />
-                  </div>
-                );
-              }
-              return (
-                <div key={item.message.id}>
-                  {item.showUnread && (
-                    <div className="flex items-center gap-2 py-2 my-1">
-                      <div className="h-px flex-1 bg-primary/40" />
-                      <span className="text-[10px] text-primary font-semibold px-2">Novas mensagens</span>
-                      <div className="h-px flex-1 bg-primary/40" />
-                    </div>
-                  )}
-                  <MessageBubble message={item.message} instanceId={conversation.inbox?.instance_id} agentNamesMap={agentNamesMap} onReply={setReplyTo} />
-                </div>
-              );
-            })}
-          </div>
+          /* Lista VIRTUALIZADA (2026-08-13): só ~viewport+overscan no DOM.
+             key por conversa remonta o scroller na troca (re-aplica o "abre no
+             fim"); firstItemIndex preserva a posição no prepend de histórico;
+             followOutput rola em msg nova SÓ se o usuário já está no fim. */
+          <Virtuoso
+            key={conversation.id}
+            className="flex-1 px-3 md:px-4"
+            data={chatMessages}
+            computeItemKey={(_index, msg) => msg.id}
+            firstItemIndex={firstItemIndex}
+            initialTopMostItemIndex={Math.max(0, chatMessages.length - 1)}
+            followOutput={(isAtBottom) => (isAtBottom ? 'auto' : false)}
+            increaseViewportBy={{ top: 600, bottom: 300 }}
+            itemContent={renderMessageItem}
+            context={virtuosoContext}
+            components={virtuosoComponents}
+          />
         )}
 
-        {/* Bolhas de FALHA de envio (estado persistente, não só toast) */}
-        {failedSends.length > 0 && (
-          <div className="space-y-1 mt-1">
-            {failedSends.map((f) => (
-              <div key={f.id} className="flex justify-end">
-                <div className="max-w-[75%] rounded-2xl rounded-br-md px-3 py-2 text-sm bg-destructive/10 border border-destructive/30 text-foreground">
-                  <div className="flex items-center gap-1.5 text-destructive font-medium text-[11px] mb-0.5">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    Falha ao enviar
-                  </div>
-                  <p className="text-xs break-words">{f.error}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate" title={f.fileName}>{f.fileName}</p>
-                  <div className="flex items-center gap-1.5 mt-1.5">
-                    <Button variant="outline" size="sm" className="h-6 text-[11px] gap-1 px-2" onClick={f.retry}>
-                      <RotateCw className="w-3 h-3" /> Tentar de novo
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1 px-2 text-muted-foreground" onClick={() => setFailedSends(prev => prev.filter(x => x.id !== f.id))}>
-                      <X className="w-3 h-3" /> Dispensar
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <div ref={bottomRef} />
       </div>
 
       {/* Typing indicator */}

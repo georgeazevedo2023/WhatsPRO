@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-08-13 (cont. III) — ⚡ v7.123.0: lista de mensagens VIRTUALIZADA (react-virtuoso, plano próprio)
+
+Dono pediu com plano próprio. Investigação primeiro: react-window v2 (já instalado) tem `useDynamicRowHeight` mas NÃO tem prepend-com-preservação nem follow-output — manuais e frágeis; decisão: `react-virtuoso` 4.18.11 (canônico pra chat, ~16KB). Desenho-chave: dividers de data e "Novas mensagens" viraram PARTE do item da mensagem que os inaugura → `data` flat = delta de prepend EXATO (nº de msgs de chat) pro `firstItemIndex`; `key={conversation.id}` remonta o scroller na troca (re-aplica abre-no-fim); `followOutput` condicional substitui isNearBottomRef+scrollIntoView; Header (botão carregar anteriores) e Footer (failedSends) module-level com `context` (sem remount). Removidos: matemática manual de scrollTop no prepend, scroll listener, bottomRef. tsc 0 · undef-gate 0 · vitest 2058/0 · build ✓. E2E na prod: abaixo.
+
+---
 ## 2026-08-13 (cont. II) — ⚡ v7.122.0: perf leva 3 + undef-gate no CI → 🐛 achou enquete em massa QUEBRADA
 
 Backlog restante: bolha do lead pinta do PAYLOAD do realtime (merge de reconciliação por id); msg fora da janela = `fetchOneIntoList` (1 query, era 3); debounce 400ms no catch-all da fila. **Undef-gate no CI** (`eslint.undef.config.js`, só `no-undef` + parser TS; 207 errors legados do eslint ficam fora do gate): na PRIMEIRA rodada achou **bug dormente real** — `sendPoll` do Disparador usava `setIsSending`/`cancelRef`/`pauseRef` (não existem; `ReferenceError` no 1º envio de enquete em massa desde o M17 F4). Fix alinhado às irmãs (`isCancelledRef`/`isPausedRef` + reset no início; `setIsSending` removido — `isSending` é derivado de `progress.status`). Canário validado (gate pega `useRef` sem import ✓; falso-positivo de type-position resolvido com globals React/NodeJS/RequestInit/`__APP_BUILD__`; testes excluídos — vitest cobre). Virtualização de mensagens: adiada de propósito (plano próprio). tsc 0 · vitest 2058/0 · build ✓ · undef-gate 0.
