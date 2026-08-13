@@ -118,21 +118,34 @@ export function useActiveQueueEvents() {
   }, [fetchAll]);
 
   // Camadas 1 e 2: postgres_changes (canônico) + broadcast queue-update (legacy).
+  // DEBOUNCE (2026-08-13): o postgres_changes é catch-all da tabela INTEIRA —
+  // rotação do cron toca N linhas em rajada e cada evento disparava fetchAll
+  // (2 queries); agora a rajada colapsa num único fetch 400ms depois.
+  const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleFetchAll = useCallback(() => {
+    if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
+    fetchDebounceRef.current = setTimeout(() => {
+      fetchDebounceRef.current = null;
+      if (isMountedRef.current) void fetchAll();
+    }, 400);
+  }, [fetchAll]);
+
   useEffect(() => {
     const channel = supabase
       .channel('queue-events-watch')
-      .on('broadcast', { event: 'queue-update' }, () => { fetchAll(); })
+      .on('broadcast', { event: 'queue-update' }, () => { scheduleFetchAll(); })
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'handoff_queue_events' },
-        () => { fetchAll(); },
+        () => { scheduleFetchAll(); },
       )
       .subscribe();
     return () => {
+      if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };
-  }, [fetchAll]);
+  }, [scheduleFetchAll]);
 
   // Camada 3: poll de segurança quando algum evento ativo passou de expires_at.
   // O cron roda a cada 1min — sem isso, UI fica até 60s exibindo "0:00" do

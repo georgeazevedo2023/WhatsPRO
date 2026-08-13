@@ -119,6 +119,33 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
     }
   }, [user, selectedInboxId, buildQuery, mapConversations, fetchConversationLabels, fetchConversationNotes]);
 
+  // Mensagem de conversa FORA da janela carregada: busca SÓ essa conversa
+  // (2026-08-13) — antes refazia a lista inteira (conversas+labels+notas = 3
+  // queries) a cada msg de conversa fora das 50; em caixa movimentada era
+  // refetch quase contínuo. Valida inbox/status/archived como o buildQuery.
+  const fetchOneIntoList = useCallback(async (conversationId: string) => {
+    const { data } = await supabase
+      .from('conversations')
+      .select(CONVERSATION_LIST_SELECT)
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!data) return;
+    const [conv] = mapConversationRows([data as unknown as Record<string, unknown>]);
+    if (!conv || conv.inbox_id !== selectedInboxId) return;
+    if ((data as { archived?: boolean }).archived) return;
+    if (statusFilter !== 'todas' && conv.status !== statusFilter) return;
+    setConversations(prev => {
+      if (prev.some(c => c.id === conv.id)) return prev; // corrida com refetch/patch
+      return [conv, ...prev].sort(
+        (a, b) => new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime(),
+      );
+    });
+    void Promise.all([
+      fetchConversationLabels([conv.id]),
+      fetchConversationNotes([conv.id]),
+    ]).catch(() => { /* best-effort */ });
+  }, [selectedInboxId, statusFilter, fetchConversationLabels, fetchConversationNotes]);
+
   const loadMoreCooldownRef = useRef(false);
   const loadMoreConversations = useCallback(async () => {
     if (!user || !selectedInboxId || loadingMore || loadMoreCooldownRef.current) return;
@@ -260,9 +287,10 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
               new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime()
             );
           }
-          // New conversation not in list — refetch (debounced to avoid race)
+          // Conversa fora da janela — busca SÓ ela (debounce dá tempo do
+          // webhook terminar de criar a conversa antes do select).
           if (isMounted) {
-            setTimeout(() => { if (isMounted) fetchConversations(); }, 500);
+            setTimeout(() => { if (isMounted) fetchOneIntoList(data.conversation_id); }, 500);
           }
           return prev;
         });
@@ -298,7 +326,7 @@ export function useHelpdeskConversations(selectedInboxId: string, statusFilter: 
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };
-  }, [selectedInboxId, statusFilter, fetchConversations]);
+  }, [selectedInboxId, statusFilter, fetchConversations, fetchOneIntoList]);
 
   return {
     conversations,

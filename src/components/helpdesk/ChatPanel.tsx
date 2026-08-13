@@ -214,7 +214,28 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
     const channel = supabase.channel('helpdesk-realtime')
       .on('broadcast', { event: 'new-message' }, (payload) => {
         if (payload.payload?.conversation_id === conversation.id) {
-          // Fetch last 3 messages to catch carousel+text pairs sent in quick succession
+          const p = payload.payload;
+          // Bolha IMEDIATA do payload (2026-08-13): o broadcast já carrega o
+          // essencial da mensagem — esperar a query de reconciliação (~100-300ms)
+          // atrasava a bolha do lead sem necessidade. Campos que o payload não
+          // tem (sender_id/transcription) chegam no merge logo abaixo.
+          if (p.message_id) {
+            const fromPayload = {
+              id: p.message_id,
+              conversation_id: p.conversation_id,
+              direction: p.direction,
+              content: p.content ?? null,
+              media_type: p.media_type ?? null,
+              media_url: p.media_url ?? null,
+              sender_id: (p.sender_id as string | undefined) ?? null,
+              external_id: null,
+              transcription: null,
+              created_at: (p.created_at as string | undefined) || new Date().toISOString(),
+            } as Message;
+            setMessages(prev => prev.some(m => m.id === fromPayload.id) ? prev : [...prev, fromPayload]);
+          }
+          // Reconciliação: completa sender_id/transcription da bolha otimista e
+          // pega pares enviados em rajada (carrossel+texto = 2 broadcasts).
           supabase.from('conversation_messages')
             .select('*')
             .eq('conversation_id', conversation.id)
@@ -223,10 +244,19 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
             .then(({ data }) => {
               if (data && data.length > 0) {
                 setMessages(prev => {
-                  const existingIds = new Set(prev.map(m => m.id));
-                  const newMsgs = data.filter(m => !existingIds.has(m.id)) as Message[];
-                  if (newMsgs.length === 0) return prev;
-                  return [...prev, ...newMsgs.slice().reverse()];
+                  const byId = new Map(prev.map(m => [m.id, m]));
+                  let changed = false;
+                  for (const row of data as Message[]) {
+                    const existing = byId.get(row.id);
+                    if (!existing) { byId.set(row.id, row); changed = true; }
+                    else if (existing.sender_id !== row.sender_id || existing.transcription !== row.transcription) {
+                      byId.set(row.id, row); changed = true;
+                    }
+                  }
+                  if (!changed) return prev;
+                  return Array.from(byId.values()).sort(
+                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                  );
                 });
               }
             })

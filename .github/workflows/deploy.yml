@@ -35,6 +35,10 @@ jobs:
       # São os checks que pegam o que QUEBRA prod e estão verdes.
       - name: Typecheck (tsc --noEmit)
         run: npx tsc --noEmit
+      # Gate DURO de referências indefinidas (lição v7.120.1: `useRef` sem
+      # import passa no tsc via global UMD do React e explode em runtime).
+      - name: Undef gate (eslint no-undef)
+        run: npx eslint --config eslint.undef.config.js src --quiet
       - name: Tests (vitest)
         run: npm run test
       # Lint é INFORMATIVO (não bloqueia): ~218 erros pré-existentes em src/

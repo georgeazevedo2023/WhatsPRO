@@ -525,7 +525,11 @@ export function useBroadcastSend(params: UseBroadcastSendParams): UseBroadcastSe
     if (selectedGroups.length === 0) {
       toast.error('Selecione pelo menos um grupo'); return;
     }
-    setIsSending(true);
+    // Fix 2026-08-13 (achado do undef-gate): usava setIsSending/cancelRef/
+    // pauseRef — identificadores INEXISTENTES → ReferenceError no 1º envio de
+    // enquete. Alinhado ao padrão das irmãs (sendText/sendCarousel): reset do
+    // cancel no início + refs reais.
+    isCancelledRef.current = false;
     try {
       const accessToken = await getAuthToken();
       const targets: string[] = [];
@@ -551,8 +555,8 @@ export function useBroadcastSend(params: UseBroadcastSendParams): UseBroadcastSe
           : undefined;
 
       for (let i = 0; i < total; i++) {
-        if (cancelRef.current) break;
-        while (pauseRef.current) await delay(200);
+        if (isCancelledRef.current) break;
+        while (isPausedRef.current) await delay(200);
         try {
           await sendPollToNumber(
             instance.id, targets[i],
@@ -568,8 +572,8 @@ export function useBroadcastSend(params: UseBroadcastSendParams): UseBroadcastSe
           await delay(d);
         }
       }
-      setProgress(p => ({ ...p, status: cancelRef.current ? 'cancelled' : 'completed' }));
-      if (!cancelRef.current) toast.success(`Enquete enviada para ${total} destinatarios`);
+      setProgress(p => ({ ...p, status: isCancelledRef.current ? 'cancelled' : 'completed' }));
+      if (!isCancelledRef.current) toast.success(`Enquete enviada para ${total} destinatarios`);
     } catch (error) {
       console.error('Error sending poll broadcast:', error);
       toast.error('Erro ao enviar enquete');

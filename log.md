@@ -8,6 +8,11 @@ type: log
 > Registro cronológico de ingestões, consultas e manutenções do vault. Append-only.
 
 ---
+## 2026-08-13 (cont. II) — ⚡ v7.122.0: perf leva 3 + undef-gate no CI → 🐛 achou enquete em massa QUEBRADA
+
+Backlog restante: bolha do lead pinta do PAYLOAD do realtime (merge de reconciliação por id); msg fora da janela = `fetchOneIntoList` (1 query, era 3); debounce 400ms no catch-all da fila. **Undef-gate no CI** (`eslint.undef.config.js`, só `no-undef` + parser TS; 207 errors legados do eslint ficam fora do gate): na PRIMEIRA rodada achou **bug dormente real** — `sendPoll` do Disparador usava `setIsSending`/`cancelRef`/`pauseRef` (não existem; `ReferenceError` no 1º envio de enquete em massa desde o M17 F4). Fix alinhado às irmãs (`isCancelledRef`/`isPausedRef` + reset no início; `setIsSending` removido — `isSending` é derivado de `progress.status`). Canário validado (gate pega `useRef` sem import ✓; falso-positivo de type-position resolvido com globals React/NodeJS/RequestInit/`__APP_BUILD__`; testes excluídos — vitest cobre). Virtualização de mensagens: adiada de propósito (plano próprio). tsc 0 · vitest 2058/0 · build ✓ · undef-gate 0.
+
+---
 ## 2026-08-13 (cont.) — ⚡ v7.121.0: perf leva 2 (mídia sem sign, departments 1 query, avatar adiado) + 🔔 push CONFIRMADO em campo
 
 Dono confirmou a notificação do push no APK ("chegou a notificação agora") — **fase 3 do APK 100% validada em campo**; o "teste2" não notificou no 1º ciclo por TIMING (msg chegou 1s antes do cron; INSERT via n8n assentou depois) + cooldown de 10min do push anterior — ambos por design; o ciclo 00:36 entregou. **v7.121.0:** `useSignedUrl` com `PUBLIC_BUCKETS` (todos os buckets de mídia são públicos — 1 request de rede POR MÍDIA eliminado + 400s do console mortos); `departments` derivado em memória (era 2ª query subconjunto); `refresh-avatar` adiado 2s (saía junto com as mensagens). Descartado por ganho marginal: cache no `useUserProfiles`. tsc 0 · vitest 2058/0 · build ✓. Imports conferidos ANTES do commit (lição v7.120.1 aplicada).
