@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Virtuoso } from 'react-virtuoso';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { supabase } from '@/integrations/supabase/client';
 import { recoverStuckSession } from '@/lib/sessionRecovery';
 import { getSessionUserId } from '@/hooks/useAuthSession';
@@ -374,6 +374,16 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
   // Auto-scroll em mensagem nova: `followOutput` do Virtuoso — rola pro fim SÓ
   // se o usuário já está no fim (substitui o par isNearBottomRef + scrollIntoView
   // que existia antes da virtualização, com a mesma semântica).
+  //
+  // Re-âncora no FIM após o load inicial: imagens carregam DEPOIS do
+  // posicionamento e empurravam o fim pra fora da tela (defeito que já existia
+  // pré-virtualização; a API imperativa permite consertar de vez).
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  useEffect(() => {
+    if (loading || !conversationId) return;
+    const t = setTimeout(() => virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' }), 700);
+    return () => clearTimeout(t);
+  }, [conversationId, loading]);
 
   const handleToggleIA = async () => {
     if (!conversation || ativandoIa) return;
@@ -619,6 +629,7 @@ export const ChatPanel = ({ conversation, onUpdateConversation, onBack, onShowIn
              followOutput rola em msg nova SÓ se o usuário já está no fim. */
           <Virtuoso
             key={conversation.id}
+            ref={virtuosoRef}
             className="flex-1 px-3 md:px-4"
             data={chatMessages}
             computeItemKey={(_index, msg) => msg.id}
